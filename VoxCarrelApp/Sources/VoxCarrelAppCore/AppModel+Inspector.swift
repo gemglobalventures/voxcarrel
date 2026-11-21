@@ -1,0 +1,165 @@
+import Foundation
+import VoxCarrelCore
+
+// What the inspector asks of the model (plan Task 10). N1–N10.
+
+/// N3: the cover the inspector shows for a draft.
+public enum DraftCover: Equatable, Sendable {
+    /// The book's own cover, as stored.
+    case stored
+    /// An image chosen and not yet saved.
+    case chosen(Data)
+    /// No cover: the book has none, or it is to be removed.
+    case none
+}
+
+extension AppModel {
+    /// N1: the fields of the one inspected book to mark "saved in app only"; empty when
+    /// one book is not what is inspected.
+    public var appOnlyMarkers: Set<MetadataField> {
+        guard case .one(let detail, let draft) = inspecting else { return [] }
+        return draft.appOnlyMarkers(hasCover: detail.row.coverURL != nil)
+    }
+
+    /// N3
+    public var draftCover: DraftCover {
+        guard case .one(let detail, let draft) = inspecting else { return .none }
+        switch draft.cover {
+        case .keep: return detail.row.coverURL == nil ? .none : .stored
+        case .remove: return .none
+        case .set(let image): return .chosen(image.data)
+        }
+    }
+
+    /// N3: whether there is a cover for Remove Cover to take away.
+    public var canRemoveCover: Bool {
+        draftCover != .none
+    }
+
+    /// N8: what a bulk field is given when its text is typed.
+    public func setBulkText(_ text: String, for field: BulkField) {
+        updateBulkDraft { $0.setText(text, for: field) }
+    }
+}
+
+extension BookDetail {
+    /// N2: why the book needs attention, each reason a line of its own; empty when
+    /// there is nothing to say.
+    public var attentionReasons: [String] {
+        var reasons: [String] = []
+        if row.book.needsAttention, row.firstAuthorText.isEmpty {
+            reasons.append("Add an author to file this book")
+        }
+        if files.contains(where: \.isMissing) {
+            reasons.append("Some files are missing")
+        }
+        return reasons
+    }
+
+    /// N4: whether any file's tags could not be written, so that writing them again is offered.
+    public var showsRewriteTags: Bool {
+        files.contains { $0.file.writeProblem != nil }
+    }
+
+    /// N5: "7h 42m · 12 chapters" for a book with audio; nil when it has none, or
+    /// neither is known.
+    public var audioSummaryText: String? {
+        guard row.hasAudio else { return nil }
+        var parts: [String] = []
+        if !row.lengthText.isEmpty { parts.append(row.lengthText) }
+        if chapterCount > 0 { parts.append(chapterCount == 1 ? "1 chapter" : "\(chapterCount) chapters") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+extension Book {
+    /// N6: when the book was started and finished, each on a line of its own:
+    /// "Started 3 Nov 2026". Dates the book's status does not go with are left out.
+    public func readDateLines(locale: Locale = .current, timeZone: TimeZone = .current) -> [String] {
+        let style = Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, timeZone: timeZone)
+        var lines: [String] = []
+        if readStatus != .unread, let dateStarted {
+            lines.append("Started \(dateStarted.formatted(style))")
+        }
+        if readStatus == .finished, let dateFinished {
+            lines.append("Finished \(dateFinished.formatted(style))")
+        }
+        return lines
+    }
+}
+
+extension BookDraft {
+    /// N7: a click on a star gives that rating; a click on the star that is the rating
+    /// already takes the rating away.
+    public mutating func clickStar(_ star: Int) {
+        let star = min(max(star, 0), 5)
+        rating = star == rating ? 0 : star
+    }
+}
+
+extension FileRole {
+    /// N10
+    public var title: String {
+        switch self {
+        case .audio: "Audiobook"
+        case .ebook: "Ebook"
+        case .extra: "Extra"
+        }
+    }
+}
+
+extension BulkField {
+    /// N9: the field's label in the inspector.
+    public var title: String {
+        switch self {
+        case .authors: "Author"
+        case .narrators: "Narrator"
+        case .series: "Series"
+        case .genre: "Genre"
+        case .year: "Year"
+        case .publisher: "Publisher"
+        case .language: "Language"
+        case .tags: "Add tags"
+        }
+    }
+
+    /// N9: whether the field takes several values, separated by semicolons.
+    public var takesSeveral: Bool {
+        self == .authors || self == .narrators || self == .tags
+    }
+}
+
+extension BulkDraft {
+    /// N9: "5 books selected"
+    public var headline: String {
+        books.count == 1 ? "1 book selected" : "\(books.count) books selected"
+    }
+
+    /// N8: the text in a field's box: what was typed, or for a field not touched, the
+    /// value every book has. Tags are added, so their box starts empty.
+    public func text(for field: BulkField) -> String {
+        if let typed = values[field] { return typed }
+        if field != .tags, case .same(let text) = shared(field) { return text }
+        return ""
+    }
+
+    /// N8: what an empty box says: "Mixed" for a field not touched whose books differ.
+    public func placeholder(for field: BulkField) -> String {
+        field != .tags && values[field] == nil && shared(field) == .mixed ? "Mixed" : ""
+    }
+
+    /// N8: takes the text of a field's box as the field's value. A box that says what it
+    /// said before anything was typed leaves the field untouched: the value every book
+    /// has, or for tags, nothing. An emptied box otherwise clears the field on every book.
+    public mutating func setText(_ text: String, for field: BulkField) {
+        if field == .tags {
+            values[field] = text.isEmpty ? nil : text
+        } else if case .same(text) = shared(field) {
+            values[field] = nil
+        } else if values[field] == nil, text.isEmpty, shared(field) == .mixed {
+            // Nothing typed into the empty box of a field whose books differ.
+        } else {
+            values[field] = text
+        }
+    }
+}

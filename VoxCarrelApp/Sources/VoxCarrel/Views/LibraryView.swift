@@ -17,7 +17,7 @@ struct LibraryView: View {
                 .frame(minWidth: 320, minHeight: 300)
                 .inspector(isPresented: $inspectorShown) {
                     InspectorView()
-                        .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
+                        .inspectorColumnWidth(min: 240, ideal: 320, max: 420)
                 }
                 .navigationTitle(model.windowTitle)
                 .navigationSubtitle(model.windowSubtitle)
