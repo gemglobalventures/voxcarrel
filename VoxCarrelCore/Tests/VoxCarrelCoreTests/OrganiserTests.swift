@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CarrelCore
+@testable import VoxCarrelCore
 
 @Suite struct OrganiserTests {
     @Test func planPutsAudioEbookAndExtrasInOneBookFolder() throws {

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CarrelCore
+@testable import VoxCarrelCore
 
 @Suite struct LibraryStoreTests {
     func makeStore() throws -> LibraryStore {
@@ -28,7 +28,7 @@ import Testing
     @Test func databaseFileIsCreatedInsideTheLibrary() throws {
         let root = try makeTempDir()
         _ = try LibraryStore(libraryRoot: root)
-        #expect(exists(root.appendingPathComponent("Carrel.sqlite")))
+        #expect(exists(root.appendingPathComponent("VoxCarrel.sqlite")))
     }
 
     @Test func insertAssignsAnIdAndRoundTripsEveryField() throws {

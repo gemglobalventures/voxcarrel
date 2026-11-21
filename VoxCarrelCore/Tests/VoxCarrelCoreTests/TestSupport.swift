@@ -3,7 +3,7 @@ import Foundation
 /// Creates a unique empty directory under the system temp folder.
 func makeTempDir() throws -> URL {
     let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("carrel-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("voxcarrel-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
 }

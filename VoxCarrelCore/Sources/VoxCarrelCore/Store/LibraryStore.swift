@@ -3,7 +3,7 @@ import GRDB
 
 /// The library catalogue: a SQLite database inside the library folder.
 public final class LibraryStore: Sendable {
-    public static let databaseFileName = "Carrel.sqlite"
+    public static let databaseFileName = "VoxCarrel.sqlite"
 
     public let libraryRoot: URL
     let dbQueue: DatabaseQueue

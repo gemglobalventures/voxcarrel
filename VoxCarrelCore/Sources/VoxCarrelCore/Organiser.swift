@@ -160,7 +160,7 @@ public struct Organiser {
         for (index, move) in moves.enumerated() {
             if !copy, destinations.contains(move.from.standardizedFileURL.path) {
                 let parked = move.to.deletingLastPathComponent()
-                    .appendingPathComponent(".carrel-moving-\(UUID().uuidString)")
+                    .appendingPathComponent(".voxcarrel-moving-\(UUID().uuidString)")
                 parking.append(Hop(file: index, from: move.from, to: parked, copy: false))
                 unparking.append(Hop(file: index, from: parked, to: move.to, copy: false))
             } else {
