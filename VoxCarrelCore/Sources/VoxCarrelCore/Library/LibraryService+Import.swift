@@ -212,9 +212,7 @@ extension LibraryService {
             folder = layout.root.appendingPathComponent(folderPath, isDirectory: true)
 
             // A5: existing files are read afresh, new ones for the first time (I3).
-            let existing = rows.map {
-                workingFile(at: store.url(for: $0), format: $0.format, role: $0.role, existing: $0)
-            }
+            let existing = workingFiles(for: rows)
             let added = try workingFiles(for: item.candidate)
             let current = Set(existing.map { $0.url.standardizedFileURL.path })
             if let own = added.first(where: { current.contains($0.url.standardizedFileURL.path) }) {

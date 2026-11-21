@@ -57,6 +57,32 @@ public struct ImportResult: Equatable, Sendable {
     }
 }
 
+/// A full replacement of a book's editable values.
+public struct BookEdit: Sendable {
+    public var bookId: Int64
+    /// `durationSeconds` and `pageCount` are ignored: they describe the files.
+    public var metadata: BookMetadata
+    public var cover: CoverChange
+    public var tags: [String]
+    public var rating: Int
+
+    /// Starts from the book's current values, so a caller changes only what it means to.
+    public init(book: Book, cover: CoverChange = .keep) {
+        // A book that was never saved has no id; 0 is never one, so such an edit fails.
+        self.bookId = book.id ?? 0
+        self.metadata = book.metadata
+        self.cover = cover
+        self.tags = book.tags
+        self.rating = book.rating
+    }
+}
+
+public enum SaveOutcome: Equatable, Sendable {
+    case saved(bookId: Int64, refiled: Bool, appOnlyFields: Set<MetadataField>, fileProblems: [FileProblem])
+    /// Nothing changed for this book.
+    case failed(bookId: Int64, reason: String)
+}
+
 public enum LibraryError: Error, Equatable {
     case bookNotFound(Int64)
     case fileNotFound(Int64)

@@ -1,0 +1,180 @@
+import Foundation
+
+extension LibraryService {
+    /// Saves one or more edits as a single undoable operation.
+    ///
+    /// Edits are handled in order and independently: one that cannot be saved gets
+    /// `.failed` and its book is left exactly as it was. An edit that changes nothing is
+    /// reported as saved without being written. Throws only when the database commit
+    /// fails, in which case everything the call did is reversed.
+    public func save(_ edits: [BookEdit]) throws -> [SaveOutcome] {
+        var operation = PendingOperation()
+        // Books an earlier edit of this call has already dealt with.
+        var handled = Set<Int64>()
+        var title = ""
+        let prepared = edits.map { edit -> PreparedEdit in
+            guard !handled.contains(edit.bookId) else {
+                return .failed("Another edit in the same save already changes that book")
+            }
+            let result = prepareEdit(edit, into: &operation)
+            switch result {
+            case .failed: break
+            case .unchanged: handled.insert(edit.bookId)
+            case .saved(let index, _, _):
+                handled.insert(edit.bookId)
+                title = operation.writes[index].book.title
+            }
+            return result
+        }
+
+        var books: [Book] = []
+        let count = operation.writes.count
+        if count > 0 {
+            let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = count == 1 ? "Edit \(name.isEmpty ? "book" : name)" : "Edit \(count) books"
+            books = try commit(operation, label: label)
+        } else {
+            // E12: nothing to commit; the journal and earlier undo data stay as they were.
+            removeUndoData(token: operation.token)
+        }
+
+        return zip(edits, prepared).map { edit, result in
+            switch result {
+            case .failed(let reason):
+                return .failed(bookId: edit.bookId, reason: reason)
+            case .unchanged(let fields):
+                return .saved(bookId: edit.bookId, refiled: false, appOnlyFields: fields, fileProblems: [])
+            case .saved(let index, let refiled, let problems):
+                return .saved(
+                    bookId: edit.bookId, refiled: refiled,
+                    appOnlyFields: Set(books[index].appOnlyFields), fileProblems: problems)
+            }
+        }
+    }
+
+    /// What became of one edit before the commit.
+    private enum PreparedEdit {
+        case failed(String)
+        /// The edit asks for nothing the book does not already have.
+        case unchanged(Set<MetadataField>)
+        case saved(writeIndex: Int, refiled: Bool, problems: [FileProblem])
+    }
+
+    private func prepareEdit(_ edit: BookEdit, into operation: inout PendingOperation) -> PreparedEdit {
+        let book: Book
+        let rows: [BookFile]
+        do {
+            guard let found = try store.book(id: edit.bookId) else {  // E1
+                throw LibraryError.bookNotFound(edit.bookId)
+            }
+            book = found
+            rows = try store.files(bookId: edit.bookId)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+
+        // E2: the facts about the files are not editable.
+        var metadata = edit.metadata
+        metadata.durationSeconds = book.durationSeconds
+        metadata.pageCount = book.pageCount
+        let metadataChanged = metadata != book.metadata
+        // E7: files are opened only when what goes inside them changed.
+        let writesTags = metadataChanged || edit.cover != .keep
+
+        // E3: plan over the files where they really are; a move that differs from its
+        // source only in capitalisation is not made.
+        let current = rows.map { CandidateFile(url: store.url(for: $0), role: $0.role) }
+        var moves: [(index: Int, move: PlannedMove)] = []
+        var folderPath = book.folderPath
+        let plan = destinations(for: current, metadata: metadata)
+        if let plan {
+            let wanted = plan.moves.enumerated()
+                .filter { !LibraryLayout.samePathIgnoringCase($0.element.from, $0.element.to) }
+                .map { (index: $0.offset, move: $0.element) }
+            // E5: a book catalogued in place is only filed while all its files are there.
+            let canFile = book.folderPath != nil
+                || current.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) }
+            if canFile {
+                moves = wanted
+                if book.folderPath == nil || !moves.isEmpty {
+                    folderPath = store.storedPath(for: plan.folder)
+                }
+            }
+        }
+
+        // E4, E5: flagged while it cannot be filed or is not filed; cleared once an edit
+        // has made it fileable or filed it. Otherwise the flag is left as it is.
+        let needsAttention: Bool
+        if plan == nil || folderPath == nil {
+            needsAttention = true
+        } else if book.folderPath == nil || metadataChanged {
+            needsAttention = false
+        } else {
+            needsAttention = book.needsAttention
+        }
+
+        if !writesTags, moves.isEmpty, edit.tags == book.tags, edit.rating == book.rating,
+           needsAttention == book.needsAttention, folderPath == book.folderPath {
+            return .unchanged(Set(book.appOnlyFields))
+        }
+
+        // E10: what undo needs is saved before anything is overwritten.
+        var files = workingFiles(for: rows, read: writesTags)
+        let coversBefore: [CoverBefore?]
+        let storedCoverBefore: String?
+        do {
+            coversBefore = try files.map {
+                try coverBefore(of: $0, change: edit.cover, token: operation.token)
+            }
+            storedCoverBefore = try saveStoredCoverForUndo(bookId: edit.bookId, token: operation.token)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+
+        // E6
+        let records: [MoveRecord]
+        do {
+            records = try organiser.transfer(moves.map(\.move), mode: .move, pruneRoot: layout.root)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+        for (index, move) in moves { files[index].url = move.to }
+
+        // E7, E8
+        var updated = book
+        if writesTags {
+            let parts = Self.partPositions(for: files.map(\.role))
+            for index in files.indices {
+                writeTags(
+                    metadata, cover: edit.cover, part: parts[index], to: &files[index],
+                    restorePart: parts[index], coverBefore: coversBefore[index])
+            }
+            // E9: from what the writes really stored.
+            let hasStoredCover: Bool
+            switch edit.cover {
+            case .set: hasStoredCover = true
+            case .remove: hasStoredCover = false
+            case .keep: hasStoredCover = false  // decided below
+            }
+            var fields = Self.appOnlyFields(files: files, hasStoredCover: hasStoredCover)
+            if edit.cover == .keep, book.appOnlyFields.contains(.cover) { fields.append(.cover) }
+            updated.appOnlyFields = fields
+        }
+        updated.metadata = metadata
+        updated.tags = edit.tags
+        updated.rating = edit.rating
+        updated.folderPath = folderPath
+        updated.needsAttention = needsAttention
+
+        operation.records += records
+        operation.add(
+            .init(book: updated, files: bookFiles(files)),
+            snapshot: BookSnapshot(
+                bookId: edit.bookId, bookBefore: book, filesBefore: rows,
+                fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
+            storedCover: edit.cover)
+        return .saved(
+            writeIndex: operation.writes.count - 1, refiled: !moves.isEmpty,
+            problems: Self.fileProblems(files))
+    }
+}

@@ -84,11 +84,14 @@ public final class LibraryService {
     }
 
     /// A working file for something on disk, read once unless it is an extra.
-    /// - Parameter existing: The file's row, when it already belongs to a library book.
+    /// - Parameters:
+    ///   - existing: The file's row, when it already belongs to a library book.
+    ///   - read: Pass false when the operation will not write the file's tags; the file
+    ///     is then not opened at all.
     func workingFile(
-        at url: URL, format: FileFormat, role: FileRole, existing: BookFile? = nil
+        at url: URL, format: FileFormat, role: FileRole, existing: BookFile? = nil, read: Bool = true
     ) -> WorkingFile {
-        let before = role == .extra ? nil : try? metadataIO.read(url)
+        let before = role == .extra || !read ? nil : try? metadataIO.read(url)
         var file = WorkingFile(url: url, format: format, role: role, existing: existing, before: before)
         if before != nil { file.trackBefore = try? metadataIO.readTrackTags(at: url) }
         file.writeProblem = existing?.writeProblem
@@ -99,6 +102,13 @@ public final class LibraryService {
             file.holds = FileMetadataIO.storableFields(for: format).subtracting([.cover])
         }
         return file
+    }
+
+    /// Working files for a library book's rows, at their real current locations.
+    func workingFiles(for rows: [BookFile], read: Bool = true) -> [WorkingFile] {
+        rows.map {
+            workingFile(at: store.url(for: $0), format: $0.format, role: $0.role, existing: $0, read: read)
+        }
     }
 
     /// The position of each file among the book's audio parts: 1-based, in file order,
@@ -135,8 +145,11 @@ public final class LibraryService {
             file.writeProblem = nil
             file.holds = Set(MetadataField.allCases).subtracting(report.notWritten).subtracting([.cover])
             let coverChanged = cover != .keep && !report.notWritten.contains(.cover)
-            if coverChanged {
-                if case .set = cover { file.holdsCover = true } else { file.holdsCover = false }
+            switch cover {
+            case .keep: break
+            // A file that could not take the new cover does not hold it, whatever it has.
+            case .set: file.holdsCover = coverChanged
+            case .remove: if coverChanged { file.holdsCover = false }
             }
             if let before = file.before {
                 file.state = FileState(
@@ -146,6 +159,7 @@ public final class LibraryService {
         } catch {
             file.writeProblem = Self.describe(error)
             file.holds = []
+            if case .set = cover { file.holdsCover = false }
         }
     }
 
@@ -162,11 +176,13 @@ public final class LibraryService {
         }
     }
 
-    /// The database rows for a book's files, in the given order.
+    /// The database rows for a book's files, in the given order. A file that has not
+    /// moved keeps its stored path exactly as it was.
     func bookFiles(_ files: [WorkingFile]) -> [BookFile] {
         files.enumerated().map { index, file in
+            let unmoved = file.existing.flatMap { store.url(for: $0) == file.url ? $0.path : nil }
             var row = BookFile(
-                path: store.storedPath(for: file.url), format: file.format, role: file.role,
+                path: unmoved ?? store.storedPath(for: file.url), format: file.format, role: file.role,
                 position: index)
             row.writeProblem = file.writeProblem
             return row
@@ -226,8 +242,13 @@ public final class LibraryService {
         return try saveUndoImage(image, token: token)
     }
 
+    /// Removes one operation's undo data, and the undo folder itself once it is empty.
     func removeUndoData(token: String) {
-        try? FileManager.default.removeItem(at: undoFolder(token))
+        let fm = FileManager.default
+        try? fm.removeItem(at: undoFolder(token))
+        if let left = try? fm.contentsOfDirectory(atPath: layout.undoFolder.path), left.isEmpty {
+            try? fm.removeItem(at: layout.undoFolder)
+        }
     }
 
     /// Removes the undo data of every operation but the one named.
