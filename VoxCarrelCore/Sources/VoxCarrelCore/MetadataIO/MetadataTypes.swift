@@ -78,8 +78,15 @@ public enum MetadataIOError: Error, Equatable {
     case unsupportedFormat(String)
     /// The file could not be opened or parsed as its format.
     case unreadable(String)
-    /// The file is password-protected, encrypted or read-only.
+    /// The file is password-protected, encrypted, read-only or locked in the Finder,
+    /// or its folder cannot be written to.
     case locked(String)
+    /// The path is a symbolic link, a folder or something else that is not a plain file.
+    /// Links are never followed: the file they point at would be edited in place.
+    case notARegularFile(String)
     /// The changed copy did not pass its checks; the original was left untouched.
     case verificationFailed(String)
+    /// The write was abandoned and the original is untouched, but the working copy at this
+    /// path could not be deleted.
+    case cleanupFailed(String)
 }

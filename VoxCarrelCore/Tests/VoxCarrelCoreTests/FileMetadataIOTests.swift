@@ -108,4 +108,57 @@ import Testing
         #expect(candidate.metadata.title == "Dune")
         #expect(candidate.metadata.authors == ["Frank Herbert"])
     }
+
+    // MARK: Files that must not be written
+
+    @Test func writingThroughASymlinkIsRefusedForEveryFormat() throws {
+        let dir = try makeTempDir()
+        let store = dir.appendingPathComponent("store", isDirectory: true)
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        let mp3 = store.appendingPathComponent("a.mp3")
+        try MediaFixtures.makeSilentMP3(seconds: 2).write(to: mp3)
+        let m4b = store.appendingPathComponent("a.m4b")
+        try MediaFixtures.makeAAC(at: m4b, seconds: 2)
+        let epub = try MediaFixtures.makeEPUB3(in: store, name: "a.epub")
+        let pdf = store.appendingPathComponent("a.pdf")
+        MediaFixtures.makePDF(at: pdf)
+
+        for real in [mp3, m4b, epub, pdf] {
+            let name = real.lastPathComponent
+            let link = dir.appendingPathComponent(name)
+            try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "store/" + name)
+            let bytes = try Data(contentsOf: real)
+            #expect(throws: MetadataIOError.notARegularFile(name), "\(name)") {
+                try io.write(BookMetadata(title: "Changed", authors: ["Someone New"]), to: link)
+            }
+            #expect(try Data(contentsOf: real) == bytes, "\(name)")
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: store.path).sorted() == ["a.epub", "a.m4b", "a.mp3", "a.pdf"])
+    }
+
+    @Test func readOnlyAndFinderLockedFilesAreLockedForEveryFormat() throws {
+        let dir = try makeTempDir()
+        let mp3 = dir.appendingPathComponent("a.mp3")
+        try MediaFixtures.makeSilentMP3(seconds: 2).write(to: mp3)
+        let epub = try MediaFixtures.makeEPUB3(in: dir, name: "a.epub")
+        let pdf = dir.appendingPathComponent("a.pdf")
+        MediaFixtures.makePDF(at: pdf)
+
+        for url in [mp3, epub, pdf] {
+            let name = url.lastPathComponent
+            let bytes = try Data(contentsOf: url)
+            let metadata = BookMetadata(title: "Changed", authors: ["Someone New"])
+
+            try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+            #expect(throws: MetadataIOError.locked(name), "read-only \(name)") { try io.write(metadata, to: url) }
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+
+            #expect(chflags(url.path, UInt32(UF_IMMUTABLE)) == 0)
+            #expect(throws: MetadataIOError.locked(name), "Finder-locked \(name)") { try io.write(metadata, to: url) }
+            #expect(chflags(url.path, 0) == 0)
+
+            #expect(try Data(contentsOf: url) == bytes, "\(name)")
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted() == ["a.epub", "a.mp3", "a.pdf"])
+    }
 }
