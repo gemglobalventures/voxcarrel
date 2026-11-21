@@ -83,6 +83,31 @@ public enum SaveOutcome: Equatable, Sendable {
     case failed(bookId: Int64, reason: String)
 }
 
+/// What the launch-time check found.
+public struct ReconcileReport: Equatable, Sendable {
+    /// Books with at least one file missing, now flagged needs-attention.
+    public var booksWithMissingFiles: [Int64]
+    /// Books that were flagged only because files were missing, and are whole again.
+    public var booksRecovered: [Int64]
+    /// Supported book files inside the library that no book refers to.
+    public var untrackedFiles: [URL]
+    /// Hidden working copies left by an interrupted tag write, now deleted.
+    public var removedWorkingCopies: Int
+    /// Files left under a temporary name by an interrupted move. Never deleted.
+    public var strandedFiles: [URL]
+
+    public init(
+        booksWithMissingFiles: [Int64] = [], booksRecovered: [Int64] = [], untrackedFiles: [URL] = [],
+        removedWorkingCopies: Int = 0, strandedFiles: [URL] = []
+    ) {
+        self.booksWithMissingFiles = booksWithMissingFiles
+        self.booksRecovered = booksRecovered
+        self.untrackedFiles = untrackedFiles
+        self.removedWorkingCopies = removedWorkingCopies
+        self.strandedFiles = strandedFiles
+    }
+}
+
 public enum LibraryError: Error, Equatable {
     case bookNotFound(Int64)
     case fileNotFound(Int64)

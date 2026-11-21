@@ -147,6 +147,26 @@ public final class LibraryStore: Sendable {
         try dbQueue.read { db in try Book.fetchOne(db, key: id) }
     }
 
+    /// Sets the read status of several books in one transaction, keeping each book's
+    /// dates consistent (`Book.setReadStatus`). Ids that are not in the database are ignored.
+    public func setReadStatus(_ status: ReadStatus, for bookIds: [Int64], on date: Date = Date()) throws {
+        try dbQueue.write { db in
+            for id in bookIds {
+                guard var book = try Book.fetchOne(db, key: id) else { continue }
+                book.setReadStatus(status, on: date)
+                try book.update(db)
+            }
+        }
+    }
+
+    /// Sets and clears the needs-attention flag of the given books in one transaction.
+    public func setNeedsAttention(flagging: [Int64], clearing: [Int64]) throws {
+        try dbQueue.write { db in
+            try Book.filter(keys: flagging).updateAll(db, Column("needsAttention").set(to: true))
+            try Book.filter(keys: clearing).updateAll(db, Column("needsAttention").set(to: false))
+        }
+    }
+
     /// All books sorted by title, optionally filtered.
     /// - Parameter role: Only books with at least one file of this role, so
     ///   `.audio` is the Audiobooks list and `.ebook` the Ebooks list.
@@ -199,6 +219,19 @@ public final class LibraryStore: Sendable {
     public func files(bookId: Int64) throws -> [BookFile] {
         try dbQueue.read { db in
             try BookFile.filter(Column("bookId") == bookId).order(Column("position")).fetchAll(db)
+        }
+    }
+
+    /// One file row by its id. Ids are replaced whenever a book's file list is rewritten,
+    /// so fetch them afresh after each operation.
+    public func file(id: Int64) throws -> BookFile? {
+        try dbQueue.read { db in try BookFile.fetchOne(db, key: id) }
+    }
+
+    /// Every file row of every book, ordered by book and then position.
+    public func allFiles() throws -> [BookFile] {
+        try dbQueue.read { db in
+            try BookFile.order(Column("bookId"), Column("position")).fetchAll(db)
         }
     }
 

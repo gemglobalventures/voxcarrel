@@ -21,6 +21,17 @@ public final class LibraryService {
     /// in for a failed commit.
     var beforeCommit: (() throws -> Void)?
 
+    /// Test seam: how `removeBook` sends one file to the Trash.
+    var trashItem: (URL) throws -> Void = { _ = try LibraryService.moveToSystemTrash($0) }
+
+    /// Moves a file to the user's Trash; returns where it now is, when the system says.
+    @discardableResult
+    static func moveToSystemTrash(_ url: URL) throws -> URL? {
+        var landed: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &landed)
+        return landed as URL?
+    }
+
     public convenience init(store: LibraryStore) {
         self.init(store: store, metadataIO: FileMetadataIO(), organiser: Organiser())
     }
@@ -151,7 +162,8 @@ public final class LibraryService {
             case .set: file.holdsCover = coverChanged
             case .remove: if coverChanged { file.holdsCover = false }
             }
-            if let before = file.before {
+            // A format that is never opened has nothing in it to put back.
+            if let before = file.before, !FileMetadataIO.storableFields(for: file.format).isEmpty {
                 file.state = FileState(
                     pathAfter: file.url.path, metadataBefore: before.metadata, part: restorePart,
                     trackBefore: file.trackBefore, coverBefore: coverChanged ? coverBefore : nil)

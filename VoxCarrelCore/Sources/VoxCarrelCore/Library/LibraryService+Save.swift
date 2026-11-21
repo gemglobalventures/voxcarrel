@@ -52,6 +52,21 @@ extension LibraryService {
         }
     }
 
+    /// E3: where a book's files belong under `metadata`, planned over the files where they
+    /// really are and using the capitalisation of folders that already exist. Only the
+    /// moves that are needed are returned, each with the index of its file: one whose
+    /// source and destination differ in nothing but capitalisation is not made. Nil when
+    /// the metadata cannot be filed.
+    func refilingPlan(
+        for current: [CandidateFile], metadata: BookMetadata
+    ) -> (folder: URL, moves: [(index: Int, move: PlannedMove)])? {
+        guard let plan = destinations(for: current, metadata: metadata) else { return nil }
+        let moves = plan.moves.enumerated()
+            .filter { !LibraryLayout.samePathIgnoringCase($0.element.from, $0.element.to) }
+            .map { (index: $0.offset, move: $0.element) }
+        return (plan.folder, moves)
+    }
+
     /// What became of one edit before the commit.
     private enum PreparedEdit {
         case failed(String)
@@ -86,16 +101,13 @@ extension LibraryService {
         let current = rows.map { CandidateFile(url: store.url(for: $0), role: $0.role) }
         var moves: [(index: Int, move: PlannedMove)] = []
         var folderPath = book.folderPath
-        let plan = destinations(for: current, metadata: metadata)
+        let plan = refilingPlan(for: current, metadata: metadata)
         if let plan {
-            let wanted = plan.moves.enumerated()
-                .filter { !LibraryLayout.samePathIgnoringCase($0.element.from, $0.element.to) }
-                .map { (index: $0.offset, move: $0.element) }
             // E5: a book catalogued in place is only filed while all its files are there.
             let canFile = book.folderPath != nil
                 || current.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) }
             if canFile {
-                moves = wanted
+                moves = plan.moves
                 if book.folderPath == nil || !moves.isEmpty {
                     folderPath = store.storedPath(for: plan.folder)
                 }
