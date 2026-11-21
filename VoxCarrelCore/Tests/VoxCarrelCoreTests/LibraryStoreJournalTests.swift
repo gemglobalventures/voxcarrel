@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct LibraryStoreJournalTests {
     let moves = [

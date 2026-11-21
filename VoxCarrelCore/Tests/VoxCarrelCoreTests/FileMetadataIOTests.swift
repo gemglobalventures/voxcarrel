@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct FileMetadataIOTests {
     let io = FileMetadataIO()

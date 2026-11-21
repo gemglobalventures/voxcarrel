@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct LibraryChangeTests {
     func makeStore() throws -> LibraryStore {

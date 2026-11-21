@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import UniformTypeIdentifiers
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 /// A temp folder holding a library and an inbox of real generated files, with a service on the library.
 final class LibraryFixture {

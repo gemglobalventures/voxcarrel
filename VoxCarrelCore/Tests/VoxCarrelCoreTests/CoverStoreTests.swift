@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import UniformTypeIdentifiers
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct CoverStoreTests {
     let jpeg = MediaFixtures.makeImage(.jpeg)

@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import UniformTypeIdentifiers
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct AudioTagIOTests {
     static let free = "----:com.apple.iTunes:"

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 /// Returns canned metadata keyed by file name; throws for everything else.
 struct StubReader: MetadataReader {

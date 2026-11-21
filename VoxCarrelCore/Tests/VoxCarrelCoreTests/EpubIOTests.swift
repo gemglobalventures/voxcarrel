@@ -3,6 +3,7 @@ import Testing
 import UniformTypeIdentifiers
 import ZIPFoundation
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct EpubIOTests {
     static let opfPath = "OEBPS/content.opf"

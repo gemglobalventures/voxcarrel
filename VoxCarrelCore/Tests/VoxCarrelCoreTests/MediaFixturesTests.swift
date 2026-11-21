@@ -4,6 +4,7 @@ import PDFKit
 import Testing
 import UniformTypeIdentifiers
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct MediaFixturesTests {
     @Test func aacFixtureDecodesAtTheRequestedLength() async throws {

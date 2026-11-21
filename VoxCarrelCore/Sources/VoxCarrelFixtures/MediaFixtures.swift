@@ -1,4 +1,5 @@
 import AVFoundation
+import AppKit
 import CTagBridge
 import CoreGraphics
 import CoreText
@@ -8,12 +9,12 @@ import UniformTypeIdentifiers
 import ZIPFoundation
 
 /// Media files generated in code, so no binary fixtures are committed.
-enum MediaFixtures {
+public enum MediaFixtures {
     // MARK: AAC in MP4 (.m4a / .m4b), no external tools
 
     /// Encodes a quiet sine tone to AAC with AVAudioFile. The container is identical for .m4a and
     /// .m4b, so the file is written as .m4a and then renamed to whatever `url` asks for.
-    static func makeAAC(at url: URL, seconds: Double) throws {
+    public static func makeAAC(at url: URL, seconds: Double) throws {
         let sampleRate = 44_100.0
         let pcm = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let scratch = url.deletingPathExtension().appendingPathExtension("tmp.m4a")
@@ -35,7 +36,7 @@ enum MediaFixtures {
     }
 
     /// An M4B with a QuickTime chapter track, for read tests.
-    static func makeChapteredM4B(at url: URL, seconds: Double, chapters: [(start: Double, title: String)]) throws {
+    public static func makeChapteredM4B(at url: URL, seconds: Double, chapters: [(start: Double, title: String)]) throws {
         try makeAAC(at: url, seconds: seconds)
         let list = chapters.map { CTBChapter(startSeconds: $0.start, title: $0.title) }
         try CTBTagFile.setMP4Chapters(list, quickTime: true, atPath: url.path)
@@ -49,7 +50,7 @@ enum MediaFixtures {
     /// Layer III, no CRC, 128 kbit/s, 44.1 kHz, no padding, mono. Frame length is
     /// floor(144 * 128000 / 44100) = 417 bytes. All-zero side info says "main_data_begin 0, every
     /// granule has part2_3_length 0", which decodes as digital silence, 1152 samples per frame.
-    static func makeSilentMP3(seconds: Double, id3v23Title: String? = nil) -> Data {
+    public static func makeSilentMP3(seconds: Double, id3v23Title: String? = nil) -> Data {
         let frameLength = 144 * 128_000 / 44_100 // 417
         var frame = Data([0xFF, 0xFB, 0x90, 0xC4])
         frame.append(Data(count: frameLength - 4))
@@ -61,7 +62,7 @@ enum MediaFixtures {
     }
 
     /// Minimal ID3v2.3 tag holding one Latin-1 TIT2 frame, to prove an existing 2.3 tag stays 2.3.
-    static func id3v23Tag(title: String) -> Data {
+    public static func id3v23Tag(title: String) -> Data {
         var body = Data([0x00]) // text encoding: ISO-8859-1
         body.append(title.data(using: .isoLatin1)!)
         var frame = Data("TIT2".utf8)
@@ -77,7 +78,7 @@ enum MediaFixtures {
     }
 
     /// An ID3v2.3 tag built from raw frames, for cases the bridge cannot write itself.
-    static func id3v23Tag(frames: [(id: String, body: Data)]) -> Data {
+    public static func id3v23Tag(frames: [(id: String, body: Data)]) -> Data {
         var all = Data()
         for frame in frames {
             all.append(Data(frame.id.utf8))
@@ -94,14 +95,14 @@ enum MediaFixtures {
     }
 
     /// Body of a Latin-1 text frame.
-    static func id3Text(_ text: String) -> Data {
+    public static func id3Text(_ text: String) -> Data {
         var body = Data([0x00])
         body.append(text.data(using: .isoLatin1)!)
         return body
     }
 
     /// Body of an APIC frame: Latin-1, the given MIME string, picture type, empty description.
-    static func id3Picture(_ image: Data, mime: String, type: UInt8) -> Data {
+    public static func id3Picture(_ image: Data, mime: String, type: UInt8) -> Data {
         var body = Data([0x00])
         body.append(Data(mime.utf8))
         body.append(contentsOf: [0x00, type, 0x00])
@@ -111,7 +112,7 @@ enum MediaFixtures {
 
     // MARK: Images
 
-    static func makeImage(_ type: UTType, size: Int = 64, red: CGFloat = 0.8) -> Data {
+    public static func makeImage(_ type: UTType, size: Int = 64, red: CGFloat = 0.8) -> Data {
         let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
@@ -126,13 +127,13 @@ enum MediaFixtures {
 
     // MARK: Checks through AVFoundation, independent of TagLib
 
-    static func avDuration(_ url: URL) async throws -> Double {
+    public static func avDuration(_ url: URL) async throws -> Double {
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         return try await asset.load(.duration).seconds
     }
 
     /// Decodes the whole file to PCM and returns the number of frames produced.
-    static func decodedFrameCount(_ url: URL) throws -> Int64 {
+    public static func decodedFrameCount(_ url: URL) throws -> Int64 {
         let file = try AVAudioFile(forReading: url)
         let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 65_536)!
         var total: Int64 = 0
@@ -144,7 +145,7 @@ enum MediaFixtures {
         return total
     }
 
-    static func avChapters(_ url: URL) async throws -> [(start: Double, title: String)] {
+    public static func avChapters(_ url: URL) async throws -> [(start: Double, title: String)] {
         let asset = AVURLAsset(url: url)
         let languages = try await asset.load(.availableChapterLocales).map(\.identifier)
         let groups = try await asset.loadChapterMetadataGroups(bestMatchingPreferredLanguages: languages.isEmpty ? ["en"] : languages)
@@ -161,7 +162,7 @@ enum MediaFixtures {
 
     // MARK: EPUB
 
-    static let container = """
+    public static let container = """
     <?xml version="1.0" encoding="UTF-8"?>
     <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
       <rootfiles>
@@ -170,7 +171,7 @@ enum MediaFixtures {
     </container>
     """
 
-    static let opf3 = """
+    public static let opf3 = """
     <?xml version="1.0" encoding="UTF-8"?>
     <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="en">
       <!-- a comment that must survive -->
@@ -213,7 +214,7 @@ enum MediaFixtures {
     </package>
     """
 
-    static let opf2 = """
+    public static let opf2 = """
     <?xml version='1.0' encoding='utf-8'?>
     <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uuid_id">
       <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf" xmlns:calibre="http://calibre.kovidgoyal.net/2009/metadata">
@@ -239,23 +240,23 @@ enum MediaFixtures {
     </package>
     """
 
-    static let chapter = """
+    public static let chapter = """
     <?xml version="1.0" encoding="UTF-8"?>
     <html xmlns="http://www.w3.org/1999/xhtml"><head><title>One</title></head><body><h1>One</h1><p>Text.</p></body></html>
     """
-    static let nav = """
+    public static let nav = """
     <?xml version="1.0" encoding="UTF-8"?>
     <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Nav</title></head>
     <body><nav epub:type="toc"><ol><li><a href="ch1.xhtml">One</a></li></ol></nav></body></html>
     """
-    static let ncx = """
+    public static let ncx = """
     <?xml version="1.0" encoding="UTF-8"?>
     <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="abcdef"/></head>
     <docTitle><text>Calibre Book</text></docTitle><navMap><navPoint id="n1" playOrder="1"><navLabel><text>One</text></navLabel><content src="ch1.xhtml"/></navPoint></navMap></ncx>
     """
 
     /// Builds an EPUB with ZIPFoundation. `mimetype` goes in first and uncompressed.
-    static func makeEPUB(at url: URL, files: [(path: String, data: Data)]) throws {
+    public static func makeEPUB(at url: URL, files: [(path: String, data: Data)]) throws {
         let archive = try Archive(url: url, accessMode: .create)
         func add(_ path: String, _ data: Data, _ method: CompressionMethod) throws {
             try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(data.count), compressionMethod: method) { position, size in
@@ -267,7 +268,7 @@ enum MediaFixtures {
         for file in files { try add(file.path, file.data, .deflate) }
     }
 
-    static func makeEPUB3(in dir: URL, name: String = "book3.epub") throws -> URL {
+    public static func makeEPUB3(in dir: URL, name: String = "book3.epub") throws -> URL {
         let url = dir.appendingPathComponent(name)
         try makeEPUB(at: url, files: [
             ("OEBPS/content.opf", Data(opf3.utf8)), ("OEBPS/nav.xhtml", Data(nav.utf8)),
@@ -276,7 +277,7 @@ enum MediaFixtures {
         return url
     }
 
-    static func makeEPUB2(in dir: URL) throws -> URL {
+    public static func makeEPUB2(in dir: URL) throws -> URL {
         let url = dir.appendingPathComponent("book2.epub")
         try makeEPUB(at: url, files: [
             ("OEBPS/content.opf", Data(opf2.utf8)), ("OEBPS/toc.ncx", Data(ncx.utf8)), ("OEBPS/ch1.xhtml", Data(chapter.utf8)),
@@ -287,7 +288,7 @@ enum MediaFixtures {
     // MARK: PDF
 
     /// A three-page PDF drawn with Core Graphics, with Info-dictionary metadata.
-    static func makePDF(at url: URL, pages: Int = 3) {
+    public static func makePDF(at url: URL, pages: Int = 3) {
         var box = CGRect(x: 0, y: 0, width: 612, height: 792)
         let info: [CFString: Any] = [
             kCGPDFContextTitle: "Original Title", kCGPDFContextAuthor: "Original Author",

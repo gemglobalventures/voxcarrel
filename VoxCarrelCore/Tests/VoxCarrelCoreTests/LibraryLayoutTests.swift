@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct LibraryLayoutTests {
     /// A library root with its symlinks resolved, so paths compare exactly.

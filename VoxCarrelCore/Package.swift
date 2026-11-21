@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .library(name: "VoxCarrelCore", targets: ["VoxCarrelCore"]),
+        .library(name: "VoxCarrelFixtures", targets: ["VoxCarrelFixtures"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -26,10 +27,17 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
         ),
+        // Sample media files generated in code, shared by this package's tests and the app's.
+        // Independent of VoxCarrelCore in both directions.
+        .target(
+            name: "VoxCarrelFixtures",
+            dependencies: ["CTagBridge", .product(name: "ZIPFoundation", package: "ZIPFoundation")]
+        ),
         .testTarget(
             name: "VoxCarrelCoreTests",
             dependencies: [
                 "VoxCarrelCore",
+                "VoxCarrelFixtures",
                 "CTagBridge",
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]

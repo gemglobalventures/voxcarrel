@@ -2,6 +2,7 @@ import Foundation
 import PDFKit
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct PDFIOTests {
     func fixture(pages: Int = 3) throws -> URL {

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 /// Sequences that once lost a file, stranded one, or left files, tags and database disagreeing.
 @Suite struct LibraryServiceConsistencyTests {
