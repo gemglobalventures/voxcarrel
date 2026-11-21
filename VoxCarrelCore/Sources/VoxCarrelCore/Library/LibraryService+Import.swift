@@ -10,12 +10,19 @@ extension LibraryService {
         _ items: [ImportItem], options: ImportOptions = ImportOptions()
     ) throws -> ImportResult {
         var operation = PendingOperation()
+        // Books already changed by an earlier item of this call.
+        var targets = Set<Int64>()
         let prepared = items.map { item -> PreparedItem in
             switch item.target {
             case .newBook:
                 return prepareNewBook(item, options: options, into: &operation)
-            case .existing:
-                return .failed("Adding files to an existing book is not available yet")
+            case .existing(let bookId):
+                guard !targets.contains(bookId) else {
+                    return .failed("Another item of this import already adds files to that book")
+                }
+                let result = prepareExistingBook(item, bookId: bookId, options: options, into: &operation)
+                if case .imported = result { targets.insert(bookId) }
+                return result
             }
         }
 
@@ -179,6 +186,131 @@ extension LibraryService {
                 bookId: 0, bookBefore: nil, filesBefore: [], fileStates: files.compactMap(\.state),
                 storedCoverBefore: nil),
             storedCover: storedCover.map { .set($0) } ?? .keep)
+        return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
+    }
+
+    // MARK: Into an existing book
+
+    private func prepareExistingBook(
+        _ item: ImportItem, bookId: Int64, options: ImportOptions, into operation: inout PendingOperation
+    ) -> PreparedItem {
+        let book: Book
+        let rows: [BookFile]
+        let folder: URL
+        var files: [WorkingFile]
+        let storedCoverBefore: String?
+        let hadStoredCover = covers.url(for: bookId) != nil
+        do {
+            // A1, A7
+            guard let found = try store.book(id: bookId) else { throw LibraryError.bookNotFound(bookId) }
+            guard !found.needsAttention, let folderPath = found.folderPath else {
+                throw ItemFailure(
+                    "\"\(found.title)\" has not been filed in the library yet, so files cannot be added to it")
+            }
+            book = found
+            rows = try store.files(bookId: bookId)
+            folder = layout.root.appendingPathComponent(folderPath, isDirectory: true)
+
+            // A5: existing files are read afresh, new ones for the first time (I3).
+            let existing = rows.map {
+                workingFile(at: store.url(for: $0), format: $0.format, role: $0.role, existing: $0)
+            }
+            let added = try workingFiles(for: item.candidate)
+            let current = Set(existing.map { $0.url.standardizedFileURL.path })
+            if let own = added.first(where: { current.contains($0.url.standardizedFileURL.path) }) {
+                throw ItemFailure("\"\(own.url.lastPathComponent)\" already belongs to that book")
+            }
+            // A2: audio, then ebooks, then extras; new files after the existing ones of their kind.
+            files = [FileRole.audio, .ebook, .extra].flatMap { role in
+                existing.filter { $0.role == role } + added.filter { $0.role == role }
+            }
+            storedCoverBefore = try saveStoredCoverForUndo(bookId: bookId, token: operation.token)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+
+        // A2: names are planned over the whole book, in its present folder.
+        let names = PathBuilder.fileNames(
+            title: book.title, files: files.map { CandidateFile(url: $0.url, role: $0.role) })
+        let moves = zip(files, names).map { file, name in
+            PlannedMove(
+                from: file.url,
+                to: layout.adoptingExistingCapitalisation(folder.appendingPathComponent(name)))
+        }
+
+        // A2, A3: one all-or-nothing batch. In copy mode only the new files are copied;
+        // existing files that need a new name are moved first.
+        let records: [MoveRecord]
+        do {
+            if options.mode == .move {
+                records = try organiser.transfer(moves, mode: .move, pruneRoot: layout.root)
+            } else {
+                let isNew = files.map { $0.existing == nil }
+                let renames = zip(moves, isNew).filter { !$0.1 }.map(\.0)
+                let arrivals = zip(moves, isNew).filter { $0.1 }.map(\.0)
+                let renamed = try organiser.transfer(renames, mode: .move, pruneRoot: layout.root)
+                do {
+                    records = renamed + (try organiser.transfer(arrivals, mode: .copy))
+                } catch {
+                    do {
+                        try organiser.undo(renamed)
+                    } catch let undoError {
+                        throw ItemFailure(
+                            Self.describe(error) + ". The book's own files were renamed and could not "
+                                + "be renamed back: " + Self.describe(undoError))
+                    }
+                    throw error
+                }
+            }
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+        for index in files.indices { files[index].url = moves[index].to }
+
+        // A4: the book's metadata goes into the new files, and into the existing audio
+        // files too when the number of parts changed.
+        let partsBefore = Self.partPositions(for: rows.map(\.role))
+        let partBefore = Dictionary(
+            uniqueKeysWithValues: zip(rows, partsBefore).compactMap { row, part in
+                row.id.map { ($0, part) }
+            })
+        let partsAfter = Self.partPositions(for: files.map(\.role))
+        let audioCountChanged = rows.filter { $0.role == .audio }.count
+            != files.filter { $0.role == .audio }.count
+        for index in files.indices {
+            let file = files[index]
+            let restorePart: PartPosition?
+            if let row = file.existing {
+                guard file.role == .audio, audioCountChanged else { continue }
+                restorePart = row.id.flatMap { partBefore[$0] } ?? nil
+            } else {
+                restorePart = partsAfter[index]
+            }
+            writeTags(
+                book.metadata, cover: .keep, part: partsAfter[index], to: &files[index],
+                restorePart: restorePart, coverBefore: nil)
+        }
+
+        // A5
+        var updated = book
+        if let duration = Self.totalDuration(files) { updated.durationSeconds = duration }
+        if updated.pageCount == nil {
+            updated.pageCount = files.first {
+                $0.existing == nil && $0.format == .pdf && $0.before != nil
+            }?.before?.metadata.pageCount
+        }
+        let newCover = hadStoredCover ? nil : Self.firstCover(in: files.filter { $0.existing == nil })
+        // A8
+        updated.appOnlyFields = Self.appOnlyFields(
+            files: files, hasStoredCover: hadStoredCover || newCover != nil)
+
+        operation.records += records
+        operation.add(
+            .init(book: updated, files: bookFiles(files)),
+            snapshot: BookSnapshot(  // A6
+                bookId: bookId, bookBefore: book, filesBefore: rows,
+                fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
+            storedCover: newCover.map { .set($0) } ?? .keep)
         return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
     }
 }

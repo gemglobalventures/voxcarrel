@@ -749,4 +749,392 @@ import Testing
         #expect(item.target == .newBook)
         #expect(item.cover == .keep)
     }
+
+    // MARK: Into an existing book
+
+    /// Imports `urls` into an existing book and returns the outcome.
+    func add(
+        _ urls: [URL], to bookId: Int64, in f: F, candidateMetadata: BookMetadata = F.meta("Ignored", "Nobody"),
+        roles: [URL: FileRole] = [:], mode: TransferMode = .move
+    ) throws -> ImportOutcome {
+        let result = try f.service.importItems(
+            [ImportItem(
+                candidate: f.candidate(urls, candidateMetadata, roles: roles),
+                target: .existing(bookId: bookId))],
+            options: ImportOptions(mode: mode))
+        #expect(result.outcomes.count == 1)
+        return result.outcomes[0]
+    }
+
+    // A1, A4, A5, A8
+    @Test func ebookJoinsItsAudiobook() throws {
+        let f = try F()
+        let reviewed = F.fullMeta("Artemis", "Andy Weir")
+        let id = try f.importNew([try f.makeM4B("a.m4b", tags: F.meta("x", "y"))], reviewed)
+        let folder = "Andy Weir/The Series/2 - Artemis"
+        let audioBytes = try f.bytes(f.lib("\(folder)/Artemis.m4b"))
+        let bookBefore = try #require(try f.store.book(id: id))
+        #expect(f.service.covers.url(for: id) == nil)
+        let epub = try f.makeEPUB("something else.epub")
+        #expect(try f.tags(epub).title == "Original Title")
+
+        // The candidate's own metadata differs and must be ignored.
+        let outcome = try add([epub], to: id, in: f, candidateMetadata: F.fullMeta("Original Title", "First Author"))
+
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        #expect(try f.store.books().count == 1)
+        #expect(f.inboxTree().isEmpty)
+        let files = try f.store.files(bookId: id)
+        #expect(files.map(\.path) == ["\(folder)/Artemis.m4b", "\(folder)/Artemis.epub"])
+        #expect(files.map(\.role) == [.audio, .ebook])
+        #expect(files.map(\.format) == [.m4b, .epub])
+        #expect(files.map(\.position) == [0, 1])
+        // A4: the new file carries the book's metadata, not its own.
+        let inEpub = try f.tags(f.lib("\(folder)/Artemis.epub"))
+        #expect(inEpub.title == "Artemis")
+        #expect(inEpub.authors == ["Andy Weir"])
+        #expect(inEpub.series == "The Series")
+        // A4: the audio part count did not change, so the existing file is not rewritten.
+        #expect(try f.bytes(f.lib("\(folder)/Artemis.m4b")) == audioBytes)
+        // A1, A5: the book keeps its metadata; only the duration is re-read.
+        let book = try #require(try f.store.book(id: id))
+        var expected = bookBefore
+        expected.durationSeconds = book.durationSeconds
+        #expect(book == expected)
+        #expect(abs((book.durationSeconds ?? 0) - (bookBefore.durationSeconds ?? -1)) < 0.05)
+        #expect(book.appOnlyFields == [])  // A8
+        // A5: the book had no stored cover, so the EPUB's is taken.
+        #expect(f.service.covers.image(for: id) == F.jpeg)
+        #expect(try f.store.lastBatch()?.label == "Import 1 book")
+    }
+
+    // A2
+    @Test func companionPDFJoinsAsExtra() throws {
+        let f = try F()
+        let id = try f.importNew([try f.makeM4B("a.m4b", tags: F.meta("x", "y"))], F.meta("Artemis", "Andy Weir"))
+        let pdf = try f.makePDF("Star Map.pdf", pages: 7)
+        let pdfBytes = try f.bytes(pdf)
+
+        let outcome = try add([pdf], to: id, in: f, roles: [pdf: .extra])
+
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        let dest = f.lib("Andy Weir/Artemis/Extras/Star Map.pdf")
+        #expect(try f.bytes(dest) == pdfBytes)  // never written
+        #expect(!exists(pdf))
+        let files = try f.store.files(bookId: id)
+        #expect(files.map(\.path) == ["Andy Weir/Artemis/Artemis.m4b", "Andy Weir/Artemis/Extras/Star Map.pdf"])
+        #expect(files.map(\.role) == [.audio, .extra])
+        let book = try #require(try f.store.book(id: id))
+        #expect(book.pageCount == nil)  // an extra is never read
+        #expect(book.appOnlyFields == [])
+        #expect(try f.snapshot().books[0].fileStates.isEmpty)  // A6: nothing was written
+    }
+
+    // A2: audio, then ebooks, then extras; new files after existing ones of the same kind.
+    @Test func newFilesAreOrderedByRoleAfterExistingOnes() throws {
+        let f = try F()
+        let epub = try f.makeEPUB("a.epub")
+        let map = try f.makePDF("Map.pdf")
+        let result = try f.service.importItems([
+            ImportItem(candidate: f.candidate([epub, map], F.meta("Artemis", "Andy Weir"), roles: [map: .extra]))
+        ])
+        let id = try f.importedId(result.outcomes[0])
+        let m4b = try f.makeM4B("a.m4b", tags: F.meta("x", "y"))
+        let epub2 = try f.makeEPUB("b.epub")
+        let notes = try f.makePDF("Notes.pdf")
+
+        // Given out of order on purpose.
+        let outcome = try add([notes, epub2, m4b], to: id, in: f, roles: [notes: .extra])
+
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        let files = try f.store.files(bookId: id)
+        #expect(files.map(\.path) == [
+            "Andy Weir/Artemis/Artemis.m4b",
+            "Andy Weir/Artemis/Artemis.epub",
+            "Andy Weir/Artemis/Artemis 2.epub",
+            "Andy Weir/Artemis/Extras/Map.pdf",
+            "Andy Weir/Artemis/Extras/Notes.pdf",
+        ])
+        #expect(files.map(\.position) == [0, 1, 2, 3, 4])
+        #expect(files.allSatisfy { exists(f.store.url(for: $0)) })
+        // A5: a duration appears with the first audio file.
+        #expect((try #require(try f.store.book(id: id)).durationSeconds ?? 0) > 0.5)
+    }
+
+    // A2, A4, A5, A6
+    @Test func secondAudioPartRenumbersTheFirst() throws {
+        let f = try F()
+        let reviewed = F.meta("Dune", "Frank Herbert")
+        let id = try f.importNew([try f.makeMP3("one.mp3", tags: F.meta("Old", "Old Author"))], reviewed)
+        let single = f.lib("Frank Herbert/Dune/Dune.mp3")
+        #expect(try f.track(single) == nil)
+        let singleDuration = try #require(try f.store.book(id: id)?.durationSeconds)
+        let second = try f.makeMP3("two.mp3", tags: F.meta("Other", "Other Author"), seconds: 2)
+        let secondBefore = try f.io.read(second).metadata
+
+        let outcome = try add([second], to: id, in: f)
+
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        let first = f.lib("Frank Herbert/Dune/01 - Dune.mp3")
+        let next = f.lib("Frank Herbert/Dune/02 - Dune.mp3")
+        #expect(f.libraryTree() == [
+            "Frank Herbert", "Frank Herbert/Dune",
+            "Frank Herbert/Dune/01 - Dune.mp3", "Frank Herbert/Dune/02 - Dune.mp3",
+        ])
+        #expect(f.inboxTree().isEmpty)
+        // A4: both parts are written, the existing one because its number changed.
+        #expect(try f.track(first) == "1/2")
+        #expect(try f.track(next) == "2/2")
+        #expect(try f.tags(first) == reviewed)
+        #expect(try f.tags(next) == reviewed)
+        let files = try f.store.files(bookId: id)
+        #expect(files.map(\.path) == ["Frank Herbert/Dune/01 - Dune.mp3", "Frank Herbert/Dune/02 - Dune.mp3"])
+        // A5
+        let total = try #require(try f.store.book(id: id)?.durationSeconds)
+        let secondDuration = try #require(secondBefore.durationSeconds)
+        #expect(abs(total - (singleDuration + secondDuration)) < 0.1)
+        #expect(total > singleDuration + 1.5)
+
+        // The rename and the arrival are one batch.
+        let batch = try #require(try f.store.lastBatch())
+        #expect(batch.moves == [
+            MoveRecord(from: single.path, to: first.path, wasCopy: false),
+            MoveRecord(from: second.path, to: next.path, wasCopy: false),
+        ])
+        // A6: a state for every file whose tags were written.
+        let states = try f.snapshot().books[0].fileStates
+        #expect(states.map(\.pathAfter) == [first.path, next.path])
+        #expect(states[0].metadataBefore.title == "Dune")
+        #expect(states[0].part == nil)  // it was the only part before
+        #expect(states[1].metadataBefore == secondBefore)
+    }
+
+    // A3
+    @Test func copyModeCopiesOnlyNewFiles() throws {
+        let f = try F()
+        let id = try f.importNew(
+            [try f.makeMP3("one.mp3", tags: F.meta("Old", "Old Author"))], F.meta("Dune", "Frank Herbert"))
+        let second = try f.makeMP3("two.mp3", tags: F.meta("Other", "Other Author"))
+        let secondBytes = try f.bytes(second)
+
+        let outcome = try add([second], to: id, in: f, mode: .copy)
+
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        // The original of the new file stays as it was.
+        #expect(f.inboxTree() == ["two.mp3"])
+        #expect(try f.bytes(second) == secondBytes)
+        // The existing file is renamed, not duplicated.
+        #expect(f.libraryTree() == [
+            "Frank Herbert", "Frank Herbert/Dune",
+            "Frank Herbert/Dune/01 - Dune.mp3", "Frank Herbert/Dune/02 - Dune.mp3",
+        ])
+        #expect(try f.track(f.lib("Frank Herbert/Dune/01 - Dune.mp3")) == "1/2")
+        #expect(try f.track(f.lib("Frank Herbert/Dune/02 - Dune.mp3")) == "2/2")
+        #expect(try f.tags(f.lib("Frank Herbert/Dune/02 - Dune.mp3")).title == "Dune")
+        let batch = try #require(try f.store.lastBatch())
+        #expect(batch.moves == [
+            MoveRecord(
+                from: f.lib("Frank Herbert/Dune/Dune.mp3").path,
+                to: f.lib("Frank Herbert/Dune/01 - Dune.mp3").path, wasCopy: false),
+            MoveRecord(from: second.path, to: f.lib("Frank Herbert/Dune/02 - Dune.mp3").path, wasCopy: true),
+        ])
+    }
+
+    // A1, A7
+    @Test func unknownOrUnfiledTargetFails() throws {
+        let f = try F()
+        let filed = try f.importNew([try f.makeM4B("a.m4b", tags: F.meta("x", "y"))], F.meta("Artemis", "Andy Weir"))
+        let loose = try f.makeM4B("loose.m4b", tags: F.meta("x", "y"))
+        let unfiledResult = try f.service.importItems([
+            ImportItem(candidate: f.candidate([loose], BookMetadata(title: "No Author")))
+        ])
+        guard case .needsAttention(let unfiled) = unfiledResult.outcomes[0] else {
+            Issue.record("expected .needsAttention, got \(unfiledResult.outcomes)")
+            return
+        }
+        let epub = try f.makeEPUB("new.epub")
+        let epubBytes = try f.bytes(epub)
+        let batchBefore = try #require(try f.store.lastBatch())
+        let rowsBefore = try [filed, unfiled].map { try f.store.files(bookId: $0) }
+        let booksBefore = try f.store.books()
+        let libraryBefore = f.libraryTree()
+
+        // A1: no such book.
+        let unknown = try add([epub], to: 987_654, in: f)
+        #expect(try #require(isFailed(unknown)).contains("not in the library"))
+        // A7: catalogued but not filed.
+        let attention = try add([epub], to: unfiled, in: f)
+        #expect(isFailed(attention) != nil)
+        // A file the candidate lists but that is not there.
+        let missing = try add([f.inbox.appendingPathComponent("gone.epub")], to: filed, in: f)
+        #expect(try #require(isFailed(missing)).contains("gone.epub"))
+
+        // Nothing changed.
+        #expect(try f.bytes(epub) == epubBytes)
+        #expect(f.libraryTree() == libraryBefore)
+        #expect(try f.store.books() == booksBefore)
+        #expect(try [filed, unfiled].map { try f.store.files(bookId: $0) } == rowsBefore)
+        #expect(try f.store.lastBatch() == batchBefore)  // I13
+    }
+
+    // A2, I4
+    @Test(arguments: [TransferMode.move, .copy])
+    func failureLeavesTheBookAsItWas(mode: TransferMode) throws {
+        let f = try F()
+        let id = try f.importNew(
+            [try f.makeMP3("one.mp3", tags: F.meta("Old", "Old Author"))], F.meta("Dune", "Frank Herbert"))
+        let stray = try touch(f.lib("Frank Herbert/Dune/02 - Dune.mp3"), "stray")
+        let second = try f.makeMP3("two.mp3", tags: F.meta("Other", "Other Author"))
+        let secondBytes = try f.bytes(second)
+        let existingBytes = try f.bytes(f.lib("Frank Herbert/Dune/Dune.mp3"))
+        let bookBefore = try f.store.book(id: id)
+        let rowsBefore = try f.store.files(bookId: id)
+        let batchBefore = try f.store.lastBatch()
+        let libraryBefore = f.libraryTree()
+
+        let outcome = try add([second], to: id, in: f, mode: mode)
+
+        let reason = try #require(isFailed(outcome))
+        #expect(reason.contains("already exists"))
+        #expect(reason.contains("02 - Dune.mp3"))
+        // The book's files, their names and their contents are unchanged.
+        #expect(f.libraryTree() == libraryBefore)
+        #expect(libraryBefore.contains("Frank Herbert/Dune/Dune.mp3"))
+        #expect(try f.bytes(f.lib("Frank Herbert/Dune/Dune.mp3")) == existingBytes)
+        #expect(try read(stray) == "stray")
+        #expect(try f.bytes(second) == secondBytes)
+        #expect(f.inboxTree() == ["two.mp3"])
+        #expect(try f.store.book(id: id) == bookBefore)
+        #expect(try f.store.files(bookId: id) == rowsBefore)
+        #expect(try f.store.lastBatch() == batchBefore)
+    }
+
+    // A5, A6
+    @Test func snapshotRecordsTheBookBefore() throws {
+        let f = try F()
+        let id = try f.importNew(
+            [try f.makeM4B("a.m4b", tags: F.meta("x", "y"), cover: F.png)], F.fullMeta("Artemis", "Andy Weir"))
+        #expect(f.service.covers.image(for: id) == F.png)
+        let bookBefore = try #require(try f.store.book(id: id))
+        let filesBefore = try f.store.files(bookId: id)
+        let epub = try f.makeEPUB("new.epub")  // has a JPEG cover of its own
+        let epubBefore = try f.io.read(epub).metadata
+
+        let outcome = try add([epub], to: id, in: f)
+
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        let snapshot = try f.snapshot()
+        #expect(snapshot.books.count == 1)
+        let saved = snapshot.books[0]
+        #expect(saved.bookId == id)
+        #expect(saved.bookBefore == bookBefore)
+        #expect(saved.filesBefore == filesBefore)
+        #expect(saved.filesBefore.count == 1)
+        // Only the new file was written.
+        #expect(saved.fileStates.map(\.pathAfter) == [f.lib("Andy Weir/The Series/2 - Artemis/Artemis.epub").path])
+        #expect(saved.fileStates.map(\.metadataBefore) == [epubBefore])
+        #expect(saved.fileStates.allSatisfy { $0.coverBefore == nil })
+        // A5: the stored cover is kept, and remembered for undo.
+        #expect(f.service.covers.image(for: id) == F.png)
+        let name = try #require(saved.storedCoverBefore)
+        let kept = f.service.layout.undoFolder.appendingPathComponent(snapshot.token).appendingPathComponent(name)
+        #expect(try f.bytes(kept) == F.png.data)
+    }
+
+    // A8
+    @Test func existingFilesKeepTheirWriteProblem() throws {
+        let f = try F()
+        let fm = FileManager.default
+        let locked = try f.makeM4B("locked.m4b", tags: F.meta("x", "y"))
+        try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: locked.path)
+        let dest = f.lib("Ann Author/Locked/Locked.m4b")
+        defer {
+            for url in [locked, dest] {
+                try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            }
+        }
+        let first = try f.service.importItems([
+            ImportItem(candidate: f.candidate([locked], F.fullMeta("Locked", "Ann Author")))
+        ])
+        guard case .imported(let id, let problems) = first.outcomes[0] else {
+            Issue.record("expected .imported, got \(first.outcomes)")
+            return
+        }
+        let folder = "Ann Author/The Series/2 - Locked"
+        defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: f.lib("\(folder)/Locked.m4b").path) }
+        let problem = try #require(problems.first?.reason)
+        let epub = try f.makeEPUB("new.epub")
+
+        let outcome = try add([epub], to: id, in: f)
+
+        // Only files written by this call are reported.
+        #expect(outcome == .imported(bookId: id, fileProblems: []))
+        let files = try f.store.files(bookId: id)
+        #expect(files.map(\.path) == ["\(folder)/Locked.m4b", "\(folder)/Locked.epub"])
+        #expect(files.map(\.writeProblem) == [problem, nil])
+        // Recomputed over the whole book: the locked audio holds nothing, the EPUB what it can.
+        let fields = try #require(try f.store.book(id: id)).appOnlyFields
+        #expect(Set(fields).isSuperset(of: [.subtitle, .narrators, .asin]))
+        #expect(!fields.contains(.title))
+        #expect(!fields.contains(.authors))
+        #expect(!fields.contains(.series))
+    }
+
+    // I1: one book cannot be the target of two items in a call; the second fails untouched.
+    @Test func sameTargetTwiceInOneCallFailsTheSecond() throws {
+        let f = try F()
+        let id = try f.importNew([try f.makeM4B("a.m4b", tags: F.meta("x", "y"))], F.meta("Artemis", "Andy Weir"))
+        let epub = try f.makeEPUB("one.epub")
+        let pdf = try f.makePDF("two.pdf")
+
+        let result = try f.service.importItems([
+            ImportItem(candidate: f.candidate([epub], F.meta("x", "y")), target: .existing(bookId: id)),
+            ImportItem(candidate: f.candidate([pdf], F.meta("x", "y")), target: .existing(bookId: id)),
+        ])
+
+        #expect(result.outcomes[0] == .imported(bookId: id, fileProblems: []))
+        #expect(isFailed(result.outcomes[1]) != nil)
+        #expect(f.inboxTree() == ["two.pdf"])
+        #expect(try f.store.files(bookId: id).map(\.format) == [.m4b, .epub])
+    }
+
+    // A1: a file that is already one of the book's files cannot be added to it again.
+    @Test func addingABooksOwnFileFails() throws {
+        let f = try F()
+        let id = try f.importNew([try f.makeM4B("a.m4b", tags: F.meta("x", "y"))], F.meta("Artemis", "Andy Weir"))
+        let own = f.lib("Andy Weir/Artemis/Artemis.m4b")
+        let rows = try f.store.files(bookId: id)
+
+        let outcome = try add([own], to: id, in: f)
+
+        #expect(isFailed(outcome) != nil)
+        #expect(f.libraryTree() == ["Andy Weir", "Andy Weir/Artemis", "Andy Weir/Artemis/Artemis.m4b"])
+        #expect(try f.store.files(bookId: id) == rows)
+    }
+
+    // I12 for an existing book: renames are reversed and the rows are untouched.
+    @Test(arguments: [TransferMode.move, .copy])
+    func commitFailureRestoresAnExistingBook(mode: TransferMode) throws {
+        let f = try F()
+        let reviewed = F.meta("Dune", "Frank Herbert")
+        let id = try f.importNew(
+            [try f.makeMP3("one.mp3", tags: F.meta("Old", "Old Author"))], reviewed)
+        let second = try f.makeMP3("two.mp3", tags: F.meta("Other", "Other Author"))
+        let bookBefore = try f.store.book(id: id)
+        let rowsBefore = try f.store.files(bookId: id)
+        let batchBefore = try f.store.lastBatch()
+        let undoBefore = f.hiddenTree()
+        f.service.beforeCommit = { throw Boom() }
+
+        #expect(throws: Boom.self) { _ = try add([second], to: id, in: f, mode: mode) }
+
+        #expect(f.libraryTree() == ["Frank Herbert", "Frank Herbert/Dune", "Frank Herbert/Dune/Dune.mp3"])
+        #expect(f.inboxTree() == ["two.mp3"])
+        #expect(try f.tags(f.lib("Frank Herbert/Dune/Dune.mp3")) == reviewed)
+        #expect(try f.tags(second) == F.meta("Other", "Other Author"))
+        #expect(try f.store.book(id: id) == bookBefore)
+        #expect(try f.store.files(bookId: id) == rowsBefore)
+        #expect(try f.store.lastBatch() == batchBefore)
+        #expect(f.hiddenTree() == undoBefore)
+    }
 }
