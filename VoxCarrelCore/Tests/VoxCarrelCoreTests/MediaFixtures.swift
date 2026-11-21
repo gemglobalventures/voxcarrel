@@ -76,6 +76,39 @@ enum MediaFixtures {
         return tag
     }
 
+    /// An ID3v2.3 tag built from raw frames, for cases the bridge cannot write itself.
+    static func id3v23Tag(frames: [(id: String, body: Data)]) -> Data {
+        var all = Data()
+        for frame in frames {
+            all.append(Data(frame.id.utf8))
+            withUnsafeBytes(of: UInt32(frame.body.count).bigEndian) { all.append(contentsOf: $0) }
+            all.append(contentsOf: [0x00, 0x00])
+            all.append(frame.body)
+        }
+        var tag = Data("ID3".utf8)
+        tag.append(contentsOf: [0x03, 0x00, 0x00])
+        let n = all.count
+        tag.append(contentsOf: [UInt8((n >> 21) & 0x7F), UInt8((n >> 14) & 0x7F), UInt8((n >> 7) & 0x7F), UInt8(n & 0x7F)])
+        tag.append(all)
+        return tag
+    }
+
+    /// Body of a Latin-1 text frame.
+    static func id3Text(_ text: String) -> Data {
+        var body = Data([0x00])
+        body.append(text.data(using: .isoLatin1)!)
+        return body
+    }
+
+    /// Body of an APIC frame: Latin-1, the given MIME string, picture type, empty description.
+    static func id3Picture(_ image: Data, mime: String, type: UInt8) -> Data {
+        var body = Data([0x00])
+        body.append(Data(mime.utf8))
+        body.append(contentsOf: [0x00, type, 0x00])
+        body.append(image)
+        return body
+    }
+
     // MARK: Images
 
     static func makeImage(_ type: UTType, size: Int = 64, red: CGFloat = 0.8) -> Data {

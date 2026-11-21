@@ -15,6 +15,8 @@
 #include <taglib/textidentificationframe.h>
 #include <taglib/tstringlist.h>
 
+#include <exception>
+
 NSErrorDomain const CTBErrorDomain = @"CTagBridge";
 
 using namespace TagLib;
@@ -45,6 +47,49 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
     return NO;
 }
 
+/// Runs `body` and turns anything thrown inside it into an NSError. TagLib does not throw by
+/// design, but allocation failures and Foundation (an unusable path, say) can, and an exception
+/// that reaches Swift ends the process.
+template <typename Body>
+static auto Guarded(NSError **error, Body body) -> decltype(body()) {
+    try {
+        @try {
+            return body();
+        } @catch (NSException *exception) {
+            Fail(error, 5, [NSString stringWithFormat:@"Tag library raised %@: %@", exception.name, exception.reason ?: @""]);
+        }
+    } catch (const std::exception &exception) {
+        Fail(error, 5, [NSString stringWithFormat:@"Tag library failed: %s", exception.what()]);
+    } catch (...) {
+        Fail(error, 5, @"Tag library failed with an unknown exception");
+    }
+    return {};
+}
+
+static MP4::CoverArt::Format MP4CoverFormat(NSString *mime) {
+    if ([mime isEqualToString:@"image/png"]) return MP4::CoverArt::PNG;
+    if ([mime isEqualToString:@"image/gif"]) return MP4::CoverArt::GIF;
+    if ([mime isEqualToString:@"image/bmp"]) return MP4::CoverArt::BMP;
+    return MP4::CoverArt::JPEG;
+}
+static NSString *MP4CoverMIME(MP4::CoverArt::Format format) {
+    switch (format) {
+    case MP4::CoverArt::PNG: return @"image/png";
+    case MP4::CoverArt::GIF: return @"image/gif";
+    case MP4::CoverArt::BMP: return @"image/bmp";
+    default: return @"image/jpeg";
+    }
+}
+
+@interface CTBTagFile (Unguarded)
++ (nullable CTBSnapshot *)unguardedReadMP4AtPath:(NSString *)path error:(NSError **)error;
++ (BOOL)unguardedWriteMP4AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error;
++ (nullable CTBSnapshot *)unguardedReadMP3AtPath:(NSString *)path error:(NSError **)error;
++ (BOOL)unguardedWriteMP3AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error;
++ (BOOL)unguardedSetMP4Chapters:(NSArray<CTBChapter *> *)chapters quickTime:(BOOL)quickTime
+                         atPath:(NSString *)path error:(NSError **)error;
+@end
+
 @implementation CTBChapter
 - (instancetype)initWithStartSeconds:(double)startSeconds title:(NSString *)title {
     if ((self = [super init])) { _startSeconds = startSeconds; _title = [title copy]; }
@@ -54,7 +99,7 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
 
 @implementation CTBSnapshot
 - (instancetype)init {
-    if ((self = [super init])) { _items = @{}; _chapters = @[]; }
+    if ((self = [super init])) { _items = @{}; _chapters = @[]; _pictureTypes = @[]; }
     return self;
 }
 @end
@@ -68,9 +113,34 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
 
 @implementation CTBTagFile
 
-// MARK: MP4
+// MARK: Entry points: nothing thrown below may cross into Swift
 
 + (nullable CTBSnapshot *)readMP4AtPath:(NSString *)path error:(NSError **)error {
+    return Guarded(error, [&]() -> CTBSnapshot * { return [self unguardedReadMP4AtPath:path error:error]; });
+}
++ (BOOL)writeMP4AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error {
+    return Guarded(error, [&]() -> BOOL { return [self unguardedWriteMP4AtPath:path changes:changes error:error]; });
+}
++ (nullable CTBSnapshot *)readMP3AtPath:(NSString *)path error:(NSError **)error {
+    return Guarded(error, [&]() -> CTBSnapshot * { return [self unguardedReadMP3AtPath:path error:error]; });
+}
++ (BOOL)writeMP3AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error {
+    return Guarded(error, [&]() -> BOOL { return [self unguardedWriteMP3AtPath:path changes:changes error:error]; });
+}
++ (BOOL)setMP4Chapters:(NSArray<CTBChapter *> *)chapters quickTime:(BOOL)quickTime
+                atPath:(NSString *)path error:(NSError **)error {
+    return Guarded(error, [&]() -> BOOL {
+        return [self unguardedSetMP4Chapters:chapters quickTime:quickTime atPath:path error:error];
+    });
+}
+
+@end
+
+@implementation CTBTagFile (Unguarded)
+
+// MARK: MP4
+
++ (nullable CTBSnapshot *)unguardedReadMP4AtPath:(NSString *)path error:(NSError **)error {
     MP4::File file(path.fileSystemRepresentation, true, AudioProperties::Average);
     if (!file.isValid() || !file.tag()) { Fail(error, 1, @"Not a readable MP4 file"); return nil; }
 
@@ -95,7 +165,7 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
             if (!covers.isEmpty() && !snap.coverData) {
                 const auto &c = covers.front();
                 snap.coverData = NSDataFrom(c.data());
-                snap.coverMIME = c.format() == MP4::CoverArt::PNG ? @"image/png" : @"image/jpeg";
+                snap.coverMIME = MP4CoverMIME(c.format());
             }
             break;
         }
@@ -120,7 +190,7 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
     return snap;
 }
 
-+ (BOOL)writeMP4AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error {
++ (BOOL)unguardedWriteMP4AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error {
     MP4::File file(path.fileSystemRepresentation, false);
     if (!file.isValid() || !file.tag()) return Fail(error, 1, @"Not a readable MP4 file");
     if (file.readOnly()) return Fail(error, 2, @"File is read-only");
@@ -151,9 +221,8 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
 
     if (changes.replaceCover) {
         if (changes.coverData.length > 0) {
-            auto format = [changes.coverMIME isEqualToString:@"image/png"] ? MP4::CoverArt::PNG : MP4::CoverArt::JPEG;
             MP4::CoverArtList covers;
-            covers.append(MP4::CoverArt(format, BV(changes.coverData)));
+            covers.append(MP4::CoverArt(MP4CoverFormat(changes.coverMIME), BV(changes.coverData)));
             tag->setItem("covr", MP4::Item(covers));
         } else {
             tag->removeItem("covr");
@@ -163,8 +232,8 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
     return YES;
 }
 
-+ (BOOL)setMP4Chapters:(NSArray<CTBChapter *> *)chapters quickTime:(BOOL)quickTime
-                atPath:(NSString *)path error:(NSError **)error {
++ (BOOL)unguardedSetMP4Chapters:(NSArray<CTBChapter *> *)chapters quickTime:(BOOL)quickTime
+                         atPath:(NSString *)path error:(NSError **)error {
     MP4::File file(path.fileSystemRepresentation, false);
     if (!file.isValid()) return Fail(error, 1, @"Not a readable MP4 file");
     MP4::ChapterList list;
@@ -177,13 +246,14 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
 
 // MARK: MP3 (ID3v2)
 
-+ (nullable CTBSnapshot *)readMP3AtPath:(NSString *)path error:(NSError **)error {
++ (nullable CTBSnapshot *)unguardedReadMP3AtPath:(NSString *)path error:(NSError **)error {
     MPEG::File file(path.fileSystemRepresentation, true, AudioProperties::Average);
     if (!file.isValid()) { Fail(error, 1, @"Not a readable MPEG audio file"); return nil; }
 
     CTBSnapshot *snap = [CTBSnapshot new];
     NSMutableDictionary *items = [NSMutableDictionary dictionary];
     NSMutableArray *chapters = [NSMutableArray array];
+    NSMutableArray<NSNumber *> *pictureTypes = [NSMutableArray array];
     if (file.hasID3v2Tag()) {
         ID3v2::Tag *tag = file.ID3v2Tag();
         snap.id3v2MajorVersion = tag->header()->majorVersion();
@@ -200,6 +270,7 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
             } else if (auto *comment = dynamic_cast<ID3v2::CommentsFrame *>(frame)) {
                 if (comment->description().isEmpty() && !items[@"COMM"]) items[@"COMM"] = @[NS(comment->text())];
             } else if (auto *pic = dynamic_cast<ID3v2::AttachedPictureFrame *>(frame)) {
+                [pictureTypes addObject:@(static_cast<int>(pic->type()))];
                 if (pic->type() == ID3v2::AttachedPictureFrame::FrontCover && !snap.coverData) {
                     snap.coverData = NSDataFrom(pic->picture());
                     snap.coverMIME = NS(pic->mimeType());
@@ -217,6 +288,7 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
         if (!snap.coverData) { snap.coverData = anyCover; snap.coverMIME = anyMIME; }
     }
     snap.items = items;
+    snap.pictureTypes = pictureTypes;
     [chapters sortUsingComparator:^NSComparisonResult(CTBChapter *a, CTBChapter *b) {
         return [@(a.startSeconds) compare:@(b.startSeconds)];
     }];
@@ -230,7 +302,7 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
     return snap;
 }
 
-+ (BOOL)writeMP3AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error {
++ (BOOL)unguardedWriteMP3AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error {
     MPEG::File file(path.fileSystemRepresentation, false);
     if (!file.isValid()) return Fail(error, 1, @"Not a readable MPEG audio file");
     if (file.readOnly()) return Fail(error, 2, @"File is read-only");
@@ -243,7 +315,14 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
         NSArray<NSString *> *values = changes.setItems[key];
         if ([key hasPrefix:@"TXXX:"]) {
             String description = TL([key substringFromIndex:5]);
-            while (auto *old = ID3v2::UserTextIdentificationFrame::find(tag, description)) tag->removeFrame(old);
+            // Replace a frame whose description differs only in case ("series", "Series")
+            // rather than adding a second one beside it.
+            const String wanted = description.upper();
+            ID3v2::FrameList userFrames = tag->frameList("TXXX"); // copy: we mutate the tag below
+            for (auto *f : userFrames) {
+                auto *user = dynamic_cast<ID3v2::UserTextIdentificationFrame *>(f);
+                if (user && user->description().upper() == wanted) tag->removeFrame(f);
+            }
             if (values.count > 0) {
                 auto *frame = new ID3v2::UserTextIdentificationFrame(String::UTF8);
                 frame->setDescription(description);
@@ -276,7 +355,25 @@ static BOOL Fail(NSError **error, NSInteger code, NSString *message) {
     }
 
     if (changes.replaceCover) {
-        tag->removeFrames("APIC");
+        // Only the cover is ours to change: every front-cover picture, or, when there is none,
+        // the first picture, which is the one a read reports. Back covers, artist photos and
+        // the like stay.
+        ID3v2::FrameList pictures = tag->frameList("APIC"); // copy: we mutate the tag below
+        bool hasFront = false;
+        for (auto *f : pictures) {
+            auto *pic = dynamic_cast<ID3v2::AttachedPictureFrame *>(f);
+            if (pic && pic->type() == ID3v2::AttachedPictureFrame::FrontCover) hasFront = true;
+        }
+        for (auto *f : pictures) {
+            auto *pic = dynamic_cast<ID3v2::AttachedPictureFrame *>(f);
+            if (!pic) continue;
+            if (hasFront) {
+                if (pic->type() == ID3v2::AttachedPictureFrame::FrontCover) tag->removeFrame(f);
+            } else {
+                tag->removeFrame(f);
+                break;
+            }
+        }
         if (changes.coverData.length > 0) {
             auto *pic = new ID3v2::AttachedPictureFrame;
             pic->setType(ID3v2::AttachedPictureFrame::FrontCover);

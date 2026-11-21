@@ -12,12 +12,17 @@ extern NSErrorDomain const CTBErrorDomain;
 
 /// Everything read from one file. `items` keys are raw container names:
 ///  MP4: atom names ("©nam", "aART", "----:com.apple.iTunes:SERIES").
-///  MP3: ID3v2 frame IDs ("TIT2"), "TXXX:<DESCRIPTION>" for user text frames, "COMM" for the
-///       comment with an empty descriptor.
+///  MP3: ID3v2 frame IDs ("TIT2"), "TXXX:<DESCRIPTION>" for user text frames (description as
+///       stored, any case), "COMM" for the comment with an empty descriptor.
 @interface CTBSnapshot : NSObject
 @property (nonatomic, copy) NSDictionary<NSString *, NSArray<NSString *> *> *items;
 @property (nonatomic, copy, nullable) NSData *coverData;
+/// The type as the file labels it, which is often wrong or oddly spelt ("image/jpg", "JPG", "").
+/// Judge the type from `coverData` instead.
 @property (nonatomic, copy, nullable) NSString *coverMIME;
+/// MP3 only: the ID3v2 picture type of every APIC frame, in file order (3 is the front cover).
+@property (nonatomic, copy) NSArray<NSNumber *> *pictureTypes;
+/// 0 when the file has no audio stream TagLib can measure.
 @property (nonatomic) double durationSeconds;
 @property (nonatomic) NSInteger bitrateKbps;
 @property (nonatomic) NSInteger sampleRate;
@@ -30,13 +35,21 @@ extern NSErrorDomain const CTBErrorDomain;
 
 @interface CTBChanges : NSObject
 /// Key -> values. An empty array removes the item/frame. Keys not mentioned are left untouched.
+/// A "TXXX:<DESCRIPTION>" key replaces every user text frame whose description matches it
+/// without regard to case.
 @property (nonatomic, copy) NSDictionary<NSString *, NSArray<NSString *> *> *setItems;
 /// When YES the cover is replaced by `coverData` (nil removes it). When NO the cover is untouched.
+/// MP3: only front-cover pictures are replaced or removed, or, when the tag has no front cover,
+/// its first picture (the one a read reports as the cover). Other picture types are kept.
 @property (nonatomic) BOOL replaceCover;
 @property (nonatomic, copy, nullable) NSData *coverData;
-@property (nonatomic, copy, nullable) NSString *coverMIME; // "image/jpeg" or "image/png"
+@property (nonatomic, copy, nullable) NSString *coverMIME; // "image/jpeg", "image/png", "image/gif" or "image/bmp"
 @end
 
+/// Every method reports failure through `error`; C++ and Objective-C exceptions raised inside
+/// are caught and returned the same way (code 5) rather than ending the process.
+/// Error codes: 1 not readable as the format, 2 read-only, 3 save failed, 4 bad frame ID,
+/// 5 exception.
 @interface CTBTagFile : NSObject
 + (nullable CTBSnapshot *)readMP4AtPath:(NSString *)path error:(NSError **)error;
 + (BOOL)writeMP4AtPath:(NSString *)path changes:(CTBChanges *)changes error:(NSError **)error;

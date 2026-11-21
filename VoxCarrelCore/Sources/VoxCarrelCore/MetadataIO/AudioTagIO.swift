@@ -14,68 +14,131 @@ enum AudioTagIO {
         }
     }
 
-    // MARK: Read
+    // MARK: Raw tags
 
-    static func read(_ url: URL) throws -> FileContents {
-        let kind = try container(for: url)
-        let snap: CTBSnapshot
-        do {
-            snap = kind == .mp4 ? try CTBTagFile.readMP4(atPath: url.path) : try CTBTagFile.readMP3(atPath: url.path)
-        } catch {
-            throw MetadataIOError.unreadable(url.lastPathComponent)
+    /// The raw atoms or frames of one file, with the lookups the mapping below needs.
+    struct RawTags {
+        let kind: Container
+        let snapshot: CTBSnapshot
+        private let items: [String: [String]]
+
+        init(_ url: URL) throws {
+            kind = try AudioTagIO.container(for: url)
+            do {
+                snapshot = kind == .mp4 ? try CTBTagFile.readMP4(atPath: url.path) : try CTBTagFile.readMP3(atPath: url.path)
+            } catch {
+                throw MetadataIOError.unreadable(url.lastPathComponent)
+            }
+            // TagLib's MPEG reader accepts any file it can open. A file with no audio stream it
+            // can measure is not an audiobook, whatever its name says, and must never be tagged.
+            guard snapshot.durationSeconds > 0 else { throw MetadataIOError.unreadable(url.lastPathComponent) }
+            var items = snapshot.items
+            // ID3 user text frames are found whatever the case of their description: other
+            // apps write "series", "Series" and "SERIES" alike. An exact upper-case one wins.
+            for key in snapshot.items.keys.sorted() where key.hasPrefix("TXXX:") {
+                let folded = key.uppercased()
+                if items[folded] == nil { items[folded] = snapshot.items[key] }
+            }
+            self.items = items
         }
-        let raw = snap.items
+
+        /// Every non-blank value of the first of `keys` that has any.
+        func values(_ keys: String...) -> [String] {
+            for key in keys {
+                let found = (items[key] ?? [])
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                if !found.isEmpty { return found }
+            }
+            return []
+        }
+
         func first(_ keys: String...) -> String? {
             for key in keys {
-                if let v = raw[key]?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty { return v }
+                if let value = values(key).first { return value }
             }
             return nil
         }
+
+        /// Several people may be spread over several values, and each value may itself be a list.
+        func names(_ keys: String...) -> [String] {
+            for key in keys {
+                let found = values(key).flatMap { NameList.split($0) }
+                if !found.isEmpty { return found }
+            }
+            return []
+        }
+
+        var dateKey: String { kind == .mp4 ? "©day" : "TDRC" } // TagLib presents a v2.3 TYER as TDRC
+        var commentKey: String { kind == .mp4 ? "©cmt" : "COMM" }
+        /// The description proper, not counting the comment `read` falls back to.
+        var description: String? { kind == .mp4 ? first("ldes", "desc") : first("TXXX:DESCRIPTION") }
+    }
+
+    // MARK: Read
+
+    /// - Throws: `MetadataIOError.unreadable` when the file cannot be parsed or has no audio
+    ///   with a duration, so a mis-named or non-audio file is never reported as an empty book.
+    static func read(_ url: URL) throws -> FileContents {
+        let raw = try RawTags(url)
+        let snap = raw.snapshot
         var t = BookMetadata()
         let free = "----:com.apple.iTunes:"
-        switch kind {
+        let grouping: String?
+        switch raw.kind {
         case .mp4:
             // Album before track title, so one part of a multi-part book reports the book's title.
-            t.title = first("©alb", "©nam") ?? ""
-            t.subtitle = first("©st3", free + "SUBTITLE")
-            t.authors = NameList.split(first("aART", "©ART"))
-            t.narrators = NameList.split(first("©nrt", "©wrt"))
-            t.series = first(free + "SERIES", "©mvn")
-            t.seriesNumber = first(free + "SERIES-PART", "©mvi")
-            t.genre = first("©gen")
-            t.year = first("©day").flatMap(leadingYear)
-            t.publisher = first("©pub", free + "PUBLISHER")
-            t.summary = first("ldes", "desc", "©cmt")
-            t.language = first(free + "LANGUAGE")
-            t.isbn = first(free + "ISBN")
-            t.asin = first(free + "ASIN")
-            if t.series == nil, let g = first("©grp") { (t.series, t.seriesNumber) = parseGrouping(g) }
+            t.title = raw.first("©alb", "©nam") ?? ""
+            t.subtitle = raw.first("©st3", free + "SUBTITLE")
+            t.authors = raw.names("aART", "©ART")
+            t.narrators = raw.names("©nrt", "©wrt")
+            t.series = raw.first(free + "SERIES", "©mvn")
+            t.seriesNumber = raw.first(free + "SERIES-PART", "©mvi")
+            t.genre = NameList.join(raw.values("©gen"))
+            t.year = raw.first("©day").flatMap(leadingYear)
+            t.publisher = raw.first("©pub", free + "PUBLISHER")
+            t.summary = raw.first("ldes", "desc", "©cmt")
+            t.language = raw.first(free + "LANGUAGE")
+            t.isbn = raw.first(free + "ISBN")
+            t.asin = raw.first(free + "ASIN")
+            grouping = raw.first("©grp")
         case .mp3:
-            t.title = first("TALB", "TIT2") ?? ""
-            t.subtitle = first("TIT3")
-            t.authors = NameList.split(first("TPE2", "TPE1"))
-            t.narrators = NameList.split(first("TCOM", "TXXX:NARRATOR"))
-            t.series = first("TXXX:SERIES", "MVNM")
-            t.seriesNumber = first("TXXX:SERIES-PART", "MVIN")
-            t.genre = first("TCON")
-            t.year = first("TDRC", "TYER").flatMap(leadingYear)
-            t.publisher = first("TPUB")
-            t.summary = first("TXXX:DESCRIPTION", "COMM")
-            t.language = first("TLAN")
-            t.isbn = first("TXXX:ISBN")
-            t.asin = first("TXXX:ASIN")
-            if t.series == nil, let g = first("GRP1", "TIT1") { (t.series, t.seriesNumber) = parseGrouping(g) }
+            t.title = raw.first("TALB", "TIT2") ?? ""
+            t.subtitle = raw.first("TIT3")
+            t.authors = raw.names("TPE2", "TPE1")
+            t.narrators = raw.names("TCOM", "TXXX:NARRATOR")
+            t.series = raw.first("TXXX:SERIES", "MVNM")
+            t.seriesNumber = raw.first("TXXX:SERIES-PART", "MVIN")
+            t.genre = NameList.join(raw.values("TCON"))
+            t.year = raw.first("TDRC", "TYER").flatMap(leadingYear)
+            t.publisher = raw.first("TPUB")
+            t.summary = raw.first("TXXX:DESCRIPTION", "COMM")
+            t.language = raw.first("TLAN")
+            t.isbn = raw.first("TXXX:ISBN")
+            t.asin = raw.first("TXXX:ASIN")
+            grouping = raw.first("GRP1", "TIT1")
         }
-        if snap.durationSeconds > 0 { t.durationSeconds = snap.durationSeconds }
-        let cover = snap.coverData.map { CoverImage(data: $0, mime: snap.coverMIME ?? "image/jpeg") }
+        // Grouping is a series only in the "Name #N" form; a bare grouping ("Fiction") is not.
+        if t.series == nil, let grouping, grouping.contains("#") {
+            (t.series, t.seriesNumber) = parseGrouping(grouping)
+        }
+        t.durationSeconds = snap.durationSeconds
         return FileContents(
-            metadata: t, cover: cover,
+            metadata: t, cover: snap.coverData.map(CoverImage.stored),
             chapters: snap.chapters.map { Chapter(start: $0.startSeconds, title: $0.title) })
     }
 
     // MARK: Write
 
     /// Safe write (copy, change, verify, swap). Returns an empty report: audio formats hold every field.
+    ///
+    /// Not everything is rewritten on every write:
+    /// - the date tag is left alone while its year equals `metadata.year`, so a full date survives;
+    /// - the comment is kept in step with the description only while it is absent or a copy of
+    ///   it; a comment that says something else is the user's and is left alone;
+    /// - only the cover picture is replaced or removed, never an MP3's other pictures.
+    ///
+    /// - Throws: `MetadataIOError.unreadable` for a file with no measurable audio, before
+    ///   anything is copied.
     @discardableResult
     static func write(_ metadata: BookMetadata, cover: CoverChange, part: PartPosition?, to url: URL) throws -> WriteReport {
         let name = url.lastPathComponent
@@ -87,17 +150,22 @@ enum AudioTagIO {
                 throw error.code == 2 ? MetadataIOError.locked(name) : MetadataIOError.unreadable(name)
             }
         } verify: { copy in
-            let after = try read(copy)
-            guard abs((after.metadata.durationSeconds ?? 0) - (before.metadata.durationSeconds ?? 0)) < 0.05,
-                  after.chapters == before.chapters else {
-                throw MetadataIOError.verificationFailed("duration or chapters changed")
+            let after: FileContents
+            do {
+                after = try read(copy)
+            } catch {
+                throw MetadataIOError.verificationFailed("the changed copy no longer reads as audio")
             }
+            guard let was = before.metadata.durationSeconds, let now = after.metadata.durationSeconds,
+                  was > 0, now > 0, abs(now - was) < 0.05, after.chapters == before.chapters
+            else { throw MetadataIOError.verificationFailed("duration or chapters changed") }
         }
         return WriteReport()
     }
 
     /// The raw TagLib write. Modifies `url` in place.
     static func writeInPlace(_ metadata: BookMetadata, cover: CoverChange, part: PartPosition?, to url: URL) throws {
+        let existing = try RawTags(url)
         let changes = CTBChanges()
         var set: [String: [String]] = [:]
         // Nil and empty both remove the tag.
@@ -107,8 +175,7 @@ enum AudioTagIO {
         let wholeNumber = metadata.seriesNumber.flatMap { Int($0) }.map(String.init)
         let grouping = metadata.series.map { s in metadata.seriesNumber.map { "\(s) #\($0)" } ?? s }
         let track = part.map { "\($0.index)/\($0.count)" }
-        let kind = try container(for: url)
-        switch kind {
+        switch existing.kind {
         case .mp4:
             let free = "----:com.apple.iTunes:"
             // In a multi-part book the track title is the part's own name: leave it alone.
@@ -121,9 +188,8 @@ enum AudioTagIO {
             put("©mvn", metadata.series); put("©mvi", wholeNumber) // ©mvi is an integer atom
             put("©grp", grouping)
             put("©gen", metadata.genre)
-            put("©day", metadata.year.map(String.init))
             put("©pub", metadata.publisher); put(free + "PUBLISHER", metadata.publisher)
-            put("desc", metadata.summary); put("ldes", metadata.summary); put("©cmt", metadata.summary)
+            put("desc", metadata.summary); put("ldes", metadata.summary)
             put(free + "LANGUAGE", metadata.language)
             put(free + "ISBN", metadata.isbn)
             put(free + "ASIN", metadata.asin)
@@ -138,13 +204,23 @@ enum AudioTagIO {
             put("MVNM", metadata.series); put("MVIN", wholeNumber)
             put("GRP1", grouping)
             put("TCON", metadata.genre)
-            put("TDRC", metadata.year.map(String.init))
             put("TPUB", metadata.publisher)
-            put("COMM", metadata.summary); put("TXXX:DESCRIPTION", metadata.summary)
+            put("TXXX:DESCRIPTION", metadata.summary)
             put("TLAN", metadata.language)
             put("TXXX:ISBN", metadata.isbn)
             put("TXXX:ASIN", metadata.asin)
         }
+        // A date with the right year may be a full date ("2019-03-01"): keep it.
+        if let year = metadata.year {
+            if existing.first(existing.dateKey).flatMap(leadingYear) != year { put(existing.dateKey, String(year)) }
+        } else {
+            put(existing.dateKey, nil)
+        }
+        // The comment mirrors the description for apps that read only the comment. A comment
+        // that already says something else is the user's own note.
+        let comment = existing.first(existing.commentKey)
+        if comment == nil || comment == existing.description { put(existing.commentKey, metadata.summary) }
+
         changes.setItems = set
         switch cover {
         case .keep: changes.replaceCover = false
@@ -152,9 +228,10 @@ enum AudioTagIO {
         case .set(let image):
             changes.replaceCover = true
             changes.coverData = image.data
-            changes.coverMIME = image.mime
+            // Label the picture as what it is, so other apps are not misled by a wrong `mime`.
+            changes.coverMIME = CoverImage.sniffedMIME(image.data) ?? image.mime
         }
-        switch kind {
+        switch existing.kind {
         case .mp4: try CTBTagFile.writeMP4(atPath: url.path, changes: changes)
         case .mp3: try CTBTagFile.writeMP3(atPath: url.path, changes: changes)
         }

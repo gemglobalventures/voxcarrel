@@ -1,14 +1,35 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// A cover image as stored in or destined for a file.
 public struct CoverImage: Equatable, Sendable {
     public var data: Data
-    /// "image/jpeg" or "image/png".
+    /// Normally "image/jpeg" or "image/png". A cover read from a file reports what its bytes
+    /// are, whatever the file's own label says: another image type such as "image/gif" when
+    /// that is what is stored, or "application/octet-stream" when the bytes are no image
+    /// ImageIO recognises.
     public var mime: String
 
     public init(data: Data, mime: String) {
         self.data = data
         self.mime = mime
+    }
+
+    /// The MIME type of image `data`, judged from its bytes. Nil when it is not a recognised image.
+    public static func sniffedMIME(_ data: Data) -> String? {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return "image/png" }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              let identifier = CGImageSourceGetType(source) as String?
+        else { return nil }
+        return UTType(identifier)?.preferredMIMEType
+    }
+
+    /// A cover as read out of a file, typed by its bytes.
+    static func stored(_ data: Data) -> CoverImage {
+        CoverImage(data: data, mime: sniffedMIME(data) ?? "application/octet-stream")
     }
 }
 
