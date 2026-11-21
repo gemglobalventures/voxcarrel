@@ -99,11 +99,18 @@ extension AppModel {
         undoLabel.map { "Undo \($0)" } ?? "Undo"
     }
 
+    /// For the Book menu.
     public var selectionCommands: SelectionCommands {
+        commands(for: selection)
+    }
+
+    /// Which commands apply to these books: for a context menu, which may be for books
+    /// other than the selection.
+    public func commands(for ids: Set<Int64>) -> SelectionCommands {
         var commands = SelectionCommands()
-        guard isLibraryOpen, !selection.isEmpty else { return commands }
-        let selected = rows.filter { selection.contains($0.id) }
-        if selection.count == 1, let book = selected.first {
+        guard isLibraryOpen, !ids.isEmpty else { return commands }
+        let shown = rows.first { ids.contains($0.id) }
+        if ids.count == 1, let book = shown {
             commands.open = book.hasAudio || book.hasEbook
             commands.listen = book.hasAudio
             commands.read = book.hasEbook
@@ -115,31 +122,96 @@ extension AppModel {
         commands.addToCollection = !sidebar.collections.isEmpty
         commands.rewriteTags = true
         // Only books that are shown can be removed.
-        commands.remove = !selected.isEmpty
+        commands.remove = shown != nil
         return commands
     }
 
     // MARK: Acting on the selection
 
-    /// The one selected book; nil when none or several are selected.
-    private var onlySelected: Int64? {
-        selection.count == 1 ? selection.first : nil
-    }
-
     /// Opens the one selected book: its audiobook if it has one, otherwise its ebook.
     public func openSelection() {
-        guard let id = onlySelected else { return }
+        openOne(of: selection)
+    }
+
+    /// Opens the book when there is exactly one; several books are not opened at once.
+    /// For a double-click or Return in the list, and for menus.
+    public func openOne(of ids: Set<Int64>) {
+        guard ids.count == 1, let id = ids.first else { return }
         open(id)
     }
 
-    public func listenSelection() {
-        guard let id = onlySelected else { return }
+    public func listenOne(of ids: Set<Int64>) {
+        guard ids.count == 1, let id = ids.first else { return }
         listen(id)
     }
 
-    public func readSelection() {
-        guard let id = onlySelected else { return }
+    public func readOne(of ids: Set<Int64>) {
+        guard ids.count == 1, let id = ids.first else { return }
         read(id)
+    }
+
+    // MARK: The grid and the list
+
+    /// Why there are no books to show; nil when there are some, or it is not known yet.
+    public var emptyState: EmptyState? {
+        guard isLibraryOpen, rowsLoaded, rows.isEmpty, let all = sidebar.counts[.allBooks] else { return nil }
+        return all == 0 ? .emptyLibrary : .noMatches
+    }
+
+    /// What the middle of the window shows: nothing until the open library's books have
+    /// been read, then the books, or why there are none.
+    public var booksContent: BooksContent {
+        guard isLibraryOpen, rowsLoaded else { return .notLoaded }
+        return emptyState.map(BooksContent.empty) ?? .books
+    }
+
+    /// `sort` as the list's column headers show it. Setting it, as a click on a header
+    /// does, sets `sort`; an order that is not one of the sorts changes nothing.
+    public var tableSortOrder: [KeyPathComparator<BookRow>] {
+        get { sort.tableSortOrder }
+        set {
+            guard let sort = BookSort(tableSortOrder: newValue) else { return }
+            self.sort = sort
+        }
+    }
+
+    public func listenSelection() {
+        listenOne(of: selection)
+    }
+
+    public func readSelection() {
+        readOne(of: selection)
+    }
+}
+
+/// What the middle of the library window shows.
+public enum BooksContent: Equatable, Sendable {
+    /// The books have not been read yet: nothing, not even an empty grid or list.
+    case notLoaded
+    case empty(EmptyState)
+    /// The grid or the list, by `AppModel.viewMode`.
+    case books
+}
+
+/// Why the grid or the list has nothing in it.
+public enum EmptyState: Equatable, Sendable {
+    /// The library has no books at all.
+    case emptyLibrary
+    /// The library has books, and none is in the chosen part of the sidebar or matches the search.
+    case noMatches
+
+    public var title: String {
+        switch self {
+        case .emptyLibrary: "No books yet"
+        case .noMatches: "No books match"
+        }
+    }
+
+    public var message: String {
+        switch self {
+        case .emptyLibrary: "Drag files or folders here, or choose Import."
+        case .noMatches: "Try another search, or choose something else in the sidebar."
+        }
     }
 }
 

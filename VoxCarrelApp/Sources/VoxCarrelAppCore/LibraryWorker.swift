@@ -98,12 +98,17 @@ public actor LibraryWorker {
         for file in files where file.role != .extra && !formats.contains(file.format) {
             formats.append(file.format)
         }
+        let cover = service.covers.url(for: id)
+        let coverModified = cover.flatMap {
+            try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        }
         return BookRow(
             id: id, book: book,
             hasAudio: files.contains { $0.role == .audio },
             hasEbook: files.contains { $0.role == .ebook },
             formats: formats,
-            coverURL: service.covers.url(for: id),
+            coverURL: cover,
+            coverModified: coverModified,
             hasWriteProblem: files.contains { $0.writeProblem != nil })
     }
 

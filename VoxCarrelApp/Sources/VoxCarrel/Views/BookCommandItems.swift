@@ -2,65 +2,81 @@ import SwiftUI
 import VoxCarrelAppCore
 import VoxCarrelCore
 
-/// V6: the commands that act on the selected books. The Book menu's items.
+/// V6: the commands that act on books. The Book menu's items, where they act on the
+/// selection, and a context menu's (`BookContextMenu`), where they act on the books the
+/// menu was opened on.
 struct BookCommandItems: View {
     let model: AppModel
+    /// The books to act on; nil for the selection.
+    var ids: Set<Int64>?
+    /// Keyboard shortcuts belong to the Book menu; a context menu repeats none of them.
+    var showsShortcuts = true
 
     var body: some View {
-        let applies = model.selectionCommands
+        let books = ids ?? model.selection
+        let applies = model.commands(for: books)
 
-        Button("Open") { model.openSelection() }
-            .keyboardShortcut("o", modifiers: .command)
+        Button("Open") { model.openOne(of: books) }
+            .keyboardShortcut(shortcut("o", .command))
             .disabled(!applies.open)
-            .accessibilityIdentifier("menu.book.open")
-        Button("Listen") { model.listenSelection() }
+            .accessibilityIdentifier("\(prefix).open")
+        Button("Listen") { model.listenOne(of: books) }
             .disabled(!applies.listen)
-            .accessibilityIdentifier("menu.book.listen")
-        Button("Read") { model.readSelection() }
+            .accessibilityIdentifier("\(prefix).listen")
+        Button("Read") { model.readOne(of: books) }
             .disabled(!applies.read)
-            .accessibilityIdentifier("menu.book.read")
-        Button("Reveal in Finder") { model.reveal(model.selection) }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .accessibilityIdentifier("\(prefix).read")
+        Button("Reveal in Finder") { model.reveal(books) }
+            .keyboardShortcut(shortcut("r", [.command, .shift]))
             .disabled(!applies.reveal)
-            .accessibilityIdentifier("menu.book.reveal")
+            .accessibilityIdentifier("\(prefix).reveal")
 
         Divider()
 
         Menu("Mark as") {
             ForEach(ReadStatus.allCases, id: \.self) { status in
                 Button(status.title) {
-                    Task { await model.setReadStatus(status, for: model.selection) }
+                    Task { await model.setReadStatus(status, for: books) }
                 }
-                .accessibilityIdentifier("menu.book.markAs.\(status.rawValue)")
+                .accessibilityIdentifier("\(prefix).markAs.\(status.rawValue)")
             }
         }
         .disabled(!applies.mark)
-        .accessibilityIdentifier("menu.book.markAs")
+        .accessibilityIdentifier("\(prefix).markAs")
 
         Menu("Add to Collection") {
             ForEach(model.sidebar.collections) { collection in
                 if let id = collection.id {
                     Button(collection.name) {
-                        Task { await model.add(model.selection, toCollection: id) }
+                        Task { await model.add(books, toCollection: id) }
                     }
-                    .accessibilityIdentifier("menu.book.addToCollection.\(collection.name)")
+                    .accessibilityIdentifier("\(prefix).addToCollection.\(collection.name)")
                 }
             }
         }
         .disabled(!applies.addToCollection)
-        .accessibilityIdentifier("menu.book.addToCollection")
+        .accessibilityIdentifier("\(prefix).addToCollection")
 
         Button("Rewrite Tags") {
-            Task { await model.rewriteTags() }
+            Task { await model.rewriteTags(for: books) }
         }
         .disabled(!applies.rewriteTags)
-        .accessibilityIdentifier("menu.book.rewriteTags")
+        .accessibilityIdentifier("\(prefix).rewriteTags")
 
         Divider()
 
-        Button("Remove…") { model.requestRemove(model.selection) }
-            .keyboardShortcut(.delete, modifiers: .command)
+        Button("Remove…") { model.requestRemove(books) }
+            .keyboardShortcut(shortcut(.delete, .command))
             .disabled(!applies.remove)
-            .accessibilityIdentifier("menu.book.remove")
+            .accessibilityIdentifier("\(prefix).remove")
+    }
+
+    /// The start of each item's accessibility identifier.
+    private var prefix: String {
+        showsShortcuts ? "menu.book" : "contextMenu.book"
+    }
+
+    private func shortcut(_ key: KeyEquivalent, _ modifiers: EventModifiers) -> KeyboardShortcut? {
+        showsShortcuts ? KeyboardShortcut(key, modifiers: modifiers) : nil
     }
 }

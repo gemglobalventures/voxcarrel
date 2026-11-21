@@ -34,4 +34,48 @@ public enum SelectionLogic {
         }
         return ([id], id)
     }
+
+    public enum Direction: Sendable {
+        case left, right, up, down
+    }
+
+    /// The book an arrow key moves to, in a grid of `columns` columns that shows the
+    /// books in `order`, row after row. Nil only when there are no books.
+    ///
+    /// The move starts from the anchor when it is one of the selected books; otherwise
+    /// from the selected book furthest the way the arrow points. Left and right step
+    /// along the order, up and down by a whole row. At an edge the book stays the same,
+    /// except that down from above a short last row goes to the last book. With nothing
+    /// selected, right and down give the first book, left and up the last.
+    public static func move(
+        _ direction: Direction, columns: Int, order: [Int64], selection: Set<Int64>, anchor: Int64?
+    ) -> Int64? {
+        guard let first = order.first, let last = order.last else { return nil }
+        let forwards = direction == .right || direction == .down
+
+        var start = anchor.flatMap { selection.contains($0) ? order.firstIndex(of: $0) : nil }
+        if start == nil {
+            start = forwards ? order.lastIndex(where: selection.contains) : order.firstIndex(where: selection.contains)
+        }
+        guard let start else { return forwards ? first : last }
+
+        let columns = max(1, columns)
+        let end = order.count - 1
+        let target: Int
+        switch direction {
+        case .left:
+            target = max(start - 1, 0)
+        case .right:
+            target = min(start + 1, end)
+        case .up:
+            target = start >= columns ? start - columns : start
+        case .down:
+            if start + columns <= end {
+                target = start + columns
+            } else {
+                target = start / columns < end / columns ? end : start
+            }
+        }
+        return order[target]
+    }
 }

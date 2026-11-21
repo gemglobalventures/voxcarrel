@@ -1,0 +1,174 @@
+import AppKit
+import SwiftUI
+import VoxCarrelAppCore
+
+/// The sizes of the grid, and the sums done with them.
+enum GridMetrics {
+    /// The narrowest a cell may be. Cells widen to fill the row.
+    static let minimumCellWidth: CGFloat = 130
+    /// Between cells, across and down.
+    static let spacing: CGFloat = 12
+    /// Around the whole grid.
+    static let padding: CGFloat = 16
+    /// Inside a cell, around its cover and text.
+    static let cellPadding: CGFloat = 8
+    /// The tallest a cover is ever shown: cells are widest when two just fit and a third
+    /// almost does, about 200 points, and a cover is half as tall again as it is wide.
+    static let coverSide: CGFloat = 280
+
+    static let columns = [GridItem(.adaptive(minimum: minimumCellWidth), spacing: spacing, alignment: .top)]
+
+    /// How many columns an adaptive grid makes in this width: as many cells of the
+    /// minimum width, with their spacing, as fit, and one at least.
+    static func columnCount(inWidth width: CGFloat) -> Int {
+        max(1, Int((width + spacing) / (minimumCellWidth + spacing)))
+    }
+}
+
+/// G1, G2, G4, G5: the books as covers.
+struct BookGridView: View {
+    @Environment(AppModel.self) private var model
+    @FocusState private var isFocused: Bool
+    /// How many columns the grid has made, for the arrow keys.
+    @State private var columnCount = 1
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVGrid(columns: GridMetrics.columns, spacing: GridMetrics.spacing) {
+                        ForEach(model.rows) { row in
+                            BookGridItem(row: row, isGridFocused: $isFocused)
+                        }
+                    }
+                    .onGeometryChange(for: Int.self) { grid in
+                        GridMetrics.columnCount(inWidth: grid.size.width)
+                    } action: { count in
+                        columnCount = count
+                    }
+                    .padding(GridMetrics.padding)
+                    // As tall as the window at least, so that a click below the last row lands here too.
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+                    .background {
+                        // G2: a click on empty space.
+                        ClickCatcher { _, _ in
+                            isFocused = true
+                            model.select([])
+                        }
+                    }
+                }
+                .focusable(true, interactions: .edit)
+                .focused($isFocused)
+                .focusEffectDisabled()
+                .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
+                    if let id = model.moveSelection(Self.direction(of: press.key), columns: columnCount) {
+                        scroller.scrollTo(id)
+                    }
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    model.openSelection()
+                    return .handled
+                }
+                .onCommand(#selector(NSResponder.selectAll(_:))) {
+                    model.selectAll()
+                }
+            }
+        }
+        .accessibilityIdentifier("books.grid")
+    }
+
+    private static func direction(of key: KeyEquivalent) -> SelectionLogic.Direction {
+        switch key {
+        case .leftArrow: .left
+        case .rightArrow: .right
+        case .upArrow: .up
+        default: .down
+        }
+    }
+}
+
+/// One book in the grid with what clicking it does: a view of its own, so that it is
+/// drawn again when the selection changes, whenever the grid made it.
+private struct BookGridItem: View {
+    @Environment(AppModel.self) private var model
+    let row: BookRow
+    var isGridFocused: FocusState<Bool>.Binding
+
+    var body: some View {
+        let isSelected = model.selection.contains(row.id)
+        BookGridCell(row: row, isSelected: isSelected)
+            .overlay {
+                ClickCatcher(toolTip: row.summaryText) {
+                    model.contextClick(row.id)
+                } onClick: { modifiers, clickCount in
+                    isGridFocused.wrappedValue = true
+                    clicked(modifiers: modifiers, clickCount: clickCount)
+                }
+            }
+            .contextMenu {
+                BookContextMenu(model: model, ids: model.contextTarget(for: row.id))
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(row.summaryText)
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { model.click(row.id, modifiers: []) }
+            .accessibilityIdentifier("books.cell.\(row.id)")
+    }
+
+    /// The first press of a click selects (G2); the second of a double-click opens (G4).
+    private func clicked(modifiers: NSEvent.ModifierFlags, clickCount: Int) {
+        switch clickCount {
+        case 1: model.click(row.id, modifiers: Self.selectionModifiers(modifiers))
+        case 2: model.open(row.id)
+        default: break
+        }
+    }
+
+    private static func selectionModifiers(_ flags: NSEvent.ModifierFlags) -> SelectionLogic.Modifiers {
+        var modifiers: SelectionLogic.Modifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        return modifiers
+    }
+}
+
+/// G1: one book in the grid: its cover in an upright box, its title, its first author
+/// and its badges.
+private struct BookGridCell: View {
+    let row: BookRow
+    let isSelected: Bool
+
+    var body: some View {
+        let outline = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        VStack(alignment: .leading, spacing: 5) {
+            // The box is upright whatever the cover is; a square cover stands at its foot.
+            Color.clear
+                .aspectRatio(CoverPlaceholder.aspectRatio, contentMode: .fit)
+                .overlay(alignment: .bottom) {
+                    CoverView(row: row, maxSide: GridMetrics.coverSide)
+                }
+            Text(row.book.title)
+                .font(.callout.weight(.medium))
+                .lineLimit(2, reservesSpace: true)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.firstAuthorText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1, reservesSpace: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 5) {
+                FormatBadges(row: row)
+                Spacer(minLength: 0)
+                StatusMarker(status: row.book.readStatus)
+                WarningBadge(row: row)
+            }
+            .font(.caption)
+            .frame(height: 14)
+        }
+        .padding(GridMetrics.cellPadding)
+        .background(outline.fill(isSelected ? Color.accentColor.opacity(0.22) : .clear))
+        .overlay(outline.strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2))
+    }
+}

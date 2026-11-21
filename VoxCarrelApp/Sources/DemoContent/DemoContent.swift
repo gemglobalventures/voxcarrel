@@ -1,4 +1,7 @@
+import CoreGraphics
+import CoreText
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 import VoxCarrelCore
 import VoxCarrelFixtures
@@ -42,7 +45,7 @@ public enum DemoContent {
         lighthouse.year = 2019
         lighthouse.publisher = "Harbour Audio"
         lighthouse.summary = "A keeper on a remote rock counts the ships that never arrive."
-        try makeAudiobook(at: folder.appendingPathComponent("The Lighthouse Keeper.m4b"), lighthouse, cover.next())
+        try makeAudiobook(at: folder.appendingPathComponent("The Lighthouse Keeper.m4b"), lighthouse, cover.next(lighthouse))
 
         // Series, books 1–3: an M4B each, in one folder.
         let seriesFolder = folder.appendingPathComponent("Tidewater Chronicles", isDirectory: true)
@@ -54,7 +57,7 @@ public enum DemoContent {
             book.seriesNumber = String(index + 1)
             book.genre = "Fantasy"
             book.year = 2014 + index
-            try makeAudiobook(at: seriesFolder.appendingPathComponent("\(title).m4b"), book, cover.next())
+            try makeAudiobook(at: seriesFolder.appendingPathComponent("\(title).m4b"), book, cover.next(book))
         }
 
         // Multi-part audiobook: a folder of four MP3s.
@@ -63,7 +66,7 @@ public enum DemoContent {
         train.genre = "Thriller"
         train.year = 2008
         let trainFolder = folder.appendingPathComponent("Night Train to Vostok", isDirectory: true)
-        let trainCover = cover.next()
+        let trainCover = cover.next(train, square: true)
         for part in 1...4 {
             let url = trainFolder.appendingPathComponent("Night Train to Vostok - Part \(part).mp3")
             try write(MediaFixtures.makeSilentMP3(seconds: 1), to: url)
@@ -78,7 +81,7 @@ public enum DemoContent {
         clockmaker.genre = "Historical Fiction"
         clockmaker.year = 2021
         let clockFolder = folder.appendingPathComponent("The Clockmaker's Apprentice", isDirectory: true)
-        let clockCover = cover.next()
+        let clockCover = cover.next(clockmaker)
         try makeAudiobook(
             at: clockFolder.appendingPathComponent("The Clockmaker's Apprentice (Unabridged).m4b"),
             clockmaker, clockCover)
@@ -89,7 +92,7 @@ public enum DemoContent {
         fieldGuide.narrators = ["Jonas Whitlock"]
         fieldGuide.genre = "Nature"
         fieldGuide.year = 2017
-        try makeAudiobook(at: folder.appendingPathComponent("A Field Guide to Small Hours.m4b"), fieldGuide, cover.next())
+        try makeAudiobook(at: folder.appendingPathComponent("A Field Guide to Small Hours.m4b"), fieldGuide, cover.next(fieldGuide))
         try makePDF(at: folder.appendingPathComponent("A Field Guide to Small Hours.pdf"), nil)
 
         // Ebook only.
@@ -97,27 +100,27 @@ public enum DemoContent {
         rivers.genre = "Poetry"
         rivers.year = 2012
         rivers.publisher = "Reedbank Press"
-        try makeEbook(at: folder.appendingPathComponent("Quiet Rivers.epub"), rivers, cover.next())
+        try makeEbook(at: folder.appendingPathComponent("Quiet Rivers.epub"), rivers, cover.next(rivers, square: true))
 
         // Ebook in two formats: an EPUB and a PDF with the same base name.
         var cartographer = BookMetadata(title: "The Cartographer's Daughter", authors: ["Lena Voss"])
         cartographer.genre = "Adventure"
         cartographer.year = 2003
-        try makeEbook(at: folder.appendingPathComponent("The Cartographer's Daughter.epub"), cartographer, cover.next())
+        try makeEbook(at: folder.appendingPathComponent("The Cartographer's Daughter.epub"), cartographer, cover.next(cartographer))
         try makePDF(at: folder.appendingPathComponent("The Cartographer's Daughter.pdf"), cartographer)
 
         // Two authors.
         var wheel = BookMetadata(title: "Two Hands on the Wheel", authors: ["Priya Nair", "Daniel Brandt"])
         wheel.genre = "Memoir"
         wheel.year = 2022
-        try makeEbook(at: folder.appendingPathComponent("Two Hands on the Wheel.epub"), wheel, cover.next())
+        try makeEbook(at: folder.appendingPathComponent("Two Hands on the Wheel.epub"), wheel, cover.next(wheel))
 
         // No author: a title only, in a folder whose name is a place and not an author.
         let attic = BookMetadata(title: "Voices from the Attic")
         try makeAudiobook(
             at: folder.appendingPathComponent(genericFolderName, isDirectory: true)
                 .appendingPathComponent("voices_from_the_attic.m4b"),
-            attic, cover.next())
+            attic, cover.next(attic))
 
         // Long title: 90 characters, and a subtitle.
         var history = BookMetadata(
@@ -127,7 +130,7 @@ public enum DemoContent {
         history.narrators = ["Clementine Ashworth-Delacroix"]
         history.genre = "History"
         history.year = 1998
-        try makeAudiobook(at: folder.appendingPathComponent("Northern Sea Routes.m4b"), history, cover.next())
+        try makeAudiobook(at: folder.appendingPathComponent("Northern Sea Routes.m4b"), history, cover.next(history))
 
         return try topLevelItems(of: folder)
     }
@@ -136,7 +139,12 @@ public enum DemoContent {
 
     /// A library with the inbox's books already imported, plus read statuses,
     /// tags, ratings and two collections.
-    public static func makeLibrary(at folder: URL) throws {
+    ///
+    /// - Parameter count: How many books the library is to have. Above the twelve
+    ///   sample books, the rest are copies of them under numbered titles, with other
+    ///   authors, series, lengths and read statuses: enough to try the app on a large
+    ///   library. No audio is encoded for them, so thousands are made in seconds.
+    public static func makeLibrary(at folder: URL, count: Int = 0) throws {
         try prepareEmptyFolder(folder)
         let fm = FileManager.default
 
@@ -227,6 +235,103 @@ public enum DemoContent {
                 try store.add(bookId: bookId, toCollection: id)
             }
         }
+
+        try addNumberedBooks(to: service, upTo: count)
+    }
+
+    // MARK: A large library
+
+    private static let authorPool = [
+        "Eleanor Marsh", "Ines Calloway", "Mikhail Orlov", "Ruth Abernathy", "Jonas Whitlock", "Amara Okafor",
+        "Lena Voss", "Priya Nair", "Daniel Brandt", "Hugo Lindqvist", "Marguerite Bellamy", "Tobias Ferreira",
+        "Saoirse Kavanagh", "Kenji Morimoto", "Odalys Rivera", "Wilhelmina Drake", "Farid Rahimi", "Cecily Thorne",
+        "Anselm Krüger", "Nadia El-Masri", "Per Østergaard", "Josephine Achebe", "Leopold Varga", "Ysolde Penhallow",
+    ]
+
+    private static let seriesPool = [
+        "Tidewater Chronicles", "The Lantern Cycle", "Inspector Hallam Mysteries", "Atlas of Winds",
+        "The Glass Republic", "Orchard Lane", "Nine Bridges", "Far Meridian",
+    ]
+
+    private static let genrePool = [
+        "Fantasy", "Thriller", "Literary Fiction", "History", "Science Fiction", "Mystery", "Memoir", "Nature",
+        "Poetry", "Adventure",
+    ]
+
+    /// Brings the library up to `total` books by copying the sample books that are filed.
+    ///
+    /// Each new book gets a folder and files of its own, where the library would have
+    /// filed them, and a record put straight into the catalogue. The files are copies of
+    /// a sample book's, so the tags inside them are that book's; nothing looks inside
+    /// them unless the book is opened or its tags are rewritten.
+    private static func addNumberedBooks(to service: LibraryService, upTo total: Int) throws {
+        let store = service.store
+        let fm = FileManager.default
+        let existing = try store.books().sorted { ($0.id ?? 0) < ($1.id ?? 0) }
+        var templates: [(book: Book, files: [BookFile])] = []
+        for book in existing {
+            guard let id = book.id, book.folderPath != nil else { continue }
+            templates.append((book, try store.files(bookId: id)))
+        }
+        guard total > existing.count, !templates.isEmpty else { return }
+
+        var cover = CoverMaker(startingAt: existing.count)
+        let now = Date()
+        for number in (existing.count + 1)...total {
+            let template = templates[number % templates.count]
+            let hasAudio = template.files.contains { $0.role == .audio }
+
+            var metadata = template.book.metadata
+            metadata.title = "\(template.book.title) \(number)"
+            metadata.authors = [authorPool[(number * 7) % authorPool.count]]
+            if number % 11 == 0 { metadata.authors.append(authorPool[(number * 5 + 3) % authorPool.count]) }
+            if number % 3 == 0 {
+                metadata.series = seriesPool[(number / 3) % seriesPool.count]
+                metadata.seriesNumber = String((number / (3 * seriesPool.count)) % 12 + 1)
+            } else {
+                metadata.series = nil
+                metadata.seriesNumber = nil
+            }
+            metadata.genre = genrePool[number % genrePool.count]
+            metadata.year = 1985 + (number * 3) % 40
+            // Two to thirty hours for something to listen to.
+            metadata.durationSeconds = hasAudio ? Double(7200 + (number * 9973) % 100_800) : nil
+
+            guard let folderPath = PathBuilder.bookFolder(metadata: metadata) else { continue }
+            let names = PathBuilder.fileNames(
+                title: metadata.title,
+                files: template.files.map { CandidateFile(url: store.url(for: $0), role: $0.role) })
+            var files: [BookFile] = []
+            for (file, name) in zip(template.files, names) {
+                var copy = BookFile(
+                    path: "\(folderPath)/\(name)", format: file.format, role: file.role, position: file.position)
+                copy.originalName = file.originalName
+                let destination = store.url(for: copy)
+                try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.copyItem(at: store.url(for: file), to: destination)
+                files.append(copy)
+            }
+            // A few books whose tags could not be written, to show the warning.
+            if number % 40 == 0, !files.isEmpty {
+                files[0].writeProblem = "The file could not be changed."
+            }
+
+            let added = now.addingTimeInterval(-Double(number) * 13 * 3600)
+            var book = Book(metadata: metadata, folderPath: folderPath, dateAdded: added)
+            book.appOnlyFields = template.book.appOnlyFields
+            switch number % 5 {
+            case 2: book.setReadStatus(.inProgress, on: added.addingTimeInterval(86_400))
+            case 3:
+                book.setReadStatus(.finished, on: added.addingTimeInterval(7 * 86_400))
+                book.rating = number % 4 + 2
+            default: break
+            }
+            if number % 6 == 0 { book.tags = ["to sort"] }
+
+            // Three in four have a cover; the rest show the placeholder. Some covers are square.
+            guard let id = try store.insert(book, files: files).id, number % 4 != 0 else { continue }
+            try service.covers.set(cover.next(metadata, square: number % 9 == 0, width: 400), for: id)
+        }
     }
 
     // MARK: Folders
@@ -260,15 +365,110 @@ public enum DemoContent {
 
     /// Hands out a cover of a different colour each time it is asked.
     private struct CoverMaker {
-        private var count = 0
+        private var count: Int
 
-        mutating func next() -> CoverImage {
-            // `MediaFixtures.makeImage` varies only the red channel; stepping by 5/12
-            // and wrapping puts neighbouring books far apart.
-            let red = CGFloat((count * 5) % 12) / 11
-            count += 1
-            return CoverImage(data: MediaFixtures.makeImage(.jpeg, size: 600, red: red), mime: "image/jpeg")
+        init(startingAt count: Int = 0) {
+            self.count = count
         }
+
+        /// - Parameters:
+        ///   - square: A square cover, as audiobooks often have, in place of an upright one.
+        ///   - width: In pixels.
+        mutating func next(_ metadata: BookMetadata, square: Bool = false, width: Int = 600) -> CoverImage {
+            // Twelve hues; stepping by five of them puts neighbouring books far apart.
+            let hue = CGFloat((count * 5) % 12) / 12
+            count += 1
+            return DemoContent.makeCover(
+                title: metadata.title, author: metadata.authors.first, hue: hue,
+                width: width, height: square ? width : width * 3 / 2)
+        }
+    }
+
+    /// A JPEG that looks like a book cover: a plain colour, the title in white, and the
+    /// author in a darker band along the bottom.
+    private static func makeCover(title: String, author: String?, hue: CGFloat, width: Int, height: Int) -> CoverImage {
+        let (w, h) = (CGFloat(width), CGFloat(height))
+        let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        let white = CGColor(red: 1, green: 1, blue: 1, alpha: 1)
+
+        context.setFillColor(colour(hue: hue, saturation: 0.6, brightness: 0.58))
+        context.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        let band = (h * 0.2).rounded()
+        context.setFillColor(colour(hue: hue, saturation: 0.65, brightness: 0.34))
+        context.fill(CGRect(x: 0, y: 0, width: w, height: band))
+        context.setStrokeColor(white.copy(alpha: 0.35)!)
+        context.setLineWidth(w / 200)
+        context.stroke(CGRect(x: 0, y: 0, width: w, height: h).insetBy(dx: w * 0.05, dy: w * 0.05))
+
+        // The title, in the largest of these sizes at which all of it fits above the band.
+        let margin = w * 0.1
+        let titleBox = CGRect(x: margin, y: band + margin / 2, width: w - 2 * margin, height: h - band - 2 * margin)
+        let sizes: [CGFloat] = [0.1, 0.085, 0.07, 0.058, 0.048, 0.04].map { $0 * w }
+        let fitting = sizes.first { size in
+            let needed = CTFramesetterSuggestFrameSizeWithConstraints(
+                CTFramesetterCreateWithAttributedString(text(title, font: "Georgia-Bold", size: size, colour: white)),
+                CFRange(location: 0, length: 0), nil,
+                CGSize(width: titleBox.width, height: .greatestFiniteMagnitude), nil)
+            return needed.height <= titleBox.height
+        }
+        draw(text(title, font: "Georgia-Bold", size: fitting ?? sizes[sizes.count - 1], colour: white), in: titleBox, context)
+
+        if let author {
+            let authorBox = CGRect(x: margin, y: 0, width: w - 2 * margin, height: band - w * 0.06)
+            draw(
+                text(author, font: "HelveticaNeue-Medium", size: w * 0.045, colour: white.copy(alpha: 0.9)!),
+                in: authorBox, context)
+        }
+
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(
+            destination, context.makeImage()!, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        CGImageDestinationFinalize(destination)
+        return CoverImage(data: data as Data, mime: "image/jpeg")
+    }
+
+    /// Centred text for a cover.
+    private static func text(_ string: String, font: String, size: CGFloat, colour: CGColor) -> CFAttributedString {
+        var alignment = CTTextAlignment.center
+        let paragraph = withUnsafePointer(to: &alignment) { pointer in
+            CTParagraphStyleCreate(
+                [CTParagraphStyleSetting(
+                    spec: .alignment, valueSize: MemoryLayout<CTTextAlignment>.size, value: pointer)], 1)
+        }
+        let attributes: [CFString: Any] = [
+            kCTFontAttributeName: CTFontCreateWithName(font as CFString, size, nil),
+            kCTForegroundColorAttributeName: colour,
+            kCTParagraphStyleAttributeName: paragraph,
+        ]
+        return CFAttributedStringCreate(nil, string as CFString, attributes as CFDictionary)
+    }
+
+    /// Draws the text from the top of the box down; what does not fit is left out.
+    private static func draw(_ text: CFAttributedString, in box: CGRect, _ context: CGContext) {
+        let frame = CTFramesetterCreateFrame(
+            CTFramesetterCreateWithAttributedString(text), CFRange(location: 0, length: 0),
+            CGPath(rect: box, transform: nil), nil)
+        CTFrameDraw(frame, context)
+    }
+
+    private static func colour(hue: CGFloat, saturation: CGFloat, brightness: CGFloat) -> CGColor {
+        let sixth = hue * 6
+        let chroma = brightness * saturation
+        let x = chroma * (1 - abs(sixth.truncatingRemainder(dividingBy: 2) - 1))
+        let (r, g, b): (CGFloat, CGFloat, CGFloat)
+        switch Int(sixth) % 6 {
+        case 0: (r, g, b) = (chroma, x, 0)
+        case 1: (r, g, b) = (x, chroma, 0)
+        case 2: (r, g, b) = (0, chroma, x)
+        case 3: (r, g, b) = (0, x, chroma)
+        case 4: (r, g, b) = (x, 0, chroma)
+        default: (r, g, b) = (chroma, 0, x)
+        }
+        let lift = brightness - chroma
+        return CGColor(srgbRed: r + lift, green: g + lift, blue: b + lift, alpha: 1)
     }
 
     /// A two-second M4B with three chapters, tagged and with a cover.

@@ -1,5 +1,6 @@
 import DemoContent
 import Foundation
+import ImageIO
 import Testing
 import VoxCarrelCore
 import VoxCarrelFixtures
@@ -181,5 +182,117 @@ import VoxCarrelFixtures
         // Audiobooks and ebooks lists both have something to show.
         #expect(try store.books(having: .audio).count == 9)
         #expect(try store.books(having: .ebook).count == 4)
+    }
+
+    // MARK: Covers
+
+    private func pixelSize(_ data: Data) throws -> (width: Int, height: Int) {
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        return (image.width, image.height)
+    }
+
+    /// The hue, in degrees, of the image's background: the pixel 8 in from its top left
+    /// corner, where nothing else is drawn.
+    private func backgroundHue(_ data: Data) throws -> Double {
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let context = try #require(
+            CGContext(
+                data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        // The bitmap's first row is the image's top row.
+        let at = 8 * context.bytesPerRow + 8 * 4
+        let (r, g, b) = (Double(bytes[at]), Double(bytes[at + 1]), Double(bytes[at + 2]))
+        let (high, low) = (max(r, g, b), min(r, g, b))
+        try #require(high - low > 20, "the background is a colour, not a grey")
+        let sixth: Double
+        if high == r {
+            sixth = ((g - b) / (high - low)).truncatingRemainder(dividingBy: 6)
+        } else if high == g {
+            sixth = (b - r) / (high - low) + 2
+        } else {
+            sixth = (r - g) / (high - low) + 4
+        }
+        return (sixth * 60 + 360).truncatingRemainder(dividingBy: 360)
+    }
+
+    /// G1: covers look like book covers: upright, in colours of their own; two are
+    /// square, to show that a square cover is fitted and not cropped.
+    @Test func demoCoversAreUprightInDifferentColoursAndTwoAreSquare() throws {
+        let folder = try makeTempDir().appendingPathComponent("Library")
+        try DemoContent.makeLibrary(at: folder)
+        let service = LibraryService(store: try LibraryStore(libraryRoot: folder))
+
+        var square = 0
+        var hues = Set<Int>()
+        for book in try service.store.books() {
+            let id = try #require(book.id)
+            let cover = try #require(service.covers.image(for: id), "\(book.title)")
+            let size = try pixelSize(cover.data)
+            if size.width == size.height {
+                square += 1
+            } else {
+                #expect(size.width * 3 == size.height * 2, "\(book.title) is \(size.width)×\(size.height)")
+            }
+            #expect(size.height >= 600)
+            // Hues within 20 degrees of each other count as one colour.
+            hues.insert(Int(try backgroundHue(cover.data) / 20))
+        }
+        #expect(square == 2)
+        #expect(hues.count >= 9)
+    }
+
+    // MARK: A large library (G8)
+
+    /// G8
+    @Test func aLargeLibraryHasTheBooksAskedForAndNothingForTheLaunchCheckToReport() throws {
+        let folder = try makeTempDir().appendingPathComponent("Library")
+        try DemoContent.makeLibrary(at: folder, count: 200)
+        let service = LibraryService(store: try LibraryStore(libraryRoot: folder))
+        let store = service.store
+
+        let books = try store.books()
+        #expect(books.count == 200)
+        #expect(Set(books.map(\.title)).count == 200, "every book has its own title")
+        #expect(try service.reconcile() == ReconcileReport())
+        // Still only the one sample book with no author is flagged.
+        #expect(try store.books(needsAttention: true).map(\.title) == ["Voices from the Attic"])
+
+        // Every book has files that are there, so that its badges show and it can be opened.
+        var withCover = 0
+        for book in books {
+            let id = try #require(book.id)
+            let files = try store.files(bookId: id)
+            #expect(!files.isEmpty, "\(book.title)")
+            for file in files { #expect(exists(store.url(for: file)), "\(file.path)") }
+            if service.covers.url(for: id) != nil { withCover += 1 }
+        }
+        // Most have a cover; some do not, to show the placeholder.
+        #expect(withCover > 100)
+        #expect(withCover < 200)
+
+        // Enough variety to sort and browse by.
+        #expect(Set(books.compactMap(\.authors.first)).count >= 12)
+        #expect(Set(books.compactMap(\.series)).count >= 4)
+        #expect(Set(books.map(\.readStatus)) == Set(ReadStatus.allCases))
+        #expect(Set(books.compactMap(\.durationSeconds)).count > 20)
+        #expect(Set(books.map(\.dateAdded)).count > 100)
+        #expect(try store.books(having: .audio).count > 100)
+        #expect(try store.books(having: .ebook).count > 40)
+        #expect(try store.allFiles().contains { $0.writeProblem != nil })
+
+        // What Undo would reverse is as in the small library.
+        #expect(try service.undoLabel() == "Edit 7 books")
+    }
+
+    /// G8: a count no larger than the sample books adds none.
+    @Test func aCountBelowTheSampleBooksLeavesTheTwelve() throws {
+        let folder = try makeTempDir().appendingPathComponent("Library")
+        try DemoContent.makeLibrary(at: folder, count: 5)
+        #expect(try LibraryStore(libraryRoot: folder).books().count == 12)
     }
 }

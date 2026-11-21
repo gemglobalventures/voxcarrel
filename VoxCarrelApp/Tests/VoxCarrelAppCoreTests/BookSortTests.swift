@@ -8,7 +8,7 @@ import VoxCarrelCore
     private func row(
         _ id: Int64, _ title: String, authors: [String] = ["Someone"], series: String? = nil,
         number: String? = nil, duration: Double? = nil, added: TimeInterval = 0,
-        audio: Bool = true, ebook: Bool = false
+        audio: Bool = true, ebook: Bool = false, status: ReadStatus = .unread
     ) -> BookRow {
         var metadata = BookMetadata(title: title, authors: authors)
         metadata.series = series
@@ -16,6 +16,7 @@ import VoxCarrelCore
         metadata.durationSeconds = duration
         var book = Book(metadata: metadata, dateAdded: Date(timeIntervalSinceReferenceDate: added))
         book.id = id
+        book.setReadStatus(status)
         return BookRow(
             id: id, book: book, hasAudio: audio, hasEbook: ebook,
             formats: (audio ? [.m4b] : []) + (ebook ? [.epub] : []), coverURL: nil, hasWriteProblem: false)
@@ -124,5 +125,61 @@ import VoxCarrelCore
                 #expect(ids(sort, rows) == ids(sort, rows.reversed()), "\(key) \(ascending)")
             }
         }
+    }
+
+    /// S1, for the list's Status column: unread, in progress, finished; then by title.
+    @Test func statusSortsUnreadThenInProgressThenFinished() {
+        let rows = [
+            row(1, "F", status: .finished), row(2, "U2", status: .unread), row(3, "P", status: .inProgress),
+            row(4, "U1", status: .unread),
+        ]
+        #expect(ids(BookSort(key: .status), rows) == [4, 2, 3, 1])
+        #expect(ids(BookSort(key: .status, ascending: false), rows) == [1, 3, 2, 4])
+    }
+
+    // MARK: G3 The list's column headers
+
+    /// G3: every key has a column, and a click on its header comes back as that key.
+    @Test func everySortIsAColumnSortOrderAndBack() {
+        for key in BookSortKey.allCases {
+            for ascending in [true, false] {
+                let sort = BookSort(key: key, ascending: ascending)
+                let order = sort.tableSortOrder
+                #expect(order.count == 1)
+                #expect(order.first?.order == (ascending ? .forward : .reverse))
+                #expect(BookSort(tableSortOrder: order) == sort)
+            }
+        }
+        // Each key's column is keyed by something of its own.
+        #expect(Set(BookSortKey.allCases.map { BookSort(key: $0).tableSortOrder[0].keyPath }).count
+            == BookSortKey.allCases.count)
+    }
+
+    /// G3: a column of text is named with the comparator a table's text column has. With
+    /// any other the table does not know its own column: no arrow, and no change of direction.
+    @Test func textColumnsUseTheTablesOwnComparator() {
+        for key in [BookSortKey.title, .author, .series, .status] {
+            for order in [SortOrder.forward, .reverse] {
+                let ours = BookSort(key: key, ascending: order == .forward).tableSortOrder[0]
+                let standard = String.StandardComparator.localizedStandard
+                let expected: [KeyPathComparator<BookRow>] = [
+                    KeyPathComparator(\.titleSortKey, comparator: standard, order: order),
+                    KeyPathComparator(\.authorSortKey, comparator: standard, order: order),
+                    KeyPathComparator(\.seriesSortKey, comparator: standard, order: order),
+                    KeyPathComparator(\.statusSortKey, comparator: standard, order: order),
+                ]
+                #expect(expected.contains(ours), "\(key) \(order)")
+                #expect(String(describing: ours).contains("StandardComparator"))
+            }
+        }
+    }
+
+    /// G3: a table hands back the clicked column first and the earlier ones after it; only the first counts.
+    @Test func theFirstColumnOfASortOrderIsTheSort() {
+        let order = BookSort(key: .length, ascending: false).tableSortOrder + BookSort(key: .title).tableSortOrder
+        #expect(BookSort(tableSortOrder: order) == BookSort(key: .length, ascending: false))
+        #expect(BookSort(tableSortOrder: []) == nil)
+        // A column that is not one of the sort keys.
+        #expect(BookSort(tableSortOrder: [KeyPathComparator(\BookRow.id)]) == nil)
     }
 }

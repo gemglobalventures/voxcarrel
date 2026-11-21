@@ -139,6 +139,7 @@ public final class AppModel {
         openFailure = nil
         sidebar = SidebarData(counts: [:], browse: [:], collections: [])
         rows = []
+        rowsLoaded = false
         selection = []
         anchor = nil
         inspecting = .nothing
@@ -236,7 +237,17 @@ public final class AppModel {
     }
 
     /// Already sorted.
-    public private(set) var rows: [BookRow] = []
+    public private(set) var rows: [BookRow] = [] {
+        didSet {
+            if !RowsChange.isSmall(from: oldValue.map(\.id), to: rows.map(\.id)) { rowsVersion += 1 }
+        }
+    }
+    /// Changes whenever `rows` becomes a very different list (`RowsChange`): the list
+    /// view makes its table again then, in place of having it work out what moved.
+    public private(set) var rowsVersion = 0
+    /// False until the open library's books have been read once: `rows` is empty before
+    /// then because nothing is known yet, not because there are no books.
+    private(set) var rowsLoaded = false
     public internal(set) var selection: Set<Int64> = []
 
     /// A click in the grid.
@@ -256,6 +267,35 @@ public final class AppModel {
 
     public func selectAll() {
         requestSelection(Set(rows.map(\.id)), anchor: anchor)
+    }
+
+    /// An arrow key in the grid, which shows the rows in `columns` columns: selects only
+    /// the book the arrow leads to (`SelectionLogic.move`). Returns that book when it is
+    /// now the selection, for the grid to scroll to; nil when there are no books, or the
+    /// move is waiting for an answer about unsaved changes.
+    @discardableResult
+    public func moveSelection(_ direction: SelectionLogic.Direction, columns: Int) -> Int64? {
+        guard
+            let id = SelectionLogic.move(
+                direction, columns: columns, order: rows.map(\.id), selection: selection, anchor: anchor)
+        else { return nil }
+        requestSelection([id], anchor: id)
+        return selection == [id] ? id : nil
+    }
+
+    /// The books a context menu opened on this book is for: the selection when the book
+    /// is part of it, otherwise the book alone.
+    public func contextTarget(for id: Int64) -> Set<Int64> {
+        selection.contains(id) ? selection : [id]
+    }
+
+    /// A context menu is being opened on this book: a book that is not selected becomes
+    /// the selection, so that what the menu acts on is what is seen to be selected.
+    /// While there are unsaved changes the selection is left alone, and no question is
+    /// asked; the menu still acts on `contextTarget(for:)`.
+    public func contextClick(_ id: Int64) {
+        guard !selection.contains(id), !hasUnsavedChanges, rows.contains(where: { $0.id == id }) else { return }
+        applySelection([id], anchor: id)
     }
 
     private var storedSidebarSelection = SidebarItem.allBooks
@@ -297,6 +337,7 @@ public final class AppModel {
                 return
             }
             rows = storedSort.sorted(fetched)
+            rowsLoaded = true
             shown = (item, search)
             if !selection.isSubset(of: ids) {
                 setSelection(selection.intersection(ids), anchor: anchor)
@@ -329,6 +370,7 @@ public final class AppModel {
                 let fetched = try await worker.rows(for: item, search: search)
                 if generation == rowsGeneration {
                     rows = storedSort.sorted(fetched)
+                    rowsLoaded = true
                     shown = (item, search)
                     if !(keepEdits && hasUnsavedChanges) {
                         selection.formIntersection(fetched.map(\.id))

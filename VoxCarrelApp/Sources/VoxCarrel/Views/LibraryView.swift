@@ -13,8 +13,7 @@ struct LibraryView: View {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
         } detail: {
-            // Task 9: the cover grid or the list, by `model.viewMode`.
-            BookListView()
+            BooksView()
                 .frame(minWidth: 320, minHeight: 300)
                 .inspector(isPresented: $inspectorShown) {
                     InspectorView()
@@ -86,6 +85,32 @@ private struct LibraryToolbar: ToolbarContent {
             }
             .help("Show or hide the inspector")
             .accessibilityIdentifier("toolbar.inspector")
+        }
+    }
+}
+
+/// The books: as covers or as a table, or a few words when there are none to show.
+private struct BooksView: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch model.booksContent {
+        case .notLoaded:
+            // The library is being opened, under the progress sheet.
+            Color.clear
+        case .empty(let empty):
+            // G7
+            ContentUnavailableView {
+                Label(empty.title, systemImage: empty.symbol)
+            } description: {
+                Text(empty.message)
+            }
+            .accessibilityIdentifier(empty.accessibilityIdentifier)
+        case .books:
+            switch model.viewMode {
+            case .grid: BookGridView()
+            case .list: BookListView()
+            }
         }
     }
 }

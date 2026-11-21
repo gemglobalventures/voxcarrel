@@ -40,16 +40,23 @@ extension BookSortKey {
         case .formats: "Formats"
         case .length: "Length"
         case .dateAdded: "Date Added"
+        case .status: "Status"
         }
     }
 }
 
-extension ReadStatus {
-    var title: String {
+extension EmptyState {
+    var symbol: String {
         switch self {
-        case .unread: "Unread"
-        case .inProgress: "In Progress"
-        case .finished: "Finished"
+        case .emptyLibrary: "books.vertical"
+        case .noMatches: "magnifyingglass"
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        switch self {
+        case .emptyLibrary: "books.empty.library"
+        case .noMatches: "books.empty.noMatches"
         }
     }
 }

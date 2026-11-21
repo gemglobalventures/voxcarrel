@@ -22,12 +22,15 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     /// Distinct formats of the audio and ebook files, in file order. Extras not included.
     public var formats: [FileFormat]
     public var coverURL: URL?
+    /// When the cover's file was last written; nil when there is no cover. A cover that
+    /// is replaced keeps its place, so this is what tells the new one from the old.
+    public var coverModified: Date?
     /// True when any file's tags could not be written last time.
     public var hasWriteProblem: Bool
 
     public init(
         id: Int64, book: Book, hasAudio: Bool, hasEbook: Bool, formats: [FileFormat], coverURL: URL?,
-        hasWriteProblem: Bool
+        coverModified: Date? = nil, hasWriteProblem: Bool
     ) {
         self.id = id
         self.book = book
@@ -35,6 +38,7 @@ public struct BookRow: Identifiable, Equatable, Sendable {
         self.hasEbook = hasEbook
         self.formats = formats
         self.coverURL = coverURL
+        self.coverModified = coverModified
         self.hasWriteProblem = hasWriteProblem
     }
 }
@@ -108,5 +112,25 @@ public struct ImportSeed: Equatable, Sendable {
         self.candidate = candidate
         self.cover = cover
         self.existingMatch = existingMatch
+    }
+}
+
+/// How much a list of books has changed.
+public enum RowsChange {
+    /// The most books that may come and go in a small change.
+    public static let limit = 20
+
+    /// True when the books that are in both lists are in the same order in both, and no
+    /// more than `limit` were removed or inserted between them.
+    ///
+    /// A table can take a small change as it is. Shown a list that is very different
+    /// (2,000 books in the opposite order, or 1,800 more than a moment ago) it measures
+    /// every row that moved before it draws again, which takes most of a minute; it is
+    /// quicker by far to make the table again.
+    public static func isSmall(from old: [Int64], to new: [Int64]) -> Bool {
+        if old == new { return true }
+        let (before, after) = (Set(old), Set(new))
+        guard before.subtracting(after).count + after.subtracting(before).count <= limit else { return false }
+        return old.filter(after.contains) == new.filter(before.contains)
     }
 }

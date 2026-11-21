@@ -156,7 +156,12 @@ extension AppModel {
 
     /// Writes the selected books' details into their files again.
     public func rewriteTags() async {
-        let ids = ordered(selection)
+        await rewriteTags(for: selection)
+    }
+
+    /// The same for these books, which need not be the selection.
+    public func rewriteTags(for ids: Set<Int64>) async {
+        let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         let titles = Dictionary(rows.map { ($0.id, $0.book.title) }) { first, _ in first }
         await perform("Rewriting tags…") { worker in

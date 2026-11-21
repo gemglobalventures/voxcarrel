@@ -2,7 +2,7 @@ import Foundation
 import VoxCarrelCore
 
 public enum BookSortKey: String, CaseIterable, Sendable {
-    case title, author, series, formats, length, dateAdded
+    case title, author, series, formats, length, dateAdded, status
 }
 
 /// How the grid and the list order their books.
@@ -58,9 +58,18 @@ public struct BookSort: Equatable, Sendable {
         }
     }
 
+    /// Unread, in progress, finished.
+    private static func statusRank(_ row: BookRow) -> Int {
+        switch row.book.readStatus {
+        case .unread: 0
+        case .inProgress: 1
+        case .finished: 2
+        }
+    }
+
     private func hasValue(_ row: BookRow) -> Bool {
         switch key {
-        case .title, .dateAdded: true
+        case .title, .dateAdded, .status: true
         case .author: Self.firstAuthor(row) != nil
         case .series: Self.text(row.book.series) != nil
         case .formats: Self.formatRank(row) != nil
@@ -111,9 +120,63 @@ public struct BookSort: Equatable, Sendable {
             result = Self.compareValues(a.book.durationSeconds ?? 0, b.book.durationSeconds ?? 0)
         case .dateAdded:
             result = Self.compareValues(a.book.dateAdded, b.book.dateAdded)
+        case .status:
+            result = Self.compareValues(Self.statusRank(a), Self.statusRank(b))
         }
         if result == .orderedSame { result = Self.compareText(a.book.title, b.book.title) }
         if result == .orderedSame { result = Self.compareValues(a.id, b.id) }
         return result
+    }
+}
+
+// MARK: The list's column headers
+
+extension BookRow {
+    // What the list's columns are keyed by, one for each sort key. A table names the
+    // column whose header was clicked by its key path; `BookSort.sorted` does the
+    // sorting, and nothing is ever compared by these values.
+    public var titleSortKey: String { book.title }
+    public var authorSortKey: String { book.authors.first ?? "" }
+    public var seriesSortKey: String { book.series ?? "" }
+    public var formatsSortKey: Int { (hasAudio ? 1 : 0) + (hasEbook ? 2 : 0) }
+    public var lengthSortKey: Double { book.durationSeconds ?? 0 }
+    public var dateAddedSortKey: Date { book.dateAdded }
+    public var statusSortKey: String { book.readStatus.rawValue }
+}
+
+extension BookSortKey {
+    /// This key's column as a table names it: the column's key path, with the comparator
+    /// a `TableColumn` gives a column of that type. Both must be the table's own, or the
+    /// table does not know its column again: it then shows no arrow in the header, and a
+    /// click on the sorted column sorts the same way once more in place of the other way.
+    func comparator(_ order: SortOrder) -> KeyPathComparator<BookRow> {
+        // A column of text is compared with `String.StandardComparator`, which is not
+        // the `String.Comparator` that a bare `.localizedStandard` would be taken for.
+        let text = String.StandardComparator.localizedStandard
+        return switch self {
+        case .title: KeyPathComparator(\.titleSortKey, comparator: text, order: order)
+        case .author: KeyPathComparator(\.authorSortKey, comparator: text, order: order)
+        case .series: KeyPathComparator(\.seriesSortKey, comparator: text, order: order)
+        case .formats: KeyPathComparator(\.formatsSortKey, order: order)
+        case .length: KeyPathComparator(\.lengthSortKey, order: order)
+        case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
+        case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
+        }
+    }
+}
+
+extension BookSort {
+    /// This sort as a table's sort order: its key's column, forwards or in reverse.
+    public var tableSortOrder: [KeyPathComparator<BookRow>] {
+        [key.comparator(ascending ? .forward : .reverse)]
+    }
+
+    /// The sort a table's sort order asks for: the first column in it, which is the one
+    /// whose header was clicked last. Nil when that is not the column of a sort key.
+    public init?(tableSortOrder: [KeyPathComparator<BookRow>]) {
+        guard let first = tableSortOrder.first,
+              let key = BookSortKey.allCases.first(where: { $0.comparator(.forward).keyPath == first.keyPath })
+        else { return nil }
+        self.init(key: key, ascending: first.order == .forward)
     }
 }
