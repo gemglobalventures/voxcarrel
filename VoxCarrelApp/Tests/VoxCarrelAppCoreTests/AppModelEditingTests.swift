@@ -710,12 +710,18 @@ import VoxCarrelFixtures
         await h.model.deleteCollection(id: favourites)
         h.model.requestRemove([quiet])
         await h.model.confirmRemove(moveFilesToTrash: false)
-        await h.model.chooseLibrary(other)
         await h.model.confirmChooseLibrary(other)
         await h.model.retryLibrary()
         await h.model.start()
         #expect(h.model.busyLabel != nil)
         #expect(h.model.alert == nil)
+        #expect(h.model.prompt == nil)
+        // Choosing a library is refused in words: the folder was picked in a panel, and
+        // nothing happening would look like a fault.
+        #expect(!h.model.canChooseLibrary)
+        await h.model.chooseLibrary(other)
+        #expect(h.model.alert == "VoxCarrel is busy. Choose the library folder again when it has finished.")
+        h.model.alert = nil
         #expect(h.model.prompt == nil)
 
         // Reading still works.

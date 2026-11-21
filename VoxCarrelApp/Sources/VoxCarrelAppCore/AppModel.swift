@@ -96,10 +96,26 @@ public final class AppModel {
         await openLibrary()
     }
 
+    /// Whether a library folder can be chosen now: nothing is running and no question
+    /// is waiting for an answer.
+    public var canChooseLibrary: Bool {
+        busyLabel == nil && storedPrompt == nil
+    }
+
     /// Makes `folder` the library. A folder that already holds other files is not taken
     /// without asking: `prompt` becomes `.chooseFolderWithFiles`.
+    ///
+    /// While something is running or a question is waiting, the folder is not taken and
+    /// `alert` says why: it was picked in a panel, so doing nothing would look like a fault.
     public func chooseLibrary(_ folder: URL) async {
-        guard busyLabel == nil else { return }
+        guard busyLabel == nil else {
+            alert = "VoxCarrel is busy. Choose the library folder again when it has finished."
+            return
+        }
+        guard storedPrompt == nil else {
+            alert = "Answer the question in the VoxCarrel window first, then choose the library folder again."
+            return
+        }
         // A4
         if hasUnsavedChanges {
             ask(about: .library(folder))
@@ -109,16 +125,17 @@ public final class AppModel {
         case .existingLibrary, .empty:
             await adopt(folder)
         case .hasOtherFiles(let count, let bookFiles):
-            storedPrompt = .chooseFolderWithFiles(folder, count: count, bookFiles: bookFiles)
+            raise(.chooseFolderWithFiles(folder, count: count, bookFiles: bookFiles))
         case .notUsable(let why):
             alert = why
         }
     }
 
-    /// The answer "use it anyway" to `.chooseFolderWithFiles`.
+    /// The answer "use it anyway" to `.chooseFolderWithFiles`, for the folder that was asked about.
     public func confirmChooseLibrary(_ folder: URL) async {
-        guard busyLabel == nil else { return }
-        if case .chooseFolderWithFiles = storedPrompt { storedPrompt = nil }
+        guard busyLabel == nil, case .chooseFolderWithFiles(let asked, _, _) = storedPrompt, asked == folder
+        else { return }
+        storedPrompt = nil
         if case .notUsable(let why) = LibraryLocation.inspect(folder, places: places) {
             alert = why
             return
@@ -149,7 +166,12 @@ public final class AppModel {
         libraryCheck = nil
         missingFileTitles = []
         review = nil
+        reviewIsOfUntracked = false
         pending = nil
+        // A24: a question or a message about the library shown before is not about this one.
+        storedPrompt = nil
+        alert = nil
+        result = nil
         // Anything still on its way from the library shown before is not wanted.
         rowsGeneration += 1
         inspectorGeneration += 1
@@ -419,9 +441,31 @@ public final class AppModel {
         }
     }
 
+    /// A24: puts a question to the user, unless one is waiting already: there is only
+    /// ever one. Returns whether it was put.
+    @discardableResult
+    func raise(_ question: PendingPrompt) -> Bool {
+        guard storedPrompt == nil else { return false }
+        storedPrompt = question
+        return true
+    }
+
+    /// Asks about unsaved changes before doing `change`.
+    ///
+    /// A24: while a question is waiting, no other is asked and `change` is forgotten;
+    /// a change of sidebar selection or search text is taken back, so that what is
+    /// stored is what the rows show. The one exception is a newer change of sidebar or
+    /// search while the unsaved-changes question about an older one is up: the stored
+    /// values are the newer ones already, and the answer applies those.
     private func ask(about change: PendingChange) {
-        pending = change
-        storedPrompt = .unsavedChanges
+        if raise(.unsavedChanges) {
+            pending = change
+            return
+        }
+        guard case .browse = change else { return }
+        if storedPrompt == .unsavedChanges, case .browse = pending { return }
+        storedSidebarSelection = shown.item
+        storedSearchText = shown.search
     }
 
     /// Selects, shows what is already known about the selection, and fetches the rest.

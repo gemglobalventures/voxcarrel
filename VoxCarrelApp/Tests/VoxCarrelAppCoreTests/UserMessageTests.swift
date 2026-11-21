@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import VoxCarrelAppCore
 import VoxCarrelCore
+import VoxCarrelFixtures
 
 @Suite struct UserMessageTests {
     // MARK: M1 — LibraryError, one test per case
@@ -310,5 +311,19 @@ import VoxCarrelCore
         let names = MetadataField.allCases.map(UserMessage.fieldName)
         #expect(Set(names).count == names.count)
         #expect(names.allSatisfy { $0.first?.isUppercase == true })
+    }
+
+    /// M1: an error of the database itself is said in plain words, with nothing of the
+    /// database's own language in it.
+    @Test func aDatabaseErrorIsSaidPlainly() throws {
+        let root = try makeTempDir()
+        try touch(root.appendingPathComponent(LibraryStore.databaseFileName), "this is not a database")
+        var caught: Error?
+        do { _ = try LibraryStore(libraryRoot: root) } catch { caught = error }
+        let error = try #require(caught)
+        #expect(LibraryStore.isDatabaseError(error))
+        #expect(!LibraryStore.isDatabaseError(LibraryError.nothingToUndo))
+        let text = UserMessage.text(for: error)
+        #expect(text == "The library's database could not be read. It may be damaged, or not a VoxCarrel library.")
     }
 }

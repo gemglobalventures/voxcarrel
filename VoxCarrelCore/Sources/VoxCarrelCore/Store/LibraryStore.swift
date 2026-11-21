@@ -21,6 +21,13 @@ public final class LibraryStore: Sendable {
         try Self.migrator.migrate(dbQueue)
     }
 
+    /// Whether an error came from the database itself (it could not be opened, read or
+    /// written), as against one of the library's own errors. Such an error's text is
+    /// written for programmers and should not be shown as it is.
+    public static func isDatabaseError(_ error: Error) -> Bool {
+        error is DatabaseError
+    }
+
     static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1") { db in

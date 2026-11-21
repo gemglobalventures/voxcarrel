@@ -121,8 +121,9 @@ extension AppModel {
         commands.mark = true
         commands.addToCollection = !sidebar.collections.isEmpty
         commands.rewriteTags = true
-        // Only books that are shown can be removed.
-        commands.remove = shown != nil
+        // Only books that are shown can be removed, and removing asks first: not while
+        // another question is waiting (A24).
+        commands.remove = shown != nil && prompt == nil
         return commands
     }
 

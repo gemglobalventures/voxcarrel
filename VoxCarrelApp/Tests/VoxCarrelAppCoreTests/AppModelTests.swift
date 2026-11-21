@@ -57,7 +57,13 @@ import VoxCarrelFixtures
         await h.model.start()
         #expect(h.model.status == .available(root))
         let failure = try #require(h.model.openFailure)
-        #expect(failure.contains(root.lastPathComponent))
+        #expect(
+            failure
+                == "The library in \"\(root.lastPathComponent)\" could not be opened. The library's database "
+                + "could not be read. It may be damaged, or not a VoxCarrel library.")
+        for word in ["SQL", "sqlite_master", "SELECT", "error 26"] {
+            #expect(!failure.contains(word))
+        }
         #expect(h.model.rows.isEmpty)
         #expect(h.model.sidebar.counts.isEmpty)
         #expect(h.model.libraryCheck == nil)
@@ -663,5 +669,129 @@ import VoxCarrelFixtures
         #expect(genres == ["Sea Stories", "Sea Stories"])
         #expect(h.model.searchText == "salt")
         #expect(h.model.selection == [try h.id("Salt Road")])
+    }
+
+    // MARK: A24 One question at a time
+
+    /// A24: nothing asks a second question while one is waiting; here, removing while
+    /// the unsaved-changes question is up.
+    @Test func aRemoveRequestWaitsForTheUnsavedChangesQuestion() async throws {
+        let h = try await Harness.demo()
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        h.model.sidebarSelection = .ebooks
+        await h.model.settle()
+        #expect(h.model.prompt == .unsavedChanges)
+        #expect(!h.model.commands(for: [try h.id("Quiet Rivers")]).remove)
+
+        h.model.requestRemove([try h.id("Quiet Rivers")])
+        #expect(h.model.prompt == .unsavedChanges)
+
+        h.model.prompt = nil
+        await h.model.settle()
+        #expect(h.model.pending == nil)
+        #expect(h.model.sidebarSelection == .allBooks)
+        #expect(h.model.rows.count == 12)
+        #expect(h.draft?.title == "Salt Road X")
+        #expect(h.model.commands(for: [try h.id("Quiet Rivers")]).remove)
+    }
+
+    /// A24: the other order. A change of sidebar or search that would need the
+    /// unsaved-changes question while another question is up is taken back.
+    @Test func aBrowseChangeDuringAnotherQuestionIsTakenBack() async throws {
+        let h = try await Harness.demo()
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        let quiet = try h.id("Quiet Rivers")
+        h.model.requestRemove([quiet])
+        let question = h.model.prompt
+        #expect(question == .removeBooks(ids: [quiet], titles: ["Quiet Rivers"]))
+
+        h.model.sidebarSelection = .ebooks
+        h.model.searchText = "quiet"
+        await h.model.settle()
+        #expect(h.model.prompt == question)
+        #expect(h.model.pending == nil)
+        #expect(h.model.sidebarSelection == .allBooks)
+        #expect(h.model.searchText == "")
+        #expect(h.model.rows.count == 12)
+
+        // Nor does a click replace the question.
+        h.model.click(quiet, modifiers: [])
+        await h.model.settle()
+        #expect(h.model.prompt == question)
+        #expect(h.model.pending == nil)
+        #expect(h.model.selection == [try h.id("Salt Road")])
+
+        await h.model.confirmRemove(moveFilesToTrash: false)
+        #expect(try h.store().book(id: quiet) == nil)
+        #expect(h.draft?.title == "Salt Road X")
+    }
+
+    /// A24: a second change of search while the unsaved-changes question about the first
+    /// is up is the one the answer applies.
+    @Test func theLatestBrowseChangeIsTheOneAsked() async throws {
+        let h = try await Harness.demo()
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        h.model.searchText = "q"
+        await h.model.settle()
+        #expect(h.model.prompt == .unsavedChanges)
+        h.model.searchText = "quiet"
+        await h.model.settle()
+        #expect(h.model.prompt == .unsavedChanges)
+        await h.model.resolveUnsaved(.discard)
+        #expect(h.model.searchText == "quiet")
+        #expect(h.titles == ["Quiet Rivers"])
+    }
+
+    /// A24: a library is not chosen while a question is waiting.
+    @Test func aLibraryIsNotChosenWhileAQuestionIsWaiting() async throws {
+        let h = try await Harness.demo()
+        let other = try await Harness.demo(start: false)
+        let id = try h.id("Salt Road")
+        h.model.requestRemove([id])
+        #expect(!h.model.canChooseLibrary)
+
+        await h.model.chooseLibrary(other.root)
+        #expect(h.model.status == .available(h.root))
+        #expect(h.model.alert == "Answer the question in the VoxCarrel window first, then choose the library folder again.")
+        #expect(h.model.prompt == .removeBooks(ids: [id], titles: ["Salt Road"]))
+        h.model.prompt = nil
+        #expect(h.model.canChooseLibrary)
+    }
+
+    /// A24, A1: opening a library leaves nothing of the one before: no question, no
+    /// message, no result and no import under review.
+    @Test func openingALibraryForgetsQuestionsAndMessages() async throws {
+        let h = try await Harness.demo()
+        let id = try h.id("Salt Road")
+        await h.model.beginImport([try Harness.inbox()])
+        #expect(h.model.review != nil)
+        h.model.requestRemove([id])
+        h.model.alert = "Something about the old library."
+        h.model.result = ResultSummary(headline: "Old", problems: [], isClean: false)
+
+        await h.model.start()
+        #expect(h.model.prompt == nil)
+        #expect(h.model.alert == nil)
+        #expect(h.model.result == nil)
+        #expect(h.model.review == nil)
+        #expect(h.model.pending == nil)
+
+        // An answer to the question that is gone does nothing.
+        await h.model.confirmRemove(moveFilesToTrash: false)
+        #expect(try h.store().book(id: id) != nil)
+    }
+
+    /// A24: "use this folder" is an answer only to the question that was asked.
+    @Test func usingAFolderNeedsItsQuestion() async throws {
+        let h = try await Harness.demo()
+        let folder = try makeTempDir()
+        try touch(folder.appendingPathComponent("notes.txt"))
+        await h.model.confirmChooseLibrary(folder)
+        #expect(h.model.status == .available(h.root))
+        await h.model.chooseLibrary(folder)
+        await h.model.confirmChooseLibrary(try makeTempDir())
+        #expect(h.model.status == .available(h.root))
+        await h.model.confirmChooseLibrary(folder)
+        #expect(h.model.status == .available(folder))
     }
 }

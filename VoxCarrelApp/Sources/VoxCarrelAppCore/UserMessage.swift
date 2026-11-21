@@ -38,7 +38,11 @@ public enum UserMessage {
         case let error as CollectionError: text(for: error)
         case let error as MetadataIOError: text(for: error)
         case let error as OrganiserError: text(for: error)
-        default: error.localizedDescription
+        default:
+            // The database's own errors are written for programmers.
+            LibraryStore.isDatabaseError(error)
+                ? "The library's database could not be read. It may be damaged, or not a VoxCarrel library."
+                : error.localizedDescription
         }
     }
 

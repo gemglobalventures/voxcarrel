@@ -193,7 +193,7 @@ extension AppModel {
         guard busyLabel == nil, worker != nil else { return }
         let books = rows.filter { ids.contains($0.id) }
         guard !books.isEmpty else { return }
-        storedPrompt = .removeBooks(ids: books.map(\.id), titles: books.map(\.book.title))
+        raise(.removeBooks(ids: books.map(\.id), titles: books.map(\.book.title)))
     }
 
     /// A15: the answer to `.removeBooks`. The files go to the Trash, or stay where they are.
