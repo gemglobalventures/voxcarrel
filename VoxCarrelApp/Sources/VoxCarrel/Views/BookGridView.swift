@@ -70,6 +70,14 @@ struct BookGridView: View {
                     model.openSelection()
                     return .handled
                 }
+                // G5: Delete and ⌘⌫, only while the grid has the keys.
+                .onKeyPress(keys: [.delete, .deleteForward]) { _ in
+                    model.requestRemoveSelection()
+                    return .handled
+                }
+                .onDeleteCommand {
+                    model.requestRemoveSelection()
+                }
                 .onCommand(#selector(NSResponder.selectAll(_:))) {
                     model.selectAll()
                 }

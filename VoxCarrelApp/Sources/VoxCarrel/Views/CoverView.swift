@@ -109,23 +109,40 @@ struct CoverPlaceholder: View {
 }
 
 /// A cover that is not a file of the library: one chosen and not yet saved, or one found
-/// in a file that is about to be imported. Drawn from its data.
+/// in a file that is about to be imported. Shrunk from its data off the main thread, and
+/// kept in memory, by `CoverThumbnails`.
 struct DataCover: View, Equatable {
     let data: Data
+    /// The longest side it is shown at, in points.
+    let maxSide: CGFloat
     let cornerRadius: CGFloat
 
+    @Environment(\.displayScale) private var displayScale
+    @State private var loaded: (key: CoverThumbnails.DataRequest, image: CGImage?)?
+
+    nonisolated static func == (a: DataCover, b: DataCover) -> Bool {
+        a.maxSide == b.maxSide && a.cornerRadius == b.cornerRadius && a.data == b.data
+    }
+
     var body: some View {
+        let request = CoverThumbnails.DataRequest(data: data, maxPixel: Int((maxSide * displayScale).rounded(.up)))
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .clipShape(shape)
-                .overlay(shape.strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
-        } else {
-            shape.fill(.quaternary)
-                .aspectRatio(CoverPlaceholder.aspectRatio, contentMode: .fit)
+        Group {
+            if let image = loaded?.key == request ? loaded?.image : CoverThumbnails.shared.cached(request) {
+                Image(decorative: image, scale: displayScale)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
+            } else {
+                shape.fill(.quaternary)
+                    .aspectRatio(CoverPlaceholder.aspectRatio, contentMode: .fit)
+            }
+        }
+        .task(id: request) {
+            let image = await CoverThumbnails.shared.image(for: request)
+            if !Task.isCancelled { loaded = (request, image) }
         }
     }
 }

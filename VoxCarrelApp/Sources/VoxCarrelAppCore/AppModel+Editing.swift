@@ -155,6 +155,24 @@ extension AppModel {
         }
     }
 
+    /// A12, X1: files dropped on the inspector's cover. One picture file becomes the
+    /// draft's cover; anything else (a book, a folder, several files) is imported, as
+    /// if it had been dropped anywhere else on the window.
+    public func dropOnCover(_ urls: [URL]) async {
+        let files = urls.filter(\.isFileURL)
+        guard let first = files.first else { return }
+        if files.count == 1, Self.isImageFile(first) {
+            await setCover(from: first)
+        } else {
+            await beginImport(files)
+        }
+    }
+
+    /// Whether the file's name says it is a picture.
+    static func isImageFile(_ url: URL) -> Bool {
+        UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) ?? false
+    }
+
     private enum CoverFile: Sendable {
         case unreadable, tooLarge
         case read(Data)
@@ -254,6 +272,11 @@ extension AppModel {
             .removeBooks(
                 ids: books.map(\.id), titles: books.map(\.book.title),
                 outsideFiles: books.flatMap(\.outsideFiles)))
+    }
+
+    /// A15: asks whether to remove the selected books: for Delete in the grid or the list.
+    public func requestRemoveSelection() {
+        requestRemove(selection)
     }
 
     /// A15: the answer to `.removeBooks`. The files go to the Trash, or stay where they are.

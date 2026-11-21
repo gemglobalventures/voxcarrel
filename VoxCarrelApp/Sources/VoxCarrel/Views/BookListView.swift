@@ -10,50 +10,65 @@ struct BookListView: View {
     var body: some View {
         @Bindable var model = model
 
-        Table(model.rows, selection: selection, sortOrder: $model.tableSortOrder) {
-            TableColumn("Title", value: \.titleSortKey) { row in
-                TitleCell(row: row)
+        ScrollViewReader { scroller in
+            Table(model.rows, selection: selection, sortOrder: $model.tableSortOrder) {
+                TableColumn("Title", value: \.titleSortKey) { row in
+                    TitleCell(row: row)
+                }
+                .width(min: 160, ideal: 300)
+                TableColumn("Author", value: \.authorSortKey) { row in
+                    TextCell(text: row.authorsText)
+                }
+                .width(min: 90, ideal: 170)
+                TableColumn("Series", value: \.seriesSortKey) { row in
+                    TextCell(text: row.seriesText)
+                }
+                .width(min: 80, ideal: 170)
+                TableColumn("Formats", value: \.formatsSortKey) { row in
+                    FormatsCell(row: row)
+                }
+                .width(min: 70, ideal: 120)
+                TableColumn("Length", value: \.lengthSortKey) { row in
+                    TextCell(text: row.lengthText)
+                        .monospacedDigit()
+                }
+                .width(min: 60, ideal: 70)
+                TableColumn("Added", value: \.dateAddedSortKey) { row in
+                    Text(row.book.dateAdded, format: .dateTime.day().month(.abbreviated).year())
+                        .lineLimit(1)
+                        .foregroundStyle(.secondary)
+                }
+                .width(min: 88, ideal: 100)
+                TableColumn("Status", value: \.statusSortKey) { row in
+                    StatusCell(status: row.book.readStatus)
+                }
+                .width(min: 90, ideal: 110)
             }
-            .width(min: 160, ideal: 300)
-            TableColumn("Author", value: \.authorSortKey) { row in
-                TextCell(text: row.authorsText)
+            .contextMenu(forSelectionType: Int64.self) { ids in
+                if !ids.isEmpty {
+                    BookContextMenu(model: model, ids: ids)
+                }
+            } primaryAction: { ids in
+                // G4: a double-click, or Return.
+                model.openOne(of: ids)
             }
-            .width(min: 90, ideal: 170)
-            TableColumn("Series", value: \.seriesSortKey) { row in
-                TextCell(text: row.seriesText)
+            // G5: Delete and ⌘⌫, only while the list has the keys.
+            .onDeleteCommand {
+                model.requestRemoveSelection()
             }
-            .width(min: 80, ideal: 170)
-            TableColumn("Formats", value: \.formatsSortKey) { row in
-                FormatsCell(row: row)
+            .onKeyPress(keys: [.delete, .deleteForward]) { _ in
+                model.requestRemoveSelection()
+                return .handled
             }
-            .width(min: 70, ideal: 120)
-            TableColumn("Length", value: \.lengthSortKey) { row in
-                TextCell(text: row.lengthText)
-                    .monospacedDigit()
+            // G8: made again when the rows are a very different list; see `RowsChange`.
+            .id(model.rowsVersion)
+            .accessibilityIdentifier("books.table")
+            // A list that has been made again starts at the top: back to what is selected.
+            .onChange(of: model.rowsVersion) {
+                guard let id = model.scrollTarget else { return }
+                Task { @MainActor in scroller.scrollTo(id, anchor: .center) }
             }
-            .width(min: 60, ideal: 70)
-            TableColumn("Added", value: \.dateAddedSortKey) { row in
-                Text(row.book.dateAdded, format: .dateTime.day().month(.abbreviated).year())
-                    .lineLimit(1)
-                    .foregroundStyle(.secondary)
-            }
-            .width(min: 88, ideal: 100)
-            TableColumn("Status", value: \.statusSortKey) { row in
-                StatusCell(status: row.book.readStatus)
-            }
-            .width(min: 90, ideal: 110)
         }
-        .contextMenu(forSelectionType: Int64.self) { ids in
-            if !ids.isEmpty {
-                BookContextMenu(model: model, ids: ids)
-            }
-        } primaryAction: { ids in
-            // G4: a double-click, or Return.
-            model.openOne(of: ids)
-        }
-        // G8: made again when the rows are a very different list; see `RowsChange`.
-        .id(model.rowsVersion)
-        .accessibilityIdentifier("books.table")
     }
 
     private var selection: Binding<Set<Int64>> {

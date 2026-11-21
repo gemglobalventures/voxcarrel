@@ -32,6 +32,12 @@ struct BulkInspectorView: View {
                             .textFieldStyle(.roundedBorder)
                             .accessibilityLabel(field.title)
                             .accessibilityIdentifier("inspector.bulk.\(field.rawValue)")
+                            if let note = draft.note(for: field) {
+                                Label(note, systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                    .accessibilityIdentifier("inspector.bulk.\(field.rawValue).note")
+                            }
                         }
                     }
                 }

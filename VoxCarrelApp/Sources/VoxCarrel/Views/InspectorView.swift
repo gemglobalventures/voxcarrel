@@ -390,12 +390,12 @@ struct InspectorActions: View {
 
             Spacer()
 
+            // ⌘S belongs to File ▸ Save, which works when the inspector is hidden too.
             Button("Save") {
                 Task { await model.save() }
             }
-            .keyboardShortcut("s", modifiers: .command)
             .buttonStyle(.borderedProminent)
-            .disabled(!model.hasUnsavedChanges)
+            .disabled(!model.canSave)
             .accessibilityIdentifier("inspector.save")
         }
         .padding(.horizontal, InspectorMetrics.padding)

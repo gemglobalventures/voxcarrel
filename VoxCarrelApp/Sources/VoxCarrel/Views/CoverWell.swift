@@ -21,7 +21,7 @@ struct CoverWell: View {
             case .stored:
                 CoverView(row: row, maxSide: Self.side, cornerRadius: Self.cornerRadius)
             case .chosen(let data):
-                DataCover(data: data, cornerRadius: Self.cornerRadius)
+                DataCover(data: data, maxSide: Self.side, cornerRadius: Self.cornerRadius)
                     .equatable()
             case .none:
                 CoverPlaceholder(row: row, side: Self.side, cornerRadius: Self.cornerRadius)
@@ -56,32 +56,44 @@ struct CoverWell: View {
             .disabled(!model.canRemoveCover)
             .accessibilityIdentifier("inspector.cover.remove")
         }
-        .help("Drop an image here to change the cover, or Control-click for more.")
+        .help("Drop a JPEG or PNG image here to change the cover, or Control-click for more.")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Cover")
         .accessibilityAddTraits(.isImage)
         .accessibilityIdentifier("inspector.cover")
     }
 
-    /// Hands the first dropped thing to the model: a file, or an image's data.
+    /// Hands what was dropped to the model: files (which decides whether one of them
+    /// is a cover or they are books to import), or an image's data.
     private func take(_ providers: [NSItemProvider]) -> Bool {
         let model = model
-        guard let provider = providers.first else { return false }
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                guard let url, url.isFileURL else { return }
-                Task { @MainActor in await model.setCover(from: url) }
+        let files = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        if !files.isEmpty {
+            Task { @MainActor in
+                var urls: [URL] = []
+                for provider in files {
+                    if let url = await Self.fileURL(from: provider) { urls.append(url) }
+                }
+                await model.dropOnCover(urls)
             }
             return true
         }
         let types: [UTType] = [.png, .jpeg, .image]
-        guard let type = types.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) }) else {
-            return false
-        }
+        guard let provider = providers.first,
+              let type = types.first(where: { provider.hasItemConformingToTypeIdentifier($0.identifier) })
+        else { return false }
         _ = provider.loadDataRepresentation(forTypeIdentifier: type.identifier) { data, _ in
             guard let data else { return }
             Task { @MainActor in model.setCover(data: data) }
         }
         return true
+    }
+
+    private static func fileURL(from provider: NSItemProvider) async -> URL? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                continuation.resume(returning: url)
+            }
+        }
     }
 }

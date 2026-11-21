@@ -113,9 +113,11 @@ private struct Questions: ViewModifier {
                     Task { await model.confirmRemove(moveFilesToTrash: false) }
                 }
                 .accessibilityIdentifier("prompt.remove.libraryOnly")
+                // Return is Cancel: sending files to the Trash takes a deliberate click.
                 Button("Cancel", role: .cancel) {
                     model.prompt = nil
                 }
+                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("prompt.remove.cancel")
             } message: {
                 Text(model.prompt?.message ?? "")

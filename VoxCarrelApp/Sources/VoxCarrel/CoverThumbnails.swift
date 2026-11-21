@@ -60,6 +60,75 @@ final class CoverThumbnails {
         return image
     }
 
+    // MARK: Covers that are data, not files
+
+    /// One cover held as data, at one size. Named by how long the data is and a sample
+    /// of it, so that telling two apart does not mean reading megabytes.
+    struct DataRequest: Hashable, Sendable {
+        let data: Data
+        let maxPixel: Int
+        private let sample: Int
+
+        init(data: Data, maxPixel: Int) {
+            self.data = data
+            self.maxPixel = maxPixel
+            var hasher = Hasher()
+            hasher.combine(data.count)
+            // The start of every JPEG is alike: the middle and the end are sampled too.
+            let step = max(1, data.count / 64)
+            for offset in stride(from: 0, to: data.count, by: step) { hasher.combine(data[data.startIndex + offset]) }
+            hasher.combine(data.suffix(256))
+            sample = hasher.finalize()
+        }
+
+        static func == (a: DataRequest, b: DataRequest) -> Bool {
+            a.maxPixel == b.maxPixel && a.sample == b.sample && a.data.count == b.data.count
+        }
+
+        func hash(into hasher: inout Hasher) {
+            hasher.combine(maxPixel)
+            hasher.combine(sample)
+        }
+
+        fileprivate var key: NSString { "data|\(data.count)|\(sample)|\(maxPixel)" as NSString }
+    }
+
+    private var loadingData: [DataRequest: Task<CGImage?, Never>] = [:]
+
+    func cached(_ request: DataRequest) -> CGImage? {
+        cache.object(forKey: request.key)?.image
+    }
+
+    /// The cover, shrunk off the main thread if it is not in memory; nil when the data is not an image.
+    func image(for request: DataRequest) async -> CGImage? {
+        if let image = cached(request) { return image }
+        if let task = loadingData[request] { return await task.value }
+        let task = Task.detached(priority: .userInitiated) {
+            let options = [kCGImageSourceShouldCache: false] as CFDictionary
+            return CGImageSourceCreateWithData(request.data as CFData, options).flatMap {
+                Self.thumbnail(of: $0, maxPixel: request.maxPixel)
+            }
+        }
+        loadingData[request] = task
+        let image = await task.value
+        loadingData[request] = nil
+        if let image {
+            cache.setObject(Entry(image), forKey: request.key, cost: image.bytesPerRow * image.height)
+        }
+        return image
+    }
+
+    private nonisolated static func thumbnail(of source: CGImageSource, maxPixel: Int) -> CGImage? {
+        let options =
+            [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel),
+            ] as CFDictionary
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
+
     /// Reads the file and makes a decoded image no longer than `maxPixel` on either side.
     private nonisolated static func shrink(_ request: Request) -> CGImage? {
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary

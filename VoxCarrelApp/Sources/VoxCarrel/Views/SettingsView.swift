@@ -4,6 +4,7 @@ import VoxCarrelAppCore
 /// V7
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var model = model
@@ -38,6 +39,14 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // A question or a message is shown by the main window: it comes in front of this one.
+        .onChange(of: model.wantsToBeSeen) { _, wanted in
+            if wanted { openWindow(id: "main") }
+        }
+        .onAppear {
+            let openWindow = openWindow
+            if MainWindow.open == nil { MainWindow.open = { openWindow(id: "main") } }
+        }
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
     }

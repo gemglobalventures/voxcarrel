@@ -379,6 +379,48 @@ import VoxCarrelFixtures
         #expect(!h.model.hasUnsavedChanges)
     }
 
+    /// A12, X1: what is dropped on the cover is a cover only when it is one picture file;
+    /// anything else dropped there is an import, as it would be anywhere else on the window.
+    @Test func onlyAPictureDroppedOnTheCoverIsACover() async throws {
+        let h = try await Harness.demo()
+        try await h.select("Salt Road")
+        let folder = try makeTempDir()
+        let picture = folder.appendingPathComponent("cover.png")
+        try png.write(to: picture)
+        await h.model.dropOnCover([picture])
+        #expect(h.draft?.cover == .set(CoverImage(data: png, mime: "image/png")))
+        #expect(h.model.review == nil)
+
+        h.model.discardChanges()
+        let inbox = try Harness.inbox()
+        await h.model.dropOnCover([inbox.appendingPathComponent("Night Train to Vostok")])
+        #expect(h.draft?.cover == .keep)
+        #expect(h.model.alert == nil)
+        #expect(h.model.review?.entries.map(\.candidate.metadata.title) == ["Night Train to Vostok"])
+        h.model.cancelImport()
+
+        await h.model.dropOnCover([inbox.appendingPathComponent("Quiet Rivers.epub"), picture])
+        #expect(h.draft?.cover == .keep)
+        #expect(h.model.review?.entries.count == 1)
+        h.model.cancelImport()
+
+        await h.model.dropOnCover([])
+        await h.model.dropOnCover([URL(string: "https://example.com/cover.png")!])
+        #expect(h.model.review == nil)
+        #expect(h.model.alert == nil)
+    }
+
+    /// A15: Delete in the grid or the list asks about the selected books.
+    @Test func deleteAsksAboutTheSelection() async throws {
+        let h = try await Harness.demo()
+        h.model.requestRemoveSelection()
+        #expect(h.model.prompt == nil)
+        let ids = try await h.select(["Salt Road", "Quiet Rivers"])
+        h.model.requestRemoveSelection()
+        guard case .removeBooks(let asked, _, _) = try #require(h.model.prompt) else { return }
+        #expect(Set(asked) == ids)
+    }
+
     /// A12: image data, as dropped or pasted, follows the same rule.
     @Test func coverDataFollowsTheSameRule() async throws {
         let h = try await Harness.demo()

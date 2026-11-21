@@ -1,9 +1,18 @@
+import AppKit
 import SwiftUI
 import VoxCarrelAppCore
 
 @main
 struct VoxCarrelApp: App {
-    @State private var model = AppModel(location: LibraryLocation(), opener: SystemFileOpener())
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var model: AppModel
+
+    init() {
+        let model = AppModel(location: LibraryLocation(), opener: SystemFileOpener())
+        _model = State(initialValue: model)
+        // The delegate is made by the system; this is how it is given the model.
+        AppDelegate.model = model
+    }
 
     var body: some Scene {
         // One window on the one model: a second would show the same selection and edits.
@@ -30,6 +39,7 @@ struct AppCommands: Commands {
         // The standard Undo and Redo stay: they belong to whatever text field is being typed in.
         CommandGroup(after: .undoRedo) { UndoCommand(model: model) }
         CommandGroup(replacing: .newItem) { ImportCommand(model: model) }
+        CommandGroup(replacing: .saveItem) { SaveCommand(model: model) }
         CommandGroup(before: .toolbar) { ViewModeCommands(model: model) }
         SidebarCommands()
         InspectorCommands()
@@ -48,6 +58,20 @@ private struct UndoCommand: View {
         .keyboardShortcut("z", modifiers: [.command, .option])
         .disabled(!model.canUndo)
         .accessibilityIdentifier("menu.edit.undo")
+    }
+}
+
+/// File ▸ Save: saves the inspector's draft, whether or not the inspector is showing.
+private struct SaveCommand: View {
+    let model: AppModel
+
+    var body: some View {
+        Button("Save") {
+            Task { await model.save() }
+        }
+        .keyboardShortcut("s", modifiers: .command)
+        .disabled(!model.canSave)
+        .accessibilityIdentifier("menu.file.save")
     }
 }
 
@@ -81,5 +105,48 @@ private struct ViewModeCommands: View {
     /// Choosing an item switches to its mode; choosing the one in use changes nothing.
     private func isMode(_ mode: ViewMode) -> Binding<Bool> {
         Binding(get: { model.viewMode == mode }, set: { _ in model.viewMode = mode })
+    }
+}
+
+/// How the main window is brought in front of the user from outside it: by the Settings
+/// window when the model has a question, and when the app is asked to quit.
+@MainActor
+enum MainWindow {
+    /// Opens the window, or brings it forward when it is open. Set by the windows' views.
+    static var open: (() -> Void)?
+
+    static func show() {
+        NSApp.activate()
+        open?()
+    }
+}
+
+/// Asks the model before the app quits.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    static var model: AppModel?
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let model = Self.model else { return .terminateNow }
+        let answer = model.requestQuit { quit in
+            NSApp.reply(toApplicationShouldTerminate: quit)
+        }
+        switch answer {
+        case .now:
+            return .terminateNow
+        case .later:
+            // The question is the window's to show.
+            MainWindow.show()
+            return .terminateLater
+        case .cancel:
+            MainWindow.show()
+            return .terminateCancel
+        }
+    }
+
+    /// With unsaved changes the app stays open when its window is closed, so that they
+    /// are still there when the window is opened again.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !(Self.model?.hasUnsavedChanges ?? false)
     }
 }

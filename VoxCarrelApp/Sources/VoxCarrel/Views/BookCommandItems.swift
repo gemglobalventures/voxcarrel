@@ -57,6 +57,14 @@ struct BookCommandItems: View {
         .disabled(!applies.addToCollection)
         .accessibilityIdentifier("\(prefix).addToCollection")
 
+        if let title = model.removeFromCollectionTitle {
+            Button(title) {
+                Task { await model.removeFromShownCollection(books) }
+            }
+            .disabled(!applies.removeFromCollection)
+            .accessibilityIdentifier("\(prefix).removeFromCollection")
+        }
+
         Button("Rewrite Tags") {
             Task { await model.rewriteTags(for: books) }
         }
@@ -65,8 +73,9 @@ struct BookCommandItems: View {
 
         Divider()
 
+        // No key of its own here: ⌘⌫ in a menu would take it from a text field that is
+        // being typed in. The grid and the list answer Delete themselves.
         Button("Remove…") { model.requestRemove(books) }
-            .keyboardShortcut(shortcut(.delete, .command))
             .disabled(!applies.remove)
             .accessibilityIdentifier("\(prefix).remove")
     }

@@ -5,6 +5,7 @@ import VoxCarrelAppCore
 /// The window: the welcome panel, the library-not-available panel, or the library.
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
@@ -32,6 +33,10 @@ struct RootView: View {
             }
         }
         .modifier(Dialogs())
+        .onAppear {
+            let openWindow = openWindow
+            MainWindow.open = { openWindow(id: "main") }
+        }
     }
 }
 

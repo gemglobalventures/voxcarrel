@@ -172,7 +172,7 @@ private struct EntryCover: View {
 
     var body: some View {
         if let cover = entry.cover {
-            DataCover(data: cover.data, cornerRadius: cornerRadius)
+            DataCover(data: cover.data, maxSide: side, cornerRadius: cornerRadius)
                 .equatable()
                 .accessibilityHidden(true)
         } else {
