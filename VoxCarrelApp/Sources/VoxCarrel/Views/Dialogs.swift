@@ -146,7 +146,7 @@ private struct Questions: ViewModifier {
     }
 
     private var folderWithFiles: URL? {
-        if case .chooseFolderWithFiles(let folder, _) = model.prompt { folder } else { nil }
+        if case .chooseFolderWithFiles(let folder, _, _) = model.prompt { folder } else { nil }
     }
 
     /// A question is closed by its buttons, each of which answers the model. The dialog

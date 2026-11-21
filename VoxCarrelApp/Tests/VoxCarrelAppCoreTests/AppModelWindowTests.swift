@@ -271,13 +271,23 @@ import VoxCarrelFixtures
 
     @Test func aFolderWithFilesSaysWhatWillHappenToThem() {
         let folder = URL(fileURLWithPath: "/tmp/Old Books", isDirectory: true)
-        let one = PendingPrompt.chooseFolderWithFiles(folder, count: 1)
+        let one = PendingPrompt.chooseFolderWithFiles(folder, count: 1, bookFiles: 1)
         #expect(one.title == "Use \"Old Books\" as your library?")
         #expect(
             one.message
-                == "This folder already holds 1 item. VoxCarrel will offer to file the audiobooks and ebooks it finds there."
+                == "This folder already holds 1 item, including 1 audiobook or ebook file. "
+                + "VoxCarrel will list those files when the library opens and, only if you then choose Import, "
+                + "move and rename them into its own layout. To keep them as they are, choose an empty folder "
+                + "instead and import with Copy."
         )
-        let several = PendingPrompt.chooseFolderWithFiles(folder, count: 14)
-        #expect(several.message.hasPrefix("This folder already holds 14 items. "))
+        let several = PendingPrompt.chooseFolderWithFiles(folder, count: 14, bookFiles: 230)
+        #expect(several.message.hasPrefix("This folder already holds 14 items, including 230 audiobook and ebook files. "))
+        let many = PendingPrompt.chooseFolderWithFiles(folder, count: 14, bookFiles: 1001)
+        #expect(many.message.contains("including more than 1,000 audiobook and ebook files"))
+        let none = PendingPrompt.chooseFolderWithFiles(folder, count: 2, bookFiles: 0)
+        #expect(
+            none.message
+                == "This folder already holds 2 items, none of them audiobooks or ebooks. They will be left as they "
+                + "are. An empty folder just for your library is the tidier choice.")
     }
 }

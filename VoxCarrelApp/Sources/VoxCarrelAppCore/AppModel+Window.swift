@@ -225,7 +225,7 @@ extension PendingPrompt {
             guard titles.count == 1 else { return "Remove \(titles.count) books from the library?" }
             guard let title = titles[0].trimmedOrNil else { return "Remove this book from the library?" }
             return "Remove \"\(title)\" from the library?"
-        case .chooseFolderWithFiles(let folder, _):
+        case .chooseFolderWithFiles(let folder, _, _):
             return "Use \"\(folder.lastPathComponent)\" as your library?"
         }
     }
@@ -237,10 +237,21 @@ extension PendingPrompt {
             return "Your changes will be lost if you do not save them."
         case .removeBooks:
             return "You can move the files to the Trash as well, or leave them where they are."
-        case .chooseFolderWithFiles(_, let count):
+        case .chooseFolderWithFiles(_, let count, let bookFiles):
             let items = count == 1 ? "1 item" : "\(count) items"
-            return
-                "This folder already holds \(items). VoxCarrel will offer to file the audiobooks and ebooks it finds there."
+            guard bookFiles > 0 else {
+                return "This folder already holds \(items), none of them audiobooks or ebooks. They will be left "
+                    + "as they are. An empty folder just for your library is the tidier choice."
+            }
+            let files: String
+            if bookFiles > LibraryLocation.bookFileLimit {
+                files = "more than \(LibraryLocation.bookFileLimit.formatted(.number.locale(Locale(identifier: "en_US")))) audiobook and ebook files"
+            } else {
+                files = bookFiles == 1 ? "1 audiobook or ebook file" : "\(bookFiles) audiobook and ebook files"
+            }
+            return "This folder already holds \(items), including \(files). VoxCarrel will list those files when "
+                + "the library opens and, only if you then choose Import, move and rename them into its own "
+                + "layout. To keep them as they are, choose an empty folder instead and import with Copy."
         }
     }
 }

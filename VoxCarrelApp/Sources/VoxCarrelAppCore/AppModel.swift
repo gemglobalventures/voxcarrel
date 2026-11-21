@@ -20,7 +20,7 @@ public enum PendingPrompt: Equatable {
     /// Answered with `AppModel.confirmRemove`, or dismissed by setting `prompt` to nil.
     case removeBooks(ids: [Int64], titles: [String])
     /// Answered with `AppModel.confirmChooseLibrary`, or dismissed by setting `prompt` to nil.
-    case chooseFolderWithFiles(URL, count: Int)
+    case chooseFolderWithFiles(URL, count: Int, bookFiles: Int)
 }
 
 public enum UnsavedChoice: Sendable {
@@ -40,6 +40,8 @@ public final class AppModel {
     @ObservationIgnored let location: LibraryLocation
     @ObservationIgnored let opener: FileOpener
     @ObservationIgnored let defaults: UserDefaults
+    /// The folders that may not be made a library. Another set is given by tests.
+    @ObservationIgnored var places = ProtectedPlaces.system
     /// Nil until a library is open.
     @ObservationIgnored var worker: LibraryWorker? {
         didSet { isLibraryOpen = worker != nil }
@@ -103,11 +105,11 @@ public final class AppModel {
             ask(about: .library(folder))
             return
         }
-        switch LibraryLocation.inspect(folder) {
+        switch LibraryLocation.inspect(folder, places: places) {
         case .existingLibrary, .empty:
             await adopt(folder)
-        case .hasOtherFiles(let count):
-            storedPrompt = .chooseFolderWithFiles(folder, count: count)
+        case .hasOtherFiles(let count, let bookFiles):
+            storedPrompt = .chooseFolderWithFiles(folder, count: count, bookFiles: bookFiles)
         case .notUsable(let why):
             alert = why
         }
@@ -117,7 +119,7 @@ public final class AppModel {
     public func confirmChooseLibrary(_ folder: URL) async {
         guard busyLabel == nil else { return }
         if case .chooseFolderWithFiles = storedPrompt { storedPrompt = nil }
-        if case .notUsable(let why) = LibraryLocation.inspect(folder) {
+        if case .notUsable(let why) = LibraryLocation.inspect(folder, places: places) {
             alert = why
             return
         }

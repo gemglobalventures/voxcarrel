@@ -174,7 +174,7 @@ import VoxCarrelFixtures
         try touch(folder.appendingPathComponent("more.txt"))
 
         await h.model.chooseLibrary(folder)
-        #expect(h.model.prompt == .chooseFolderWithFiles(folder, count: 2))
+        #expect(h.model.prompt == .chooseFolderWithFiles(folder, count: 2, bookFiles: 0))
         #expect(h.model.status == .available(h.root))
         #expect(h.model.rows.count == 12)
         #expect(!exists(folder.appendingPathComponent(LibraryStore.databaseFileName)))
@@ -193,6 +193,29 @@ import VoxCarrelFixtures
         await h.model.chooseLibrary(file)
         #expect(h.model.alert == "\"a file.txt\" is not a folder.")
         #expect(h.model.prompt == nil)
+        #expect(h.model.status == .available(h.root))
+        #expect(h.model.rows.count == 12)
+    }
+
+    /// A3: a folder that must not become a library is refused in words, and nothing changes.
+    @Test func aFolderInsideALibraryOrAProtectedPlaceCannotBeChosen() async throws {
+        let h = try await Harness.demo()
+        let other = try await Harness.demo(start: false)
+        let inner = other.root.appendingPathComponent("Amara Okafor", isDirectory: true)
+        await h.model.chooseLibrary(inner)
+        #expect(h.model.alert?.contains("inside the VoxCarrel library") == true)
+        #expect(h.model.prompt == nil)
+        #expect(h.model.status == .available(h.root))
+        #expect(!exists(inner.appendingPathComponent(LibraryStore.databaseFileName)))
+
+        h.model.alert = nil
+        let home = try makeTempDir()
+        try touch(home.appendingPathComponent("Documents/report.pdf"))
+        h.model.places = ProtectedPlaces(home: home, systemFolders: [], isVolumeRoot: { _ in false })
+        await h.model.chooseLibrary(home)
+        #expect(h.model.alert?.contains("home folder") == true)
+        // Nor by answering a question asked before.
+        await h.model.confirmChooseLibrary(home.appendingPathComponent("Documents"))
         #expect(h.model.status == .available(h.root))
         #expect(h.model.rows.count == 12)
     }
