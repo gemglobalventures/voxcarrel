@@ -224,7 +224,7 @@ extension LibraryService {
     /// True when the recorded batch changed this book or moved one of its files. A batch
     /// whose undo data cannot be read says nothing about which books it changed (and can
     /// never be undone, see `undoLast`): only its moves are looked at.
-    private func lastBatchInvolves(bookId: Int64, files: [URL]) throws -> Bool {
+    func lastBatchInvolves(bookId: Int64, files: [URL]) throws -> Bool {
         guard let batch = try store.lastBatch() else { return false }
         if let data = batch.snapshot, let snapshot = OperationSnapshot.usable(from: data),
            snapshot.books.contains(where: { $0.bookId == bookId }) {
@@ -271,18 +271,16 @@ extension LibraryService {
         var newlyFlagged: [Int64] = []
         for book in books.sorted(by: { ($0.id ?? 0) < ($1.id ?? 0) }) {
             guard let id = book.id else { continue }
-            var missing = false
-            for row in rowsByBook[id] ?? [] {
-                let url = store.url(for: row)
-                tracked.insert(Self.comparablePath(url))
-                if !fm.fileExists(atPath: url.path) { missing = true }
-            }
-            if missing {
+            let urls = (rowsByBook[id] ?? []).map { store.url(for: $0) }
+            for url in urls { tracked.insert(Self.comparablePath(url)) }
+            switch fileCheck(of: book, files: urls) {
+            case .missing(let newly):
                 report.booksWithMissingFiles.append(id)
-                if !book.needsAttention { newlyFlagged.append(id) }
-            } else if book.needsAttention, book.folderPath != nil,
-                      PathBuilder.bookFolder(metadata: book.metadata) != nil {
+                if newly { newlyFlagged.append(id) }
+            case .recovered:
                 recovered.append(id)
+            case .asItWas:
+                break
             }
         }
         report.booksRecovered = recovered
@@ -325,6 +323,34 @@ extension LibraryService {
         report.untrackedFiles.sort { $0.path < $1.path }
         report.strandedFiles.sort { $0.path < $1.path }
         return report
+    }
+
+    /// What the launch check finds for one book.
+    enum FileCheck: Equatable {
+        /// At least one file is missing. `newlyFlagged` when the book was not flagged yet.
+        case missing(newlyFlagged: Bool)
+        /// Every file is present and the book was flagged only because one was missing:
+        /// the flag can be cleared.
+        case recovered
+        /// Every file is present, and the flag (set or not) stays as it is.
+        case asItWas
+    }
+
+    /// R1, R2 for one book, by whether its files exist: none is opened.
+    ///
+    /// A flagged book counts as flagged only for missing files when it is filed and can
+    /// still be filed; one that was never filed, or no longer can be, stays flagged.
+    /// - Parameter urls: Where each of the book's files is recorded to be.
+    func fileCheck(of book: Book, files urls: [URL]) -> FileCheck {
+        let fm = FileManager.default
+        if urls.contains(where: { !fm.fileExists(atPath: $0.path) }) {
+            return .missing(newlyFlagged: !book.needsAttention)
+        }
+        if book.needsAttention, book.folderPath != nil,
+           PathBuilder.bookFolder(metadata: book.metadata) != nil {
+            return .recovered
+        }
+        return .asItWas
     }
 
     private static let uuidPattern = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"

@@ -122,4 +122,7 @@ public enum LibraryError: Error, Equatable {
     /// library and where it came from, as "<where it is> (from <where it was>)". Nothing
     /// in the database refers to them.
     case rollbackIncomplete(cause: String, stranded: [String])
+    /// A missing file could not be replaced by the chosen one. The text says why.
+    /// Nothing was changed.
+    case cannotLocate(String)
 }

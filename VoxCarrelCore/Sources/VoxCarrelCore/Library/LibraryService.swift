@@ -484,6 +484,7 @@ public final class LibraryService {
             case .rollbackIncomplete(let cause, let stranded):
                 return "The change could not be saved (\(cause)), and some files could not be put back: "
                     + stranded.joined(separator: "; ")
+            case .cannotLocate(let reason): return "The file could not be put back: \(reason)"
             }
         default:
             return error.localizedDescription

@@ -315,6 +315,30 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// Gives a collection a new name, without the spaces around it.
+    ///
+    /// - Throws: `CollectionError.blankName` when nothing is left of the name, and
+    ///   `CollectionError.notFound` when no collection has that id; a database error when
+    ///   another collection already has the name. Nothing is changed then.
+    public func renameCollection(id: Int64, to name: String) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw CollectionError.blankName }
+        try dbQueue.write { db in
+            guard var collection = try BookCollection.fetchOne(db, key: id) else {
+                throw CollectionError.notFound(id)
+            }
+            collection.name = trimmed
+            try collection.update(db)
+        }
+    }
+
+    /// Removes the collection and its memberships. The books themselves are untouched.
+    /// An id no collection has does nothing.
+    public func deleteCollection(id: Int64) throws {
+        // Memberships go with their collection by cascade.
+        _ = try dbQueue.write { db in try BookCollection.deleteOne(db, key: id) }
+    }
+
     public func add(bookId: Int64, toCollection collectionId: Int64) throws {
         try dbQueue.write { db in
             try db.execute(
@@ -341,6 +365,14 @@ public final class LibraryStore: Sendable {
                 """, arguments: [collectionId])
         }
     }
+}
+
+/// Why a collection could not be changed.
+public enum CollectionError: Error, Equatable {
+    /// A collection's name must have something in it besides spaces.
+    case blankName
+    /// No collection has this id.
+    case notFound(Int64)
 }
 
 /// One undoable batch of file transfers.
