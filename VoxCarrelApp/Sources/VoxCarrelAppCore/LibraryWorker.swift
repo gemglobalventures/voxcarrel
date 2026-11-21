@@ -155,16 +155,10 @@ public actor LibraryWorker {
             do {
                 try service.removeBook(id: id, moveFilesToTrash: moveFilesToTrash)
             } catch {
-                failures.append((id, Self.removalReason(error)))
+                failures.append((id, UserMessage.text(for: error)))
             }
         }
         return failures
-    }
-
-    /// Why a book could not be removed, as a sentence.
-    private static func removalReason(_ error: Error) -> String {
-        if case LibraryError.bookNotFound = error { return "That book is not in the library." }
-        return error.localizedDescription
     }
 
     public func locateFile(fileId: Int64, at url: URL) throws {
