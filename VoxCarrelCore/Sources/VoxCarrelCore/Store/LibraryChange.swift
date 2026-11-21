@@ -47,6 +47,18 @@ extension LibraryStore {
     /// all is changed.
     @discardableResult
     public func apply(_ change: LibraryChange) throws -> (books: [Book], batchId: Int64?) {
+        try apply(change, snapshot: nil)
+    }
+
+    /// As `apply(_:)`, for a caller whose undo data must name books that this very change
+    /// creates. When the change records a batch and `snapshot` is given, it is called inside
+    /// the transaction with the written books (ids assigned, in the order of `writes`) and
+    /// its result is stored as the batch's snapshot in place of `change.batch.snapshot`.
+    /// If it throws, nothing is changed.
+    @discardableResult
+    func apply(
+        _ change: LibraryChange, snapshot makeSnapshot: (([Book]) throws -> Data?)?
+    ) throws -> (books: [Book], batchId: Int64?) {
         try dbQueue.write { db in
             if !change.deletedBookIds.isEmpty {
                 try Book.deleteAll(db, keys: change.deletedBookIds)
@@ -71,8 +83,9 @@ extension LibraryStore {
 
             var batchId: Int64?
             if let batch = change.batch {
+                let snapshot = try makeSnapshot.map { try $0(books) } ?? batch.snapshot
                 batchId = try Self.replaceJournal(
-                    db, label: batch.label, moves: batch.moves, snapshot: batch.snapshot)
+                    db, label: batch.label, moves: batch.moves, snapshot: snapshot)
             } else if change.clearsJournal {
                 try Self.clearJournal(db)
             }
