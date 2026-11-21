@@ -116,6 +116,7 @@ public final class LibraryStore: Sendable {
             var book = book
             try book.insert(db)
             for var file in files {
+                file.id = nil
                 file.bookId = book.id
                 try file.insert(db)
             }
@@ -162,10 +163,14 @@ public final class LibraryStore: Sendable {
     }
 
     /// Books whose title, authors, narrators, series or tags contain words
-    /// starting with every word of `text`. Blank text returns all books.
+    /// starting with every word of `text`. Blank text returns all books; text
+    /// with nothing searchable in it (only punctuation, say) returns none.
     public func search(_ text: String) throws -> [Book] {
-        guard let pattern = FTS5Pattern(matchingAllPrefixesIn: text) else {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return try books()
+        }
+        guard let pattern = FTS5Pattern(matchingAllPrefixesIn: text) else {
+            return []
         }
         return try dbQueue.read { db in
             try Book.fetchAll(db, sql: """
@@ -205,6 +210,7 @@ public final class LibraryStore: Sendable {
         let sql = field.isList
             ? """
               SELECT DISTINCT j.value FROM book, json_each(book.\(column)) AS j
+              WHERE j.value <> ''
               ORDER BY j.value COLLATE NOCASE
               """
             : """

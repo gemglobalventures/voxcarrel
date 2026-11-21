@@ -272,4 +272,83 @@ import Testing
         let reopened = try LibraryStore(libraryRoot: root)
         #expect(try reopened.books().map(\.title) == ["Dune"])
     }
+
+    // MARK: Review fixes
+
+    @Test func searchMatchesTitleAndASeriesNamedDifferently() throws {
+        let store = try makeStore()
+        var hobbit = BookMetadata(title: "The Hobbit", authors: ["J.R.R. Tolkien"])
+        hobbit.series = "Middle-earth"
+        try store.insert(Book(metadata: hobbit), files: [])
+        try store.insert(Book(metadata: dune()), files: [])
+
+        #expect(try store.search("hobb").map(\.title) == ["The Hobbit"])
+        #expect(try store.search("middle").map(\.title) == ["The Hobbit"])
+        #expect(try store.search("earth hobbit").map(\.title) == ["The Hobbit"])
+    }
+
+    @Test func searchCopesWithQuotesAndPunctuation() throws {
+        let store = try makeStore()
+        try store.insert(Book(metadata: dune()), files: [])
+        try store.insert(
+            Book(metadata: BookMetadata(title: "At Swim-Two-Birds", authors: ["Flann O'Brien"])),
+            files: [])
+
+        #expect(try store.search("\"herbert\"").map(\.title) == ["Dune"])
+        #expect(try store.search("o'brien").map(\.title) == ["At Swim-Two-Birds"])
+        #expect(try store.search("swim-two").map(\.title) == ["At Swim-Two-Birds"])
+        for odd in ["\"dune", "dune*", "dune AND (", "NEAR(dune", "title:dune", "du\"ne ^", "-dune"] {
+            _ = try store.search(odd)
+        }
+    }
+
+    @Test func searchWithNoUsableTermsFindsNothingButBlankFindsEverything() throws {
+        let store = try makeStore()
+        try store.insert(Book(metadata: dune()), files: [])
+        try store.insert(Book(metadata: hailMary()), files: [])
+
+        #expect(try store.search("!!!").isEmpty)
+        #expect(try store.search(" \"* ").isEmpty)
+        #expect(try store.search("").count == 2)
+        #expect(try store.search(" \n\t ").count == 2)
+    }
+
+    @Test func searchNoLongerFindsADeletedBook() throws {
+        let store = try makeStore()
+        let book = try store.insert(Book(metadata: dune()), files: [])
+        try store.insert(Book(metadata: hailMary()), files: [])
+        #expect(try store.search("herbert").count == 1)
+
+        try store.deleteBook(id: try #require(book.id))
+
+        #expect(try store.search("herbert").isEmpty)
+        #expect(try store.search("dune").isEmpty)
+        #expect(try store.search("weir").count == 1)
+    }
+
+    @Test func distinctValuesLeaveOutEmptyNames() throws {
+        let store = try makeStore()
+        var m = BookMetadata(title: "Anthology", authors: ["", "Ursula K. Le Guin"])
+        m.narrators = [""]
+        try store.insert(Book(metadata: m), files: [])
+
+        #expect(try store.distinctValues(.authors) == ["Ursula K. Le Guin"])
+        #expect(try store.distinctValues(.narrators).isEmpty)
+    }
+
+    @Test func insertGivesFilesFreshIdsEvenWhenTheyCarryOldOnes() throws {
+        let store = try makeStore()
+        let first = try store.insert(
+            Book(metadata: dune()),
+            files: [BookFile(path: "A/T/T.epub", format: .epub, role: .ebook, position: 0)])
+        let stored = try store.files(bookId: try #require(first.id))
+
+        let second = try store.insert(Book(metadata: hailMary()), files: stored)
+
+        #expect(try store.files(bookId: try #require(first.id)).count == 1)
+        let copies = try store.files(bookId: try #require(second.id))
+        #expect(copies.map(\.path) == ["A/T/T.epub"])
+        #expect(copies.first?.id != stored.first?.id)
+    }
 }
+
