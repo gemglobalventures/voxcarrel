@@ -13,9 +13,13 @@ public actor LibraryWorker {
     private var store: LibraryStore { service.store }
 
     /// Opens (creating if new) the library at `libraryRoot`.
-    public init(libraryRoot: URL) throws {
+    ///
+    /// - Parameter trashItem: How a removed book's file is sent to the Trash; nil for
+    ///   the system's Trash. Tests give a folder of their own.
+    public init(libraryRoot: URL, trashItem: (@Sendable (URL) throws -> Void)? = nil) throws {
         self.libraryRoot = libraryRoot
-        self.service = LibraryService(store: try LibraryStore(libraryRoot: libraryRoot))
+        let store = try LibraryStore(libraryRoot: libraryRoot)
+        self.service = trashItem.map { LibraryService(store: store, trashItem: $0) } ?? LibraryService(store: store)
     }
 
     // MARK: Reading
@@ -109,7 +113,33 @@ public actor LibraryWorker {
             formats: formats,
             coverURL: cover,
             coverModified: coverModified,
-            hasWriteProblem: files.contains { $0.writeProblem != nil })
+            hasWriteProblem: files.contains { $0.writeProblem != nil },
+            // A file left where it was found is recorded by its whole path.
+            outsideFiles: files.filter { $0.path.hasPrefix("/") }.map { store.url(for: $0).path })
+    }
+
+    /// For each half-moved file, the name of the file it very likely was: the one file
+    /// of a library book that is missing from the folder it lies in, when that folder
+    /// has exactly one missing file and one half-moved file. (A file is set aside under
+    /// a hidden name in the folder it was going to, which is most often its own.)
+    public func likelyNames(ofStranded files: [URL]) throws -> [URL: String] {
+        guard !files.isEmpty else { return [:] }
+        func folder(_ url: URL) -> String {
+            url.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
+        }
+        var missing: [String: [String]] = [:]
+        for row in try store.allFiles() {
+            let url = store.url(for: row)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                missing[folder(url), default: []].append(url.lastPathComponent)
+            }
+        }
+        let stranded = Dictionary(grouping: files, by: folder)
+        var names: [URL: String] = [:]
+        for (place, here) in stranded where here.count == 1 {
+            if let gone = missing[place], gone.count == 1 { names[here[0]] = gone[0] }
+        }
+        return names
     }
 
     // MARK: Importing

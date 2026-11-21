@@ -61,8 +61,10 @@ extension AppModel {
                 heading: stranded == 1 ? "1 file was left half-moved" : "\(stranded) files were left half-moved",
                 detail: "A move was interrupted before it finished. VoxCarrel has left "
                     + (stranded == 1 ? "this file" : "these files")
-                    + " untouched; nothing was deleted.",
-                lines: fileLines(check.strandedFiles))
+                    + " untouched; nothing was deleted. "
+                    + (stranded == 1 ? "It is" : "They are")
+                    + " hidden in the Finder: press ⌘⇧. (Command-Shift-full stop) there to show hidden files.",
+                lines: strandedLines(check.strandedFiles))
         }
 
         let isEmpty = summary.missing == nil && summary.untracked == nil && summary.stranded == nil
@@ -77,6 +79,19 @@ extension AppModel {
     private func fileLines(_ urls: [URL]) -> [LibraryCheckSummary.Line] {
         urls.enumerated().map {
             LibraryCheckSummary.Line(id: $0.offset, text: placeInLibrary($0.element), url: $0.element)
+        }
+    }
+
+    /// A half-moved file has a hidden name that says nothing, so what is shown is the
+    /// folder it is in and, when it is plain what the file was, that file's name.
+    private func strandedLines(_ urls: [URL]) -> [LibraryCheckSummary.Line] {
+        urls.enumerated().map { index, url in
+            let place = placeInLibrary(url)
+            var folder = (place as NSString).deletingLastPathComponent
+            if folder.isEmpty { folder = "the library folder" }
+            var text = "A hidden file in \(folder)"
+            if let name = strandedNames[url] { text += ", probably \"\(name)\"" }
+            return LibraryCheckSummary.Line(id: index, text: text, url: url)
         }
     }
 

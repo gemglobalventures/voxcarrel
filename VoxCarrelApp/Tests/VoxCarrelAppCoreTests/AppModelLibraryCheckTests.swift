@@ -66,7 +66,10 @@ import VoxCarrelFixtures
         let half = try #require(summary.stranded)
         #expect(half.heading == "1 file was left half-moved")
         #expect(half.detail.contains("untouched"))
-        #expect(half.lines.map(\.text) == ["Ann Author/.half-moved.m4b"])
+        #expect(half.detail.contains("hidden in the Finder"))
+        #expect(half.detail.contains("⌘⇧."))
+        // A hidden name says nothing, so the folder is what is shown.
+        #expect(half.lines.map(\.text) == ["A hidden file in Ann Author"])
         #expect(half.lines.map(\.url) == [stranded])
 
         h.model.libraryCheck = ReconcileReport(untrackedFiles: [stray], strandedFiles: [stranded, deep])
@@ -74,6 +77,27 @@ import VoxCarrelFixtures
             h.model.libraryCheckSummary?.untracked?.heading
                 == "1 file in the library folder does not belong to any book")
         #expect(h.model.libraryCheckSummary?.stranded?.heading == "2 files were left half-moved")
+    }
+
+    /// Q10: a half-moved file directly in the library folder; and, where exactly one
+    /// book has a file missing from the folder the half-moved file is in, that file's
+    /// name, since that is very likely what it was.
+    @Test func aHalfMovedFileIsNamedWhenItIsPlainWhatItWas() async throws {
+        let h = try await Harness.demo(start: false)
+        let file = try #require(try h.fileURLs(try h.id("Quiet Rivers")).first)
+        let parked = file.deletingLastPathComponent()
+            .appendingPathComponent(".voxcarrel-moving-\(UUID().uuidString)")
+        try FileManager.default.moveItem(at: file, to: parked)
+        let loose = h.root.appendingPathComponent(".voxcarrel-moving-\(UUID().uuidString)")
+        try touch(loose)
+        await h.model.start()
+
+        let lines = try #require(h.model.libraryCheckSummary?.stranded?.lines)
+        #expect(Set(lines.map(\.text)) == [
+            "A hidden file in the library folder",
+            "A hidden file in Amara Okafor/Quiet Rivers, probably \"Quiet Rivers.epub\"",
+        ])
+        #expect(Set(lines.compactMap(\.url?.lastPathComponent)) == [parked.lastPathComponent, loose.lastPathComponent])
     }
 
     /// Q10: every line of a section can be told from the others.

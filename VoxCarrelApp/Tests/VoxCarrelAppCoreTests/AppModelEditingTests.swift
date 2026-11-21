@@ -303,10 +303,10 @@ import VoxCarrelFixtures
         let jpegFile = folder.appendingPathComponent("cover.dat")
         try jpeg.write(to: jpegFile)
 
-        h.model.setCover(from: pngFile)
+        await h.model.setCover(from: pngFile)
         #expect(h.draft?.cover == .set(CoverImage(data: png, mime: "image/png")))
         #expect(h.model.hasUnsavedChanges)
-        h.model.setCover(from: jpegFile)
+        await h.model.setCover(from: jpegFile)
         #expect(h.draft?.cover == .set(CoverImage(data: jpeg, mime: "image/jpeg")))
         #expect(h.model.alert == nil)
 
@@ -327,12 +327,56 @@ import VoxCarrelFixtures
 
         for file in [text, gif, folder.appendingPathComponent("nothing here.png")] {
             h.model.alert = nil
-            h.model.setCover(from: file)
+            await h.model.setCover(from: file)
             let alert = try #require(h.model.alert, "\(file.lastPathComponent)")
             #expect(alert.contains(file.lastPathComponent))
             #expect(h.draft?.cover == .keep)
             #expect(!h.model.hasUnsavedChanges)
         }
+    }
+
+    /// A12: a file that is plainly not a picture (a book dropped in the wrong place), or
+    /// one far too big to be a cover, is refused without being read.
+    @Test func aBookFileOrAVeryLargeFileIsRefusedUnread() async throws {
+        let h = try await Harness.demo()
+        try await h.select("Salt Road")
+        let folder = try makeTempDir()
+        // Not readable at all: were it read, the message would be that it could not be.
+        let book = try touch(folder.appendingPathComponent("Dropped.m4b"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: book.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: book.path) }
+        await h.model.setCover(from: book)
+        #expect(h.model.alert == "\"Dropped.m4b\" is not a JPEG or PNG image, so it cannot be used as a cover.")
+
+        // A sparse file: 51 MB long, and nothing on the disk.
+        let huge = folder.appendingPathComponent("huge.png")
+        FileManager.default.createFile(atPath: huge.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: huge)
+        try handle.truncate(atOffset: 51 * 1024 * 1024)
+        try handle.close()
+        h.model.alert = nil
+        await h.model.setCover(from: huge)
+        #expect(h.model.alert == "\"huge.png\" is too large to be a cover. Choose an image smaller than 50 MB.")
+        #expect(h.draft?.cover == .keep)
+        #expect(AppModel.coverSizeLimit == 50 * 1024 * 1024)
+    }
+
+    /// A12: a cover that arrives after another book has been selected is not given to that book.
+    @Test func aCoverReadForOneBookIsNotGivenToAnother() async throws {
+        let h = try await Harness.demo()
+        try await h.select("Salt Road")
+        let file = try makeTempDir().appendingPathComponent("cover.png")
+        try png.write(to: file)
+        let gate = Gate()
+        h.model.beforeUsingCover = { await gate.wait() }
+        let setting = Task { await h.model.setCover(from: file) }
+        await gate.arrival()
+        try await h.select("Quiet Rivers")
+        await gate.release()
+        await setting.value
+        #expect(h.draft?.original.title == "Quiet Rivers")
+        #expect(h.draft?.cover == .keep)
+        #expect(!h.model.hasUnsavedChanges)
     }
 
     /// A12: image data, as dropped or pasted, follows the same rule.
@@ -374,7 +418,7 @@ import VoxCarrelFixtures
         try await h.select(["Salt Road", "Quiet Rivers"])
         let before = h.model.inspecting
         h.model.setCover(data: png)
-        h.model.setCover(from: URL(fileURLWithPath: "/nowhere/cover.png"))
+        await h.model.setCover(from: URL(fileURLWithPath: "/nowhere/cover.png"))
         h.model.removeCover()
         #expect(h.model.inspecting == before)
         #expect(h.model.alert == nil)
@@ -582,7 +626,203 @@ import VoxCarrelFixtures
         #expect(h.opener.revealed == [[file.url]])
     }
 
+    // MARK: A10 What is typed while a save runs
+
+    /// A10: text typed between Save and its end is neither saved nor lost: it is still
+    /// in the draft afterwards, as an unsaved change to the saved book.
+    @Test func whatIsTypedDuringASaveIsKept() async throws {
+        let h = try await Harness.demo()
+        let id = try await h.edit("Salt Road", newTitle: "Salt Road X")
+        h.model.updateDraft { $0.genre = "Adventure" }
+        let gate = Gate()
+        h.model.beforeOperation = { await gate.wait() }
+        let saving = Task { await h.model.save() }
+        await gate.arrival()
+        h.model.updateDraft {
+            $0.title = "Salt Road XY"
+            $0.publisher = "Typed During Save"
+            $0.clickStar(5)
+        }
+        await gate.release()
+        await saving.value
+
+        #expect(try h.book(id).title == "Salt Road X")
+        #expect(try h.book(id).genre == "Adventure")
+        #expect(try h.book(id).publisher == nil)
+        let draft = try #require(h.draft)
+        #expect(draft.original.title == "Salt Road X")
+        #expect(draft.title == "Salt Road XY")
+        #expect(draft.publisher == "Typed During Save")
+        #expect(draft.rating == 5)
+        #expect(draft.genre == "Adventure")
+        #expect(draft.isDirty)
+
+        // Saved again, it is all there, and nothing is left over.
+        h.model.beforeOperation = nil
+        await h.model.save()
+        #expect(try h.book(id).title == "Salt Road XY")
+        #expect(try h.book(id).publisher == "Typed During Save")
+        #expect(try h.book(id).rating == 5)
+        #expect(!h.model.hasUnsavedChanges)
+    }
+
+    /// A10: the same for several books.
+    @Test func whatIsTypedDuringABulkSaveIsKept() async throws {
+        let h = try await Harness.demo()
+        let ids = try await h.select(["Salt Road", "Quiet Rivers"])
+        h.model.setBulkText("Travel", for: .genre)
+        let gate = Gate()
+        h.model.beforeOperation = { await gate.wait() }
+        let saving = Task { await h.model.save() }
+        await gate.arrival()
+        h.model.setBulkText("Harbour Press", for: .publisher)
+        await gate.release()
+        await saving.value
+
+        for id in ids {
+            #expect(try h.book(id).genre == "Travel")
+            #expect(try h.book(id).publisher != "Harbour Press")
+        }
+        #expect(h.bulkDraft?.values == [.publisher: "Harbour Press"])
+        #expect(h.model.hasUnsavedChanges)
+    }
+
+    /// A10: a save with nothing typed meanwhile leaves nothing unsaved, as before.
+    @Test func aSaveWithNothingTypedMeanwhileLeavesNothingUnsaved() async throws {
+        let h = try await Harness.demo()
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        await h.model.save()
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(h.draft?.title == "Salt Road X")
+        #expect(h.model.sentDraft == nil)
+    }
+
+    /// G: Save is offered by the File menu whenever there is something to save.
+    @Test func saveIsOfferedWhenThereAreUnsavedChangesAndNothingRuns() async throws {
+        let h = try await Harness.demo()
+        #expect(!h.model.canSave)
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        #expect(h.model.canSave)
+        let gate = Gate()
+        h.model.beforeOperation = { await gate.wait() }
+        let quiet = try h.id("Quiet Rivers")
+        let running = Task { await h.model.setReadStatus(.finished, for: [quiet]) }
+        await gate.arrival()
+        #expect(!h.model.canSave)
+        await gate.release()
+        await running.value
+        #expect(h.model.canSave)
+    }
+
     // MARK: A15 Removing
+
+    /// A started model on a demo library whose "Trash" is a folder of the test's own.
+    private func demoWithATrash() async throws -> (h: Harness, trash: URL, trashed: () -> [String]) {
+        let h = try await Harness.demo(start: false)
+        let trash = try makeTempDir()
+        h.model.trashItem = { url in
+            try FileManager.default.moveItem(at: url, to: trash.appendingPathComponent(url.lastPathComponent))
+        }
+        await h.model.start()
+        return (h, trash, { (try? FileManager.default.contentsOfDirectory(atPath: trash.path).sorted()) ?? [] })
+    }
+
+    /// A15: "Move Files to Trash" sends the files to the Trash and removes the books.
+    @Test func removingWithTheFilesSendsThemToTheTrash() async throws {
+        let (h, _, trashed) = try await demoWithATrash()
+        let quiet = try h.id("Quiet Rivers")
+        let files = try h.fileURLs(quiet)
+        let folder = files[0].deletingLastPathComponent()
+        h.model.requestRemove([quiet])
+        await h.model.confirmRemove(moveFilesToTrash: true)
+
+        #expect(h.model.result == nil)
+        #expect(h.model.alert == nil)
+        #expect(try h.store().book(id: quiet) == nil)
+        #expect(files.allSatisfy { !exists($0) })
+        #expect(trashed() == files.map(\.lastPathComponent).sorted())
+        // The book's emptied folder goes too.
+        #expect(!exists(folder))
+        #expect(h.model.rows.count == 11)
+    }
+
+    /// A15: "Remove from Library Only" sends nothing to the Trash.
+    @Test func removingFromTheLibraryOnlyTrashesNothing() async throws {
+        let (h, _, trashed) = try await demoWithATrash()
+        let quiet = try h.id("Quiet Rivers")
+        let files = try h.fileURLs(quiet)
+        h.model.requestRemove([quiet])
+        await h.model.confirmRemove(moveFilesToTrash: false)
+        #expect(try h.store().book(id: quiet) == nil)
+        #expect(files.allSatisfy { exists($0) })
+        #expect(trashed().isEmpty)
+    }
+
+    /// A15: a file that cannot be sent to the Trash keeps its book, and the result says why.
+    @Test func aFileThatCannotBeTrashedKeepsItsBook() async throws {
+        let h = try await Harness.demo(start: false)
+        struct NoTrash: LocalizedError { var errorDescription: String? { "This disk has no Trash." } }
+        h.model.trashItem = { _ in throw NoTrash() }
+        await h.model.start()
+        let quiet = try h.id("Quiet Rivers")
+        h.model.requestRemove([quiet])
+        await h.model.confirmRemove(moveFilesToTrash: true)
+        #expect(try h.store().book(id: quiet) != nil)
+        #expect(try h.fileURLs(quiet).allSatisfy { exists($0) })
+        #expect(h.model.result?.headline == "1 book could not be removed")
+        #expect(h.model.result?.problems.first?.detail == "This disk has no Trash.")
+    }
+
+    /// A15: a book whose files were left where they were found, outside the library
+    /// folder: the question says where they are, and they are sent to the Trash only if
+    /// that is what was chosen.
+    @Test func filesOutsideTheLibraryAreNamedAndTrashedOnlyWhenChosen() async throws {
+        let (h, _, trashed) = try await demoWithATrash()
+        let inbox = try Harness.inbox()
+        let attic = inbox.appendingPathComponent("Downloads/voices_from_the_attic.m4b")
+        for round in ["keep", "trash"] {
+            await h.model.beginImport([attic])
+            await h.model.confirmImport()
+            h.model.result = nil
+            let id = try #require(h.model.rows.first { $0.outsideFiles.isEmpty == false }?.id)
+            #expect(try h.fileURLs(id).map(\.lastPathComponent) == ["voices_from_the_attic.m4b"])
+
+            h.model.requestRemove([id, try h.id("Salt Road")])
+            let prompt = try #require(h.model.prompt)
+            guard case .removeBooks(_, _, let outside) = prompt else {
+                Issue.record("not the remove question")
+                return
+            }
+            #expect(outside.count == 1)
+            #expect(outside.first.map { URL(fileURLWithPath: $0).lastPathComponent } == "voices_from_the_attic.m4b")
+            #expect(prompt.message.contains("These files are not in the library folder"))
+            #expect(prompt.message.contains(outside[0]))
+
+            if round == "keep" {
+                h.model.prompt = nil
+                h.model.requestRemove([id])
+                await h.model.confirmRemove(moveFilesToTrash: false)
+                #expect(exists(attic))
+                #expect(trashed().isEmpty)
+            } else {
+                h.model.prompt = nil
+                h.model.requestRemove([id])
+                await h.model.confirmRemove(moveFilesToTrash: true)
+                #expect(!exists(attic))
+                #expect(trashed() == ["voices_from_the_attic.m4b"])
+            }
+            #expect(try h.store().book(id: id) == nil)
+        }
+    }
+
+    /// A15: books whose files are all in the library say nothing more.
+    @Test func theRemoveQuestionSaysNothingMoreForFilesInTheLibrary() async throws {
+        let h = try await Harness.demo()
+        h.model.requestRemove(try h.ids(["Salt Road", "Voices from the Attic"]))
+        guard case .removeBooks(_, _, let outside) = try #require(h.model.prompt) else { return }
+        #expect(outside.isEmpty)
+        #expect(h.model.prompt?.message == "You can move the files to the Trash as well, or leave them where they are.")
+    }
 
     /// A15. Only "keep the files" is tried: nothing in these tests goes to the real Trash.
     @Test func removingAsksFirstThenRemoves() async throws {
@@ -933,11 +1173,29 @@ import VoxCarrelFixtures
         #expect(h.model.alert == nil)
         #expect(h.titles == ["Night Train to Vostok", "Quiet Rivers", "Salt Road", "The Lighthouse Keeper"])
 
+        // The menus offer it for the collection that is being looked at, by name.
         let ids = try await h.select(["Quiet Rivers", "Salt Road"])
-        await h.model.remove(ids, fromCollection: favourites)
+        #expect(h.model.shownCollection?.id == favourites)
+        #expect(h.model.removeFromCollectionTitle == "Remove from \"Favourites\"")
+        #expect(h.model.selectionCommands.removeFromCollection)
+        #expect(!h.model.commands(for: []).removeFromCollection)
+        await h.model.removeFromShownCollection(ids)
         #expect(h.titles == ["Night Train to Vostok", "The Lighthouse Keeper"])
         #expect(h.model.selection.isEmpty)
         #expect(try h.store().books().count == 12)
+    }
+
+    /// Removing from a collection is offered only while a collection is what is shown.
+    @Test func removingFromACollectionNeedsACollectionToBeShown() async throws {
+        let h = try await Harness.demo()
+        let ids = try await h.select(["Quiet Rivers"])
+        #expect(h.model.shownCollection == nil)
+        #expect(h.model.removeFromCollectionTitle == nil)
+        #expect(!h.model.selectionCommands.removeFromCollection)
+        h.recordBusyLabels()
+        await h.model.removeFromShownCollection(ids)
+        #expect(h.busyLabels.isEmpty)
+        #expect(try titles(h, inCollection: try collectionId(h, "Favourites")).contains("Quiet Rivers"))
     }
 
     @Test func deletingACollection() async throws {

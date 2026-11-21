@@ -285,6 +285,22 @@ import VoxCarrelFixtures
         #expect(throws: LibraryError.bookNotFound(987_654)) { try f.service.removeBook(id: 987_654, moveFilesToTrash: true) }
     }
 
+    // M5: an app (or its tests) can give its own way of sending a file to the Trash.
+    @Test func aServiceCanBeGivenItsOwnTrash() throws {
+        let f = try F()
+        let id = try importTrio(f)
+        final class Calls: @unchecked Sendable { var urls: [URL] = [] }
+        let calls = Calls()
+        let service = LibraryService(store: f.store) { url in
+            calls.urls.append(url)
+            try FileManager.default.removeItem(at: url)
+        }
+        try service.removeBook(id: id, moveFilesToTrash: true)
+        #expect(Set(calls.urls.map(\.lastPathComponent)) == ["Artemis.m4b", "Artemis.epub", "Star Map.pdf"])
+        #expect(try f.store.book(id: id) == nil)
+        #expect(!exists(f.lib("Andy Weir/Artemis/Artemis.m4b")))
+    }
+
     // M4: files of a book catalogued in place can be trashed too; folders outside the
     // library are never removed.
     @Test func removeToTrashLeavesFoldersOutsideTheLibrary() throws {

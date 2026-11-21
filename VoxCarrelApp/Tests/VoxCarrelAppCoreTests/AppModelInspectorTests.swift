@@ -251,11 +251,51 @@ import VoxCarrelFixtures
         // What is typed is what is shown.
         draft.setText("Penguin", for: .publisher)
         #expect(draft.text(for: .publisher) == "Penguin")
-        // Cleared after typing: the books' publishers will be cleared, so "Mixed" would be untrue.
+        #expect(draft.note(for: .publisher) == nil)
+        // Emptied again, a box whose books differ is as it was before anything was typed:
+        // it never means "clear this on every book".
         draft.setText("", for: .publisher)
-        #expect(draft.values[.publisher] == "")
-        #expect(draft.placeholder(for: .publisher) == "")
+        #expect(draft.values[.publisher] == nil)
+        #expect(draft.placeholder(for: .publisher) == "Mixed")
+        #expect(!draft.isDirty)
+        #expect(draft.makeEdits()?.map(\.metadata.publisher) == books().map(\.publisher))
+    }
+
+    /// N8: the same for a box of several names.
+    @Test func anEmptiedBoxOfMixedNamesIsUntouched() {
+        var (a, b) = (books()[0], books()[1])
+        a.authors = ["Ann Lee"]
+        b.authors = ["Bo Writer"]
+        var draft = BulkDraft(books: [a, b])
+        #expect(draft.placeholder(for: .authors) == "Mixed")
+        draft.setText("x", for: .authors)
         #expect(draft.isDirty)
+        for emptied in ["", "  ", " ; "] {
+            draft.setText("x", for: .authors)
+            draft.setText(emptied, for: .authors)
+            #expect(!draft.isDirty, "[\(emptied)]")
+            #expect(draft.makeEdits()?.map(\.metadata.authors) == [["Ann Lee"], ["Bo Writer"]])
+        }
+    }
+
+    /// N8: clearing a value every book has does clear it on every book, and says so.
+    @Test func clearingASharedValueSaysHowManyBooksItClears() {
+        var draft = BulkDraft(books: books())
+        #expect(draft.note(for: .genre) == nil)
+        draft.setText("Fantas", for: .genre)
+        #expect(draft.note(for: .genre) == nil)
+        draft.setText("", for: .genre)
+        #expect(draft.values[.genre] == "")
+        #expect(draft.isDirty)
+        #expect(draft.note(for: .genre) == "Will be cleared on 2 books")
+        #expect(draft.makeEdits()?.map(\.metadata.genre) == [nil, nil])
+
+        draft.setText("  ", for: .authors)
+        #expect(draft.note(for: .authors) == "Will be cleared on 2 books")
+        #expect(draft.makeEdits()?.map(\.metadata.authors) == [[], []])
+        // Tags are only ever added.
+        draft.setText("", for: .tags)
+        #expect(draft.note(for: .tags) == nil)
     }
 
     /// N8: tags are added, so the box starts empty whatever the books have.

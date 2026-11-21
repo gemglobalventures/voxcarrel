@@ -27,11 +27,15 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     public var coverModified: Date?
     /// True when any file's tags could not be written last time.
     public var hasWriteProblem: Bool
+    /// Where the book's files that are not in the library folder are: those of a book
+    /// that was catalogued where it was found. Empty for a filed book.
+    public var outsideFiles: [String]
 
     public init(
         id: Int64, book: Book, hasAudio: Bool, hasEbook: Bool, formats: [FileFormat], coverURL: URL?,
-        coverModified: Date? = nil, hasWriteProblem: Bool
+        coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = []
     ) {
+        self.outsideFiles = outsideFiles
         self.id = id
         self.book = book
         self.hasAudio = hasAudio
@@ -120,17 +124,42 @@ public enum RowsChange {
     /// The most books that may come and go in a small change.
     public static let limit = 20
 
-    /// True when the books that are in both lists are in the same order in both, and no
-    /// more than `limit` were removed or inserted between them.
+    /// True when no more than `limit` books were removed, inserted or moved to another
+    /// place among the rest.
     ///
-    /// A table can take a small change as it is. Shown a list that is very different
-    /// (2,000 books in the opposite order, or 1,800 more than a moment ago) it measures
-    /// every row that moved before it draws again, which takes most of a minute; it is
-    /// quicker by far to make the table again.
+    /// A table can take a small change as it is: a book that moves when it is renamed,
+    /// a few that come and go. Shown a list that is very different (2,000 books in the
+    /// opposite order, or 1,800 more than a moment ago) it measures every row that moved
+    /// before it draws again, which takes most of a minute; it is quicker by far to make
+    /// the table again.
     public static func isSmall(from old: [Int64], to new: [Int64]) -> Bool {
         if old == new { return true }
         let (before, after) = (Set(old), Set(new))
-        guard before.subtracting(after).count + after.subtracting(before).count <= limit else { return false }
-        return old.filter(after.contains) == new.filter(before.contains)
+        let comeAndGone = before.subtracting(after).count + after.subtracting(before).count
+        guard comeAndGone <= limit else { return false }
+        let stayedBefore = old.filter(after.contains)
+        let stayedAfter = new.filter(before.contains)
+        if stayedBefore == stayedAfter { return true }
+        // The books that stayed and did not move are the longest run of them that is in
+        // the same order in both lists; the rest moved.
+        var place: [Int64: Int] = [:]
+        for (index, id) in stayedBefore.enumerated() { place[id] = index }
+        let moved = stayedAfter.count - longestRisingRun(stayedAfter.compactMap { place[$0] })
+        return comeAndGone + moved <= limit
+    }
+
+    /// The length of the longest strictly rising subsequence.
+    private static func longestRisingRun(_ numbers: [Int]) -> Int {
+        // tails[k]: the smallest number a rising run of length k + 1 can end with.
+        var tails: [Int] = []
+        for number in numbers {
+            var (low, high) = (0, tails.count)
+            while low < high {
+                let middle = (low + high) / 2
+                if tails[middle] < number { low = middle + 1 } else { high = middle }
+            }
+            if low == tails.count { tails.append(number) } else { tails[low] = number }
+        }
+        return tails.count
     }
 }

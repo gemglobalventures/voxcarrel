@@ -28,6 +28,8 @@ public struct SelectionCommands: Equatable, Sendable {
     /// Mark as unread, in progress or finished.
     public var mark = false
     public var addToCollection = false
+    /// A collection is what the sidebar shows, so the books can be taken out of it.
+    public var removeFromCollection = false
     public var rewriteTags = false
     public var remove = false
 
@@ -120,6 +122,7 @@ extension AppModel {
         guard busyLabel == nil else { return commands }
         commands.mark = true
         commands.addToCollection = !sidebar.collections.isEmpty
+        commands.removeFromCollection = shownCollection != nil
         commands.rewriteTags = true
         // Only books that are shown can be removed, and removing asks first: not while
         // another question is waiting (A24).
@@ -222,7 +225,7 @@ extension PendingPrompt {
         switch self {
         case .unsavedChanges:
             return "Do you want to save your changes?"
-        case .removeBooks(_, let titles):
+        case .removeBooks(_, let titles, _):
             guard titles.count == 1 else { return "Remove \(titles.count) books from the library?" }
             guard let title = titles[0].trimmedOrNil else { return "Remove this book from the library?" }
             return "Remove \"\(title)\" from the library?"
@@ -236,8 +239,14 @@ extension PendingPrompt {
         switch self {
         case .unsavedChanges:
             return "Your changes will be lost if you do not save them."
-        case .removeBooks:
-            return "You can move the files to the Trash as well, or leave them where they are."
+        case .removeBooks(_, _, let outside):
+            let choice = "You can move the files to the Trash as well, or leave them where they are."
+            guard !outside.isEmpty else { return choice }
+            // A long list is cut short: the question has to fit on the screen.
+            var lines = Array(outside.prefix(5))
+            if outside.count > lines.count { lines.append("and \(outside.count - lines.count) more") }
+            return choice + "\n\nThese files are not in the library folder: moving them to the Trash takes "
+                + "them from where they are now.\n" + lines.joined(separator: "\n")
         case .chooseFolderWithFiles(_, let count, let bookFiles):
             let items = count == 1 ? "1 item" : "\(count) items"
             guard bookFiles > 0 else {

@@ -70,7 +70,7 @@ struct CoverWell: View {
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url, url.isFileURL else { return }
-                Task { @MainActor in model.setCover(from: url) }
+                Task { @MainActor in await model.setCover(from: url) }
             }
             return true
         }

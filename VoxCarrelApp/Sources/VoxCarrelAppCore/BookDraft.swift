@@ -144,6 +144,24 @@ public struct BookDraft: Equatable, Sendable {
         return fresh
     }
 
+    /// What was typed into this draft after `sent` was taken from it, over the book as
+    /// it is once `sent` has been saved: every field whose text now differs from what
+    /// was sent keeps its text; every other field has the value `book` has. For text
+    /// typed while a save was running, which is neither saved nor to be lost.
+    public func reapplied(changedSince sent: BookDraft, onto book: Book) -> BookDraft {
+        var fresh = BookDraft(book: book)
+        let texts: [WritableKeyPath<BookDraft, String>] = [
+            \.title, \.subtitle, \.authors, \.narrators, \.series, \.seriesNumber, \.genre, \.year,
+            \.publisher, \.summary, \.language, \.isbn, \.asin, \.tags,
+        ]
+        for text in texts where self[keyPath: text] != sent[keyPath: text] {
+            fresh[keyPath: text] = self[keyPath: text]
+        }
+        if rating != sent.rating { fresh.rating = rating }
+        if cover != sent.cover { fresh.cover = cover }
+        return fresh
+    }
+
     // MARK: What changed
 
     private var clampedRating: Int { min(max(rating, 0), 5) }

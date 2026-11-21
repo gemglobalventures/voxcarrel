@@ -48,7 +48,7 @@ enum Panels {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.jpeg, .png]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        model.setCover(from: url)
+        Task { await model.setCover(from: url) }
     }
 
     /// I6: asks for the file to use in place of one that is missing; only a file of the

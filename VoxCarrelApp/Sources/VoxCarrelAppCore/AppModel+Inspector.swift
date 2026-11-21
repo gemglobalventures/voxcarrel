@@ -148,18 +148,34 @@ extension BulkDraft {
         field != .tags && values[field] == nil && shared(field) == .mixed ? "Mixed" : ""
     }
 
-    /// N8: takes the text of a field's box as the field's value. A box that says what it
-    /// said before anything was typed leaves the field untouched: the value every book
-    /// has, or for tags, nothing. An emptied box otherwise clears the field on every book.
+    /// N8: takes the text of a field's box as the field's value.
+    ///
+    /// A box that says what it said before anything was typed leaves the field
+    /// untouched: the value every book has, or for tags, nothing. So does an emptied box
+    /// of a field whose books differ: it is back to "Mixed", and never means "clear this
+    /// on every book". Emptying a box that showed a value every book has does clear the
+    /// field on every book, and `note(for:)` says so.
     public mutating func setText(_ text: String, for field: BulkField) {
         if field == .tags {
             values[field] = text.isEmpty ? nil : text
-        } else if case .same(text) = shared(field) {
-            values[field] = nil
-        } else if values[field] == nil, text.isEmpty, shared(field) == .mixed {
-            // Nothing typed into the empty box of a field whose books differ.
-        } else {
-            values[field] = text
+            return
         }
+        let isBlank = field.takesSeveral ? NameListText.names(from: text).isEmpty : text.trimmed.isEmpty
+        switch shared(field) {
+        case .same(let common):
+            // Nothing to clear where no book has a value.
+            values[field] = text == common || (isBlank && common.isEmpty) ? nil : text
+        case .mixed:
+            values[field] = isBlank ? nil : text
+        }
+    }
+
+    /// N8: what to say under a field's box: that saving will clear the field, and on how
+    /// many books. Nil for a field that will be left alone or given a value.
+    public func note(for field: BulkField) -> String? {
+        guard field != .tags, let value = values[field] else { return nil }
+        let isBlank = field.takesSeveral ? NameListText.names(from: value).isEmpty : value.trimmed.isEmpty
+        guard isBlank else { return nil }
+        return "Will be cleared on \(books.count == 1 ? "1 book" : "\(books.count) books")"
     }
 }

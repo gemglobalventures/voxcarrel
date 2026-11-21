@@ -794,4 +794,94 @@ import VoxCarrelFixtures
         await h.model.confirmChooseLibrary(folder)
         #expect(h.model.status == .available(folder))
     }
+
+    // MARK: A25 Quitting
+
+    /// Remembers the answers given to a request to quit.
+    private final class Replies: @unchecked Sendable {
+        var all: [Bool] = []
+    }
+
+    /// A25: with nothing unsaved and nothing running, the app may quit at once.
+    @Test func quittingWithNothingUnsavedGoesAhead() async throws {
+        let h = try await Harness.demo()
+        let replies = Replies()
+        #expect(h.model.requestQuit { replies.all.append($0) } == .now)
+        #expect(h.model.prompt == nil)
+        #expect(replies.all.isEmpty)
+        // With no library at all, too.
+        let none = try Harness(root: try makeTempDir(), choose: false)
+        #expect(none.model.requestQuit { _ in } == .now)
+    }
+
+    /// A25: with unsaved changes the question is asked, and the answer decides.
+    @Test func quittingWithUnsavedChangesAsksFirst() async throws {
+        for (choice, quits, saved) in [(UnsavedChoice.save, true, true), (.discard, true, false), (.cancel, false, false)] {
+            let h = try await Harness.demo()
+            let id = try await h.edit("Salt Road", newTitle: "Salt Road X")
+            let replies = Replies()
+            #expect(h.model.requestQuit { replies.all.append($0) } == .later)
+            #expect(h.model.prompt == .unsavedChanges)
+            #expect(replies.all.isEmpty)
+
+            await h.model.resolveUnsaved(choice)
+            #expect(replies.all == [quits], "\(choice)")
+            #expect(try h.book(id).title == (saved ? "Salt Road X" : "Salt Road"))
+            #expect(h.model.prompt == nil)
+            #expect(h.model.pending == nil)
+            // Cancel keeps what was typed.
+            #expect(h.model.hasUnsavedChanges == (choice == .cancel))
+        }
+    }
+
+    /// A25: dismissing the question is Cancel; so is a save that does not go through.
+    @Test func quittingIsCalledOffWhenTheQuestionIsDismissedOrTheSaveFails() async throws {
+        let h = try await Harness.demo()
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        let replies = Replies()
+        #expect(h.model.requestQuit { replies.all.append($0) } == .later)
+        h.model.prompt = nil
+        #expect(replies.all == [false])
+
+        h.model.updateDraft { $0.title = "  " }
+        #expect(h.model.requestQuit { replies.all.append($0) } == .later)
+        await h.model.resolveUnsaved(.save)
+        #expect(replies.all == [false, false])
+        #expect(h.model.alert == "A book needs a title.")
+    }
+
+    /// A25: the app does not quit in the middle of an operation, or over another question.
+    @Test func quittingWaitsForARunningOperationAndForAQuestion() async throws {
+        let h = try await Harness.demo()
+        let quiet = try h.id("Quiet Rivers")
+        let replies = Replies()
+        let gate = Gate()
+        h.model.beforeOperation = { await gate.wait() }
+        let running = Task { await h.model.setReadStatus(.finished, for: [quiet]) }
+        await gate.arrival()
+        #expect(h.model.requestQuit { replies.all.append($0) } == .cancel)
+        #expect(h.model.alert == "VoxCarrel is still working. Quit when it has finished.")
+        await gate.release()
+        await running.value
+        h.model.alert = nil
+
+        try await h.edit("Salt Road", newTitle: "Salt Road X")
+        h.model.requestRemove([quiet])
+        #expect(h.model.requestQuit { replies.all.append($0) } == .cancel)
+        #expect(h.model.prompt == .removeBooks(ids: [quiet], titles: ["Quiet Rivers"]))
+        #expect(replies.all.isEmpty)
+    }
+
+    /// A25: a question of this model that is not seen (asked from Settings, or with the
+    /// window closed) must be brought in front of the user.
+    @Test func theModelSaysWhenItNeedsToBeSeen() async throws {
+        let h = try await Harness.demo()
+        #expect(!h.model.wantsToBeSeen)
+        h.model.requestRemove([try h.id("Salt Road")])
+        #expect(h.model.wantsToBeSeen)
+        h.model.prompt = nil
+        #expect(!h.model.wantsToBeSeen)
+        h.model.alert = "Something to read."
+        #expect(h.model.wantsToBeSeen)
+    }
 }

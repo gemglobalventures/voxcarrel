@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import VoxCarrelCore
 
 extension AppModel {
@@ -16,6 +17,11 @@ extension AppModel {
         guard case .many(var draft) = inspecting else { return }
         change(&draft)
         inspecting = .many(draft)
+    }
+
+    /// Whether Save applies: there is something to save and nothing is running.
+    public var canSave: Bool {
+        isLibraryOpen && busyLabel == nil && hasUnsavedChanges
     }
 
     public var hasUnsavedChanges: Bool {
@@ -53,6 +59,9 @@ extension AppModel {
         }
 
         let label = edits.count == 1 ? "Saving…" : "Saving \(edits.count) books…"
+        // What is typed from here on was not sent, and is kept as unsaved when the save ends.
+        sentDraft = inspecting
+        defer { sentDraft = nil }
         guard let worker = await begin(label) else { return }
         // Edits that were written are the book's own values now. Edits that were not
         // stay in the draft, to be tried again or discarded.
@@ -113,15 +122,59 @@ extension AppModel {
 extension AppModel {
     // MARK: Covers
 
+    /// The largest file taken as a cover.
+    public static let coverSizeLimit = 50 * 1024 * 1024
+
     /// A12: makes the image in this file the draft's cover. Only a JPEG or PNG is taken.
-    public func setCover(from url: URL) {
-        guard case .one = inspecting else { return }
+    ///
+    /// A file that is plainly not a picture (a book, a film) or is larger than
+    /// `coverSizeLimit` is refused without being read. Anything else is read, off the
+    /// main thread, and judged by its bytes. The cover goes to the book that was being
+    /// inspected when it was asked for, and nowhere if another is inspected by then.
+    public func setCover(from url: URL) async {
+        guard case .one(let detail, _) = inspecting else { return }
+        let id = detail.row.id
         let name = "\"\(url.lastPathComponent)\""
-        guard let data = try? Data(contentsOf: url) else {
-            alert = "\(name) could not be read."
+        guard !Self.isPlainlyNotAnImage(url) else {
+            alert = Self.notAnImage(name)
             return
         }
-        setCover(data, called: name)
+        let limit = Self.coverSizeLimit
+        let read = await Task.detached { () -> CoverFile in
+            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return .unreadable }
+            guard size <= limit else { return .tooLarge }
+            guard let data = try? Data(contentsOf: url) else { return .unreadable }
+            return .read(data)
+        }.value
+        await beforeUsingCover?()
+        guard case .one(let now, _) = inspecting, now.row.id == id else { return }
+        switch read {
+        case .unreadable: alert = "\(name) could not be read."
+        case .tooLarge: alert = Self.tooLarge(name)
+        case .read(let data): setCover(data, called: name)
+        }
+    }
+
+    private enum CoverFile: Sendable {
+        case unreadable, tooLarge
+        case read(Data)
+    }
+
+    /// True for a file whose name says it is a book, sound, film or archive: the kind of
+    /// file that is dropped on the cover by mistake, and far too big to read to find out.
+    static func isPlainlyNotAnImage(_ url: URL) -> Bool {
+        if FileFormat(url: url) != nil { return true }
+        guard let type = UTType(filenameExtension: url.pathExtension), !type.isDynamic else { return false }
+        return type.conforms(to: .audiovisualContent) || type.conforms(to: .archive)
+            || type.conforms(to: .diskImage) || type.conforms(to: .executable)
+    }
+
+    private static func notAnImage(_ name: String) -> String {
+        "\(name) is not a JPEG or PNG image, so it cannot be used as a cover."
+    }
+
+    private static func tooLarge(_ name: String) -> String {
+        "\(name) is too large to be a cover. Choose an image smaller than 50 MB."
     }
 
     /// A12: the same for image data, as dropped or pasted.
@@ -131,9 +184,13 @@ extension AppModel {
 
     private func setCover(_ data: Data, called name: String) {
         guard case .one = inspecting else { return }
+        guard data.count <= Self.coverSizeLimit else {
+            alert = Self.tooLarge(name)
+            return
+        }
         // Judged by its bytes, whatever the file is called.
         guard let mime = CoverImage.sniffedMIME(data), mime == "image/jpeg" || mime == "image/png" else {
-            alert = "\(name) is not a JPEG or PNG image, so it cannot be used as a cover."
+            alert = Self.notAnImage(name)
             return
         }
         updateDraft { $0.cover = .set(CoverImage(data: data, mime: mime)) }
@@ -193,12 +250,15 @@ extension AppModel {
         guard busyLabel == nil, worker != nil else { return }
         let books = rows.filter { ids.contains($0.id) }
         guard !books.isEmpty else { return }
-        raise(.removeBooks(ids: books.map(\.id), titles: books.map(\.book.title)))
+        raise(
+            .removeBooks(
+                ids: books.map(\.id), titles: books.map(\.book.title),
+                outsideFiles: books.flatMap(\.outsideFiles)))
     }
 
     /// A15: the answer to `.removeBooks`. The files go to the Trash, or stay where they are.
     public func confirmRemove(moveFilesToTrash: Bool) async {
-        guard busyLabel == nil, case .removeBooks(let ids, let titles) = storedPrompt else { return }
+        guard busyLabel == nil, case .removeBooks(let ids, let titles, _) = storedPrompt else { return }
         storedPrompt = nil
         await perform(ids.count == 1 ? "Removing book…" : "Removing \(ids.count) books…") { worker in
             let failures = await worker.removeBooks(ids: ids, moveFilesToTrash: moveFilesToTrash)
@@ -355,6 +415,24 @@ extension AppModel {
         await perform("Updating…") { worker in
             try await worker.remove(bookIds: ids, fromCollection: id)
         }
+    }
+
+    /// The collection the sidebar is showing the books of; nil when it is showing something else.
+    public var shownCollection: BookCollection? {
+        guard case .collection(let id) = sidebarSelection else { return nil }
+        return sidebar.collections.first { $0.id == id }
+    }
+
+    /// What the menus call taking books out of the collection that is shown; nil when
+    /// no collection is shown.
+    public var removeFromCollectionTitle: String? {
+        shownCollection.map { "Remove from \"\($0.name)\"" }
+    }
+
+    /// Takes these books out of the collection that is shown. They stay in the library.
+    public func removeFromShownCollection(_ ids: Set<Int64>) async {
+        guard let id = shownCollection?.id else { return }
+        await remove(ids, fromCollection: id)
     }
 
     /// The name without the spaces around it; nil, with `alert` saying why, when it is

@@ -37,6 +37,14 @@ public final class LibraryService {
         self.init(store: store, metadataIO: FileMetadataIO(), organiser: Organiser())
     }
 
+    /// As `init(store:)`, with another way of sending a file to the Trash: for an app
+    /// that has its own, and for tests, which must never touch the real Trash.
+    /// `trashItem` throws when the file could not be sent there.
+    public convenience init(store: LibraryStore, trashItem: @escaping (URL) throws -> Void) {
+        self.init(store: store)
+        self.trashItem = trashItem
+    }
+
     /// For tests: inject collaborators.
     init(store: LibraryStore, metadataIO: FileMetadataIO, organiser: Organiser) {
         self.store = store

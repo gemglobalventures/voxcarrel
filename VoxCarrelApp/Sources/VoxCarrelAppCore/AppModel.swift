@@ -18,7 +18,8 @@ public enum PendingPrompt: Equatable {
     /// Save, Discard or Cancel: answered with `AppModel.resolveUnsaved`.
     case unsavedChanges
     /// Answered with `AppModel.confirmRemove`, or dismissed by setting `prompt` to nil.
-    case removeBooks(ids: [Int64], titles: [String])
+    /// `outsideFiles`: where those of the books' files are that are not in the library folder.
+    case removeBooks(ids: [Int64], titles: [String], outsideFiles: [String] = [])
     /// Answered with `AppModel.confirmChooseLibrary`, or dismissed by setting `prompt` to nil.
     case chooseFolderWithFiles(URL, count: Int, bookFiles: Int)
 }
@@ -42,6 +43,9 @@ public final class AppModel {
     @ObservationIgnored let defaults: UserDefaults
     /// The folders that may not be made a library. Another set is given by tests.
     @ObservationIgnored var places = ProtectedPlaces.system
+    /// How a removed book's file is sent to the Trash; nil for the system's Trash. Read
+    /// when a library is opened. Tests give a folder of their own.
+    @ObservationIgnored var trashItem: (@Sendable (URL) throws -> Void)?
     /// Nil until a library is open.
     @ObservationIgnored var worker: LibraryWorker? {
         didSet { isLibraryOpen = worker != nil }
@@ -167,6 +171,10 @@ public final class AppModel {
         missingFileTitles = []
         review = nil
         reviewIsOfUntracked = false
+        strandedNames = [:]
+        sentDraft = nil
+        // A25: a request to quit that was waiting for an answer is called off.
+        if case .quit = pending { answerQuit(false) }
         pending = nil
         // A24: a question or a message about the library shown before is not about this one.
         storedPrompt = nil
@@ -184,7 +192,8 @@ public final class AppModel {
         defer { busyLabel = nil }
         do {
             // Opening reads the disk and may create or migrate the catalogue: not on the main thread.
-            worker = try await Task.detached { try LibraryWorker(libraryRoot: folder) }.value
+            let trashItem = trashItem
+            worker = try await Task.detached { try LibraryWorker(libraryRoot: folder, trashItem: trashItem) }.value
         } catch {
             openFailure =
                 "The library in \"\(folder.lastPathComponent)\" could not be opened. \(UserMessage.text(for: error))"
@@ -210,6 +219,7 @@ public final class AppModel {
                     .map(\.book.title)
                     .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             }
+            strandedNames = try await worker.likelyNames(ofStranded: report.strandedFiles)
             libraryCheck = worthTelling ? report : nil
         } catch {
             show(error)
@@ -282,6 +292,12 @@ public final class AppModel {
     /// then because nothing is known yet, not because there are no books.
     private(set) var rowsLoaded = false
     public internal(set) var selection: Set<Int64> = []
+
+    /// The book the list should scroll to when it has been made again (`rowsVersion`):
+    /// the first of the selected books that is shown; nil when none is.
+    public var scrollTarget: Int64? {
+        rows.first { selection.contains($0.id) }?.id
+    }
 
     /// A click in the grid.
     public func click(_ id: Int64, modifiers: SelectionLogic.Modifiers) {
@@ -424,6 +440,8 @@ public final class AppModel {
         /// The sidebar selection and search text are already stored; `shown` has the old ones.
         case browse
         case library(URL)
+        /// A25: the app was asked to quit; `quitReply` is waiting for the answer.
+        case quit
     }
 
     @ObservationIgnored var pending: PendingChange?
@@ -501,6 +519,7 @@ public final class AppModel {
             storedSidebarSelection = shown.item
             storedSearchText = shown.search
         }
+        if case .quit = pending { answerQuit(false) }
         pending = nil
     }
 
@@ -514,6 +533,8 @@ public final class AppModel {
             await reloadRows()
         case .library(let folder):
             await chooseLibrary(folder)
+        case .quit:
+            answerQuit(true)
         case nil:
             break
         }
@@ -558,6 +579,8 @@ public final class AppModel {
     /// The titles of the books the launch check found files missing from, in
     /// alphabetical order.
     var missingFileTitles: [String] = []
+    /// For the launch check's half-moved files, the name each very likely had.
+    var strandedNames: [URL: String] = [:]
 
     /// Q11: closes the launch check and shows the books that need attention, with no
     /// search in the way.
@@ -568,6 +591,52 @@ public final class AppModel {
     }
 
     var storedPrompt: PendingPrompt?
+
+    /// True while there is a question or a message for the user: the window that shows
+    /// them must be brought in front of whatever else is open (Settings, say), and
+    /// opened again if it was closed.
+    public var wantsToBeSeen: Bool {
+        storedPrompt != nil || alert != nil
+    }
+
+    // MARK: Quitting
+
+    /// What to tell the system when the app is asked to quit.
+    public enum QuitAnswer: Sendable {
+        /// Quit at once.
+        case now
+        /// A question has been put to the user; `reply` will be called with the answer.
+        case later
+        /// Do not quit.
+        case cancel
+    }
+
+    /// A25: the app has been asked to quit.
+    ///
+    /// With unsaved changes the unsaved-changes question is asked, and `reply` is
+    /// called once with whether to quit: true after Save (if the save went through) or
+    /// Discard, false after Cancel. The app does not quit while an operation is running
+    /// (it may be moving files), nor over another question that is waiting.
+    public func requestQuit(reply: @escaping @MainActor (Bool) -> Void) -> QuitAnswer {
+        guard busyLabel == nil else {
+            alert = "VoxCarrel is still working. Quit when it has finished."
+            return .cancel
+        }
+        guard hasUnsavedChanges else { return .now }
+        guard storedPrompt == nil else { return .cancel }
+        quitReply = reply
+        ask(about: .quit)
+        return .later
+    }
+
+    @ObservationIgnored private var quitReply: (@MainActor (Bool) -> Void)?
+
+    private func answerQuit(_ quit: Bool) {
+        let reply = quitReply
+        quitReply = nil
+        reply?(quit)
+    }
+
 
     func show(_ error: Error) {
         alert = UserMessage.text(for: error)
@@ -612,6 +681,9 @@ public final class AppModel {
 
     /// What the inspector shows. Follows `selection`.
     public internal(set) var inspecting: Inspecting = .nothing
+    /// While a save runs: the draft as it was when it was sent, to tell what has been
+    /// typed since. Nil at any other time.
+    @ObservationIgnored var sentDraft: Inspecting?
 
     /// A9: fetches what the selection needs and shows it. A13: edits not yet saved are
     /// carried over to the books as they are now, unless `keepEdits` is false.
@@ -635,8 +707,13 @@ public final class AppModel {
                 }
                 var draft = BookDraft(book: detail.row.book)
                 // Read now, not before the wait: what was typed meanwhile is kept too.
-                if keepEdits, case .one(let old, let oldDraft) = inspecting, old.row.id == id, oldDraft.isDirty {
-                    draft = oldDraft.reapplied(onto: detail.row.book)
+                if case .one(let old, let oldDraft) = inspecting, old.row.id == id {
+                    if keepEdits {
+                        if oldDraft.isDirty { draft = oldDraft.reapplied(onto: detail.row.book) }
+                    } else if case .one(_, let sent)? = sentDraft, sent.original.id == id, oldDraft != sent {
+                        // A10: saved, but more was typed while the save ran.
+                        draft = oldDraft.reapplied(changedSince: sent, onto: detail.row.book)
+                    }
                 }
                 inspecting = .one(detail, draft)
             } else {
@@ -659,7 +736,14 @@ public final class AppModel {
                     }
                 }
                 var draft = BulkDraft(books: books)
-                if keepEdits, case .many(let old) = inspecting, old.isDirty { draft.values = old.values }
+                if case .many(let old) = inspecting {
+                    if keepEdits {
+                        if old.isDirty { draft.values = old.values }
+                    } else if case .many(let sent)? = sentDraft {
+                        // A10: saved, but more was typed while the save ran.
+                        draft.values = old.values.filter { sent.values[$0.key] != $0.value }
+                    }
+                }
                 inspecting = .many(draft)
             }
         } catch {
@@ -707,6 +791,8 @@ public final class AppModel {
     /// Awaited by a reload of the rows when the library has answered, before the answer
     /// is used. Given the search text the reload was for.
     @ObservationIgnored var beforeApplyingRows: (@Sendable (String) async -> Void)?
+    /// Awaited when a cover's file has been read, before the cover is given to the draft.
+    @ObservationIgnored var beforeUsingCover: (@Sendable () async -> Void)?
 }
 
 extension SidebarData {
