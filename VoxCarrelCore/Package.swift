@@ -26,7 +26,14 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ]
         ),
-        .testTarget(name: "VoxCarrelCoreTests", dependencies: ["VoxCarrelCore", "CTagBridge"]),
+        .testTarget(
+            name: "VoxCarrelCoreTests",
+            dependencies: [
+                "VoxCarrelCore",
+                "CTagBridge",
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+            ]
+        ),
     ],
     swiftLanguageModes: [.v5],
     cxxLanguageStandard: .cxx17
