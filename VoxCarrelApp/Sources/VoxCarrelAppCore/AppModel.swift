@@ -41,7 +41,9 @@ public final class AppModel {
     @ObservationIgnored let opener: FileOpener
     @ObservationIgnored let defaults: UserDefaults
     /// Nil until a library is open.
-    @ObservationIgnored var worker: LibraryWorker?
+    @ObservationIgnored var worker: LibraryWorker? {
+        didSet { isLibraryOpen = worker != nil }
+    }
 
     public init(location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard) {
         self.location = location
@@ -67,6 +69,8 @@ public final class AppModel {
     public private(set) var status: LibraryStatus
     /// The library folder is there but would not open: why, as a sentence.
     public private(set) var openFailure: String?
+    /// True once the library has been opened; false again while another is being opened.
+    public private(set) var isLibraryOpen = false
 
     /// Opens the stored library and runs the launch check.
     public func start() async {
