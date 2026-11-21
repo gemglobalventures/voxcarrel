@@ -292,3 +292,81 @@ import VoxCarrelCore
         #expect(BookDraft(book: bare).appOnlyMarkers(hasCover: false).isEmpty)
     }
 }
+
+/// A13: carrying unsaved edits over to the book as it is after a reload.
+@Suite struct BookDraftReapplyTests {
+    private let image = CoverImage(data: Data([1, 2, 3]), mime: "image/png")
+
+    /// A13
+    @Test func anUntouchedDraftBecomesTheFreshBook() {
+        var fresh = fullBook()
+        fresh.title = "Good Omens Again"
+        fresh.setReadStatus(.finished)
+        #expect(BookDraft(book: fullBook()).reapplied(onto: fresh) == BookDraft(book: fresh))
+    }
+
+    /// A13: only what the user changed is carried; everything else is the fresh book's.
+    @Test func editedFieldsAreCarriedAndTheRestIsFresh() {
+        var draft = BookDraft(book: fullBook())
+        draft.title = "Better Omens"
+        draft.tags = "funny; end times"
+        draft.cover = .set(image)
+
+        var fresh = fullBook()
+        fresh.genre = "Comedy"
+        fresh.rating = 1
+        fresh.setReadStatus(.inProgress)
+
+        let carried = draft.reapplied(onto: fresh)
+        #expect(carried.original == fresh)
+        #expect(carried.title == "Better Omens")
+        #expect(carried.tags == "funny; end times")
+        #expect(carried.cover == .set(image))
+        #expect(carried.genre == "Comedy")
+        #expect(carried.rating == 1)
+        #expect(carried.isDirty)
+    }
+
+    /// A13: every field is carried when it was edited.
+    @Test func everyEditedFieldIsCarried() {
+        var draft = BookDraft(book: fullBook())
+        draft.title = "T"
+        draft.subtitle = "S"
+        draft.authors = "A; B"
+        draft.narrators = "N"
+        draft.series = "Se"
+        draft.seriesNumber = "9"
+        draft.genre = "G"
+        draft.year = "2001"
+        draft.publisher = "P"
+        draft.summary = "Su"
+        draft.language = "fr"
+        draft.isbn = "1"
+        draft.asin = "2"
+        draft.tags = "x; y"
+        draft.rating = 1
+        draft.cover = .remove
+
+        let carried = draft.reapplied(onto: bareBook(id: 7))
+        #expect(carried.original == bareBook(id: 7))
+        // The same texts, over another book.
+        var expected = BookDraft(book: bareBook(id: 7))
+        expected.title = "T"
+        expected.subtitle = "S"
+        expected.authors = "A; B"
+        expected.narrators = "N"
+        expected.series = "Se"
+        expected.seriesNumber = "9"
+        expected.genre = "G"
+        expected.year = "2001"
+        expected.publisher = "P"
+        expected.summary = "Su"
+        expected.language = "fr"
+        expected.isbn = "1"
+        expected.asin = "2"
+        expected.tags = "x; y"
+        expected.rating = 1
+        expected.cover = .remove
+        #expect(carried == expected)
+    }
+}

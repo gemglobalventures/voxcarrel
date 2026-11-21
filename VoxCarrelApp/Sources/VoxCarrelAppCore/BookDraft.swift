@@ -119,6 +119,31 @@ public struct BookDraft: Equatable, Sendable {
         })
     }
 
+    /// This draft's edits over another version of the book: every field whose text was
+    /// changed here keeps its text, as does a cover change; every other field has the
+    /// value `book` has. For when the book changes underneath an unsaved draft (its read
+    /// status, say), so the edits are neither lost nor mistaken for the book's own values.
+    public func reapplied(onto book: Book) -> BookDraft {
+        var fresh = BookDraft(book: book)
+        if titleChanged { fresh.title = title }
+        if textChanged(subtitle, original.subtitle) { fresh.subtitle = subtitle }
+        if namesChanged(authors, original.authors) { fresh.authors = authors }
+        if namesChanged(narrators, original.narrators) { fresh.narrators = narrators }
+        if textChanged(series, original.series) { fresh.series = series }
+        if textChanged(seriesNumber, original.seriesNumber) { fresh.seriesNumber = seriesNumber }
+        if textChanged(genre, original.genre) { fresh.genre = genre }
+        if yearChanged { fresh.year = year }
+        if textChanged(publisher, original.publisher) { fresh.publisher = publisher }
+        if textChanged(summary, original.summary) { fresh.summary = summary }
+        if textChanged(language, original.language) { fresh.language = language }
+        if textChanged(isbn, original.isbn) { fresh.isbn = isbn }
+        if textChanged(asin, original.asin) { fresh.asin = asin }
+        if namesChanged(tags, original.tags) { fresh.tags = tags }
+        if ratingChanged { fresh.rating = rating }
+        fresh.cover = cover
+        return fresh
+    }
+
     // MARK: What changed
 
     private var clampedRating: Int { min(max(rating, 0), 5) }

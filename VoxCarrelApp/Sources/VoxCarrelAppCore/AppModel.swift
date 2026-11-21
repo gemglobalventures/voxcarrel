@@ -294,7 +294,12 @@ public final class AppModel {
 
     /// Reads everything again after the library may have changed: sidebar, undo label,
     /// rows, and the inspector with fresh file ids. A11.
-    func reloadAll() async {
+    ///
+    /// A13: unsaved edits are carried over to the books as they are now, unless
+    /// `keepEdits` is false. A book with unsaved edits that is no longer among the rows
+    /// stays selected, and so stays in the inspector, until the edits are saved or
+    /// discarded.
+    func reloadAll(keepEdits: Bool = true) async {
         guard let worker else { return }
         rowsGeneration += 1
         let generation = rowsGeneration
@@ -310,14 +315,15 @@ public final class AppModel {
                 if generation == rowsGeneration {
                     rows = storedSort.sorted(fetched)
                     shown = (item, search)
-                    selection.formIntersection(fetched.map(\.id))
-                    if let anchor, !selection.contains(anchor) { self.anchor = nil }
+                    if !(keepEdits && hasUnsavedChanges) {
+                        selection.formIntersection(fetched.map(\.id))
+                    }
                 }
             }
         } catch {
             show(error)
         }
-        await refreshInspector()
+        await refreshInspector(keepEdits: keepEdits)
     }
 
     // MARK: Selecting
@@ -425,6 +431,14 @@ public final class AppModel {
     /// Not nil when the launch check found something to tell.
     public internal(set) var libraryCheck: ReconcileReport?
 
+    /// A18: reverses the last import or edit. When the files cannot be put back nothing
+    /// is changed, `alert` says why, and Undo can be tried again.
+    public func undo() async {
+        await perform("Undoing…") { worker in
+            _ = try await worker.undoLast()
+        }
+    }
+
     public func dismissLibraryCheck() {
         libraryCheck = nil
     }
@@ -444,8 +458,8 @@ public final class AppModel {
     }
 
     /// Ends an operation: everything is read again (A11), whether or not it succeeded (A17).
-    func finish() async {
-        await reloadAll()
+    func finish(keepEdits: Bool = true) async {
+        await reloadAll(keepEdits: keepEdits)
         busyLabel = nil
     }
 
@@ -465,32 +479,65 @@ public final class AppModel {
     /// What the inspector shows. Follows `selection`.
     public internal(set) var inspecting: Inspecting = .nothing
 
-    /// A9: fetches what the selection needs and shows it.
-    func refreshInspector() async {
+    /// A9: fetches what the selection needs and shows it. A13: edits not yet saved are
+    /// carried over to the books as they are now, unless `keepEdits` is false.
+    func refreshInspector(keepEdits: Bool = true) async {
         inspectorGeneration += 1
         let generation = inspectorGeneration
         guard let worker, !selection.isEmpty else {
             inspecting = .nothing
             return
         }
-        if selection.count == 1, let id = selection.first {
-            do {
+        do {
+            if selection.count == 1, let id = selection.first {
                 let detail = try await worker.detail(bookId: id)
                 // The selection has changed since; a newer refresh is on its way.
                 guard generation == inspectorGeneration else { return }
-                if let detail {
-                    inspecting = .one(detail, BookDraft(book: detail.row.book))
-                } else {
+                guard let detail else {
+                    // The book is no longer in the library.
                     selection = []
                     inspecting = .nothing
+                    return
                 }
-            } catch {
+                var draft = BookDraft(book: detail.row.book)
+                // Read now, not before the wait: what was typed meanwhile is kept too.
+                if keepEdits, case .one(let old, let oldDraft) = inspecting, old.row.id == id, oldDraft.isDirty {
+                    draft = oldDraft.reapplied(onto: detail.row.book)
+                }
+                inspecting = .one(detail, draft)
+            } else {
+                // In row order; then any book that is selected only because it has unsaved edits.
+                var books = rows.filter { selection.contains($0.id) }.map(\.book)
+                var gone = Set<Int64>()
+                for id in selection.subtracting(rows.map(\.id)).sorted() {
+                    if let detail = try await worker.detail(bookId: id) {
+                        books.append(detail.row.book)
+                    } else {
+                        gone.insert(id)
+                    }
+                }
                 guard generation == inspectorGeneration else { return }
-                show(error)
+                if !gone.isEmpty {
+                    selection.subtract(gone)
+                    if selection.count < 2 {
+                        await refreshInspector(keepEdits: false)
+                        return
+                    }
+                }
+                var draft = BulkDraft(books: books)
+                if keepEdits, case .many(let old) = inspecting, old.isDirty { draft.values = old.values }
+                inspecting = .many(draft)
             }
-        } else {
-            inspecting = .many(BulkDraft(books: rows.filter { selection.contains($0.id) }.map(\.book)))
+        } catch {
+            guard generation == inspectorGeneration else { return }
+            show(error)
         }
+    }
+
+    /// The ids in the order the rows show them, then any that are not shown.
+    func ordered(_ ids: Set<Int64>) -> [Int64] {
+        let shownIds = rows.map(\.id)
+        return shownIds.filter(ids.contains) + ids.subtracting(shownIds).sorted()
     }
 
     // MARK: Work in the background

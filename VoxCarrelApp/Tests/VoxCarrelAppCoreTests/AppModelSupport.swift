@@ -76,6 +76,9 @@ final class Harness {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
+    /// What Undo would reverse in a demo library nothing has been done to yet.
+    static let demoUndoLabel = "Edit 7 books"
+
     /// The demo library, built once. Building it encodes audio, which is slow when many
     /// tests do it at the same moment; each test works on a copy of its own.
     private static let template = Result { () throws -> URL in
@@ -87,9 +90,8 @@ final class Harness {
     /// A started model on a demo library of its own: 12 books, one needing attention,
     /// two collections.
     ///
-    /// The library is a copy of one built earlier, so the operations that built it cannot
-    /// be undone here (the engine does not undo into another folder) and `undoLabel`
-    /// starts as nil. `fresh` builds the library in place instead.
+    /// The library is a copy of one built earlier; `fresh` builds it in place instead.
+    /// Either way the last thing done to it, which Undo would reverse, is `demoUndoLabel`.
     static func demo(start: Bool = true, fresh: Bool = false) async throws -> Harness {
         let root = try makeTempDir()
         if fresh {
@@ -176,4 +178,17 @@ final class Harness {
     }
 
     var titles: [String] { model.rows.map(\.book.title) }
+
+    // MARK: Watching operations
+
+    /// The `busyLabel` of each operation that ran since `recordBusyLabels()`, in order.
+    private(set) var busyLabels: [String] = []
+
+    func recordBusyLabels() {
+        model.beforeOperation = { [weak self] in await self?.noteBusyLabel() }
+    }
+
+    private func noteBusyLabel() {
+        busyLabels.append(model.busyLabel ?? "")
+    }
 }
