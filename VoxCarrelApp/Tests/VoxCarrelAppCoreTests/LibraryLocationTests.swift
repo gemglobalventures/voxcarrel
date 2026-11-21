@@ -5,11 +5,13 @@ import VoxCarrelCore
 import VoxCarrelFixtures
 
 @Suite struct LibraryLocationTests {
-    /// Runs `body` with preferences of its own, removed afterwards. Never `.standard`.
+    /// Runs `body` with preferences of its own. Never `.standard`.
+    ///
+    /// A suite named by a path keeps its file there, in a temporary folder, and puts
+    /// nothing in the user's Preferences folder.
     private func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
-        let name = "voxcarrel-tests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: name))
-        defer { defaults.removePersistentDomain(forName: name) }
+        let suite = try makeTempDir().appendingPathComponent("preferences").path
+        let defaults = try #require(UserDefaults(suiteName: suite))
         try body(defaults)
     }
 
