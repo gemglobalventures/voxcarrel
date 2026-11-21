@@ -44,6 +44,8 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     public var readStatus: ReadStatus
     public var dateStarted: Date?
     public var dateFinished: Date?
+    /// Fields that no file of this book holds; they live in the database only.
+    public var appOnlyFields: [MetadataField] = []
 
     public init(
         metadata: BookMetadata, folderPath: String? = nil,
@@ -150,6 +152,8 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     public var role: FileRole
     /// Order within the book, starting at 0: audio parts first, then ebooks, then extras.
     public var position: Int
+    /// Why the last attempt to write this file's tags failed, or nil.
+    public var writeProblem: String? = nil
 
     public init(path: String, format: FileFormat, role: FileRole, position: Int) {
         self.id = nil

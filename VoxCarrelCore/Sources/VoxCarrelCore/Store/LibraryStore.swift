@@ -17,7 +17,7 @@ public final class LibraryStore: Sendable {
         try Self.migrator.migrate(dbQueue)
     }
 
-    private static var migrator: DatabaseMigrator {
+    static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1") { db in
             try db.create(table: "book") { t in
@@ -86,6 +86,17 @@ public final class LibraryStore: Sendable {
                 t.column("narrators")
                 t.column("series")
                 t.column("tags")
+            }
+        }
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "appOnlyFields", .text).notNull().defaults(to: "[]")
+            }
+            try db.alter(table: "bookFile") { t in
+                t.add(column: "writeProblem", .text)
+            }
+            try db.alter(table: "operationBatch") { t in
+                t.add(column: "snapshot", .blob)
             }
         }
         return migrator
@@ -285,34 +296,50 @@ public struct OperationBatch: Equatable, Sendable {
     public var id: Int64
     public var label: String
     public var moves: [MoveRecord]
+    /// The undo data recorded with the batch, exactly as it was given; nil when there is none.
+    public var snapshot: Data?
 }
 
 extension LibraryStore {
-    /// Saves a batch of completed transfers; returns its id.
+    /// Saves a batch of completed transfers, replacing any earlier batch: the journal
+    /// holds at most one. Returns the new batch's id.
     @discardableResult
     public func recordBatch(label: String, moves: [MoveRecord]) throws -> Int64 {
         try dbQueue.write { db in
-            try db.execute(
-                sql: "INSERT INTO operationBatch (label, createdAt) VALUES (?, ?)",
-                arguments: [label, Date()])
-            let batchId = db.lastInsertedRowID
-            for move in moves {
-                try db.execute(
-                    sql: """
-                        INSERT INTO operationMove (batchId, fromPath, toPath, wasCopy)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                    arguments: [batchId, move.from, move.to, move.wasCopy])
-            }
-            return batchId
+            try Self.replaceJournal(db, label: label, moves: moves, snapshot: nil)
         }
     }
 
-    /// The most recently recorded batch, or nil when the journal is empty.
+    /// Empties the journal. Moves go with their batch by cascade.
+    static func clearJournal(_ db: Database) throws {
+        try db.execute(sql: "DELETE FROM operationBatch")
+    }
+
+    /// Replaces the whole journal with one batch; returns its id.
+    static func replaceJournal(
+        _ db: Database, label: String, moves: [MoveRecord], snapshot: Data?
+    ) throws -> Int64 {
+        try clearJournal(db)
+        try db.execute(
+            sql: "INSERT INTO operationBatch (label, createdAt, snapshot) VALUES (?, ?, ?)",
+            arguments: [label, Date(), snapshot])
+        let batchId = db.lastInsertedRowID
+        for move in moves {
+            try db.execute(
+                sql: """
+                    INSERT INTO operationMove (batchId, fromPath, toPath, wasCopy)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                arguments: [batchId, move.from, move.to, move.wasCopy])
+        }
+        return batchId
+    }
+
+    /// The recorded batch, or nil when the journal is empty.
     public func lastBatch() throws -> OperationBatch? {
         try dbQueue.read { db in
             guard let row = try Row.fetchOne(
-                db, sql: "SELECT id, label FROM operationBatch ORDER BY id DESC LIMIT 1")
+                db, sql: "SELECT id, label, snapshot FROM operationBatch ORDER BY id DESC LIMIT 1")
             else { return nil }
             let id: Int64 = row["id"]
             let moves = try Row.fetchAll(
@@ -320,7 +347,7 @@ extension LibraryStore {
                 sql: "SELECT fromPath, toPath, wasCopy FROM operationMove WHERE batchId = ? ORDER BY id",
                 arguments: [id]
             ).map { MoveRecord(from: $0["fromPath"], to: $0["toPath"], wasCopy: $0["wasCopy"]) }
-            return OperationBatch(id: id, label: row["label"], moves: moves)
+            return OperationBatch(id: id, label: row["label"], moves: moves, snapshot: row["snapshot"])
         }
     }
 

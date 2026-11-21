@@ -52,7 +52,7 @@ public struct Chapter: Equatable, Sendable {
 }
 
 /// The editable fields, used to report what a format could not store.
-public enum MetadataField: String, CaseIterable, Sendable {
+public enum MetadataField: String, CaseIterable, Codable, Sendable {
     case title, subtitle, authors, narrators, series, seriesNumber, genre, year
     case publisher, summary, language, isbn, asin, cover
 }
@@ -83,7 +83,7 @@ public struct WriteReport: Equatable, Sendable {
 }
 
 /// Where a file sits in a multi-part audiobook.
-public struct PartPosition: Equatable, Sendable {
+public struct PartPosition: Codable, Equatable, Sendable {
     /// 1-based.
     public var index: Int
     public var count: Int

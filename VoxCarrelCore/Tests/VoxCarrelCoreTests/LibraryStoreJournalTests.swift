@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import VoxCarrelCore
 
@@ -32,15 +33,26 @@ import Testing
         #expect(try store.lastBatch()?.label == "second")
     }
 
-    @Test func deletingABatchExposesThePreviousOne() throws {
+    // The journal holds one batch (Plan 3, rules S5 and S6): recording replaces the
+    // previous batch, so deleting the latest leaves nothing behind.
+    @Test func recordingReplacesThePreviousBatchAndDeletingEmptiesTheJournal() throws {
         let store = try LibraryStore(libraryRoot: makeTempDir())
         try store.recordBatch(label: "first", moves: [moves[0]])
         let second = try store.recordBatch(label: "second", moves: [moves[1]])
 
+        let batch = try #require(try store.lastBatch())
+        #expect(batch.id == second)
+        #expect(batch.label == "second")
+        #expect(batch.moves == [moves[1]])
+        let counts = try store.dbQueue.read { db in
+            (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM operationBatch"),
+             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM operationMove"))
+        }
+        #expect(counts.0 == 1)
+        #expect(counts.1 == 1)
+
         try store.deleteBatch(id: second)
 
-        let batch = try #require(try store.lastBatch())
-        #expect(batch.label == "first")
-        #expect(batch.moves == [moves[0]])
+        #expect(try store.lastBatch() == nil)
     }
 }
