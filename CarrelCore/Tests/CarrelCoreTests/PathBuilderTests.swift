@@ -82,4 +82,74 @@ import Testing
             "Dune.epub",
         ])
     }
+
+    // MARK: Review fixes
+
+    @Test func sanitiseStripsControlCharacters() {
+        #expect(PathBuilder.sanitise("Du\u{0}ne\nPart\tOne\r") == "DunePartOne")
+    }
+
+    @Test func seriesNumberAndTitleTogetherAreCappedAt200() throws {
+        var m = BookMetadata(title: String(repeating: "t", count: 200), authors: ["A"])
+        m.series = "S"
+        m.seriesNumber = String(repeating: "9", count: 100)
+
+        let folder = try #require(PathBuilder.bookFolder(metadata: m))
+        let last = try #require(folder.split(separator: "/").last)
+
+        #expect(last.count == 200)
+        #expect(last.hasPrefix(String(repeating: "9", count: 100) + " - t"))
+    }
+
+    @Test func fileNamesIncludingNumberAndExtensionAreCappedAt200() {
+        let title = String(repeating: "t", count: 300)
+        let files = [
+            file("a.mp3", .audio), file("b.mp3", .audio),
+            file("x.epub", .ebook), file("y.epub", .ebook),
+            file(String(repeating: "m", count: 300) + ".pdf", .extra),
+        ]
+
+        let names = PathBuilder.fileNames(title: title, files: files)
+
+        #expect(names.map { $0.split(separator: "/").last!.count } == [200, 200, 200, 200, 200])
+        #expect(names[0].hasPrefix("01 - ttt") && names[0].hasSuffix("ttt.mp3"))
+        #expect(names[1].hasPrefix("02 - ttt") && names[1].hasSuffix("ttt.mp3"))
+        #expect(names[2].hasSuffix("ttt.epub"))
+        #expect(names[3].hasSuffix("ttt 2.epub"))
+        #expect(names[4].hasPrefix("Extras/mmm") && names[4].hasSuffix("mmm.pdf"))
+    }
+
+    @Test func fileNamesNeverRepeat() {
+        let files = [
+            CandidateFile(url: URL(fileURLWithPath: "/a/Map.pdf"), role: .extra),
+            CandidateFile(url: URL(fileURLWithPath: "/b/Map.pdf"), role: .extra),
+            CandidateFile(url: URL(fileURLWithPath: "/c/map.PDF"), role: .extra),
+            CandidateFile(url: URL(fileURLWithPath: "/c/Map 2.pdf"), role: .extra),
+            file("x.epub", .ebook), file("y.epub", .ebook), file("z.pdf", .ebook),
+        ]
+
+        #expect(PathBuilder.fileNames(title: "T", files: files) == [
+            "Extras/Map.pdf", "Extras/Map 2.pdf", "Extras/map 3.pdf", "Extras/Map 2 2.pdf",
+            "T.epub", "T 2.epub", "T.pdf",
+        ])
+    }
+
+    @Test func extrasWithoutAnExtensionOrAUsableNameStillGetAGoodName() {
+        let files = [file("README", .extra), file(" .pdf", .extra), file("...", .extra)]
+
+        #expect(PathBuilder.fileNames(title: "T", files: files)
+            == ["Extras/README", "Extras/Extra.pdf", "Extras/Extra"])
+    }
+
+    @Test func seriesFieldsCannotEscapeOrEmptyTheFolder() {
+        var m = BookMetadata(title: "Dune", authors: ["A"])
+        m.series = ".."
+        #expect(PathBuilder.bookFolder(metadata: m) == "A/Dune")
+        m.series = "S"
+        m.seriesNumber = "../.."
+        #expect(PathBuilder.bookFolder(metadata: m) == "A/S/- - Dune")
+        m.seriesNumber = " . "
+        #expect(PathBuilder.bookFolder(metadata: m) == "A/S/Dune")
+    }
 }
+
