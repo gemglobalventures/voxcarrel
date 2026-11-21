@@ -273,3 +273,54 @@ public final class LibraryStore: Sendable {
         }
     }
 }
+
+/// One undoable batch of file transfers.
+public struct OperationBatch: Equatable, Sendable {
+    public var id: Int64
+    public var label: String
+    public var moves: [MoveRecord]
+}
+
+extension LibraryStore {
+    /// Saves a batch of completed transfers; returns its id.
+    @discardableResult
+    public func recordBatch(label: String, moves: [MoveRecord]) throws -> Int64 {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO operationBatch (label, createdAt) VALUES (?, ?)",
+                arguments: [label, Date()])
+            let batchId = db.lastInsertedRowID
+            for move in moves {
+                try db.execute(
+                    sql: """
+                        INSERT INTO operationMove (batchId, fromPath, toPath, wasCopy)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                    arguments: [batchId, move.from, move.to, move.wasCopy])
+            }
+            return batchId
+        }
+    }
+
+    /// The most recently recorded batch, or nil when the journal is empty.
+    public func lastBatch() throws -> OperationBatch? {
+        try dbQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db, sql: "SELECT id, label FROM operationBatch ORDER BY id DESC LIMIT 1")
+            else { return nil }
+            let id: Int64 = row["id"]
+            let moves = try Row.fetchAll(
+                db,
+                sql: "SELECT fromPath, toPath, wasCopy FROM operationMove WHERE batchId = ? ORDER BY id",
+                arguments: [id]
+            ).map { MoveRecord(from: $0["fromPath"], to: $0["toPath"], wasCopy: $0["wasCopy"]) }
+            return OperationBatch(id: id, label: row["label"], moves: moves)
+        }
+    }
+
+    public func deleteBatch(id: Int64) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM operationBatch WHERE id = ?", arguments: [id])
+        }
+    }
+}
