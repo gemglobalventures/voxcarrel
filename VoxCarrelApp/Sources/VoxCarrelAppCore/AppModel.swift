@@ -130,6 +130,7 @@ public final class AppModel {
         inspecting = .nothing
         undoLabel = nil
         libraryCheck = nil
+        review = nil
         pending = nil
         // Anything still on its way from the library shown before is not wanted.
         rowsGeneration += 1
@@ -473,6 +474,14 @@ public final class AppModel {
         }
         await finish()
     }
+
+    // MARK: Import
+
+    /// The import being reviewed; not nil shows the sheet. Changed through
+    /// `updateReview`, closed by `confirmImport` or `cancelImport`.
+    public internal(set) var review: ImportReview?
+    /// Whether the review began as a copy, to tell a choice the user made from the setting it began with.
+    @ObservationIgnored var reviewBeganCopying = false
 
     // MARK: Inspector
 

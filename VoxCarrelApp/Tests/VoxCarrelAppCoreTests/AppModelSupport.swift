@@ -52,7 +52,7 @@ actor Gate {
     }
 }
 
-/// An `AppModel` with preferences of its own (never `.standard`), a recording opener and,
+/// An `AppModel` with throwaway preferences of its own (never `.standard`), a recording opener and,
 /// usually, a temporary demo library.
 @MainActor
 final class Harness {
@@ -60,20 +60,17 @@ final class Harness {
     let defaults: UserDefaults
     let opener = RecordingOpener()
     let model: AppModel
-    private let suiteName: String
 
     /// `root` is stored as the library folder unless `choose` is false.
     init(root: URL, choose: Bool = true) throws {
         self.root = root
-        suiteName = "voxcarrel-tests-\(UUID().uuidString)"
-        defaults = try #require(UserDefaults(suiteName: suiteName))
+        // A suite named by a path keeps its file there, in a temporary folder, and puts
+        // nothing in the user's Preferences folder.
+        let suite = try makeTempDir().appendingPathComponent("preferences").path
+        defaults = try #require(UserDefaults(suiteName: suite))
         let location = LibraryLocation(defaults: defaults)
         if choose { location.url = root }
         model = AppModel(location: location, opener: opener, defaults: defaults)
-    }
-
-    deinit {
-        defaults.removePersistentDomain(forName: suiteName)
     }
 
     /// What Undo would reverse in a demo library nothing has been done to yet.
@@ -103,6 +100,27 @@ final class Harness {
         let harness = try Harness(root: root)
         if start { await harness.model.start() }
         return harness
+    }
+
+    /// A started model on a new, empty library.
+    static func empty() async throws -> Harness {
+        let harness = try Harness(root: try makeTempDir())
+        await harness.model.start()
+        return harness
+    }
+
+    private static let inboxTemplate = Result { () throws -> URL in
+        let folder = try makeTempDir()
+        try DemoContent.makeInbox(at: folder)
+        return folder
+    }
+
+    /// A folder of loose sample files of this test's own, not yet imported: the demo inbox.
+    static func inbox() throws -> URL {
+        let folder = try makeTempDir()
+        try FileManager.default.removeItem(at: folder)
+        try FileManager.default.copyItem(at: try inboxTemplate.get(), to: folder)
+        return folder
     }
 
     /// A second model over the same preferences, as after quitting and reopening the app.
