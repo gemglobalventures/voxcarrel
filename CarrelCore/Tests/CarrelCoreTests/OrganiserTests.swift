@@ -184,4 +184,285 @@ import Testing
         }
         #expect(exists(dst))
     }
+
+    // MARK: Review fixes
+
+    @Test func undoCanBeRetriedAfterPartOfItWasAlreadyDone() throws {
+        let root = try makeTempDir()
+        let a = try touch(root.appendingPathComponent("in/a.mp3"), "A")
+        let b = try touch(root.appendingPathComponent("in/b.mp3"), "B")
+        let c = try touch(root.appendingPathComponent("in/c.epub"), "C")
+        let organiser = Organiser()
+        let moved = try organiser.transfer([
+            PlannedMove(from: a, to: root.appendingPathComponent("lib/1.mp3")),
+            PlannedMove(from: b, to: root.appendingPathComponent("lib/2.mp3")),
+        ], mode: .move)
+        let copied = try organiser.transfer(
+            [PlannedMove(from: c, to: root.appendingPathComponent("lib/c.epub"))], mode: .copy)
+        // An earlier undo got as far as putting b back and deleting the copy.
+        try FileManager.default.moveItem(at: root.appendingPathComponent("lib/2.mp3"), to: b)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("lib/c.epub"))
+
+        try organiser.undo(moved + copied)
+
+        #expect(try read(a) == "A")
+        #expect(try read(b) == "B")
+        #expect(try read(c) == "C")
+        #expect(tree(root.appendingPathComponent("lib")).isEmpty)
+    }
+
+    @Test func undoThatFailsUpFrontCanBeRetriedOnceTheObstacleIsGone() throws {
+        let root = try makeTempDir()
+        let a = try touch(root.appendingPathComponent("in/a.mp3"), "A")
+        let b = try touch(root.appendingPathComponent("in/b.mp3"), "B")
+        let records = try Organiser().transfer([
+            PlannedMove(from: a, to: root.appendingPathComponent("lib/1.mp3")),
+            PlannedMove(from: b, to: root.appendingPathComponent("lib/2.mp3")),
+        ], mode: .move)
+        try touch(a, "obstacle")
+
+        #expect(throws: OrganiserError.destinationExists(a.path)) {
+            try Organiser().undo(records)
+        }
+        try FileManager.default.removeItem(at: a)
+        try Organiser().undo(records)
+
+        #expect(try read(a) == "A")
+        #expect(try read(b) == "B")
+    }
+
+    @Test func undoReportsAMissingFileThatIsInNeitherPlace() throws {
+        let root = try makeTempDir()
+        let a = try touch(root.appendingPathComponent("in/a.mp3"))
+        let dst = root.appendingPathComponent("lib/1.mp3")
+        let records = try Organiser().transfer([PlannedMove(from: a, to: dst)], mode: .move)
+        try FileManager.default.removeItem(at: dst)
+
+        #expect(throws: OrganiserError.sourceMissing(dst.path)) {
+            try Organiser().undo(records)
+        }
+    }
+
+    @Test func rollbackTriesEveryRecordAndReportsTheOnesItCouldNotReverse() throws {
+        let root = try makeTempDir()
+        let a = try touch(root.appendingPathComponent("in/a.mp3"), "A")
+        let b = try touch(root.appendingPathComponent("in/b.mp3"), "B")
+        let c = try touch(root.appendingPathComponent("in/c.mp3"), "C")
+        let fm = FailingFileManager()
+        // The third move fails; during rollback, b (reversed first) cannot go back.
+        fm.failMovesTo = [root.appendingPathComponent("lib/3.mp3").path, b.path]
+        let moves = [
+            PlannedMove(from: a, to: root.appendingPathComponent("lib/1.mp3")),
+            PlannedMove(from: b, to: root.appendingPathComponent("lib/2.mp3")),
+            PlannedMove(from: c, to: root.appendingPathComponent("lib/3.mp3")),
+        ]
+
+        var thrown: OrganiserError?
+        do {
+            _ = try Organiser(fileManager: fm).transfer(moves, mode: .move)
+        } catch {
+            thrown = error as? OrganiserError
+        }
+
+        guard case .rollbackIncomplete(let cause, let outstanding) = thrown else {
+            Issue.record("expected rollbackIncomplete, got \(String(describing: thrown))")
+            return
+        }
+        #expect(!cause.isEmpty)
+        #expect(outstanding == [
+            MoveRecord(from: b.path, to: root.appendingPathComponent("lib/2.mp3").path, wasCopy: false)
+        ])
+        #expect(try read(a) == "A")  // reversed even though b, tried before it, failed
+        #expect(exists(c))
+        #expect(tree(root.appendingPathComponent("lib")) == ["2.mp3"])
+        // The outstanding records finish the job once the cause is gone.
+        try Organiser().undo(outstanding)
+        #expect(try read(b) == "B")
+    }
+
+    @Test func filesCanSwapPlacesInOneBatchAndUndoSwapsThemBack() throws {
+        let root = try makeTempDir()
+        let one = try touch(root.appendingPathComponent("lib/01 - T.mp3"), "first")
+        let two = try touch(root.appendingPathComponent("lib/02 - T.mp3"), "second")
+
+        let records = try Organiser().transfer(
+            [PlannedMove(from: one, to: two), PlannedMove(from: two, to: one)], mode: .move)
+
+        #expect(try read(one) == "second")
+        #expect(try read(two) == "first")
+        #expect(records == [
+            MoveRecord(from: one.path, to: two.path, wasCopy: false),
+            MoveRecord(from: two.path, to: one.path, wasCopy: false),
+        ])
+        #expect(tree(root) == ["lib", "lib/01 - T.mp3", "lib/02 - T.mp3"])
+
+        try Organiser().undo(records)
+
+        #expect(try read(one) == "first")
+        #expect(try read(two) == "second")
+        #expect(tree(root) == ["lib", "lib/01 - T.mp3", "lib/02 - T.mp3"])
+    }
+
+    @Test func partsCanBeRenumberedIntoEachOthersNames() throws {
+        let root = try makeTempDir()
+        let one = try touch(root.appendingPathComponent("lib/01.mp3"), "1")
+        let two = try touch(root.appendingPathComponent("lib/02.mp3"), "2")
+        let three = root.appendingPathComponent("lib/03.mp3")
+
+        let records = try Organiser().transfer(
+            [PlannedMove(from: one, to: two), PlannedMove(from: two, to: three)], mode: .move)
+
+        #expect(tree(root) == ["lib", "lib/02.mp3", "lib/03.mp3"])
+        #expect(try read(two) == "1")
+        #expect(try read(three) == "2")
+
+        try Organiser().undo(records)
+
+        #expect(tree(root) == ["lib", "lib/01.mp3", "lib/02.mp3"])
+        #expect(try read(one) == "1")
+        #expect(try read(two) == "2")
+    }
+
+    @Test func aFailedSwapIsRolledBackWithNothingLeftBehind() throws {
+        let root = try makeTempDir()
+        let one = try touch(root.appendingPathComponent("lib/01.mp3"), "1")
+        let two = try touch(root.appendingPathComponent("lib/02.mp3"), "2")
+        let other = try touch(root.appendingPathComponent("lib/other.epub"), "o")
+        try touch(root.appendingPathComponent("lib/blocker"))
+        let moves = [
+            PlannedMove(from: one, to: two),
+            PlannedMove(from: two, to: one),
+            PlannedMove(from: other, to: root.appendingPathComponent("lib/blocker/other.epub")),
+        ]
+        let before = tree(root)
+
+        #expect(throws: (any Error).self) {
+            try Organiser().transfer(moves, mode: .move)
+        }
+
+        #expect(tree(root) == before)
+        #expect(try read(one) == "1")
+        #expect(try read(two) == "2")
+    }
+
+    @Test func copyingOntoAnotherSourceIsStillAClash() throws {
+        let root = try makeTempDir()
+        let one = try touch(root.appendingPathComponent("in/1.mp3"), "1")
+        let two = try touch(root.appendingPathComponent("in/2.mp3"), "2")
+
+        #expect(throws: OrganiserError.destinationExists(two.path)) {
+            try Organiser().transfer(
+                [PlannedMove(from: one, to: two), PlannedMove(from: two, to: one)], mode: .copy)
+        }
+        #expect(try read(one) == "1")
+        #expect(try read(two) == "2")
+    }
+
+    @Test func aFailedTransferLeavesNoFoldersBehind() throws {
+        let root = try makeTempDir()
+        let a = try touch(root.appendingPathComponent("in/a.mp3"))
+        let b = try touch(root.appendingPathComponent("in/b.mp3"))
+        try touch(root.appendingPathComponent("lib/Author/blocker"))
+        let moves = [
+            PlannedMove(from: a, to: root.appendingPathComponent("lib/Author/Title/Deep/1.mp3")),
+            PlannedMove(from: b, to: root.appendingPathComponent("lib/Author/blocker/2.mp3")),
+        ]
+        let before = tree(root)
+
+        #expect(throws: (any Error).self) {
+            try Organiser().transfer(moves, mode: .move)
+        }
+
+        #expect(tree(root) == before)
+    }
+
+    @Test func copyModeFailureRemovesTheCopiesAlreadyMade() throws {
+        let root = try makeTempDir()
+        let a = try touch(root.appendingPathComponent("in/a.mp3"))
+        let b = try touch(root.appendingPathComponent("in/b.mp3"))
+        try touch(root.appendingPathComponent("lib/blocker"))
+        let moves = [
+            PlannedMove(from: a, to: root.appendingPathComponent("lib/ok/1.mp3")),
+            PlannedMove(from: b, to: root.appendingPathComponent("lib/blocker/2.mp3")),
+        ]
+        let before = tree(root)
+
+        #expect(throws: (any Error).self) {
+            try Organiser().transfer(moves, mode: .copy)
+        }
+
+        #expect(tree(root) == before)
+    }
+
+    @Test func copyNeverOverwritesAnExistingFile() throws {
+        let root = try makeTempDir()
+        let src = try touch(root.appendingPathComponent("in/a.epub"), "new")
+        let dst = try touch(root.appendingPathComponent("lib/a.epub"), "old")
+
+        #expect(throws: OrganiserError.destinationExists(dst.path)) {
+            try Organiser().transfer([PlannedMove(from: src, to: dst)], mode: .copy)
+        }
+        #expect(try read(src) == "new")
+        #expect(try read(dst) == "old")
+    }
+
+    @Test func aHalfWrittenDestinationIsRemovedWhenACopyFails() throws {
+        let root = try makeTempDir()
+        let src = try touch(root.appendingPathComponent("in/a.m4b"), "whole file")
+        let dst = root.appendingPathComponent("lib/A/T/T.m4b")
+        let fm = FailingFileManager()
+        fm.partialCopiesTo = [dst.path]
+
+        #expect(throws: (any Error).self) {
+            try Organiser(fileManager: fm).transfer([PlannedMove(from: src, to: dst)], mode: .copy)
+        }
+
+        #expect(try read(src) == "whole file")
+        #expect(tree(root) == ["in", "in/a.m4b"])
+    }
+
+    @Test func undoingACopyRefusesToDeleteAnythingButAPlainFile() throws {
+        let root = try makeTempDir()
+        let src = try touch(root.appendingPathComponent("in/a.epub"))
+        let dst = root.appendingPathComponent("lib/a.epub")
+        let records = try Organiser().transfer([PlannedMove(from: src, to: dst)], mode: .copy)
+        try FileManager.default.removeItem(at: dst)
+        let keep = try touch(dst.appendingPathComponent("user/important.txt"))
+
+        #expect(throws: OrganiserError.notARegularFile(dst.path)) {
+            try Organiser().undo(records)
+        }
+        #expect(exists(keep))
+    }
+
+    @Test func pruningKeepsAFolderThatStillHoldsOtherFiles() throws {
+        let root = try makeTempDir()
+        let lib = root.appendingPathComponent("lib", isDirectory: true)
+        let src = try touch(lib.appendingPathComponent("Author/One/One.epub"))
+        let sibling = try touch(lib.appendingPathComponent("Author/Two/Two.epub"))
+        let leftover = try touch(lib.appendingPathComponent("Author/One/cover.jpg"))
+        let second = try touch(lib.appendingPathComponent("Author/Three/Three.epub"))
+
+        _ = try Organiser().transfer([
+            PlannedMove(from: src, to: lib.appendingPathComponent("New/One/One.epub")),
+            PlannedMove(from: second, to: lib.appendingPathComponent("New/Three/Three.epub")),
+        ], mode: .move, pruneRoot: lib)
+
+        #expect(exists(leftover))  // folder with another file is kept
+        #expect(exists(sibling))  // parent with another book is kept
+        #expect(!exists(lib.appendingPathComponent("Author/Three")))  // emptied folder goes
+    }
+
+    @Test func pruningStopsAtARootWhoseNameIsOnlyAPrefix() throws {
+        let root = try makeTempDir()
+        let lib = root.appendingPathComponent("lib", isDirectory: true)
+        try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
+        let src = try touch(root.appendingPathComponent("lib2/Old/a.epub"))
+
+        _ = try Organiser().transfer(
+            [PlannedMove(from: src, to: lib.appendingPathComponent("a.epub"))],
+            mode: .move, pruneRoot: lib)
+
+        #expect(exists(root.appendingPathComponent("lib2/Old")))
+    }
 }
