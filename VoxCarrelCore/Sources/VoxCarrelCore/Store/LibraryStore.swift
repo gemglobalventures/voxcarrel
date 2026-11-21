@@ -5,15 +5,19 @@ import GRDB
 public final class LibraryStore: Sendable {
     public static let databaseFileName = "VoxCarrel.sqlite"
 
+    /// The library folder in canonical form (`LibraryLayout.canonicalFolder`): however the
+    /// folder was named when the store was opened, every path the library builds or
+    /// stores starts from this one spelling.
     public let libraryRoot: URL
     let dbQueue: DatabaseQueue
 
     /// Opens (creating if needed) the catalogue inside `libraryRoot`.
     public init(libraryRoot: URL) throws {
-        self.libraryRoot = libraryRoot
         try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
+        let root = LibraryLayout.canonicalFolder(libraryRoot)
+        self.libraryRoot = root
         dbQueue = try DatabaseQueue(
-            path: libraryRoot.appendingPathComponent(Self.databaseFileName).path)
+            path: root.appendingPathComponent(Self.databaseFileName).path)
         try Self.migrator.migrate(dbQueue)
     }
 
@@ -99,6 +103,11 @@ public final class LibraryStore: Sendable {
                 t.add(column: "snapshot", .blob)
             }
         }
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "bookFile") { t in
+                t.add(column: "originalName", .text)
+            }
+        }
         return migrator
     }
 
@@ -111,11 +120,21 @@ public final class LibraryStore: Sendable {
             : libraryRoot.appendingPathComponent(file.path)
     }
 
+    /// Absolute location of a book's stored folder path.
+    public func url(forFolder folderPath: String) -> URL {
+        folderPath.hasPrefix("/")
+            ? URL(fileURLWithPath: folderPath, isDirectory: true)
+            : libraryRoot.appendingPathComponent(folderPath, isDirectory: true)
+    }
+
     /// The form a file URL is stored in: relative when inside the library, else absolute.
+    /// Decided by path components in canonical form, so it does not matter how the URL is
+    /// spelled (`/private/tmp` or `/tmp`, with or without `..`) or whether it exists yet.
     public func storedPath(for url: URL) -> String {
-        let rootPrefix = libraryRoot.standardizedFileURL.path + "/"
-        let path = url.standardizedFileURL.path
-        return path.hasPrefix(rootPrefix) ? String(path.dropFirst(rootPrefix.count)) : path
+        if let relative = LibraryLayout(root: libraryRoot).relativeComponents(of: url) {
+            return relative.joined(separator: "/")
+        }
+        return url.standardizedFileURL.path
     }
 
     // MARK: Books

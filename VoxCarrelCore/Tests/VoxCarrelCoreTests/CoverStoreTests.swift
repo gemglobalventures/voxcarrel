@@ -159,4 +159,33 @@ import UniformTypeIdentifiers
         #expect(!mentioned.contains { $0.contains(".voxcarrel") })
         #expect(!String(describing: result.candidates).contains(".voxcarrel"))
     }
+
+    // C1: an old cover that cannot be removed does not fail the new one, which is then the cover.
+    @Test func anOldCoverThatCannotBeRemovedDoesNotFailTheNewOne() throws {
+        let (_, layout, covers) = try makeStore()
+        try covers.set(CoverImage(data: jpeg, mime: "image/jpeg"), for: 3)
+        let old = layout.coversFolder.appendingPathComponent("3.jpg")
+        // An old date, and locked so that it cannot be deleted.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: old.path)
+        #expect(chflags(old.path, UInt32(UF_IMMUTABLE)) == 0)
+        defer { _ = chflags(old.path, 0) }
+
+        try covers.set(CoverImage(data: png, mime: "image/png"), for: 3)
+
+        #expect(coverFiles(layout) == ["3.jpg", "3.png"])
+        #expect(covers.url(for: 3)?.lastPathComponent == "3.png")
+        #expect(covers.image(for: 3)?.data == png)
+
+        // Whichever extension it has, the newest file is the cover.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -7200)],
+            ofItemAtPath: layout.coversFolder.appendingPathComponent("3.png").path)
+        #expect(covers.url(for: 3)?.lastPathComponent == "3.jpg")
+
+        // Once it can be removed, the next set leaves one file again.
+        _ = chflags(old.path, 0)
+        try covers.set(CoverImage(data: png, mime: "image/png"), for: 3)
+        #expect(coverFiles(layout) == ["3.png"])
+    }
 }

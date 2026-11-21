@@ -95,6 +95,38 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         }
     }
 
+    /// Tolerant of fields that are absent: a row or a saved snapshot written before a
+    /// field existed still decodes, the missing field taking its default. Add every new
+    /// field here with `decodeIfPresent`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int64.self, forKey: .id)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
+        narrators = try c.decodeIfPresent([String].self, forKey: .narrators) ?? []
+        series = try c.decodeIfPresent(String.self, forKey: .series)
+        seriesNumber = try c.decodeIfPresent(String.self, forKey: .seriesNumber)
+        genre = try c.decodeIfPresent(String.self, forKey: .genre)
+        year = try c.decodeIfPresent(Int.self, forKey: .year)
+        publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        language = try c.decodeIfPresent(String.self, forKey: .language)
+        isbn = try c.decodeIfPresent(String.self, forKey: .isbn)
+        asin = try c.decodeIfPresent(String.self, forKey: .asin)
+        durationSeconds = try c.decodeIfPresent(Double.self, forKey: .durationSeconds)
+        pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount)
+        tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        rating = try c.decodeIfPresent(Int.self, forKey: .rating) ?? 0
+        folderPath = try c.decodeIfPresent(String.self, forKey: .folderPath)
+        needsAttention = try c.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false
+        dateAdded = try c.decodeIfPresent(Date.self, forKey: .dateAdded) ?? Date(timeIntervalSinceReferenceDate: 0)
+        readStatus = try c.decodeIfPresent(ReadStatus.self, forKey: .readStatus) ?? .unread
+        dateStarted = try c.decodeIfPresent(Date.self, forKey: .dateStarted)
+        dateFinished = try c.decodeIfPresent(Date.self, forKey: .dateFinished)
+        appOnlyFields = try c.decodeIfPresent([MetadataField].self, forKey: .appOnlyFields) ?? []
+    }
+
     /// The descriptive fields as one value.
     public var metadata: BookMetadata {
         get {
@@ -154,6 +186,10 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     public var position: Int
     /// Why the last attempt to write this file's tags failed, or nil.
     public var writeProblem: String? = nil
+    /// The file's own name (with extension) when it was first filed as an extra. Kept
+    /// through role changes, so a file that becomes an extra again gets its name back.
+    /// Nil for a file that has never been an extra.
+    public var originalName: String? = nil
 
     public init(path: String, format: FileFormat, role: FileRole, position: Int) {
         self.id = nil
@@ -162,6 +198,20 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
         self.format = format
         self.role = role
         self.position = position
+    }
+
+    /// Tolerant of optional fields that are absent, as `Book` is; what says which file
+    /// this is and what it is (path, format, role) must be there.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int64.self, forKey: .id)
+        bookId = try c.decodeIfPresent(Int64.self, forKey: .bookId)
+        path = try c.decode(String.self, forKey: .path)
+        format = try c.decode(FileFormat.self, forKey: .format)
+        role = try c.decode(FileRole.self, forKey: .role)
+        position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
+        writeProblem = try c.decodeIfPresent(String.self, forKey: .writeProblem)
+        originalName = try c.decodeIfPresent(String.self, forKey: .originalName)
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

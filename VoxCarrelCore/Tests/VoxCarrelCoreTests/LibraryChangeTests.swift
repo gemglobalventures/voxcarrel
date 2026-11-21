@@ -335,4 +335,65 @@ import Testing
         #expect(try count("operationBatch", in: store) == 1)
         #expect(try count("operationMove", in: store) == 0)
     }
+
+    // Migration v3: a v2 database opens, keeps its data, and gains `bookFile.originalName`.
+    @Test func v2DatabaseUpgrades() throws {
+        let root = try makeTempDir()
+        let path = root.appendingPathComponent(LibraryStore.databaseFileName).path
+        do {
+            let queue = try DatabaseQueue(path: path)
+            try LibraryStore.migrator.migrate(queue, upTo: "v2")
+            try queue.write { db in
+                #expect(try db.columns(in: "bookFile").contains { $0.name == "originalName" } == false)
+                try db.execute(sql: """
+                    INSERT INTO book (title, authors, narrators, tags, rating, needsAttention,
+                                      dateAdded, readStatus, appOnlyFields)
+                    VALUES ('Old Book', '["Old Author"]', '[]', '[]', 0, 0,
+                            '2025-01-02 03:04:05.000', 'unread', '["cover"]')
+                    """)
+                try db.execute(sql: """
+                    INSERT INTO bookFile (bookId, path, format, role, position, writeProblem)
+                    VALUES (?, 'Old Author/Old Book/Extras/Map.pdf', 'pdf', 'extra', 0, 'locked')
+                    """, arguments: [db.lastInsertedRowID])
+            }
+            try queue.close()
+        }
+
+        let store = try LibraryStore(libraryRoot: root)
+
+        let old = try #require(try store.books().first)
+        #expect(old.appOnlyFields == [.cover])
+        var files = try store.files(bookId: try #require(old.id))
+        #expect(files.map(\.path) == ["Old Author/Old Book/Extras/Map.pdf"])
+        #expect(files.map(\.writeProblem) == ["locked"])
+        #expect(files.map(\.originalName) == [nil])
+        // The new column round-trips.
+        files[0].originalName = "Map.pdf"
+        let oldId = try #require(old.id)
+        try store.replaceFiles(bookId: oldId, files: files)
+        #expect(try store.files(bookId: oldId).map(\.originalName) == ["Map.pdf"])
+    }
+
+    // Saved data written before a field existed still decodes, the field taking its default.
+    @Test func recordsDecodeWithFieldsAbsent() throws {
+        let book = try JSONDecoder().decode(Book.self, from: Data(#"{"id":4,"title":"Dune","unknown":1}"#.utf8))
+        #expect(book.id == 4)
+        #expect(book.title == "Dune")
+        #expect(book.authors == [])
+        #expect(book.rating == 0)
+        #expect(book.readStatus == .unread)
+        #expect(book.appOnlyFields == [])
+        let file = try JSONDecoder().decode(
+            BookFile.self, from: Data(#"{"path":"A/B/B.m4b","format":"m4b","role":"audio","later":true}"#.utf8))
+        #expect(file.path == "A/B/B.m4b")
+        #expect(file.position == 0)
+        #expect(file.writeProblem == nil)
+        #expect(file.originalName == nil)
+        let metadata = try JSONDecoder().decode(BookMetadata.self, from: Data(#"{"title":"Dune"}"#.utf8))
+        #expect(metadata == BookMetadata(title: "Dune"))
+        // What says which file it is cannot be defaulted.
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(BookFile.self, from: Data(#"{"format":"m4b","role":"audio"}"#.utf8))
+        }
+    }
 }

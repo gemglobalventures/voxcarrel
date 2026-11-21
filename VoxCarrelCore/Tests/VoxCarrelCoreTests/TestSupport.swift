@@ -1,8 +1,12 @@
 import Foundation
 
-/// Creates a unique empty directory under the system temp folder.
+/// Creates a unique empty directory under the system temp folder, or under the folder
+/// named by the environment variable `VOXCARREL_TEST_TMP` when it is set (to run the
+/// suite on another volume, such as a case-sensitive one).
 func makeTempDir() throws -> URL {
-    let url = FileManager.default.temporaryDirectory
+    let parent = ProcessInfo.processInfo.environment["VOXCARREL_TEST_TMP"]
+        .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? FileManager.default.temporaryDirectory
+    let url = parent
         .appendingPathComponent("voxcarrel-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url

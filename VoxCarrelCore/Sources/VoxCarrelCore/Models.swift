@@ -53,6 +53,27 @@ public struct BookMetadata: Codable, Equatable, Sendable {
         self.title = title
         self.authors = authors
     }
+
+    /// Tolerant of fields that are absent, so saved data written before a field existed
+    /// still decodes. Add every new field here with `decodeIfPresent`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
+        narrators = try c.decodeIfPresent([String].self, forKey: .narrators) ?? []
+        series = try c.decodeIfPresent(String.self, forKey: .series)
+        seriesNumber = try c.decodeIfPresent(String.self, forKey: .seriesNumber)
+        genre = try c.decodeIfPresent(String.self, forKey: .genre)
+        year = try c.decodeIfPresent(Int.self, forKey: .year)
+        publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        language = try c.decodeIfPresent(String.self, forKey: .language)
+        isbn = try c.decodeIfPresent(String.self, forKey: .isbn)
+        asin = try c.decodeIfPresent(String.self, forKey: .asin)
+        durationSeconds = try c.decodeIfPresent(Double.self, forKey: .durationSeconds)
+        pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount)
+    }
 }
 
 /// A file on disk together with its role in a book that is not yet in the library.

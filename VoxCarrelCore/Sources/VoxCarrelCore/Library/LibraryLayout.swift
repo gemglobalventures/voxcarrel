@@ -23,18 +23,69 @@ public struct LibraryLayout: Sendable {
         hiddenFolder.appendingPathComponent("undo", isDirectory: true)
     }
 
+    /// A folder's location in the one form used to compare paths: no `.` or `..`, and no
+    /// symbolic links (so `/private/tmp/x` and `/tmp/x` come out the same), spelled as
+    /// the disk spells it. The folder should exist; one that does not is treated as
+    /// `canonical(_:)` treats a file.
+    public static func canonicalFolder(_ folder: URL) -> URL {
+        let standard = folder.standardizedFileURL
+        guard FileManager.default.fileExists(atPath: standard.path) else { return canonical(standard) }
+        return standard.resolvingSymlinksInPath()
+    }
+
+    /// A file's location in the form used to compare paths: the folders above it are
+    /// resolved as far as they exist (`canonicalFolder`, so in the disk's spelling), and
+    /// the names below the deepest existing folder are kept as given. The last component
+    /// is never resolved, so a file that is itself a symbolic link stays where it is.
+    /// Two spellings of one location give the same answer, apart from capitalisation,
+    /// whether or not the file exists.
+    static func canonical(_ url: URL) -> URL {
+        let standard = url.standardizedFileURL
+        guard standard.pathComponents.count > 1 else { return standard }
+        var names = [standard.lastPathComponent]
+        var folder = standard.deletingLastPathComponent()
+        while folder.pathComponents.count > 1, !FileManager.default.fileExists(atPath: folder.path) {
+            names.insert(folder.lastPathComponent, at: 0)
+            folder = folder.deletingLastPathComponent()
+        }
+        var result = folder.resolvingSymlinksInPath()
+        for name in names.dropLast() { result.appendPathComponent(name, isDirectory: true) }
+        result.appendPathComponent(names[names.count - 1], isDirectory: url.hasDirectoryPath)
+        return result
+    }
+
+    /// The names leading from the library root down to `url`, exactly as `url` spells
+    /// them, or nil when it is not strictly inside the library.
+    ///
+    /// Decided by path components, never by comparing path text, and it does not matter
+    /// how the part of the path that leads to the library is spelled (`/private/tmp` or
+    /// `/tmp`, through a link, with `..`) or whether `url` exists yet.
+    public func relativeComponents(of url: URL) -> [String]? {
+        let parts = url.standardizedFileURL.pathComponents
+        let rootParts = root.standardizedFileURL.pathComponents
+        if parts.count > rootParts.count, Array(parts.prefix(rootParts.count)) == rootParts {
+            return Array(parts.dropFirst(rootParts.count))
+        }
+        // Spelled differently: find the folder on the way down that is the library.
+        let canonicalRoot = Self.canonicalFolder(root).pathComponents
+        var folder = URL(fileURLWithPath: "/", isDirectory: true)
+        for (index, name) in parts.enumerated().dropFirst().dropLast() {
+            folder.appendPathComponent(name, isDirectory: true)
+            guard FileManager.default.fileExists(atPath: folder.path) else { return nil }
+            if Self.canonicalFolder(folder).pathComponents == canonicalRoot {
+                return Array(parts.dropFirst(index + 1))
+            }
+        }
+        return nil
+    }
+
     /// Rewrites the folders of a path inside the library to the capitalisation that
     /// already exists on disk, component by component from the root. Components that
     /// do not exist yet, and the last component (the file name), are returned as given.
     ///
     /// Only reads directory listings. A URL that is not below the root is returned unchanged.
     public func adoptingExistingCapitalisation(_ url: URL) -> URL {
-        let rootParts = root.standardizedFileURL.pathComponents
-        let parts = url.standardizedFileURL.pathComponents
-        guard parts.count > rootParts.count, Array(parts.prefix(rootParts.count)) == rootParts
-        else { return url }
-
-        let relative = Array(parts.dropFirst(rootParts.count))
+        guard let relative = relativeComponents(of: url) else { return url }
         let fileManager = FileManager.default
         var current = root
         // False once a component was not found: nothing below it can exist either.
