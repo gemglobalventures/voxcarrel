@@ -577,6 +577,152 @@ import VoxCarrelFixtures
         #expect(review.options.mode == .move)
     }
 
+    /// R9: a review of files that are in the library already never copies.
+    @Test func aMoveOnlyReviewNeverCopies() {
+        var review = ImportReview(
+            seeds: [seed("Atlas", files: [file("atlas.m4b")])], skipped: [], copyInsteadOfMove: true, moveOnly: true)
+        #expect(review.moveOnly)
+        #expect(!review.offersCopy)
+        #expect(review.copyInsteadOfMove == false)
+        #expect(review.options.mode == .move)
+        review.copyInsteadOfMove = true
+        #expect(review.options.mode == .move)
+        #expect(self.review([], copy: true).offersCopy)
+    }
+
+    // MARK: R10 What is sent is tidy
+
+    /// R10: text goes to the library without the spaces around it; nothing but spaces is nothing.
+    @Test func itemsAreTrimmed() {
+        var review = review([seed("Atlas", files: [file("atlas.m4b")])])
+        let id = review.entries[0].id
+        review.setText("  Atlas of Clouds  ", for: .title, of: id)
+        review.setText("   ", for: .series, of: id)
+        review.setText(" 2 ", for: .seriesNumber, of: id)
+        review.entries[0].candidate.metadata.authors = [" Ann Author ", "  ", "Bo Writer"]
+        review.entries[0].candidate.metadata.narrators = ["  "]
+        review.entries[0].candidate.metadata.genre = " Travel "
+        review.entries[0].candidate.metadata.subtitle = "\n"
+
+        let metadata = review.items()[0].candidate.metadata
+        #expect(metadata.title == "Atlas of Clouds")
+        #expect(metadata.series == nil)
+        #expect(metadata.seriesNumber == "2")
+        #expect(metadata.authors == ["Ann Author", "Bo Writer"])
+        #expect(metadata.narrators == [])
+        #expect(metadata.genre == "Travel")
+        #expect(metadata.subtitle == nil)
+        // The files are sent as they are.
+        #expect(review.items()[0].candidate.files == review.entries[0].candidate.files)
+    }
+
+    // MARK: R11 The book already in the library follows the details
+
+    /// R11: a new title or first author means the match must be looked for again.
+    @Test func changingTitleOrFirstAuthorAsksForTheMatchAgain() {
+        var review = review([
+            seed("Atlas", files: [file("atlas.m4b")], match: libraryBook("Atlas")),
+            seed("Rivers", files: [file("rivers.epub")]),
+        ])
+        let (atlas, rivers) = (review.entries[0].id, review.entries[1].id)
+        #expect(review.entriesNeedingMatch.isEmpty)
+
+        // Spaces and capitals are not a change, nor is anything but the title and first author.
+        review.setText("atlas ", for: .title, of: atlas)
+        review.setText("Some Series", for: .series, of: rivers)
+        #expect(review.entriesNeedingMatch.isEmpty)
+
+        review.setText("Atlas of Clouds", for: .title, of: atlas)
+        review.setText("Bo Writer; Ann Author", for: .authors, of: rivers)
+        #expect(review.entriesNeedingMatch == [atlas, rivers])
+    }
+
+    /// R11: no longer matching, the entry is a new book; matching now, it is offered, switched on.
+    @Test func theMatchIsReplacedByTheAnswer() {
+        var review = review([
+            seed("Atlas", files: [file("atlas.m4b")], match: libraryBook("Atlas")),
+            seed("Rivers", files: [file("rivers.epub")]),
+        ])
+        let (atlas, rivers) = (review.entries[0].id, review.entries[1].id)
+        review.setText("Atlas of Clouds", for: .title, of: atlas)
+        review.setExistingMatch(nil, for: atlas, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entries[0].existingMatch == nil)
+        #expect(!review.entries[0].isAddedToExisting)
+        #expect(review.items()[0].target == .newBook)
+        #expect(review.items()[0].candidate.metadata.title == "Atlas of Clouds")
+        // A new book needs its folder worked out.
+        #expect(review.entriesNeedingDestination.contains(atlas))
+
+        review.entries[1].addToExisting = false
+        review.setText("Maps", for: .title, of: rivers)
+        review.setExistingMatch(
+            libraryBook("Maps", id: 43), for: rivers, matchingMetadata: review.entries[1].candidate.metadata)
+        #expect(review.entries[1].existingMatch?.id == 43)
+        #expect(review.entries[1].isAddedToExisting)
+        #expect(review.items()[1].target == .existing(bookId: 43))
+        #expect(review.entriesNeedingMatch.isEmpty)
+    }
+
+    /// R11: an answer for details that have changed again is not used.
+    @Test func aLateMatchIsIgnored() {
+        var review = review([seed("Atlas", files: [file("atlas.m4b")])])
+        let id = review.entries[0].id
+        review.setText("Maps", for: .title, of: id)
+        let asked = review.entries[0].candidate.metadata
+        review.setText("Maps of Nowhere", for: .title, of: id)
+        review.setExistingMatch(libraryBook("Maps", id: 43), for: id, matchingMetadata: asked)
+        #expect(review.entries[0].existingMatch == nil)
+        #expect(review.entriesNeedingMatch == [id])
+    }
+
+    /// R11: the same match found again leaves the user's choice not to use it alone.
+    @Test func theSameMatchAgainKeepsTheSwitchAsItIs() {
+        let match = libraryBook("Atlas")
+        var review = review([seed("Atlas", files: [file("atlas.m4b")], match: match)])
+        let id = review.entries[0].id
+        review.entries[0].addToExisting = false
+        review.setText("Atlas!", for: .title, of: id)
+        review.setText("Atlas", for: .title, of: id)
+        review.setExistingMatch(match, for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entries[0].addToExisting == false)
+    }
+
+    /// R11: a file moved out to be its own book is not put back into the library's book.
+    @Test func aDetachedEntryIsNotMatchedUntilItsDetailsChange() {
+        var review = review([
+            seed("Atlas", files: [file("atlas.m4b"), file("atlas.pdf", .extra)], match: libraryBook("Atlas"))
+        ])
+        review.detach(file: url("atlas.pdf"), from: review.entries[0].id)
+        #expect(review.entriesNeedingMatch.isEmpty)
+        #expect(review.entries[1].existingMatch == nil)
+    }
+
+    /// R11: an entry that joins a library book keeps that book's details, and says so.
+    @Test func detailsOfAnEntryAddedToAnExistingBookAreKept() {
+        var review = review([
+            seed("Atlas", files: [file("atlas.m4b")], match: libraryBook("Atlas")),
+            seed("Rivers", files: [file("rivers.epub")]),
+        ])
+        let (atlas, rivers) = (review.entries[0].id, review.entries[1].id)
+        #expect(review.keptDetailsNote(of: atlas) == "These files join \"Atlas\", which keeps its own details. "
+            + "Change the title or author to import them as a different book.")
+        #expect(review.keptDetailsNote(of: rivers) == nil)
+        // The title and the authors decide which book it is, so they can always be typed.
+        #expect(!review.isLocked(.title, of: atlas))
+        #expect(!review.isLocked(.authors, of: atlas))
+        #expect(review.isLocked(.series, of: atlas))
+        #expect(review.isLocked(.seriesNumber, of: atlas))
+        #expect(review.isLocked(.narrators, of: atlas))
+        #expect(!review.isLocked(.series, of: rivers))
+
+        review.setText("Ignored", for: .series, of: atlas)
+        #expect(review.entries[0].candidate.metadata.series == nil)
+
+        review.entries[0].addToExisting = false
+        #expect(review.keptDetailsNote(of: atlas) == nil)
+        #expect(!review.isLocked(.series, of: atlas))
+    }
+
     // MARK: End to end
 
     private struct Library {

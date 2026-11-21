@@ -338,8 +338,8 @@ import VoxCarrelFixtures
         #expect(h.model.libraryCheck?.untrackedFiles.count == 1)
 
         await h.model.importUntracked()
-        // Nothing else to tell, so the check is over.
-        #expect(h.model.libraryCheck == nil)
+        // The offer stays until the import is confirmed.
+        #expect(h.model.libraryCheck?.untrackedFiles.count == 1)
         let review = try #require(h.model.review)
         #expect(review.entries.count == 1)
         #expect(review.entries.first?.candidate.files.map(\.url.lastPathComponent) == ["Stray.epub"])
@@ -348,6 +348,8 @@ import VoxCarrelFixtures
 
         await h.model.confirmImport()
         #expect(h.model.alert == nil)
+        // Nothing else to tell, so the check is over.
+        #expect(h.model.libraryCheck == nil)
         #expect(h.model.rows.count == 13)
         #expect(!exists(stray))
         // That it was a move this once is not remembered as the user's choice.
@@ -367,10 +369,164 @@ import VoxCarrelFixtures
         await h.model.start()
 
         await h.model.importUntracked()
+        #expect(h.model.review?.entries.count == 1)
+        await h.model.confirmImport()
         let check = try #require(h.model.libraryCheck)
         #expect(check.untrackedFiles.isEmpty)
         #expect(check.booksWithMissingFiles == [quiet])
+    }
+
+    /// A22: cancelling the review leaves the offer where it was.
+    @Test func cancellingAnImportOfUntrackedFilesKeepsTheOffer() async throws {
+        let h = try await Harness.demo(start: false)
+        let stray = try MediaFixtures.makeEPUB3(in: h.root, name: "Stray.epub")
+        await h.model.start()
+        await h.model.importUntracked()
+        h.model.cancelImport()
+        #expect(h.model.libraryCheck?.untrackedFiles.map(\.lastPathComponent) == ["Stray.epub"])
+        #expect(h.model.libraryCheckSummary?.untracked != nil)
+        #expect(exists(stray))
+        // And it can be taken up again.
+        await h.model.importUntracked()
         #expect(h.model.review?.entries.count == 1)
+    }
+
+    /// A22: a file left out of the import, or one that could not be imported, is still on offer.
+    @Test func untrackedFilesThatWereNotImportedStayOnTheCheck() async throws {
+        let h = try await Harness.demo(start: false)
+        _ = try MediaFixtures.makeEPUB3(in: h.root, name: "Stray.epub")
+        _ = try MediaFixtures.makeEPUB3(in: h.root, name: "Other.epub")
+        await h.model.start()
+        await h.model.importUntracked()
+        let review = try #require(h.model.review)
+        #expect(review.entries.count == 2)
+        let leftOut = try #require(review.entries.first { $0.candidate.files.first?.url.lastPathComponent == "Other.epub" })
+        h.model.updateReview { $0.update(leftOut.id) { $0.included = false } }
+        await h.model.confirmImport()
+        #expect(h.model.libraryCheck?.untrackedFiles.map(\.lastPathComponent) == ["Other.epub"])
+    }
+
+    /// A22: a book in several parts, left loose in the library, is one book in the review
+    /// as it would be in any import, and is imported as one.
+    @Test func anUntrackedBookInSeveralPartsIsOneEntry() async throws {
+        let inbox = try Harness.inbox()
+        let root = try makeTempDir()
+        let h = try Harness(root: root)
+        let loose = root.appendingPathComponent("Night Train to Vostok", isDirectory: true)
+        try FileManager.default.copyItem(at: inbox.appendingPathComponent("Night Train to Vostok"), to: loose)
+        await h.model.start()
+        #expect(h.model.libraryCheck?.untrackedFiles.count == 4)
+
+        await h.model.importUntracked()
+        let review = try #require(h.model.review)
+        #expect(review.entries.count == 1)
+        #expect(review.entries.first?.candidate.files.count == 4)
+        #expect(review.entries.first?.candidate.files.allSatisfy { $0.role == .audio } == true)
+
+        await h.model.confirmImport()
+        #expect(h.model.result == nil)
+        #expect(h.model.alert == nil)
+        #expect(h.titles == ["Night Train to Vostok"])
+        let files = try h.fileURLs(try h.id("Night Train to Vostok")).map(\.lastPathComponent)
+        #expect(files == (1...4).map { "0\($0) - Night Train to Vostok.mp3" })
+        #expect(!exists(loose))
+        #expect(h.model.libraryCheck == nil)
+        await h.model.start()
+        #expect(h.model.libraryCheck == nil)
+    }
+
+    /// A22: loose files beside a library book's own files are imported one by one, and
+    /// the book's files are not offered again.
+    @Test func untrackedFilesBesideALibraryBooksFilesAreTakenAlone() async throws {
+        let h = try await Harness.demo(start: false)
+        let folder = try #require(try h.fileURLs(try h.id("Quiet Rivers")).first).deletingLastPathComponent()
+        _ = try MediaFixtures.makeEPUB3(in: folder, name: "Stray.epub")
+        await h.model.start()
+        await h.model.importUntracked()
+        let review = try #require(h.model.review)
+        #expect(review.entries.flatMap(\.candidate.files).map(\.url.lastPathComponent) == ["Stray.epub"])
+    }
+
+    /// A22, A21: files that are in the library already are moved, whatever is ticked or
+    /// remembered, and that says nothing about what the user wants next time.
+    @Test func filesInsideTheLibraryAreNeverCopied() async throws {
+        let inbox = try Harness.inbox()
+        let root = try makeTempDir()
+        let h = try Harness(root: root)
+        let loose = root.appendingPathComponent("The Lighthouse Keeper.m4b")
+        try FileManager.default.copyItem(at: inbox.appendingPathComponent("The Lighthouse Keeper.m4b"), to: loose)
+        await h.model.start()
+        await h.model.importUntracked()
+        #expect(h.model.review?.moveOnly == true)
+        #expect(h.model.review?.offersCopy == false)
+        h.model.updateReview { $0.copyInsteadOfMove = true }
+        await h.model.confirmImport()
+        #expect(!exists(loose))
+        #expect(h.model.copyOnImport == false)
+        #expect(try h.fileURLs(try h.id("The Lighthouse Keeper")).count == 1)
+        await h.model.start()
+        #expect(h.model.libraryCheck == nil)
+
+        // The same for a file of the library folder that is dragged in by hand.
+        let again = root.appendingPathComponent("Quiet Rivers.epub")
+        try FileManager.default.copyItem(at: quietRivers(inbox), to: again)
+        h.model.copyOnImport = true
+        await h.model.beginImport([again])
+        #expect(h.model.review?.moveOnly == true)
+        await h.model.confirmImport()
+        #expect(!exists(again))
+        #expect(h.model.copyOnImport == true)
+
+        // Files from anywhere else may be copied.
+        await h.model.beginImport([tidewater(inbox)])
+        #expect(h.model.review?.moveOnly == false)
+        #expect(h.model.review?.copyInsteadOfMove == true)
+    }
+
+    // MARK: A23 The book already in the library follows the details
+
+    /// A23: retitled so that it no longer matches, an entry is imported as the book it now is.
+    @Test func retitlingAnEntryStopsItJoiningTheBookItMatched() async throws {
+        let h = try await Harness.demo()
+        let inbox = try Harness.inbox()
+        let before = try h.fileURLs(try h.id("The Lighthouse Keeper"))
+        await h.model.beginImport([inbox.appendingPathComponent("The Lighthouse Keeper.m4b")])
+        let id = try entry(h, "The Lighthouse Keeper").id
+        #expect(h.model.review?.entry(id)?.isAddedToExisting == true)
+
+        h.model.updateReview { $0.setText("Another Book", for: .title, of: id) }
+        await h.model.settle()
+        let changed = try #require(h.model.review?.entry(id))
+        #expect(changed.existingMatch == nil)
+        #expect(!changed.isAddedToExisting)
+        #expect(changed.destination == "Eleanor Marsh/Another Book")
+
+        await h.model.confirmImport()
+        #expect(try h.fileURLs(try h.id("The Lighthouse Keeper")) == before)
+        let files = try h.fileURLs(try h.id("Another Book"))
+        #expect(files.map(\.lastPathComponent) == ["Another Book.m4b"])
+        #expect(try FileMetadataIO().read(files[0]).metadata.title == "Another Book")
+    }
+
+    /// A23: retitled so that it matches a library book, an entry is offered to it, switched on.
+    @Test func retitlingAnEntryToMatchALibraryBookOffersThatBook() async throws {
+        let h = try await Harness.demo()
+        let inbox = try Harness.inbox()
+        let stray = inbox.appendingPathComponent("Stray.epub")
+        try FileManager.default.copyItem(at: quietRivers(inbox), to: stray)
+        try FileManager.default.removeItem(at: quietRivers(inbox))
+        await h.model.beginImport([stray])
+        let id = try entry(h, "Quiet Rivers").id
+        h.model.updateReview { $0.setText("Quiet Streams", for: .title, of: id) }
+        await h.model.settle()
+        #expect(h.model.review?.entry(id)?.existingMatch == nil)
+
+        h.model.updateReview { $0.setText("quiet rivers", for: .title, of: id) }
+        await h.model.settle()
+        let matched = try #require(h.model.review?.entry(id))
+        #expect(matched.existingMatch?.id == (try h.id("Quiet Rivers")))
+        #expect(matched.isAddedToExisting)
+        #expect(matched.destination == (try h.book(try h.id("Quiet Rivers")).folderPath))
     }
 
     /// A22

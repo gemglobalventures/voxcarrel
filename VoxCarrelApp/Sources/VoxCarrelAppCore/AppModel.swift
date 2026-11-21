@@ -561,6 +561,8 @@ public final class AppModel {
     public internal(set) var review: ImportReview?
     /// Whether the review began as a copy, to tell a choice the user made from the setting it began with.
     @ObservationIgnored var reviewBeganCopying = false
+    /// Whether the review is of the files the launch check found loose in the library folder.
+    @ObservationIgnored var reviewIsOfUntracked = false
 
     // MARK: Inspector
 

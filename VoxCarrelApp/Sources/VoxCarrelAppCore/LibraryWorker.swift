@@ -131,6 +131,26 @@ public actor LibraryWorker {
         return (seeds, scan.skipped)
     }
 
+    /// As `prepareImport(_:)` for files found loose in the library folder: a folder in
+    /// which no library book has a file is scanned as a folder (`UntrackedInputs`), so
+    /// that the parts of one audiobook are one candidate.
+    public func prepareImport(untracked files: [URL]) throws -> (seeds: [ImportSeed], skipped: [URL]) {
+        let tracked = try store.allFiles().map { store.url(for: $0) }
+        return try prepareImport(
+            UntrackedInputs.grouped(untracked: files, tracked: tracked, root: store.libraryRoot))
+    }
+
+    /// Whether every one of these files is inside the library folder, however it is spelled.
+    public func areInsideLibrary(_ files: [URL]) -> Bool {
+        files.allSatisfy { !store.storedPath(for: $0).hasPrefix("/") }
+    }
+
+    /// The library book a candidate with these details would be added to; nil when
+    /// no book has that title and first author.
+    public func existingMatch(for metadata: BookMetadata) throws -> Book? {
+        try service.existingMatch(for: CandidateBook(files: [], metadata: metadata))
+    }
+
     public func importItems(_ items: [ImportItem], options: ImportOptions) throws -> ImportResult {
         try service.importItems(items, options: options)
     }

@@ -23,6 +23,10 @@ public struct ImportReview: Equatable, Sendable {
         var computedDestination: String?
         var computedFor: DestinationDetails?
 
+        /// The title and first author `existingMatch` was looked up for; nil when it has
+        /// yet to be looked up.
+        var matchedFor: MatchDetails?
+
         /// True when the files will go into `existingMatch` and not into a new book.
         public var isAddedToExisting: Bool {
             addToExisting && existingMatch?.id != nil
@@ -57,6 +61,19 @@ public struct ImportReview: Equatable, Sendable {
         }
     }
 
+    /// The details that decide which library book an entry matches: the title and the
+    /// first author, without the spaces around them and ignoring capitals, as the
+    /// library compares them.
+    struct MatchDetails: Equatable, Sendable {
+        var title: String
+        var firstAuthor: String
+
+        init(_ metadata: BookMetadata) {
+            title = metadata.title.trimmed.lowercased()
+            firstAuthor = (metadata.authors.first ?? "").trimmed.lowercased()
+        }
+    }
+
     public enum Readiness: Equatable, Sendable {
         case ready
         /// No title or no author: catalogued, left in place.
@@ -68,16 +85,26 @@ public struct ImportReview: Equatable, Sendable {
     public var entries: [Entry]
     public var skipped: [URL]
     public var copyInsteadOfMove: Bool
+    /// True when every file is inside the library folder already. Such files are
+    /// always moved into place: a copy would leave the original loose in the library,
+    /// to be found again and imported twice.
+    public let moveOnly: Bool
 
-    public init(seeds: [ImportSeed], skipped: [URL], copyInsteadOfMove: Bool) {
+    public init(seeds: [ImportSeed], skipped: [URL], copyInsteadOfMove: Bool, moveOnly: Bool = false) {
         entries = seeds.map { seed in
             Entry(
                 id: UUID(), candidate: seed.candidate, included: true, cover: seed.cover, coverChanged: false,
-                existingMatch: seed.existingMatch, addToExisting: true)
+                existingMatch: seed.existingMatch, addToExisting: true,
+                // The seed's match was looked up for the details it came with.
+                matchedFor: MatchDetails(seed.candidate.metadata))
         }
         self.skipped = skipped
-        self.copyInsteadOfMove = copyInsteadOfMove
+        self.moveOnly = moveOnly
+        self.copyInsteadOfMove = copyInsteadOfMove && !moveOnly
     }
+
+    /// Whether "copy, leave originals in place" is a choice the user has.
+    public var offersCopy: Bool { !moveOnly }
 
     // MARK: Readiness
 
@@ -141,7 +168,10 @@ public struct ImportReview: Equatable, Sendable {
                 id: UUID(),
                 candidate: CandidateBook(files: [detached], metadata: source.candidate.metadata),
                 included: true, cover: nil, coverChanged: false, existingMatch: nil, addToExisting: true,
-                computedDestination: source.computedDestination, computedFor: source.computedFor),
+                computedDestination: source.computedDestination, computedFor: source.computedFor,
+                // Moved out to be a book of its own: it is not offered to the library's
+                // book again unless its title or author is changed.
+                matchedFor: MatchDetails(source.candidate.metadata)),
             at: entry + 1)
     }
 
@@ -194,7 +224,46 @@ public struct ImportReview: Equatable, Sendable {
         entries[entry].computedFor = details
     }
 
+    // MARK: The book already in the library
+
+    /// Entries whose title or first author changed since `existingMatch` was looked up.
+    public var entriesNeedingMatch: [UUID] {
+        entries.filter { $0.matchedFor != MatchDetails($0.candidate.metadata) }.map(\.id)
+    }
+
+    /// Records which library book an entry's title and first author match, or that none
+    /// does. Ignored when they are no longer the ones the answer was looked up for.
+    /// A book other than the one offered before is offered switched on; the same book
+    /// leaves the switch as the user has it.
+    public mutating func setExistingMatch(_ book: Book?, for id: UUID, matchingMetadata: BookMetadata) {
+        guard let entry = entries.firstIndex(where: { $0.id == id }) else { return }
+        let details = MatchDetails(matchingMetadata)
+        guard details == MatchDetails(entries[entry].candidate.metadata) else { return }
+        if book?.id != entries[entry].existingMatch?.id { entries[entry].addToExisting = true }
+        entries[entry].existingMatch = book
+        entries[entry].matchedFor = details
+    }
+
     // MARK: Importing
+
+    /// The details as they are sent: text without the spaces around it, nothing where
+    /// there is only space, and no empty names.
+    private static func tidied(_ metadata: BookMetadata) -> BookMetadata {
+        var tidy = metadata
+        tidy.title = metadata.title.trimmed
+        tidy.subtitle = metadata.subtitle?.trimmedOrNil
+        tidy.authors = metadata.authors.compactMap(\.trimmedOrNil)
+        tidy.narrators = metadata.narrators.compactMap(\.trimmedOrNil)
+        tidy.series = metadata.series?.trimmedOrNil
+        tidy.seriesNumber = metadata.seriesNumber?.trimmedOrNil
+        tidy.genre = metadata.genre?.trimmedOrNil
+        tidy.publisher = metadata.publisher?.trimmedOrNil
+        tidy.summary = metadata.summary?.trimmedOrNil
+        tidy.language = metadata.language?.trimmedOrNil
+        tidy.isbn = metadata.isbn?.trimmedOrNil
+        tidy.asin = metadata.asin?.trimmedOrNil
+        return tidy
+    }
 
     public func items() -> [ImportItem] {
         entries.filter(\.included).map { entry in
@@ -204,11 +273,13 @@ public struct ImportReview: Equatable, Sendable {
             }
             var cover = CoverChange.keep
             if entry.coverChanged, let image = entry.cover { cover = .set(image) }
-            return ImportItem(candidate: entry.candidate, target: target, cover: cover)
+            var candidate = entry.candidate
+            candidate.metadata = Self.tidied(candidate.metadata)
+            return ImportItem(candidate: candidate, target: target, cover: cover)
         }
     }
 
     public var options: ImportOptions {
-        ImportOptions(mode: copyInsteadOfMove ? .copy : .move)
+        ImportOptions(mode: copyInsteadOfMove && !moveOnly ? .copy : .move)
     }
 }

@@ -40,6 +40,7 @@ extension ImportReview {
     /// Q2: takes the text of a field's box as the entry's value. Text is kept as it was
     /// typed; an emptied series or number is none.
     public mutating func setText(_ text: String, for field: Field, of id: UUID) {
+        guard !isLocked(field, of: id) else { return }
         update(id) { entry in
             switch field {
             case .title: entry.candidate.metadata.title = text
@@ -49,6 +50,23 @@ extension ImportReview {
             case .seriesNumber: entry.candidate.metadata.seriesNumber = text.isEmpty ? nil : text
             }
         }
+    }
+
+    /// Whether a field cannot be typed in: an entry that joins a book already in the
+    /// library takes that book's details, so its own are not used. The title and the
+    /// authors can always be typed, because they decide which book that is.
+    public func isLocked(_ field: Field, of id: UUID) -> Bool {
+        guard let entry = entry(id), entry.isAddedToExisting else { return false }
+        return field != .title && field != .authors
+    }
+
+    /// What to say under the details of an entry that joins a book already in the
+    /// library; nil for any other entry.
+    public func keptDetailsNote(of id: UUID) -> String? {
+        guard let entry = entry(id), entry.isAddedToExisting, let match = entry.existingMatch else { return nil }
+        let title = match.title.trimmedOrNil.map { "\"\($0)\"" } ?? "the existing book"
+        return "These files join \(title), which keeps its own details. "
+            + "Change the title or author to import them as a different book."
     }
 
     // MARK: Q3 Status

@@ -226,16 +226,26 @@ private struct EntryDetail: View {
                     HStack(alignment: .top, spacing: 8) {
                         InspectorField("Series") {
                             textField("Series", text: text(.series), id: "series")
+                                .disabled(review.isLocked(.series, of: entry.id))
                         }
                         InspectorField("Number") {
                             textField("Number", text: text(.seriesNumber), id: "seriesNumber")
+                                .disabled(review.isLocked(.seriesNumber, of: entry.id))
                         }
                         .frame(width: 72)
                     }
                     if entry.hasAudio {
                         InspectorField("Narrators", hint: InspectorMetrics.semicolonHint) {
                             textField("Narrators", text: $narrators, id: "narrators")
+                                .disabled(review.isLocked(.narrators, of: entry.id))
                         }
+                    }
+                    if let note = review.keptDetailsNote(of: entry.id) {
+                        Text(note)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("review.keptDetails")
                     }
                 }
 
@@ -411,9 +421,16 @@ private struct BottomBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Toggle("Copy files, leave originals in place", isOn: copy)
-                .toggleStyle(.checkbox)
-                .accessibilityIdentifier("review.copy")
+            if review.offersCopy {
+                Toggle("Copy files, leave originals in place", isOn: copy)
+                    .toggleStyle(.checkbox)
+                    .accessibilityIdentifier("review.copy")
+            } else {
+                Text("These files are in the library folder already, so they will be moved into place.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("review.moveOnly")
+            }
             Spacer(minLength: 12)
             Text(review.countText)
                 .foregroundStyle(.secondary)
