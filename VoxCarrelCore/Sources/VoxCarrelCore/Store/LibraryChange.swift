@@ -8,6 +8,9 @@ public struct LibraryChange: Sendable {
         public var book: Book
         /// The complete new file list for the book (replaces any existing rows).
         public var files: [BookFile]
+        /// For undo: insert the file rows under the ids they carry instead of fresh ones,
+        /// so that a restored book's files are the rows they were. The ids must be free.
+        var restoresFileIds = false
 
         public init(book: Book, files: [BookFile]) {
             self.book = book
@@ -74,7 +77,7 @@ extension LibraryStore {
                 }
                 try BookFile.filter(Column("bookId") == book.id).deleteAll(db)
                 for var file in write.files {
-                    file.id = nil
+                    if !write.restoresFileIds { file.id = nil }
                     file.bookId = book.id
                     try file.insert(db)
                 }
