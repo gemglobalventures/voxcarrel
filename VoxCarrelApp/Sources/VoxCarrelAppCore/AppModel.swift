@@ -78,6 +78,16 @@ public final class AppModel {
         await openLibrary()
     }
 
+    /// As `start()` the first time it is called, and nothing after that: for the window,
+    /// which may be closed and opened again while the app runs.
+    public func startIfNeeded() async {
+        guard !hasStarted else { return }
+        hasStarted = true
+        await start()
+    }
+
+    @ObservationIgnored private var hasStarted = false
+
     /// Looks for the stored library again, and opens it if it is there now.
     public func retryLibrary() async {
         guard busyLabel == nil else { return }

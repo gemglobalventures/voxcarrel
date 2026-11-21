@@ -227,6 +227,27 @@ import VoxCarrelFixtures
         #expect(h.opener.opened.isEmpty)
         #expect(h.model.alert == nil)
     }
+
+    // MARK: W9 Starting once
+
+    /// W9: the window's task runs again each time the window is opened; the library is
+    /// opened only the first time, so reopening the window loses nothing.
+    @Test func startIfNeededStartsOnlyTheFirstTime() async throws {
+        let h = try await Harness.demo(start: false)
+        #expect(!h.model.isLibraryOpen)
+        await h.model.startIfNeeded()
+        #expect(h.model.isLibraryOpen)
+        #expect(h.model.rows.count == 12)
+
+        // What the user has done since is still there after the window is closed and opened again.
+        let id = try await h.edit("Quiet Rivers", newTitle: "Loud Rivers")
+        h.model.sidebarSelection = .ebooks
+        await h.model.settle()
+        await h.model.startIfNeeded()
+        #expect(h.model.sidebarSelection == .ebooks)
+        #expect(h.model.selection == [id])
+        #expect(h.draft?.title == "Loud Rivers")
+    }
 }
 
 /// W8: the words of each question the window puts to the user.
