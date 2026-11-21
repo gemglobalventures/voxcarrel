@@ -82,26 +82,39 @@ extension BookRow {
 
     // MARK: Placeholder cover
 
+    /// The letters shown in place of a missing cover (`PlaceholderCover.initials`).
+    public var coverInitials: String {
+        PlaceholderCover.initials(for: book.title)
+    }
+
+    /// The tint of the placeholder cover, from 0 up to 1: the same for a title every time.
+    public var placeholderHue: Double {
+        PlaceholderCover.hue(for: book.title)
+    }
+}
+
+/// What stands in for a cover a book does not have, worked out from its title.
+public enum PlaceholderCover {
     private static let articles: Set<String> = ["the", "a", "an"]
 
-    /// The letters shown in place of a missing cover: the first letter or digit of each
-    /// of the title's first two words, in capitals, leaving out a leading "The", "A" or
-    /// "An" when more follows. "?" when the title has no letter or digit.
-    public var coverInitials: String {
-        var words = book.title
+    /// The first letter or digit of each of the title's first two words, in capitals,
+    /// leaving out a leading "The", "A" or "An" when more follows. "?" when the title
+    /// has no letter or digit.
+    public static func initials(for title: String) -> String {
+        var words = title
             .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             .map(String.init)
-        if words.count > 1, let first = words.first, Self.articles.contains(first.lowercased()) {
+        if words.count > 1, let first = words.first, articles.contains(first.lowercased()) {
             words.removeFirst()
         }
         let initials = words.prefix(2).compactMap(\.first).map { String($0).uppercased() }.joined()
         return initials.isEmpty ? "?" : initials
     }
 
-    /// The tint of the placeholder cover, from 0 up to 1: the same for a title every time.
-    public var placeholderHue: Double {
+    /// The tint, from 0 up to 1: the same for a title every time.
+    public static func hue(for title: String) -> Double {
         var sum: UInt64 = 0
-        for scalar in book.title.unicodeScalars {
+        for scalar in title.unicodeScalars {
             sum = (sum &* 31 &+ UInt64(scalar.value)) % 360
         }
         return Double(sum) / 360

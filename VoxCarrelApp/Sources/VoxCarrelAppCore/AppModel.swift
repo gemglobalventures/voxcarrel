@@ -145,6 +145,7 @@ public final class AppModel {
         inspecting = .nothing
         undoLabel = nil
         libraryCheck = nil
+        missingFileTitles = []
         review = nil
         pending = nil
         // Anything still on its way from the library shown before is not wanted.
@@ -177,6 +178,14 @@ public final class AppModel {
             // A2
             let worthTelling = !report.booksWithMissingFiles.isEmpty || !report.untrackedFiles.isEmpty
                 || !report.strandedFiles.isEmpty
+            if !report.booksWithMissingFiles.isEmpty {
+                // Q10: named now, so that the check can list them whatever the window shows later.
+                let missing = Set(report.booksWithMissingFiles)
+                missingFileTitles = try await worker.rows(for: .needsAttention, search: "")
+                    .filter { missing.contains($0.id) }
+                    .map(\.book.title)
+                    .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            }
             libraryCheck = worthTelling ? report : nil
         } catch {
             show(error)
@@ -498,6 +507,18 @@ public final class AppModel {
 
     public func dismissLibraryCheck() {
         libraryCheck = nil
+    }
+
+    /// The titles of the books the launch check found files missing from, in
+    /// alphabetical order.
+    var missingFileTitles: [String] = []
+
+    /// Q11: closes the launch check and shows the books that need attention, with no
+    /// search in the way.
+    public func showNeedsAttention() {
+        libraryCheck = nil
+        searchText = ""
+        sidebarSelection = .needsAttention
     }
 
     var storedPrompt: PendingPrompt?

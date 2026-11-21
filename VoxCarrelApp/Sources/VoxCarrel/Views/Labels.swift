@@ -60,3 +60,13 @@ extension EmptyState {
         }
     }
 }
+
+extension FileRole {
+    var symbol: String {
+        switch self {
+        case .audio: "headphones"
+        case .ebook: "book.closed"
+        case .extra: "paperclip"
+        }
+    }
+}

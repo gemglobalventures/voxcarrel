@@ -21,7 +21,7 @@ struct CoverWell: View {
             case .stored:
                 CoverView(row: row, maxSide: Self.side, cornerRadius: Self.cornerRadius)
             case .chosen(let data):
-                ChosenCover(data: data, cornerRadius: Self.cornerRadius)
+                DataCover(data: data, cornerRadius: Self.cornerRadius)
                     .equatable()
             case .none:
                 CoverPlaceholder(row: row, side: Self.side, cornerRadius: Self.cornerRadius)
@@ -83,26 +83,5 @@ struct CoverWell: View {
             Task { @MainActor in model.setCover(data: data) }
         }
         return true
-    }
-}
-
-/// A cover chosen and not yet saved, drawn from its data.
-private struct ChosenCover: View, Equatable {
-    let data: Data
-    let cornerRadius: CGFloat
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if let image = NSImage(data: data) {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .clipShape(shape)
-                .overlay(shape.strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
-        } else {
-            shape.fill(.quaternary)
-                .aspectRatio(CoverPlaceholder.aspectRatio, contentMode: .fit)
-        }
     }
 }

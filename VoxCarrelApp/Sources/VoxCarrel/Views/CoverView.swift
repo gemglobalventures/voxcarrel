@@ -64,13 +64,25 @@ struct CoverPlaceholder: View {
     /// Width to height, as a paperback.
     static let aspectRatio: CGFloat = 2.0 / 3.0
 
-    let row: BookRow
+    let initials: String
+    /// The tint, from 0 up to 1.
+    let hue: Double
     /// The longest side it is shown at, which sizes the letters.
     let side: CGFloat
     var cornerRadius: CGFloat = 4
 
+    init(initials: String, hue: Double, side: CGFloat, cornerRadius: CGFloat = 4) {
+        self.initials = initials
+        self.hue = hue
+        self.side = side
+        self.cornerRadius = cornerRadius
+    }
+
+    init(row: BookRow, side: CGFloat, cornerRadius: CGFloat = 4) {
+        self.init(initials: row.coverInitials, hue: row.placeholderHue, side: side, cornerRadius: cornerRadius)
+    }
+
     var body: some View {
-        let hue = row.placeholderHue
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(
                 LinearGradient(
@@ -84,7 +96,7 @@ struct CoverPlaceholder: View {
             .overlay {
                 // Too small to read in a list's thumbnail.
                 if side >= 60 {
-                    Text(row.coverInitials)
+                    Text(initials)
                         .font(.system(size: side * 0.2, weight: .semibold, design: .serif))
                         .foregroundStyle(.white)
                         .lineLimit(1)
@@ -93,5 +105,27 @@ struct CoverPlaceholder: View {
                 }
             }
             .accessibilityHidden(true)
+    }
+}
+
+/// A cover that is not a file of the library: one chosen and not yet saved, or one found
+/// in a file that is about to be imported. Drawn from its data.
+struct DataCover: View, Equatable {
+    let data: Data
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if let image = NSImage(data: data) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
+        } else {
+            shape.fill(.quaternary)
+                .aspectRatio(CoverPlaceholder.aspectRatio, contentMode: .fit)
+        }
     }
 }

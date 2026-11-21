@@ -4,7 +4,7 @@ import VoxCarrelAppCore
 /// V5: the sheets, alerts and questions the model asks the window to show.
 ///
 /// One sheet at a time, in this order: progress, the import review, a result, and
-/// (Task 11) the launch check.
+/// the launch check.
 struct Dialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     /// Set a moment after an operation starts, so a short one shows no sheet at all.
@@ -12,23 +12,25 @@ struct Dialogs: ViewModifier {
 
     private enum ActiveSheet: Identifiable {
         case progress(String)
-        case review(count: Int)
+        case review(ImportReview)
         case result(ResultSummary)
+        case check(LibraryCheckSummary)
 
         var id: String {
             switch self {
             case .progress: "progress"
             case .review: "review"
             case .result: "result"
+            case .check: "check"
             }
         }
     }
 
     private var sheet: ActiveSheet? {
         if progressDue, let label = model.busyLabel { return .progress(label) }
-        if let review = model.review { return .review(count: review.entries.count) }
+        if let review = model.review { return .review(review) }
         if let result = model.result { return .result(result) }
-        // Task 11: then `model.libraryCheck`, as LibraryCheckSheet.
+        if let check = model.libraryCheckSummary { return .check(check) }
         return nil
     }
 
@@ -47,12 +49,14 @@ struct Dialogs: ViewModifier {
                 switch sheet {
                 case .progress(let label):
                     ProgressSheet(label: label)
-                case .review(let count):
-                    // Task 11: ImportReviewSheet replaces this.
-                    PendingReviewSheet(count: count)
+                case .review(let review):
+                    ImportReviewSheet(review: review)
                         .modifier(Questions(isActive: true))
                 case .result(let summary):
                     ResultSheet(summary: summary)
+                        .modifier(Questions(isActive: true))
+                case .check(let summary):
+                    LibraryCheckSheet(summary: summary)
                         .modifier(Questions(isActive: true))
                 }
             }
@@ -167,35 +171,6 @@ private struct ProgressSheet: View {
         }
         .padding(20)
         .frame(width: 320)
-        .interactiveDismissDisabled()
-    }
-}
-
-/// Stands in for the import review until Task 11, so that an import that has been begun
-/// can at least be cancelled.
-private struct PendingReviewSheet: View {
-    @Environment(AppModel.self) private var model
-    let count: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Books found: \(count)")
-                .font(.headline)
-                .accessibilityIdentifier("review.count")
-            Text("Reviewing and importing them is not built yet.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    model.cancelImport()
-                }
-                .keyboardShortcut(.cancelAction)
-                .accessibilityIdentifier("review.cancel")
-            }
-        }
-        .padding(20)
-        .frame(width: 360)
         .interactiveDismissDisabled()
     }
 }

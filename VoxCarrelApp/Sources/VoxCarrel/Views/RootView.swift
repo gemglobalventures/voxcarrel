@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VoxCarrelAppCore
 
 /// The window: the welcome panel, the library-not-available panel, or the library.
@@ -26,6 +27,7 @@ struct RootView: View {
                         path: nil)
                 } else {
                     LibraryView()
+                        .modifier(ImportDropTarget())
                 }
             }
         }
@@ -92,5 +94,70 @@ private struct LibraryProblemView: View {
         }
         .frame(minWidth: 480, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
         .accessibilityIdentifier("libraryProblem.panel")
+    }
+}
+
+/// X1: files and folders dropped anywhere on the library are imported. A drop target
+/// inside it (the inspector's cover) takes what is dropped on it for itself.
+private struct ImportDropTarget: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .onDrop(of: [.fileURL], delegate: Delegate(model: model, isTargeted: $isTargeted))
+            .overlay {
+                if isTargeted {
+                    Rectangle()
+                        .strokeBorder(.tint, lineWidth: 4)
+                        .background(.tint.opacity(0.08))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+
+    private struct Delegate: DropDelegate {
+        let model: AppModel
+        @Binding var isTargeted: Bool
+
+        /// Nothing is taken, or shown as about to be, while an import cannot begin.
+        func validateDrop(info: DropInfo) -> Bool {
+            model.canImport && info.hasItemsConforming(to: [.fileURL])
+        }
+
+        func dropEntered(info: DropInfo) {
+            isTargeted = true
+        }
+
+        func dropExited(info: DropInfo) {
+            isTargeted = false
+        }
+
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            DropProposal(operation: .copy)
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            isTargeted = false
+            let providers = info.itemProviders(for: [.fileURL])
+            let model = model
+            Task { @MainActor in
+                var urls: [URL] = []
+                for provider in providers {
+                    if let url = await Self.fileURL(from: provider) { urls.append(url) }
+                }
+                await model.beginImport(urls)
+            }
+            return true
+        }
+
+        private static func fileURL(from provider: NSItemProvider) async -> URL? {
+            await withCheckedContinuation { continuation in
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    continuation.resume(returning: url)
+                }
+            }
+        }
     }
 }

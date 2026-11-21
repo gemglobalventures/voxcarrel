@@ -4,8 +4,10 @@ import VoxCarrelCore
 extension AppModel {
     /// A19: scans what was dropped or chosen and opens the review. Does nothing while a
     /// review is already open.
+    ///
+    /// Q13: only files and folders are taken; a link (dragged from a browser, say) is not.
     public func beginImport(_ urls: [URL]) async {
-        await beginImport(urls, copying: copyOnImport)
+        await beginImport(urls.filter(\.isFileURL), copying: copyOnImport)
     }
 
     private func beginImport(_ urls: [URL], copying: Bool) async {
