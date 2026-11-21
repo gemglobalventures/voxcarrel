@@ -465,4 +465,100 @@ import Testing
 
         #expect(exists(root.appendingPathComponent("lib2/Old")))
     }
+
+    // A copy is only deleted while the original it was made from still exists.
+    @Test func undoingACopyWhoseOriginalIsGoneMovesTheCopyBack() throws {
+        let tmp = try makeTempDir()
+        let original = try touch(tmp.appendingPathComponent("in/sub/a.txt"), "only copy")
+        let kept = try touch(tmp.appendingPathComponent("in/b.txt"), "still here")
+        let lib = tmp.appendingPathComponent("lib", isDirectory: true)
+        let records = try Organiser().transfer([
+            PlannedMove(from: original, to: lib.appendingPathComponent("A/a.txt")),
+            PlannedMove(from: kept, to: lib.appendingPathComponent("B/b.txt")),
+        ], mode: .copy)
+        try FileManager.default.removeItem(at: tmp.appendingPathComponent("in/sub"))
+
+        try Organiser().undo(records, pruneRoot: lib)
+
+        // The copy whose original is gone went back to where the original was...
+        #expect(try read(original) == "only copy")
+        // ...the other copy was deleted, its original untouched.
+        #expect(try read(kept) == "still here")
+        #expect(tree(lib).isEmpty)
+        // Doing it again changes nothing.
+        try Organiser().undo(records, pruneRoot: lib)
+        #expect(try read(original) == "only copy")
+    }
+
+    // A copy the organiser makes can be written and removed even when the original is locked.
+    @Test func copyClearsTheUserImmutableFlagOnTheCopyOnly() throws {
+        let tmp = try makeTempDir()
+        let original = try touch(tmp.appendingPathComponent("in/a.txt"), "locked")
+        #expect(chflags(original.path, UInt32(UF_IMMUTABLE)) == 0)
+        defer { _ = chflags(original.path, 0) }
+        let copy = tmp.appendingPathComponent("lib/a.txt")
+
+        let records = try Organiser().transfer([PlannedMove(from: original, to: copy)], mode: .copy)
+
+        #expect(try copy.resourceValues(forKeys: [.isUserImmutableKey]).isUserImmutable == false)
+        #expect(try original.resourceValues(forKeys: [.isUserImmutableKey]).isUserImmutable == true)
+        try Organiser().undo(records)
+        #expect(!exists(copy))
+        #expect(try read(original) == "locked")
+    }
+
+    // The check finds what would stop an undo, and a blocked undo changes nothing at all.
+    @Test func undoThatCannotFinishChangesNothing() throws {
+        let tmp = try makeTempDir()
+        let a = try touch(tmp.appendingPathComponent("in/a.txt"), "a")
+        let b = try touch(tmp.appendingPathComponent("in/b.txt"), "b")
+        let movedTo = tmp.appendingPathComponent("lib/a.txt")
+        let copiedTo = tmp.appendingPathComponent("lib/b.txt")
+        let moved = try Organiser().transfer([PlannedMove(from: a, to: movedTo)], mode: .move)
+        let copied = try Organiser().transfer([PlannedMove(from: b, to: copiedTo)], mode: .copy)
+        let records = moved + copied
+        try Organiser().checkUndo(records)  // nothing in the way yet
+
+        // The copy becomes undeletable.
+        #expect(chflags(copiedTo.path, UInt32(UF_IMMUTABLE)) == 0)
+        defer { _ = chflags(copiedTo.path, 0) }
+        #expect(throws: OrganiserError.cannotBeChanged(copiedTo.path)) { try Organiser().checkUndo(records) }
+        #expect(throws: OrganiserError.cannotBeChanged(copiedTo.path)) { try Organiser().undo(records) }
+        #expect(try read(movedTo) == "a")
+        #expect(!exists(a))
+        #expect(try read(copiedTo) == "b")
+
+        // A moved file that is itself locked is found too.
+        _ = chflags(copiedTo.path, 0)
+        #expect(chflags(movedTo.path, UInt32(UF_IMMUTABLE)) == 0)
+        defer { _ = chflags(movedTo.path, 0) }
+        #expect(throws: OrganiserError.cannotBeChanged(movedTo.path)) { try Organiser().undo(records) }
+        #expect(try read(copiedTo) == "b")
+
+        _ = chflags(movedTo.path, 0)
+        try Organiser().undo(records)
+        #expect(try read(a) == "a")
+        #expect(!exists(copiedTo))
+    }
+
+    // A failure after the check (here: a move that the file system refuses) puts back what
+    // this attempt had already done, copies included.
+    @Test func undoThatFailsPartWayPutsEverythingBack() throws {
+        let tmp = try makeTempDir()
+        let a = try touch(tmp.appendingPathComponent("in/a.txt"), "a")
+        let b = try touch(tmp.appendingPathComponent("in/b.txt"), "b")
+        let movedTo = tmp.appendingPathComponent("lib/a.txt")
+        let copiedTo = tmp.appendingPathComponent("lib/b.txt")
+        let records = try Organiser().transfer([PlannedMove(from: a, to: movedTo)], mode: .move)
+            + Organiser().transfer([PlannedMove(from: b, to: copiedTo)], mode: .copy)
+        let failing = FailingFileManager()
+        failing.failMovesTo = [a.path]
+
+        #expect(throws: (any Error).self) { try Organiser(fileManager: failing).undo(records) }
+
+        #expect(try read(movedTo) == "a")
+        #expect(!exists(a))
+        #expect(try read(copiedTo) == "b")
+        #expect(tree(tmp.appendingPathComponent("lib")) == ["a.txt", "b.txt"])
+    }
 }

@@ -26,6 +26,9 @@ public enum OrganiserError: Error, Equatable {
     case rollbackIncomplete(cause: String, outstanding: [MoveRecord])
     /// Undoing a copy would delete something that is not a plain file.
     case notARegularFile(String)
+    /// The item at this path is locked, or is in (or must go into) a folder that cannot be
+    /// written, so it cannot be moved or deleted.
+    case cannotBeChanged(String)
 }
 
 /// Performs file transfers for one book at a time. Never overwrites.
@@ -94,20 +97,81 @@ public struct Organiser {
 
     /// Reverses completed transfers: moved files go back, copies are deleted.
     ///
+    /// A copy is only deleted while the original it was made from still exists; when the
+    /// original is gone the copy is moved to where the original was, so undoing never
+    /// destroys the only copy.
+    ///
+    /// All or nothing: everything is checked first (`checkUndo`), and if something still
+    /// fails part way, what this call had already done is put back before the error is
+    /// thrown. (Only a copy that had already been deleted stays deleted.)
+    ///
     /// Safe to call again after a failure: a move whose file is already back at
     /// `from` (and gone from `to`) counts as undone, as does a copy that is gone.
     /// Nothing is overwritten, and a copy is only deleted while it is a plain file.
     public func undo(_ records: [MoveRecord], pruneRoot: URL? = nil) throws {
+        let plan = try undoPlan(records)
+
+        // Copies are first set aside under a temporary name, which can be reversed, and
+        // only deleted once every move has succeeded.
+        var aside: [(copy: URL, parked: URL)] = []
+        func restoreCopies() {
+            for item in aside.reversed() { try? fm.moveItem(at: item.parked, to: item.copy) }
+        }
+        do {
+            for copy in plan.copies {
+                let parked = copy.deletingLastPathComponent()
+                    .appendingPathComponent(".voxcarrel-moving-\(UUID().uuidString)")
+                try fm.moveItem(at: copy, to: parked)
+                aside.append((copy, parked))
+            }
+            try perform(plan.back, copy: false)
+        } catch {
+            restoreCopies()
+            throw error
+        }
+        while let item = aside.first {
+            do {
+                try fm.removeItem(at: item.parked)
+                aside.removeFirst()
+            } catch {
+                restoreCopies()
+                try? perform(plan.back.map { PlannedMove(from: $0.to, to: $0.from) }, copy: false)
+                throw error
+            }
+        }
+
+        if let pruneRoot {
+            for record in records.reversed() {
+                prune(URL(fileURLWithPath: record.to).deletingLastPathComponent(), under: pruneRoot)
+            }
+        }
+    }
+
+    /// Checks that `undo(records)` can be carried out, without changing anything: every
+    /// place a file must return to is free, every file to move or delete is there and is
+    /// not locked, and the folders involved can be written.
+    /// - Throws: What `undo` would throw.
+    public func checkUndo(_ records: [MoveRecord]) throws {
+        _ = try undoPlan(records)
+    }
+
+    /// What an undo has to do: the moves back, and the copies to delete.
+    private func undoPlan(_ records: [MoveRecord]) throws -> (back: [PlannedMove], copies: [URL]) {
         var back: [PlannedMove] = []
         var copies: [URL] = []
         for record in records.reversed() {
             let to = URL(fileURLWithPath: record.to)
+            let from = URL(fileURLWithPath: record.from)
             if record.wasCopy {
                 guard itemExists(to) else { continue }
-                guard isRegularFile(to) else { throw OrganiserError.notARegularFile(to.path) }
-                copies.append(to)
+                if itemExists(from) {
+                    guard isRegularFile(to) else { throw OrganiserError.notARegularFile(to.path) }
+                    copies.append(to)
+                } else {
+                    // The original is gone: the copy is all there is, so it takes its place.
+                    back.append(PlannedMove(from: to, to: from))
+                }
             } else {
-                let from = URL(fileURLWithPath: record.from)
                 if !itemExists(to) {
                     if itemExists(from) { continue }
                     throw OrganiserError.sourceMissing(to.path)
@@ -126,16 +190,26 @@ public struct Organiser {
             }
         }
 
-        try perform(back, copy: false)
-        for copy in copies {
-            try fm.removeItem(at: copy)
-        }
-
-        if let pruneRoot {
-            for record in records.reversed() {
-                prune(URL(fileURLWithPath: record.to).deletingLastPathComponent(), under: pruneRoot)
+        for move in back {
+            try requireRemovable(move.from)
+            // The folder the file returns to, or the nearest one above it that exists.
+            var folder = move.to.deletingLastPathComponent().standardizedFileURL
+            while folder.path != "/", !itemExists(folder) { folder = folder.deletingLastPathComponent() }
+            guard fm.isWritableFile(atPath: folder.path) else {
+                throw OrganiserError.cannotBeChanged(move.to.path)
             }
         }
+        for copy in copies { try requireRemovable(copy) }
+        return (back, copies)
+    }
+
+    /// Throws unless the item can be taken out of its folder: it is not locked and the
+    /// folder can be written.
+    private func requireRemovable(_ url: URL) throws {
+        let values = try? url.resourceValues(forKeys: [.isUserImmutableKey, .isSystemImmutableKey])
+        guard values?.isUserImmutable != true, values?.isSystemImmutable != true,
+              fm.isWritableFile(atPath: url.deletingLastPathComponent().path)
+        else { throw OrganiserError.cannotBeChanged(url.path) }
     }
 
     // MARK: Performing a batch
@@ -187,6 +261,9 @@ public struct Organiser {
                 do {
                     if hop.copy {
                         try fm.copyItem(at: hop.from, to: hop.to)
+                        // The copy is ours: a lock copied from the original would stop
+                        // its tags being written and the copy being removed again.
+                        Self.clearUserImmutable(hop.to)
                     } else {
                         try fm.moveItem(at: hop.from, to: hop.to)
                     }
@@ -255,6 +332,13 @@ public struct Organiser {
                 try? fm.removeItem(at: folder)
             }
         }
+    }
+
+    /// Unlocks a file (the Finder's "Locked" box). Never used on a user's original.
+    private static func clearUserImmutable(_ url: URL) {
+        var info = stat()
+        guard lstat(url.path, &info) == 0, info.st_flags & UInt32(UF_IMMUTABLE) != 0 else { return }
+        _ = chflags(url.path, info.st_flags & ~UInt32(UF_IMMUTABLE))
     }
 
     /// True when anything is at `url`, including a symlink that points nowhere.

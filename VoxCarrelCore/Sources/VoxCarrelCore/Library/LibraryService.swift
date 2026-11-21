@@ -387,6 +387,8 @@ public final class LibraryService {
                 return "The file \(name(path)) could not be found (\(path))"
             case .notARegularFile(let path):
                 return "\(name(path)) is not a plain file (\(path))"
+            case .cannotBeChanged(let path):
+                return "\(name(path)) is locked, or its folder cannot be changed (\(path))"
             case .rollbackIncomplete(let cause, let outstanding):
                 let left = outstanding.map { "\(name($0.from)) is now at \($0.to)" }.joined(separator: "; ")
                 return "The files could not be moved (\(cause)), and some could not be put back: \(left)"
