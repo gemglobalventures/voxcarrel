@@ -12,7 +12,20 @@ extension LibraryService {
         var operation = PendingOperation()
         // Books already changed by an earlier item of this call.
         var targets = Set<Int64>()
-        let prepared = items.map { item -> PreparedItem in
+        // Every file that already belongs to a library book, and the files of the items so far.
+        var owners: [String: Int64] = [:]
+        for row in try store.allFiles() {
+            if let bookId = row.bookId { owners[Self.comparablePath(store.url(for: row))] = bookId }
+        }
+        var seen = Set<String>()
+        // Worked out for every item before anything moves: a path is resolved through
+        // the folders that exist, so it would read differently once its file has gone.
+        let itemPaths = items.map { $0.candidate.files.map { Self.comparablePath($0.url) } }
+        let prepared = zip(items, itemPaths).map { item, paths -> PreparedItem in
+            defer { seen.formUnion(paths) }
+            if let reason = claimedFile(of: item, paths: paths, owners: owners, seen: seen) {
+                return .failed(reason)
+            }
             switch item.target {
             case .newBook:
                 return prepareNewBook(item, options: options, into: &operation)
@@ -60,6 +73,28 @@ extension LibraryService {
         }
     }
 
+    /// Why an item may not have one of its files: the file already belongs to a library
+    /// book, or an earlier item of the same call has it. Nil when all are free.
+    private func claimedFile(
+        of item: ImportItem, paths: [String], owners: [String: Int64], seen: Set<String>
+    ) -> String? {
+        for (file, path) in zip(item.candidate.files, paths) {
+            let name = "\"\(file.url.lastPathComponent)\""
+            if let owner = owners[path] {
+                if case .existing(let target) = item.target, target == owner {
+                    return "\(name) already belongs to that book"
+                }
+                let title = (try? store.book(id: owner))?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return "\(name) already belongs to "
+                    + (title.isEmpty ? "another book in the library" : "the book \"\(title)\" in the library")
+            }
+            if seen.contains(path) {
+                return "\(name) is also in an earlier item of this import"
+            }
+        }
+        return nil
+    }
+
     /// The candidate's files, checked and read once each. Throws a readable reason.
     func workingFiles(for candidate: CandidateBook) throws -> [WorkingFile] {
         guard !candidate.files.isEmpty else { throw ItemFailure("There are no files to import") }
@@ -67,6 +102,14 @@ extension LibraryService {
             let name = file.url.lastPathComponent
             guard let format = FileFormat(url: file.url) else {
                 throw ItemFailure("\"\(name)\" is not a kind of file VoxCarrel can import")
+            }
+            // As `setRole` (M1): audio formats are always audio; ebook formats are an
+            // ebook or an extra.
+            if format.defaultRole == .audio, file.role != .audio {
+                throw ItemFailure("\"\(name)\" is an audio file, so it cannot be an ebook or an extra")
+            }
+            if format.defaultRole != .audio, file.role == .audio {
+                throw ItemFailure("\"\(name)\" is not an audio file, so it cannot be an audio part")
             }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: file.url.path, isDirectory: &isDirectory),
@@ -84,26 +127,6 @@ extension LibraryService {
 
     static func reason(for error: Error) -> String {
         (error as? ItemFailure)?.reason ?? describe(error)
-    }
-
-    /// Where a book with this metadata is filed: its folder and one destination per file,
-    /// using the capitalisation of folders that already exist. Nil when it cannot be filed.
-    func destinations(
-        for files: [CandidateFile], metadata: BookMetadata
-    ) -> (folder: URL, moves: [PlannedMove])? {
-        guard let planned = Organiser.plan(files: files, metadata: metadata, libraryRoot: layout.root),
-              let relative = PathBuilder.bookFolder(metadata: metadata)
-        else { return nil }
-        // The folder itself is the last component of nothing we move, so adopt it as
-        // the parent of a stand-in file name.
-        let folder = layout.adoptingExistingCapitalisation(
-            layout.root.appendingPathComponent(relative, isDirectory: true)
-                .appendingPathComponent("x")
-        ).deletingLastPathComponent()
-        let moves = planned.map {
-            PlannedMove(from: $0.from, to: layout.adoptingExistingCapitalisation($0.to))
-        }
-        return (folder, moves)
     }
 
     // MARK: A new book
@@ -133,7 +156,8 @@ extension LibraryService {
         case .remove: storedCover = nil
         }
 
-        guard let plan = destinations(for: candidate.files, metadata: candidate.metadata) else {
+        let sources = candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
+        guard let plan = filingPlan(for: sources, metadata: candidate.metadata) else {
             // I2: cannot be filed. Catalogued where it is; no file is moved or written,
             // so the reviewed text lives in the database only.
             if case .set = item.cover {
@@ -145,7 +169,7 @@ extension LibraryService {
                 .init(book: book, files: bookFiles(files)),
                 snapshot: BookSnapshot(
                     bookId: 0, bookBefore: nil, filesBefore: [], fileStates: [], storedCoverBefore: nil),
-                storedCover: storedCover.map { .set($0) } ?? .keep)
+                storedCover: storedCover.map { .set($0) } ?? .keep, records: [])
             return .needsAttention(writeIndex: operation.writes.count - 1)
         }
 
@@ -160,14 +184,14 @@ extension LibraryService {
             return .failed(Self.reason(for: error))
         }
 
-        // I4
+        // I4. A file that is already where it belongs (whatever its capitalisation) stays.
         let records: [MoveRecord]
         do {
-            records = try organiser.transfer(plan.moves, mode: options.mode, pruneRoot: layout.root)
+            records = try organiser.transfer(plan.moves.map(\.move), mode: options.mode, pruneRoot: layout.root)
         } catch {
             return .failed(Self.reason(for: error))
         }
-        for index in files.indices { files[index].url = plan.moves[index].to }
+        for index in files.indices { files[index].url = plan.locations[index] }
 
         // I5, I6
         let parts = Self.partPositions(for: files.map(\.role))
@@ -179,13 +203,12 @@ extension LibraryService {
 
         var book = Book(metadata: metadata, folderPath: store.storedPath(for: plan.folder))
         book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)  // I9
-        operation.records += records
         operation.add(
             .init(book: book, files: bookFiles(files)),  // I10
             snapshot: BookSnapshot(
                 bookId: 0, bookBefore: nil, filesBefore: [], fileStates: files.compactMap(\.state),
                 storedCoverBefore: nil),
-            storedCover: storedCover.map { .set($0) } ?? .keep)
+            storedCover: storedCover.map { .set($0) } ?? .keep, records: records)
         return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
     }
 
@@ -209,7 +232,7 @@ extension LibraryService {
             }
             book = found
             rows = try store.files(bookId: bookId)
-            folder = layout.root.appendingPathComponent(folderPath, isDirectory: true)
+            folder = store.url(forFolder: folderPath)
 
             // A5: existing files are read afresh, new ones for the first time (I3).
             let existing = workingFiles(for: rows)
@@ -227,14 +250,11 @@ extension LibraryService {
             return .failed(Self.reason(for: error))
         }
 
-        // A2: names are planned over the whole book, in its present folder.
-        let names = PathBuilder.fileNames(
-            title: book.title, files: files.map { CandidateFile(url: $0.url, role: $0.role) })
-        let moves = zip(files, names).map { file, name in
-            PlannedMove(
-                from: file.url,
-                to: layout.adoptingExistingCapitalisation(folder.appendingPathComponent(name)))
-        }
+        // A2: names are planned over the whole book, in its present folder. A file whose
+        // planned name differs from the one it has only in capitalisation is left alone.
+        let plan = filingPlan(
+            for: files.map { FilingSource(url: $0.url, role: $0.role) }, title: book.title, folder: folder)
+        let moves = plan.moves.map(\.move)
 
         // A2, A3: one all-or-nothing batch. In copy mode only the new files are copied;
         // existing files that need a new name are moved first.
@@ -243,9 +263,8 @@ extension LibraryService {
             if options.mode == .move {
                 records = try organiser.transfer(moves, mode: .move, pruneRoot: layout.root)
             } else {
-                let isNew = files.map { $0.existing == nil }
-                let renames = zip(moves, isNew).filter { !$0.1 }.map(\.0)
-                let arrivals = zip(moves, isNew).filter { $0.1 }.map(\.0)
+                let renames = plan.moves.filter { files[$0.index].existing != nil }.map(\.move)
+                let arrivals = plan.moves.filter { files[$0.index].existing == nil }.map(\.move)
                 let renamed = try organiser.transfer(renames, mode: .move, pruneRoot: layout.root)
                 do {
                     records = renamed + (try organiser.transfer(arrivals, mode: .copy))
@@ -263,7 +282,7 @@ extension LibraryService {
         } catch {
             return .failed(Self.reason(for: error))
         }
-        for index in files.indices { files[index].url = moves[index].to }
+        for index in files.indices { files[index].url = plan.locations[index] }
 
         // A4: the book's metadata goes into the new files, and into the existing audio
         // files too when the number of parts changed.
@@ -289,9 +308,14 @@ extension LibraryService {
                 restorePart: restorePart, coverBefore: nil)
         }
 
-        // A5
+        // A5. The duration is only recomputed when every audio file could be read: a
+        // sum over some of the parts would be wrong, so the previous value is kept.
         var updated = book
-        if let duration = Self.totalDuration(files) { updated.durationSeconds = duration }
+        let audio = files.filter { $0.role == .audio }
+        if audio.allSatisfy({ $0.before?.metadata.durationSeconds != nil }),
+           let duration = Self.totalDuration(files) {
+            updated.durationSeconds = duration
+        }
         if updated.pageCount == nil {
             updated.pageCount = files.first {
                 $0.existing == nil && $0.format == .pdf && $0.before != nil
@@ -302,13 +326,12 @@ extension LibraryService {
         updated.appOnlyFields = Self.appOnlyFields(
             files: files, hasStoredCover: hadStoredCover || newCover != nil)
 
-        operation.records += records
         operation.add(
             .init(book: updated, files: bookFiles(files)),
             snapshot: BookSnapshot(  // A6
                 bookId: bookId, bookBefore: book, filesBefore: rows,
                 fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
-            storedCover: newCover.map { .set($0) } ?? .keep)
+            storedCover: newCover.map { .set($0) } ?? .keep, records: records)
         return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
     }
 }

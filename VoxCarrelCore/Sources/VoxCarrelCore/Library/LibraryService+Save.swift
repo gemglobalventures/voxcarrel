@@ -52,21 +52,6 @@ extension LibraryService {
         }
     }
 
-    /// E3: where a book's files belong under `metadata`, planned over the files where they
-    /// really are and using the capitalisation of folders that already exist. Only the
-    /// moves that are needed are returned, each with the index of its file: one whose
-    /// source and destination differ in nothing but capitalisation is not made. Nil when
-    /// the metadata cannot be filed.
-    func refilingPlan(
-        for current: [CandidateFile], metadata: BookMetadata
-    ) -> (folder: URL, moves: [(index: Int, move: PlannedMove)])? {
-        guard let plan = destinations(for: current, metadata: metadata) else { return nil }
-        let moves = plan.moves.enumerated()
-            .filter { !LibraryLayout.samePathIgnoringCase($0.element.from, $0.element.to) }
-            .map { (index: $0.offset, move: $0.element) }
-        return (plan.folder, moves)
-    }
-
     /// What became of one edit before the commit.
     private enum PreparedEdit {
         case failed(String)
@@ -97,11 +82,11 @@ extension LibraryService {
         let writesTags = metadataChanged || edit.cover != .keep
 
         // E3: plan over the files where they really are; a move that differs from its
-        // source only in capitalisation is not made.
-        let current = rows.map { CandidateFile(url: store.url(for: $0), role: $0.role) }
+        // source only in capitalisation is not made (`filingPlan`).
+        let current = rows.map { FilingSource(url: store.url(for: $0), role: $0.role) }
         var moves: [(index: Int, move: PlannedMove)] = []
         var folderPath = book.folderPath
-        let plan = refilingPlan(for: current, metadata: metadata)
+        let plan = filingPlan(for: current, metadata: metadata)
         if let plan {
             // E5: a book catalogued in place is only filed while all its files are there.
             let canFile = book.folderPath != nil
@@ -115,12 +100,14 @@ extension LibraryService {
         }
 
         // E4, E5: flagged while it cannot be filed or is not filed; cleared once an edit
-        // has made it fileable or filed it. Otherwise the flag is left as it is.
+        // has made it fileable or filed it, but never while one of its files is missing
+        // from disk. Otherwise the flag is left as it is.
         let needsAttention: Bool
         if plan == nil || folderPath == nil {
             needsAttention = true
         } else if book.folderPath == nil || metadataChanged {
-            needsAttention = false
+            needsAttention = book.needsAttention
+                && !current.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) }
         } else {
             needsAttention = book.needsAttention
         }
@@ -178,13 +165,12 @@ extension LibraryService {
         updated.folderPath = folderPath
         updated.needsAttention = needsAttention
 
-        operation.records += records
         operation.add(
             .init(book: updated, files: bookFiles(files)),
             snapshot: BookSnapshot(
                 bookId: edit.bookId, bookBefore: book, filesBefore: rows,
                 fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
-            storedCover: edit.cover)
+            storedCover: edit.cover, records: records)
         return .saved(
             writeIndex: operation.writes.count - 1, refiled: !moves.isEmpty,
             problems: Self.fileProblems(files))

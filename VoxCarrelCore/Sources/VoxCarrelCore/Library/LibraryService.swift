@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Every operation follows one sequence: plan, snapshot, move files, write tags, then
 /// commit the database and the undo record in a single transaction. If the commit fails,
-/// the file moves are reversed.
+/// the file moves are reversed, book by book; if some file cannot be put back the
+/// caller is told which (`LibraryError.rollbackIncomplete`).
 ///
 /// Calls block while they work (moving and re-tagging large files takes seconds); run them
 /// off the main thread, one at a time.
@@ -92,6 +93,8 @@ public final class LibraryService {
         var state: FileState?
         /// True when this operation tried to write the file's tags.
         var wasWritten = false
+        /// The name the file had when it was first filed as an extra (`BookFile.originalName`).
+        var originalName: String?
     }
 
     /// A working file for something on disk, read once unless it is an extra.
@@ -106,6 +109,7 @@ public final class LibraryService {
         var file = WorkingFile(url: url, format: format, role: role, existing: existing, before: before)
         if before != nil { file.trackBefore = try? metadataIO.readTrackTags(at: url) }
         file.writeProblem = existing?.writeProblem
+        file.originalName = existing?.originalName ?? (role == .extra ? url.lastPathComponent : nil)
         file.holdsCover = before?.cover != nil
         // Until it is written, a file is taken to hold what its format can, unless the
         // last write to it failed.
@@ -197,6 +201,7 @@ public final class LibraryService {
                 path: unmoved ?? store.storedPath(for: file.url), format: file.format, role: file.role,
                 position: index)
             row.writeProblem = file.writeProblem
+            row.originalName = file.originalName
             return row
         }
     }
@@ -274,7 +279,8 @@ public final class LibraryService {
 
     /// Writes a file's earlier tags (and cover, if the operation changed it) back into it.
     /// An audio file's own track title and number are put back exactly as they were.
-    func restoreTags(_ state: FileState, token: String) throws {
+    /// - Parameter path: Where the file is now.
+    func restoreTags(_ state: FileState, at path: String, token: String) throws {
         let cover: CoverChange
         switch state.coverBefore {
         case nil: cover = .keep
@@ -285,7 +291,38 @@ public final class LibraryService {
         }
         try metadataIO.write(
             state.metadataBefore, cover: cover, part: state.part, restoringTrack: state.trackBefore,
-            to: URL(fileURLWithPath: state.pathAfter))
+            to: URL(fileURLWithPath: path))
+    }
+
+    /// Reverses one set of transfers and then puts the earlier tags back into the files,
+    /// each where it then is.
+    ///
+    /// The transfers are reversed first, all or nothing (`Organiser.undo`): if that
+    /// throws, nothing has been changed and no tag is touched. Restoring tags afterwards
+    /// is best effort: a failure there is ignored. A copy that is deleted is skipped; a
+    /// copy that takes the place of an original that has gone gets the original's tags back.
+    /// Safe to repeat.
+    func undoFiles(_ records: [MoveRecord], states: [FileState], token: String) throws {
+        let fm = FileManager.default
+        // Where a file at a record's destination is once the record is undone.
+        var movedBack: [String: String] = [:]
+        // Copies that are deleted (or already were), so have nothing to restore.
+        var deleted = Set<String>()
+        for record in records {
+            if !record.wasCopy {
+                movedBack[record.to] = record.from
+            } else if fm.fileExists(atPath: record.to), !fm.fileExists(atPath: record.from) {
+                movedBack[record.to] = record.from
+            } else {
+                deleted.insert(record.to)
+            }
+        }
+        try organiser.undo(records, pruneRoot: layout.root)
+        for state in states where !deleted.contains(state.pathAfter) {
+            let path = movedBack[state.pathAfter] ?? state.pathAfter
+            guard fm.fileExists(atPath: path) else { continue }
+            try? restoreTags(state, at: path, token: token)
+        }
     }
 
     // MARK: Committing
@@ -300,13 +337,19 @@ public final class LibraryService {
         /// One per write: what to do with the book's stored cover once it is committed.
         var storedCovers: [CoverChange] = []
         var deletedBookIds: [Int64] = []
+        /// One per write: the transfers completed for that book, in the order made.
+        var itemRecords: [[MoveRecord]] = []
         /// Every completed transfer, in the order made.
-        var records: [MoveRecord] = []
+        var records: [MoveRecord] { itemRecords.flatMap { $0 } }
 
-        mutating func add(_ write: LibraryChange.BookWrite, snapshot: BookSnapshot, storedCover: CoverChange) {
+        mutating func add(
+            _ write: LibraryChange.BookWrite, snapshot: BookSnapshot, storedCover: CoverChange,
+            records: [MoveRecord]
+        ) {
             writes.append(write)
             snapshots.append(snapshot)
             storedCovers.append(storedCover)
+            itemRecords.append(records)
         }
     }
 
@@ -314,7 +357,9 @@ public final class LibraryService {
     /// and the snapshot, in a single `store.apply`. Then the stored covers are brought up
     /// to date and older undo data is discarded.
     ///
-    /// If the commit throws, the operation is rolled back (`rollBack`) and the error rethrown.
+    /// If the commit throws, the operation is rolled back (`rollBack`) and the error
+    /// rethrown; or, when some file could not be put back, `LibraryError.rollbackIncomplete`
+    /// is thrown instead, naming those files.
     /// - Returns: The written books, with ids, in the order of `operation.writes`.
     func commit(_ operation: PendingOperation, label: String) throws -> [Book] {
         var change = LibraryChange()
@@ -333,7 +378,10 @@ public final class LibraryService {
                 return try JSONEncoder().encode(snapshot)
             }.books
         } catch {
-            rollBack(operation)
+            let stranded = rollBack(operation)
+            guard stranded.isEmpty else {
+                throw LibraryError.rollbackIncomplete(cause: Self.describe(error), stranded: stranded)
+            }
             throw error
         }
 
@@ -361,16 +409,34 @@ public final class LibraryService {
     }
 
     /// Puts the disk back as it was before an operation that could not be committed:
-    /// earlier tags are written back on a best-effort basis, every transfer is reversed,
-    /// and the operation's undo data is removed. The cover store has not been touched yet.
-    func rollBack(_ operation: PendingOperation) {
-        // A copy is about to be deleted; there is nothing in it worth restoring.
-        let copies = Set(operation.records.filter(\.wasCopy).map(\.to))
-        for state in operation.snapshots.flatMap(\.fileStates) where !copies.contains(state.pathAfter) {
-            try? restoreTags(state, token: operation.token)
+    /// book by book, newest first, the transfers are reversed and the earlier tags written
+    /// back on a best-effort basis; then the operation's undo data is removed. The cover
+    /// store has not been touched yet.
+    ///
+    /// A book whose files cannot be put back does not stop the others.
+    /// - Returns: The files that could not be put back, each as
+    ///   "<where it is> (from <where it was>)"; empty when everything is as it was.
+    func rollBack(_ operation: PendingOperation) -> [String] {
+        let fm = FileManager.default
+        var stranded: [String] = []
+        for index in operation.writes.indices.reversed() {
+            let records = operation.itemRecords[index]
+            let states = operation.snapshots[index].fileStates
+            do {
+                try undoFiles(records, states: states, token: operation.token)
+            } catch {
+                // The book's files stay where the operation put them, but get their
+                // earlier tags back all the same (a copy has an untouched original).
+                let copies = Set(records.filter(\.wasCopy).map(\.to))
+                for state in states
+                where !copies.contains(state.pathAfter) && fm.fileExists(atPath: state.pathAfter) {
+                    try? restoreTags(state, at: state.pathAfter, token: operation.token)
+                }
+                stranded += records.filter { fm.fileExists(atPath: $0.to) }.map { "\($0.to) (from \($0.from))" }
+            }
         }
-        try? organiser.undo(operation.records, pruneRoot: layout.root)
         removeUndoData(token: operation.token)
+        return stranded
     }
 
     // MARK: Messages
@@ -415,6 +481,9 @@ public final class LibraryService {
             case .invalidRole: return "A file of that type cannot have that role"
             case .nothingToUndo: return "There is nothing to undo"
             case .undoBlocked(let reason): return "Undo could not put the files back: \(reason)"
+            case .rollbackIncomplete(let cause, let stranded):
+                return "The change could not be saved (\(cause)), and some files could not be put back: "
+                    + stranded.joined(separator: "; ")
             }
         default:
             return error.localizedDescription

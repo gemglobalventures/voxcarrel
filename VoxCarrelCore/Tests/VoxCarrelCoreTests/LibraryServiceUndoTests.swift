@@ -373,8 +373,10 @@ import Testing
         #expect(try f.service.undoLabel() == "Edit Artemis")
         #expect(exists(moved))
         #expect(try read(stray) == "in the way")
-        // U2, U3: the tags were already put back by the first attempt.
-        #expect(try f.tags(moved).genre == "Science Fiction")
+        // A blocked undo changes nothing: the tags inside the file are still the edit's.
+        #expect(try f.tags(moved).genre == "Thriller")
+        #expect(try f.tags(moved).authors == ["Andrew Weir"])
+        #expect(try f.io.read(moved).cover == F.png)
 
         try FileManager.default.removeItem(at: stray)
         #expect(try f.service.undoLast() == "Edit Artemis")
@@ -542,8 +544,9 @@ import Testing
         try expectNothingLeftToUndo(f)
     }
 
-    // Undo data that cannot be read blocks the undo rather than half-doing it.
-    @Test func unreadableUndoDataBlocksTheUndo() throws {
+    // Undo data that cannot be read is not undoable: nothing is offered, nothing is
+    // half-done, and asking forgets it.
+    @Test func unreadableUndoDataIsNotUndoable() throws {
         let f = try F()
         let id = try importM4B(f, F.meta("Artemis", "Andy Weir"))
         var change = LibraryChange()
@@ -553,13 +556,16 @@ import Testing
                            to: f.lib("Andy Weir/Artemis/Artemis.m4b").path, wasCopy: false)
             ], snapshot: Data("not json".utf8))
         try f.store.apply(change)
+        try touch(f.service.undoFolder("stale").appendingPathComponent("old.img"))
 
-        #expect { try f.service.undoLast() } throws: { error in
-            if case LibraryError.undoBlocked? = error as? LibraryError { return true }
-            return false
-        }
+        #expect(try f.service.undoLabel() == nil)
+        #expect(throws: LibraryError.nothingToUndo) { try f.service.undoLast() }
+
         #expect(exists(f.lib("Andy Weir/Artemis/Artemis.m4b")))
+        #expect(f.inboxTree().isEmpty)
         #expect(try f.store.book(id: id) != nil)
-        #expect(try f.service.undoLabel() == "Broken")
+        // The journal and its undo folder are gone.
+        #expect(try f.store.lastBatch() == nil)
+        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
     }
 }

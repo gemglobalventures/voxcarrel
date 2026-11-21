@@ -82,19 +82,20 @@ import Testing
         #expect(try f.bytes(f.lib("\(folder)/Extras/Artemis.epub")) == epubBytes)
         #expect(try f.snapshot().books[0].fileStates.isEmpty)
 
-        // And the PDF goes back to Extras/ under the name it has, unwritten.
+        // And the PDF goes back to Extras/ under the name it first had there, unwritten.
         let pdfBytes = try f.bytes(f.lib("\(folder)/Artemis.pdf"))
         try f.service.setRole(.extra, forFile: try fileId(f, id, endingWith: "Artemis.pdf"))
         files = try f.store.files(bookId: id)
         #expect(files.map(\.path) == [
-            "\(folder)/Artemis.m4b", "\(folder)/Extras/Artemis.epub", "\(folder)/Extras/Artemis.pdf",
+            "\(folder)/Artemis.m4b", "\(folder)/Extras/Artemis.epub", "\(folder)/Extras/Star Map.pdf",
         ])
         #expect(files.map(\.role) == [.audio, .extra, .extra])
         #expect(files.map(\.position) == [0, 1, 2])
-        #expect(try f.bytes(f.lib("\(folder)/Extras/Artemis.pdf")) == pdfBytes)
+        #expect(files.map(\.originalName) == [nil, "Artemis.epub", "Star Map.pdf"])
+        #expect(try f.bytes(f.lib("\(folder)/Extras/Star Map.pdf")) == pdfBytes)
         #expect(f.libraryTree() == [
             "Andy Weir", folder, "\(folder)/Artemis.m4b", "\(folder)/Extras",
-            "\(folder)/Extras/Artemis.epub", "\(folder)/Extras/Artemis.pdf",
+            "\(folder)/Extras/Artemis.epub", "\(folder)/Extras/Star Map.pdf",
         ])
         // The audio file holds everything, so nothing became app-only along the way.
         #expect(try #require(try f.store.book(id: id)).appOnlyFields == [])
@@ -236,12 +237,15 @@ import Testing
         _ = try f.service.save([BookEdit(book: try #require(try f.store.book(id: id)), cover: .set(F.png))])
         #expect(f.service.covers.url(for: id) != nil)
         try FileManager.default.removeItem(at: f.lib("Andy Weir/Artemis/Artemis.epub"))
-        // The real Trash, with a note of where things went so the test can tidy up.
+        // A stand-in Trash inside the test's own folder: the user's Trash is never touched.
+        let trash = f.base.appendingPathComponent("Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
         var trashed: [URL] = []
         f.service.trashItem = { url in
-            if let landed = try LibraryService.moveToSystemTrash(url) { trashed.append(landed) }
+            let landed = trash.appendingPathComponent(url.lastPathComponent)
+            try FileManager.default.moveItem(at: url, to: landed)
+            trashed.append(landed)
         }
-        defer { for url in trashed { try? FileManager.default.removeItem(at: url) } }
 
         try f.service.removeBook(id: id, moveFilesToTrash: true)
 
@@ -257,6 +261,7 @@ import Testing
         #expect(try f.store.books().map(\.id) == [other])
         #expect(trashed.count == 2)  // the missing file was skipped
         #expect(trashed.allSatisfy { exists($0) })
+        #expect(tree(trash) == ["Artemis.m4b", "Star Map.pdf"])
     }
 
     // M4
@@ -574,13 +579,20 @@ import Testing
         let fm = FileManager.default
         let id = try importTrio(f)
         _ = try f.service.save([BookEdit(book: try #require(try f.store.book(id: id)), cover: .set(F.png))])
-        // The rows refer to the files with other capitalisation than the disk has.
+        // The rows refer to the files with other capitalisation than the disk has. On a
+        // volume that tells capitals apart those are other files, which do not exist.
+        let volume = try f.root.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+        guard let caseSensitive = volume.volumeSupportsCaseSensitiveNames else {
+            Issue.record("the volume does not say whether it tells capitals apart")
+            return
+        }
         let rows = try f.store.files(bookId: id)
         try f.store.replaceFiles(bookId: id, files: rows.map {
             var row = $0
             row.path = $0.path.uppercased()
             return row
         })
+        #expect(exists(f.lib(rows[0].path.uppercased())) == !caseSensitive)
 
         let dropped = try touch(f.lib("Dropped/New Book.epub"))
         let beside = try touch(f.lib("Andy Weir/Artemis/Bonus.MP3"))
@@ -600,9 +612,12 @@ import Testing
 
         let report = try f.service.reconcile()
 
+        // R3 compares ignoring capitalisation on either kind of volume, so the book's own
+        // files are never listed as untracked.
         #expect(report.untrackedFiles.map(\.standardizedFileURL.path)
             == [beside, dropped].map(\.standardizedFileURL.path))
-        #expect(report.booksWithMissingFiles.isEmpty)
+        // R1 asks the disk: the differently spelled rows only resolve where capitals do not count.
+        #expect(report.booksWithMissingFiles == (caseSensitive ? [id] : []))
         #expect(report.booksRecovered.isEmpty)
         #expect(report.removedWorkingCopies == 0)
         #expect(report.strandedFiles.isEmpty)

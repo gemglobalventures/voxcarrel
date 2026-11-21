@@ -114,6 +114,12 @@ public enum LibraryError: Error, Equatable {
     /// The file's format cannot have that role.
     case invalidRole
     case nothingToUndo
-    /// Undo could not put files back; nothing in the database was changed. Safe to retry.
+    /// Undo could not put files back. Nothing was changed: not the files, not the tags
+    /// inside them, not the database. Safe to retry once the obstacle is gone.
     case undoBlocked(String)
+    /// An operation could not be committed (`cause`), and when its file moves were
+    /// reversed some files could not be put back. `stranded` names each file still in the
+    /// library and where it came from, as "<where it is> (from <where it was>)". Nothing
+    /// in the database refers to them.
+    case rollbackIncomplete(cause: String, stranded: [String])
 }

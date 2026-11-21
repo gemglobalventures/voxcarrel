@@ -15,8 +15,15 @@ final class LibraryFixture {
     let service: LibraryService
     let io = FileMetadataIO()
 
-    init(organiser: Organiser = Organiser()) throws {
-        base = try makeTempDir()
+    /// - Parameter base: Where to put the library and inbox; a fresh temp folder when nil.
+    init(organiser: Organiser = Organiser(), base: URL? = nil) throws {
+        if let base {
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+            self.base = base
+        } else {
+            self.base = try makeTempDir()
+        }
+        let base = self.base
         root = base.appendingPathComponent("Library", isDirectory: true)
         inbox = base.appendingPathComponent("Inbox", isDirectory: true)
         try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)

@@ -23,6 +23,11 @@ extension LibraryService {
         let rows = try store.files(bookId: bookId)
         var moved = target
         moved.role = role
+        // A file that was filed as an extra before its name was recorded: the name it
+        // has now is the one to give back if it becomes an extra again.
+        if target.role == .extra, moved.originalName == nil {
+            moved.originalName = store.url(for: target).lastPathComponent
+        }
         let ordered = [FileRole.audio, .ebook, .extra].flatMap { wanted in
             rows.filter { $0.id != fileId && $0.role == wanted } + (wanted == role ? [moved] : [])
         }
@@ -51,14 +56,19 @@ extension LibraryService {
         }
 
         // Re-filed as a save would (E3, E6); a book that is not filed stays where it is.
+        // A file that becomes an extra again goes back under the name it first had there.
         var moves: [(index: Int, move: PlannedMove)] = []
-        if book.folderPath != nil,
-           let plan = refilingPlan(
-               for: files.map { CandidateFile(url: $0.url, role: $0.role) }, metadata: book.metadata) {
+        let sources = files.enumerated().map { offset, file in
+            FilingSource(
+                url: file.url, role: file.role,
+                extraName: offset == index && role == .extra ? file.originalName : nil)
+        }
+        if book.folderPath != nil, let plan = filingPlan(for: sources, metadata: book.metadata) {
             moves = plan.moves
         }
+        let records: [MoveRecord]
         do {
-            operation.records = try organiser.transfer(moves.map(\.move), mode: .move, pruneRoot: layout.root)
+            records = try organiser.transfer(moves.map(\.move), mode: .move, pruneRoot: layout.root)
         } catch {
             removeUndoData(token: operation.token)
             throw error
@@ -80,7 +90,7 @@ extension LibraryService {
             snapshot: BookSnapshot(
                 bookId: bookId, bookBefore: book, filesBefore: rows,
                 fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
-            storedCover: .keep)
+            storedCover: .keep, records: records)
         _ = try commit(operation, label: "Change file role")
     }
 
@@ -155,7 +165,7 @@ extension LibraryService {
                     snapshot: BookSnapshot(
                         bookId: bookId, bookBefore: book, filesBefore: rows,
                         fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
-                    storedCover: .keep)
+                    storedCover: .keep, records: [])
             }
             return .done(appOnlyFields: updated.appOnlyFields, problems: Self.fileProblems(files))
         }
@@ -208,25 +218,21 @@ extension LibraryService {
         try store.apply(change)
 
         try? covers.remove(for: id)
-        if change.clearsJournal {
-            discardUndoData(except: nil)
-            try? FileManager.default.removeItem(at: layout.undoFolder)
-        }
+        if change.clearsJournal { forgetUndoData() }
     }
 
     /// True when the recorded batch changed this book or moved one of its files. A batch
-    /// whose undo data cannot be read is taken to involve it.
+    /// whose undo data cannot be read says nothing about which books it changed (and can
+    /// never be undone, see `undoLast`): only its moves are looked at.
     private func lastBatchInvolves(bookId: Int64, files: [URL]) throws -> Bool {
         guard let batch = try store.lastBatch() else { return false }
-        if let data = batch.snapshot {
-            guard let snapshot = try? JSONDecoder().decode(OperationSnapshot.self, from: data) else { return true }
-            if snapshot.books.contains(where: { $0.bookId == bookId }) { return true }
+        if let data = batch.snapshot, let snapshot = OperationSnapshot.usable(from: data),
+           snapshot.books.contains(where: { $0.bookId == bookId }) {
+            return true
         }
-        let paths = Set(files.map { $0.standardizedFileURL.path.lowercased() })
+        let paths = Set(files.map { Self.comparablePath($0) })
         return batch.moves.contains { move in
-            [move.from, move.to].contains {
-                paths.contains(URL(fileURLWithPath: $0).standardizedFileURL.path.lowercased())
-            }
+            [move.from, move.to].contains { paths.contains(Self.comparablePath(URL(fileURLWithPath: $0))) }
         }
     }
 
@@ -319,11 +325,6 @@ extension LibraryService {
         report.untrackedFiles.sort { $0.path < $1.path }
         report.strandedFiles.sort { $0.path < $1.path }
         return report
-    }
-
-    /// A path in the form used to compare locations ignoring capitalisation.
-    private static func comparablePath(_ url: URL) -> String {
-        url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
     }
 
     private static let uuidPattern = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"
