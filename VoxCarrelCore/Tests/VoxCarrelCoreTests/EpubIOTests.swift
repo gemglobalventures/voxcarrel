@@ -254,7 +254,8 @@ import ZIPFoundation
         #expect(try opfValues(epub2, "//*[@id='uuid_id']") == ["abcdef"])
         #expect(try EpubIO.read(epub2).metadata.isbn == "9782222222222")
 
-        // The unique identifier is itself the only ISBN: a new identifier is added beside it.
+        // The unique identifier is itself the only ISBN: it is left alone, nothing is added
+        // beside it, and the caller is told the ISBN was not written.
         let opf = MediaFixtures.opf3
             .replacingOccurrences(of: "urn:uuid:12345678-1234-1234-1234-123456789abc", with: "urn:isbn:9780000000009")
             .replacingOccurrences(of: "    <dc:identifier>urn:isbn:9780000000001</dc:identifier>\n", with: "")
@@ -266,15 +267,21 @@ import ZIPFoundation
         ])
         var mOwn = try EpubIO.read(own).metadata
         #expect(mOwn.isbn == "9780000000009")
-        mOwn.isbn = "9783333333333"
-        try EpubIO.write(mOwn, cover: .keep, to: own)
-        #expect(try opfValues(own, "//*[@id='pub-id']") == ["urn:isbn:9780000000009"])
-        #expect(try EpubIO.read(own).metadata.isbn == "9783333333333")
+        let unchanged = try EpubIO.write(mOwn, cover: .keep, to: own)
+        #expect(!unchanged.notWritten.contains(.isbn)) // nothing was asked for
 
-        // Clearing the ISBN there removes only the added identifier.
-        mOwn.isbn = nil
-        try EpubIO.write(mOwn, cover: .keep, to: own)
+        mOwn.isbn = "9783333333333"
+        let changedReport = try EpubIO.write(mOwn, cover: .keep, to: own)
+        #expect(changedReport.notWritten.contains(.isbn))
         #expect(try opfValues(own, "//*[@id='pub-id']") == ["urn:isbn:9780000000009"])
+        #expect(try opfValues(own, "//*[local-name()='identifier']") == ["urn:isbn:9780000000009"])
+        #expect(try EpubIO.read(own).metadata.isbn == "9780000000009")
+
+        mOwn.isbn = nil
+        let clearedReport = try EpubIO.write(mOwn, cover: .keep, to: own)
+        #expect(clearedReport.notWritten.contains(.isbn))
+        #expect(try opfValues(own, "//*[local-name()='identifier']") == ["urn:isbn:9780000000009"])
+        #expect(try EpubIO.read(own).metadata.isbn == "9780000000009")
     }
 
     @Test func fullDateIsKeptWhenTheYearIsUnchanged() throws {
@@ -376,5 +383,370 @@ import ZIPFoundation
         #expect(try Data(contentsOf: url) == bytes)
         #expect(try leftovers(dir).isEmpty)
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["x.epub"])
+    }
+
+    // MARK: More fixtures
+
+    /// An EPUB with the given package document, plus the usual chapter, nav and cover.
+    func epub(_ name: String, opf: String, cover: (path: String, data: Data)? = (EpubIOTests.coverPath, MediaFixtures.makeImage(.jpeg)),
+              in dir: URL) throws -> URL {
+        let url = dir.appendingPathComponent(name)
+        var files: [(path: String, data: Data)] = [
+            (Self.opfPath, Data(opf.utf8)), ("OEBPS/nav.xhtml", Data(MediaFixtures.nav.utf8)),
+            ("OEBPS/ch1.xhtml", Data(MediaFixtures.chapter.utf8)), ("OEBPS/toc.ncx", Data(MediaFixtures.ncx.utf8)),
+        ]
+        if let cover { files.append(cover) }
+        try MediaFixtures.makeEPUB(at: url, files: files)
+        return url
+    }
+
+    // MARK: Character references
+
+    @Test func textMixingCharacterReferencesAndEntitiesIsReadAndKeptExactly() throws {
+        let opf = MediaFixtures.opf3
+            .replacingOccurrences(of: "Original Title", with: "Tom &amp; Jerry&#8217;s &#xE9;t&#233; &lt;1&gt;")
+            .replacingOccurrences(of: "Original &lt;b&gt;description&lt;/b&gt; &amp; more", with: "&#8220;Q&amp;A&#8221; with the author")
+            .replacingOccurrences(of: "All rights reserved", with: "&#8220;Q&amp;A&#8221; &#169;2020 Smith &amp; Sons&#8217; Press")
+            .replacingOccurrences(of: "content=\"keep me\"", with: "content=\"keep &amp; &quot;me&quot; &#233;\"")
+        let url = try epub("refs.epub", opf: opf, in: makeTempDir())
+        let rights = "//*[local-name()='rights']"
+        let custom = "//*[local-name()='meta'][@name='custom:thing']/@content"
+        let rightsBefore = try opfValues(url, rights)
+        #expect(rightsBefore == ["\u{201C}Q&A\u{201D} ©2020 Smith & Sons\u{2019} Press"])
+
+        var m = try EpubIO.read(url).metadata
+        #expect(m.title == "Tom & Jerry\u{2019}s été <1>")
+        #expect(m.summary == "\u{201C}Q&A\u{201D} with the author")
+
+        // Writing back exactly what was read must succeed and change no text.
+        try EpubIO.write(m, cover: .keep, to: url)
+        #expect(try EpubIO.read(url).metadata == m)
+        #expect(try opfValues(url, rights) == rightsBefore)
+        #expect(try opfValues(url, custom) == ["keep & \"me\" é"])
+
+        // Changing one field leaves the text of the others exactly as it was.
+        m.publisher = "Another Press"
+        try EpubIO.write(m, cover: .keep, to: url)
+        #expect(try EpubIO.read(url).metadata == m)
+        #expect(try opfValues(url, rights) == rightsBefore)
+        #expect(try opfValues(url, custom) == ["keep & \"me\" é"])
+        #expect(try opfValues(url, "//*[local-name()='title']") == ["Tom & Jerry\u{2019}s été <1>"])
+    }
+
+    // MARK: Cover paths
+
+    @Test func coverHrefWithParentFolderIsResolved() throws {
+        let dir = try makeTempDir()
+        let opf = MediaFixtures.opf3.replacingOccurrences(of: "images/cover%20art.jpg", with: "../images/./cover%20art.jpg")
+        let old = MediaFixtures.makeImage(.jpeg)
+        let url = try epub("dotdot.epub", opf: opf, cover: ("images/cover art.jpg", old), in: dir)
+        let pathsBefore = try entries(url).map(\.path).sorted()
+
+        #expect(try EpubIO.read(url).cover == CoverImage(data: old, mime: "image/jpeg"))
+
+        let new = CoverImage(data: MediaFixtures.makeImage(.jpeg, size: 32, red: 0.1), mime: "image/jpeg")
+        let report = try EpubIO.write(try EpubIO.read(url).metadata, cover: .set(new), to: url)
+
+        #expect(!report.notWritten.contains(.cover))
+        #expect(try entries(url).map(\.path).sorted() == pathsBefore)
+        #expect(try entries(url).allSatisfy { !$0.path.contains("..") })
+        #expect(try EpubIO.read(url).cover == new)
+    }
+
+    @Test func aCoverItemWhoseFileIsMissingIsLeftAlone() throws {
+        let dir = try makeTempDir()
+        for (name, href) in [("missing.epub", "images/not-there.jpg"), ("outside.epub", "../../escape.jpg")] {
+            let opf = MediaFixtures.opf3.replacingOccurrences(of: "images/cover%20art.jpg", with: href)
+            let url = try epub(name, opf: opf, in: dir)
+            let pathsBefore = try entries(url).map(\.path).sorted()
+            #expect(try EpubIO.read(url).cover == nil, "\(name)")
+
+            var m = try EpubIO.read(url).metadata
+            m.title = "Still Written"
+            let report = try EpubIO.write(m, cover: .set(jpeg()), to: url)
+
+            #expect(report.notWritten.contains(.cover), "\(name)")
+            #expect(try entries(url).map(\.path).sorted() == pathsBefore, "\(name)")
+            #expect(try !opfText(url).contains("voxcarrel-cover"), "\(name)")
+            #expect(try EpubIO.read(url).metadata.title == "Still Written", "\(name)")
+        }
+    }
+
+    @Test func aCoverThatCannotBeConvertedIsLeftAlone() throws {
+        let svg = Data("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>".utf8)
+        let opf = MediaFixtures.opf3.replacingOccurrences(
+            of: "href=\"images/cover%20art.jpg\" media-type=\"image/jpeg\"", with: "href=\"images/cover.svg\" media-type=\"image/svg+xml\"")
+        try #require(opf.contains("cover.svg"))
+        let url = try epub("svg.epub", opf: opf, cover: ("OEBPS/images/cover.svg", svg), in: makeTempDir())
+
+        var m = try EpubIO.read(url).metadata
+        m.title = "Still Written"
+        let report = try EpubIO.write(m, cover: .set(jpeg()), to: url)
+
+        #expect(report.notWritten.contains(.cover))
+        #expect(try EpubIO.read(url).cover?.data == svg)
+        #expect(try EpubIO.read(url).metadata.title == "Still Written")
+    }
+
+    // MARK: Required elements
+
+    @Test func titleAndLanguageAreNeverRemoved() throws {
+        let dir = try makeTempDir()
+        for url in [try MediaFixtures.makeEPUB3(in: dir), try MediaFixtures.makeEPUB2(in: dir)] {
+            let name = url.lastPathComponent
+            let before = try EpubIO.read(url).metadata
+            var bare = BookMetadata() // as it might arrive from a sibling audio file or an empty record
+            bare.authors = before.authors
+
+            try EpubIO.write(bare, cover: .keep, to: url)
+
+            let after = try EpubIO.read(url).metadata
+            #expect(after.title == before.title, "\(name)")
+            #expect(after.language == before.language, "\(name)")
+            #expect(after.publisher == nil, "\(name)") // optional elements are still removed
+            #expect(try opfValues(url, "//*[local-name()='title']") == [before.title], "\(name)")
+            #expect(try opfValues(url, "//*[local-name()='language']") == ["en"], "\(name)")
+        }
+    }
+
+    // MARK: Namespaces
+
+    @Test func epub2WithoutAnOPFPrefixDeclarationGetsOne() throws {
+        let opf = MediaFixtures.opf2
+            .replacingOccurrences(of: " xmlns:opf=\"http://www.idpf.org/2007/opf\"", with: "")
+            .replacingOccurrences(of: " opf:scheme=\"uuid\"", with: "")
+            .replacingOccurrences(of: "    <dc:identifier opf:scheme=\"ISBN\">9780000000002</dc:identifier>\n", with: "")
+            .replacingOccurrences(of: " opf:role=\"aut\" opf:file-as=\"Author, First\"", with: "")
+            .replacingOccurrences(of: " opf:role=\"aut\"", with: "")
+            .replacingOccurrences(of: " opf:role=\"bkp\"", with: "")
+        try #require(!opf.contains("opf:"))
+        let url = try epub("bare2.epub", opf: opf, cover: nil, in: makeTempDir())
+
+        var m = try EpubIO.read(url).metadata
+        m.authors = ["New Author"]
+        m.isbn = "9781111111111"
+        try EpubIO.write(m, cover: .keep, to: url)
+
+        #expect(try EpubIO.read(url).metadata == m)
+        let text = try opfText(url)
+        #expect(text.contains("xmlns:opf=\"http://www.idpf.org/2007/opf\""))
+        #expect(text.contains("<dc:creator opf:role=\"aut\">New Author</dc:creator>"))
+        #expect(text.contains("<dc:identifier opf:scheme=\"ISBN\">9781111111111</dc:identifier>"))
+        // A namespace-aware parse resolves the new attributes to the OPF namespace.
+        let document = try XMLDocument(xmlString: text)
+        let creators = try document.nodes(forXPath: "//*[local-name()='creator']").compactMap { $0 as? XMLElement }
+        #expect(creators.map { $0.attribute(forLocalName: "role", uri: "http://www.idpf.org/2007/opf")?.stringValue } == ["aut"])
+    }
+
+    @Test func prefixedPackageDocumentGetsPrefixedElements() throws {
+        let opf = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <opf:package xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0" unique-identifier="id">
+          <opf:metadata>
+            <dc:identifier id="id">abc</dc:identifier>
+            <dc:title>Prefixed</dc:title>
+            <dc:language>en</dc:language>
+          </opf:metadata>
+          <opf:manifest>
+            <opf:item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+          </opf:manifest>
+          <opf:spine><opf:itemref idref="ch1"/></opf:spine>
+        </opf:package>
+        """
+        let url = try epub("prefixed.epub", opf: opf, cover: nil, in: makeTempDir())
+        var m = try EpubIO.read(url).metadata
+        #expect(m.title == "Prefixed")
+        m.series = "Ser"
+        m.seriesNumber = "2"
+        m.authors = ["Ann Author"]
+        m.isbn = "9781111111111"
+
+        try EpubIO.write(m, cover: .set(jpeg()), to: url)
+
+        let after = try EpubIO.read(url)
+        #expect(after.metadata == m)
+        #expect(after.cover == jpeg())
+        let text = try opfText(url)
+        #expect(text.contains("<opf:meta "))
+        #expect(try opfValues(url, "//*[local-name()='meta'][@name='calibre:series']/@content") == ["Ser"])
+        #expect(text.contains("<opf:item id=\"voxcarrel-cover\""))
+        #expect(!text.contains("<meta "), "new elements must not fall outside the OPF namespace")
+        #expect(!text.contains("<item "))
+        // Every element directly inside metadata and manifest is in a namespace.
+        let document = try XMLDocument(xmlString: text)
+        let stray = try document.nodes(forXPath: "/*/*/*[namespace-uri()='']")
+        #expect(stray.isEmpty)
+        #expect(text.contains("<dc:creator opf:role=\"aut\">Ann Author</dc:creator>"))
+    }
+
+    // MARK: The mimetype rule
+
+    @Test func anEPUBThatAlreadyBreaksTheMimetypeRuleCanStillBeWritten() throws {
+        let url = try makeTempDir().appendingPathComponent("casual.epub")
+        do { // as "zip -r" would make it: mimetype compressed, and not first
+            let archive = try Archive(url: url, accessMode: .create)
+            for (path, text) in [("META-INF/container.xml", MediaFixtures.container), ("mimetype", "application/epub+zip"),
+                                 (Self.opfPath, MediaFixtures.opf2), ("OEBPS/ch1.xhtml", MediaFixtures.chapter)] {
+                let data = Data(text.utf8)
+                try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(data.count), compressionMethod: .deflate) { position, size in
+                    data.subdata(in: Int(position)..<Int(position) + size)
+                }
+            }
+        }
+        #expect(throws: (any Error).self) { try EpubIO.validate(url) } // the fixture really does break the rule
+
+        var m = try EpubIO.read(url).metadata
+        m.title = "Written Anyway"
+        try EpubIO.write(m, cover: .keep, to: url)
+
+        #expect(try EpubIO.read(url).metadata == m)
+        #expect(try entries(url).map(\.path).sorted() == ["META-INF/container.xml", "OEBPS/ch1.xhtml", "OEBPS/content.opf", "mimetype"])
+    }
+
+    // MARK: Series
+
+    @Test func aSeriesWithoutANumberStaysWithoutOne() throws {
+        let dir = try makeTempDir()
+        for url in [try MediaFixtures.makeEPUB3(in: dir), try MediaFixtures.makeEPUB2(in: dir)] {
+            let name = url.lastPathComponent
+            var m = try EpubIO.read(url).metadata
+            m.series = "Solo"
+            m.seriesNumber = nil
+
+            try EpubIO.write(m, cover: .keep, to: url)
+
+            let after = try EpubIO.read(url).metadata
+            #expect(after.series == "Solo", "\(name)")
+            #expect(after.seriesNumber == nil, "\(name)")
+            let text = try opfText(url)
+            #expect(try opfValues(url, "//*[local-name()='meta'][@name='calibre:series']/@content") == ["Solo"], "\(name)")
+            #expect(!text.contains("calibre:series_index"), "\(name)")
+            #expect(!text.contains("group-position"), "\(name)")
+        }
+    }
+
+    @Test func aCollectionThatIsNotASeriesIsNotTreatedAsOne() throws {
+        let opf = MediaFixtures.opf3.replacingOccurrences(
+            of: "<meta refines=\"#c1\" property=\"collection-type\">series</meta>",
+            with: "<meta refines=\"#c1\" property=\"collection-type\">set</meta>")
+        try #require(opf.contains(">set</meta>"))
+        let url = try epub("set.epub", opf: opf, in: makeTempDir())
+
+        var m = try EpubIO.read(url).metadata
+        #expect(m.series == nil)
+        #expect(m.seriesNumber == nil)
+
+        m.series = "A Real Series"
+        m.seriesNumber = "7"
+        try EpubIO.write(m, cover: .keep, to: url)
+
+        #expect(try EpubIO.read(url).metadata == m)
+        let text = try opfText(url)
+        #expect(text.contains("<meta property=\"belongs-to-collection\" id=\"c1\">Original Series</meta>"))
+        #expect(text.contains("<meta refines=\"#c1\" property=\"collection-type\">set</meta>"))
+        #expect(text.contains("<meta refines=\"#c1\" property=\"group-position\">2</meta>"))
+
+        m.series = nil
+        m.seriesNumber = nil
+        try EpubIO.write(m, cover: .keep, to: url)
+        #expect(try opfText(url).contains("<meta property=\"belongs-to-collection\" id=\"c1\">Original Series</meta>"))
+        #expect(try !opfText(url).contains("A Real Series"))
+    }
+
+    // MARK: DOCTYPE
+
+    @Test func aDoctypeInThePackageDocumentIsKept() throws {
+        let doctype = "<!DOCTYPE package PUBLIC \"+//ISBN 0-9673008-1-9//DTD OEB 1.2 Package//EN\" \"http://openebook.org/dtds/oeb-1.2/oebpkg12.dtd\">"
+        let opf = MediaFixtures.opf2.replacingOccurrences(of: "<package ", with: doctype + "\n<package ")
+        let url = try epub("doctype.epub", opf: opf, cover: nil, in: makeTempDir())
+
+        var m = try EpubIO.read(url).metadata
+        m.title = "With A Doctype"
+        try EpubIO.write(m, cover: .keep, to: url)
+
+        let text = try opfText(url)
+        #expect(text.contains(doctype + "\n<package "))
+        #expect(try EpubIO.read(url).metadata == m)
+    }
+
+    // MARK: Verification of the changed copy
+
+    /// What `write` would expect of a copy of `url` after applying `edit` to its metadata.
+    func expectation(for url: URL, mimetypeRule: Bool = true, edit: (inout BookMetadata) -> Void = { _ in }) throws -> EpubIO.Expectation {
+        let package = try EpubIO.Package(archive: try Archive(url: url, accessMode: .read))
+        var m = EpubIO.bookMetadata(from: package.readMetadata())
+        edit(&m)
+        _ = package.apply(EpubIO.epubMetadata(from: m, existing: package.readMetadata()))
+        return package.expectation(mimetypeRule: mimetypeRule)
+    }
+
+    @Test func verificationRejectsACopyWhoseUneditedMetadataChanged() throws {
+        let dir = try makeTempDir()
+        let original = try epub("original.epub", opf: MediaFixtures.opf3, in: dir)
+        let expected = try expectation(for: original)
+        try EpubIO.verify(original, against: expected) // an identical copy is fine
+
+        let tampered: [(String, String, String)] = [
+            ("text.epub", "All rights reserved", "All rights reserved reserved"),
+            ("attribute.epub", "content=\"keep me\"", "content=\"keep  me\""),
+            ("dropped.epub", "    <dc:rights>All rights reserved</dc:rights>\n", ""),
+            ("added.epub", "    <dc:rights>", "    <dc:source>x</dc:source>\n    <dc:rights>"),
+        ]
+        for (name, from, to) in tampered {
+            let opf = MediaFixtures.opf3.replacingOccurrences(of: from, with: to)
+            try #require(opf != MediaFixtures.opf3)
+            let copy = try epub(name, opf: opf, in: dir)
+            #expect(throws: EpubError.self, "\(name)") { try EpubIO.verify(copy, against: expected) }
+        }
+
+        // An element the edit did mean to change is free to differ.
+        let retitled = try expectation(for: original) { $0.title = "Retitled" }
+        let good = try epub("retitled.epub", opf: MediaFixtures.opf3.replacingOccurrences(of: "Original Title", with: "Retitled"), in: dir)
+        try EpubIO.verify(good, against: retitled)
+        // But the required elements may not come out empty.
+        let untitled = try epub("untitled.epub", opf: MediaFixtures.opf3.replacingOccurrences(of: "Original Title", with: " "), in: dir)
+        #expect(throws: EpubError.self) { try EpubIO.verify(untitled, against: retitled) }
+        let relabelled = try expectation(for: original) { $0.language = "fr" }
+        let noLanguage = try epub("nolanguage.epub", opf: MediaFixtures.opf3.replacingOccurrences(of: "<dc:language>en</dc:language>", with: "<dc:language></dc:language>"), in: dir)
+        #expect(throws: EpubError.self) { try EpubIO.verify(noLanguage, against: relabelled) }
+    }
+
+    @Test func verificationChecksEveryEntryAndTheMimetypeRuleOnlyWhenItHeldBefore() throws {
+        let dir = try makeTempDir()
+        let marker = "MARKER-MARKER-MARKER-MARKER"
+
+        // A stored entry with one byte flipped: the archive still opens, the CRC no longer matches.
+        let damaged = dir.appendingPathComponent("damaged.epub")
+        do {
+            let archive = try Archive(url: damaged, accessMode: .create)
+            for (path, text, method) in [("mimetype", "application/epub+zip", CompressionMethod.none), ("META-INF/container.xml", MediaFixtures.container, .deflate),
+                                         (Self.opfPath, MediaFixtures.opf2, .deflate), ("OEBPS/notes.txt", marker, .none)] {
+                let data = Data(text.utf8)
+                try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(data.count), compressionMethod: method) { position, size in
+                    data.subdata(in: Int(position)..<Int(position) + size)
+                }
+            }
+        }
+        let expected = try expectation(for: damaged)
+        try EpubIO.verify(damaged, against: expected)
+        var bytes = try Data(contentsOf: damaged)
+        let range = try #require(bytes.range(of: Data(marker.utf8)))
+        bytes[range.lowerBound] ^= 0xFF
+        try bytes.write(to: damaged)
+        #expect(throws: (any Error).self) { try EpubIO.verify(damaged, against: expected) }
+
+        // mimetype compressed: acceptable only when the original was like that too.
+        let casual = dir.appendingPathComponent("casual.epub")
+        do {
+            let archive = try Archive(url: casual, accessMode: .create)
+            for (path, text) in [("mimetype", "application/epub+zip"), ("META-INF/container.xml", MediaFixtures.container), (Self.opfPath, MediaFixtures.opf2)] {
+                let data = Data(text.utf8)
+                try archive.addEntry(with: path, type: .file, uncompressedSize: Int64(data.count), compressionMethod: .deflate) { position, size in
+                    data.subdata(in: Int(position)..<Int(position) + size)
+                }
+            }
+        }
+        try EpubIO.verify(casual, against: try expectation(for: casual, mimetypeRule: false))
+        #expect(throws: EpubError.self) { try EpubIO.verify(casual, against: try expectation(for: casual, mimetypeRule: true)) }
     }
 }
