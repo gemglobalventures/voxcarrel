@@ -25,6 +25,9 @@ enum PDFIO {
 
     /// PDFKit cannot patch metadata in place: the whole document is re-serialised
     /// into a copy, which is checked and then swapped in.
+    ///
+    /// Authors are stored joined in the one author field. Names are trimmed and blank ones
+    /// dropped; a name that itself contains ";" will read back as several.
     @discardableResult
     static func write(_ metadata: BookMetadata, cover: CoverChange, to url: URL) throws -> WriteReport {
         let name = url.lastPathComponent
@@ -33,7 +36,12 @@ enum PDFIO {
         guard !doc.isLocked, !doc.isEncrypted else { throw MetadataIOError.locked(name) }
         let pagesBefore = doc.pageCount
         let title = metadata.title.isEmpty ? nil : metadata.title
-        let author = NameList.join(metadata.authors)
+        // Blank names are dropped and the rest trimmed, so no empty author string is stored.
+        let names = metadata.authors.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let author = NameList.join(names)
+        // All authors share one text field, so a name containing ";" (or a lone "A B, C D") comes
+        // back split. That is what a later read will report, and what the check must expect.
+        let authorsAsReadBack = NameList.split(author)
 
         var attributes = doc.documentAttributes ?? [:]
         attributes[PDFDocumentAttribute.titleAttribute] = title
@@ -46,7 +54,7 @@ enum PDFIO {
             let check = try read(copy)
             guard check.metadata.pageCount == pagesBefore,
                   check.metadata.title == (title ?? ""),
-                  check.metadata.authors == metadata.authors
+                  check.metadata.authors == authorsAsReadBack
             else { throw MetadataIOError.verificationFailed("PDF did not re-read as written") }
         }
         return WriteReport(notWritten: cover == .keep ? unstorable : unstorable.union([.cover]))

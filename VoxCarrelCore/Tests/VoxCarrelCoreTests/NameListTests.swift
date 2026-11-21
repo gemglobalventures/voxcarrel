@@ -17,7 +17,8 @@ import Testing
 
     @Test func splitsOtherAppsCommaLists() {
         #expect(NameList.split("Andy Weir, Ray Porter") == ["Andy Weir", "Ray Porter"])
-        #expect(NameList.split("Terry Pratchett & Neil Gaiman") == ["Terry Pratchett", "Neil Gaiman"])
+        // An ampersand is part of a name far more often than it separates two: it never splits.
+        #expect(NameList.split("Terry Pratchett & Neil Gaiman") == ["Terry Pratchett & Neil Gaiman"])
         #expect(NameList.split("A B ;C D") == ["A B", "C D"])
     }
 
@@ -30,5 +31,14 @@ import Testing
         #expect(NameList.split(nil) == [])
         #expect(NameList.split("  ") == [])
         #expect(NameList.split(" ; ; ") == [])
+    }
+
+    @Test func namesWithAnAmpersandStayWhole() {
+        #expect(NameList.split("Simon & Schuster") == ["Simon & Schuster"])
+        #expect(NameList.split("Penn & Teller") == ["Penn & Teller"])
+        #expect(NameList.split("Penn & Teller; Simon & Schuster") == ["Penn & Teller", "Simon & Schuster"])
+        for names in [["Simon & Schuster"], ["Penn & Teller", "Andy Weir"]] {
+            #expect(NameList.split(NameList.join(names)) == names)
+        }
     }
 }

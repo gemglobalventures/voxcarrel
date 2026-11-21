@@ -158,4 +158,28 @@ import Testing
         let names = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
         #expect(names == ["book.pdf"])
     }
+
+    // MARK: Awkward author names
+
+    @Test func authorNamesWithSeparatorCharactersCanBeWritten() throws {
+        let url = try fixture()
+        // What is written, and what a later read legitimately reports for it.
+        let cases: [([String], [String])] = [
+            (["Simon & Schuster"], ["Simon & Schuster"]),
+            (["Penn & Teller", "Tolkien, J. R. R."], ["Penn & Teller", "Tolkien, J. R. R."]),
+            (["Smith; Jones"], ["Smith", "Jones"]),
+            (["Neil Gaiman, Terry Pratchett"], ["Neil Gaiman", "Terry Pratchett"]),
+            (["  Padded Name ", "", "   "], ["Padded Name"]),
+        ]
+        for (written, readBack) in cases {
+            try PDFIO.write(BookMetadata(title: "T", authors: written), cover: .keep, to: url)
+            #expect(try PDFIO.read(url).metadata.authors == readBack, "\(written)")
+        }
+
+        // Only blank names: the author is removed rather than written as an empty string.
+        try PDFIO.write(BookMetadata(title: "T", authors: ["", " "]), cover: .keep, to: url)
+        #expect(try PDFIO.read(url).metadata.authors.isEmpty)
+        let attributes = try #require(PDFDocument(url: url)?.documentAttributes)
+        #expect(attributes[PDFDocumentAttribute.authorAttribute] == nil)
+    }
 }
