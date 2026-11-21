@@ -136,17 +136,31 @@ final class LibraryFixture {
         return m
     }
 
-    /// The raw track number tag ("1/2") of an MP3 or MP4 audio file, or nil.
-    func track(_ url: URL) throws -> String? {
-        if url.pathExtension.lowercased() == "mp3" {
-            return try CTBTagFile.readMP3(atPath: url.path).items["TRCK"]?.first
-        }
-        return try CTBTagFile.readMP4(atPath: url.path).items["trkn"]?.first
+    /// The file's own track title and number, as raw tags.
+    func trackTags(_ url: URL) throws -> TrackTags {
+        try #require(try io.readTrackTags(at: url))
     }
 
-    /// The raw track title of an MP3.
+    /// The raw track number tag ("1/2") of an MP3 or MP4 audio file, or nil.
+    func track(_ url: URL) throws -> String? {
+        try trackTags(url).number
+    }
+
+    /// The raw track title of an MP3 or MP4 audio file, or nil.
     func trackTitle(_ url: URL) throws -> String? {
-        try CTBTagFile.readMP3(atPath: url.path).items["TIT2"]?.first
+        try trackTags(url).title
+    }
+
+    /// Sets the file's own track title as another app would, leaving everything else alone.
+    func seedTrackTitle(_ title: String, in url: URL) throws {
+        let changes = CTBChanges()
+        if url.pathExtension.lowercased() == "mp3" {
+            changes.setItems = ["TIT2": [title]]
+            try CTBTagFile.writeMP3(atPath: url.path, changes: changes)
+        } else {
+            changes.setItems = ["©nam": [title]]
+            try CTBTagFile.writeMP4(atPath: url.path, changes: changes)
+        }
     }
 
     func snapshot() throws -> OperationSnapshot {

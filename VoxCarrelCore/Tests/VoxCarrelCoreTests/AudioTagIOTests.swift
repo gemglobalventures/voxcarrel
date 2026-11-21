@@ -260,6 +260,78 @@ import UniformTypeIdentifiers
 
     // MARK: Multi-part books
 
+    // MARK: A file's own track title and number
+
+    @Test func readsTheFilesOwnTrackTitleAndNumber() throws {
+        let dir = try makeTempDir()
+        for (name, titleKey, albumKey, trackKey) in [
+            ("book.mp3", "TIT2", "TALB", "TRCK"), ("book.m4b", "©nam", "©alb", "trkn"),
+        ] {
+            let url = try makeAudio(name, in: dir)
+            #expect(try AudioTagIO.readTrackTags(url) == TrackTags(title: nil, number: nil), "\(name)")
+
+            try seedRaw([titleKey: ["Chapter 3"], albumKey: ["The Album"], trackKey: ["3/12"]], in: url)
+            #expect(try AudioTagIO.readTrackTags(url) == TrackTags(title: "Chapter 3", number: "3/12"), "\(name)")
+            // The book title a read reports is still the album.
+            #expect(try AudioTagIO.read(url).metadata.title == "The Album", "\(name)")
+        }
+    }
+
+    /// A single file whose track title differs from its album and which has no track number
+    /// is put back exactly after having been renumbered as a part.
+    @Test func restoringTrackPutsBackTitleAndRemovesNumber() throws {
+        let dir = try makeTempDir()
+        for (name, titleKey, albumKey, trackKey) in [
+            ("book.mp3", "TIT2", "TALB", "TRCK"), ("book.m4b", "©nam", "©alb", "trkn"),
+        ] {
+            let url = try makeAudio(name, in: dir)
+            try seedRaw([titleKey: ["My Own Track Name"], albumKey: ["Old Album"]], in: url)
+            let before = try AudioTagIO.read(url).metadata
+            let track = try AudioTagIO.readTrackTags(url)
+            #expect(track == TrackTags(title: "My Own Track Name", number: nil), "\(name)")
+
+            // Whatever is done to it in between: written as a whole book, then as a part.
+            try AudioTagIO.write(sample(), cover: .keep, part: nil, to: url)
+            #expect(try rawItems(url)[titleKey] == ["Project Hail Mary"], "\(name)")
+            try AudioTagIO.write(sample(), cover: .keep, part: PartPosition(index: 1, count: 2), to: url)
+            #expect(try rawItems(url)[trackKey] == ["1/2"], "\(name)")
+
+            try AudioTagIO.write(before, cover: .keep, part: nil, restoringTrack: track, to: url)
+
+            let raw = try rawItems(url)
+            #expect(raw[titleKey] == ["My Own Track Name"], "\(name)")
+            #expect(raw[trackKey] == nil, "\(name)")
+            #expect(raw[albumKey] == ["Old Album"], "\(name)")
+            #expect(try AudioTagIO.readTrackTags(url) == track, "\(name)")
+            expectSameFields(try AudioTagIO.read(url).metadata, before)
+        }
+    }
+
+    /// The restore wins over `part`, and a nil title removes the track title.
+    @Test func restoringTrackOverridesPartAndRemovesAnAbsentTitle() throws {
+        let dir = try makeTempDir()
+        for (name, titleKey, trackKey) in [("part.mp3", "TIT2", "TRCK"), ("part.m4a", "©nam", "trkn")] {
+            let url = try makeAudio(name, in: dir)
+            try AudioTagIO.write(sample(), cover: .keep, part: nil, to: url)  // sets the track title
+
+            try AudioTagIO.write(
+                sample(), cover: .keep, part: PartPosition(index: 2, count: 9),
+                restoringTrack: TrackTags(title: nil, number: "3/12"), to: url)
+
+            let raw = try rawItems(url)
+            #expect(raw[titleKey] == nil, "\(name)")
+            #expect(raw[trackKey] == ["3/12"], "\(name)")
+            #expect(try AudioTagIO.readTrackTags(url) == TrackTags(title: nil, number: "3/12"), "\(name)")
+            // With no track title, the album still gives the book's title.
+            #expect(try AudioTagIO.read(url).metadata.title == "Project Hail Mary", "\(name)")
+        }
+    }
+
+    @Test func trackTagsAreCodable() throws {
+        let tags = TrackTags(title: "Chapter 3", number: nil)
+        #expect(try JSONDecoder().decode(TrackTags.self, from: JSONEncoder().encode(tags)) == tags)
+    }
+
     @Test func multiPartKeepsTrackTitleAndSetsTrackNumber() throws {
         let dir = try makeTempDir()
         for (name, titleKey, albumKey, trackKey) in [

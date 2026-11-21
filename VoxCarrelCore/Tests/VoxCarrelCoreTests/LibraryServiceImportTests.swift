@@ -1112,29 +1112,81 @@ import Testing
         #expect(try f.store.files(bookId: id) == rows)
     }
 
-    // I12 for an existing book: renames are reversed and the rows are untouched.
-    @Test(arguments: [TransferMode.move, .copy])
-    func commitFailureRestoresAnExistingBook(mode: TransferMode) throws {
+    // I12 for an existing book: renames are reversed, the rows are untouched, and the
+    // renumbered file gets its own track title back and loses the track number again.
+    @Test(arguments: [TransferMode.move, .copy], ["mp3", "m4b"])
+    func commitFailureRestoresAnExistingBook(mode: TransferMode, ext: String) throws {
         let f = try F()
         let reviewed = F.meta("Dune", "Frank Herbert")
-        let id = try f.importNew(
-            [try f.makeMP3("one.mp3", tags: F.meta("Old", "Old Author"))], reviewed)
-        let second = try f.makeMP3("two.mp3", tags: F.meta("Other", "Other Author"))
+        func make(_ name: String, _ tags: BookMetadata) throws -> URL {
+            ext == "mp3" ? try f.makeMP3("\(name).mp3", tags: tags) : try f.makeM4B("\(name).m4b", tags: tags)
+        }
+        let id = try f.importNew([try make("one", F.meta("Old", "Old Author"))], reviewed)
+        let single = f.lib("Frank Herbert/Dune/Dune.\(ext)")
+        // A single file whose own track title is not the album's, and with no track number.
+        try f.seedTrackTitle("My Own Track Name", in: single)
+        #expect(try f.trackTags(single) == TrackTags(title: "My Own Track Name", number: nil))
+        #expect(try f.tags(single) == reviewed)
+        let second = try make("two", F.meta("Other", "Other Author"))
+        try f.seedTrackTitle("Second's Own Name", in: second)
         let bookBefore = try f.store.book(id: id)
         let rowsBefore = try f.store.files(bookId: id)
         let batchBefore = try f.store.lastBatch()
         let undoBefore = f.hiddenTree()
-        f.service.beforeCommit = { throw Boom() }
+        // The files really are renumbered before the commit is attempted.
+        var seenTrack: String?
+        f.service.beforeCommit = {
+            seenTrack = try f.track(f.lib("Frank Herbert/Dune/01 - Dune.\(ext)"))
+            throw Boom()
+        }
 
         #expect(throws: Boom.self) { _ = try add([second], to: id, in: f, mode: mode) }
 
-        #expect(f.libraryTree() == ["Frank Herbert", "Frank Herbert/Dune", "Frank Herbert/Dune/Dune.mp3"])
-        #expect(f.inboxTree() == ["two.mp3"])
-        #expect(try f.tags(f.lib("Frank Herbert/Dune/Dune.mp3")) == reviewed)
+        #expect(seenTrack == "1/2")
+        #expect(f.libraryTree() == ["Frank Herbert", "Frank Herbert/Dune", "Frank Herbert/Dune/Dune.\(ext)"])
+        #expect(f.inboxTree() == ["two.\(ext)"])
+        #expect(try f.tags(single) == reviewed)
+        #expect(try f.trackTags(single) == TrackTags(title: "My Own Track Name", number: nil))
         #expect(try f.tags(second) == F.meta("Other", "Other Author"))
+        #expect(try f.trackTags(second) == TrackTags(title: "Second's Own Name", number: nil))
         #expect(try f.store.book(id: id) == bookBefore)
         #expect(try f.store.files(bookId: id) == rowsBefore)
         #expect(try f.store.lastBatch() == batchBefore)
         #expect(f.hiddenTree() == undoBefore)
+    }
+
+    // I12: a newly imported single file gets its own track title back too, and parts
+    // lose the numbers the import gave them.
+    @Test func commitFailureRestoresTrackTagsOfNewFiles() throws {
+        let f = try F()
+        let m4b = try f.makeM4B("one.m4b", tags: F.meta("Album One", "Writer"))
+        try f.seedTrackTitle("Own Name", in: m4b)
+        let parts = try f.makeMP3Parts(folder: "two", tags: F.meta("Album Two", "Writer"))
+        try f.seedTrackTitle("Part The First", in: parts[0])
+        f.service.beforeCommit = { throw Boom() }
+
+        #expect(throws: Boom.self) {
+            try f.service.importItems([
+                ImportItem(candidate: f.candidate([m4b], F.meta("One", "Ann Author"))),
+                ImportItem(candidate: f.candidate(parts, F.meta("Two", "Ben Author"))),
+            ])
+        }
+
+        #expect(try f.trackTags(m4b) == TrackTags(title: "Own Name", number: nil))
+        #expect(try f.tags(m4b) == F.meta("Album One", "Writer"))
+        #expect(try f.trackTags(parts[0]) == TrackTags(title: "Part The First", number: nil))
+        #expect(try f.trackTags(parts[1]) == TrackTags(title: "Album Two", number: nil))
+        #expect(try f.tags(parts[0]) == F.meta("Album Two", "Writer"))
+    }
+
+    // The snapshot carries each audio file's own track tags for undo.
+    @Test func snapshotRecordsTrackTagsBefore() throws {
+        let f = try F()
+        let m4b = try f.makeM4B("one.m4b", tags: F.meta("Album One", "Writer"))
+        try f.seedTrackTitle("Own Name", in: m4b)
+        let epub = try f.makeEPUB("one.epub")
+        _ = try f.importNew([m4b, epub], F.meta("One", "Ann Author"))
+        let states = try f.snapshot().books[0].fileStates
+        #expect(states.map(\.trackBefore) == [TrackTags(title: "Own Name", number: nil), nil])
     }
 }

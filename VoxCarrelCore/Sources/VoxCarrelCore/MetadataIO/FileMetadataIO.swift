@@ -35,16 +35,30 @@ public struct FileMetadataIO: MetadataReader {
         try read(url).metadata
     }
 
+    /// An audio file's own track title and track number; nil for formats that have none.
+    public func readTrackTags(at url: URL) throws -> TrackTags? {
+        switch try format(of: url) {
+        case .m4b, .m4a, .mp3: return try AudioTagIO.readTrackTags(url)
+        case .epub, .pdf, .mobi, .azw3: return nil
+        }
+    }
+
     /// Writes what the file's format can hold, never editing the original in place.
-    /// - Parameter part: For one file of a multi-part audiobook; ignored for ebooks.
+    /// - Parameters:
+    ///   - part: For one file of a multi-part audiobook; ignored for ebooks.
+    ///   - restoringTrack: For putting an audio file back as it was: its track title and
+    ///     number are set to exactly these values (nil removes the tag), whatever `part`
+    ///     says. Ignored for ebooks.
     /// - Returns: The fields that could not be stored in this file.
     @discardableResult
     public func write(
-        _ metadata: BookMetadata, cover: CoverChange = .keep, part: PartPosition? = nil, to url: URL
+        _ metadata: BookMetadata, cover: CoverChange = .keep, part: PartPosition? = nil,
+        restoringTrack: TrackTags? = nil, to url: URL
     ) throws -> WriteReport {
         switch try format(of: url) {
         case .m4b, .m4a, .mp3:
-            return try AudioTagIO.write(metadata, cover: cover, part: part, to: url)
+            return try AudioTagIO.write(
+                metadata, cover: cover, part: part, restoringTrack: restoringTrack, to: url)
         case .epub:
             return try EpubIO.write(metadata, cover: cover, to: url)
         case .pdf:

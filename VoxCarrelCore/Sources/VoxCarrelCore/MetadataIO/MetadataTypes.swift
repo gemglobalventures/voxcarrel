@@ -94,6 +94,20 @@ public struct PartPosition: Codable, Equatable, Sendable {
     }
 }
 
+/// An audio file's own per-track tags, as distinct from the book it belongs to.
+/// Kept so a file can be put back exactly as it was.
+public struct TrackTags: Codable, Equatable, Sendable {
+    /// The track title (`©nam` / `TIT2`); nil when the file has none.
+    public var title: String?
+    /// The track number as stored (`trkn` / `TRCK`), e.g. "3/12"; nil when the file has none.
+    public var number: String?
+
+    public init(title: String?, number: String?) {
+        self.title = title
+        self.number = number
+    }
+}
+
 public enum MetadataIOError: Error, Equatable {
     /// The extension is not one VoxCarrel reads or writes.
     case unsupportedFormat(String)

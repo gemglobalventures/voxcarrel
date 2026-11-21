@@ -161,4 +161,35 @@ import Testing
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted() == ["a.epub", "a.mp3", "a.pdf"])
     }
+
+    @Test func trackTagsAreReadAndRestoredForAudioOnly() throws {
+        let dir = try makeTempDir()
+        let m4b = dir.appendingPathComponent("a.m4b")
+        try MediaFixtures.makeAAC(at: m4b, seconds: 2)
+        let epub = try MediaFixtures.makeEPUB3(in: dir)
+        let pdf = dir.appendingPathComponent("a.pdf")
+        MediaFixtures.makePDF(at: pdf, pages: 1)
+        let mobi = try touch(dir.appendingPathComponent("a.mobi"), "opaque bytes")
+
+        // Audio: read through to the tags, and restored on write.
+        try io.write(tagged("Album", author: "A B"), part: PartPosition(index: 1, count: 2), to: m4b)
+        #expect(try io.readTrackTags(at: m4b) == TrackTags(title: nil, number: "1/2"))
+        try io.write(
+            tagged("Album", author: "A B"), restoringTrack: TrackTags(title: "Own Name", number: nil), to: m4b)
+        #expect(try io.readTrackTags(at: m4b) == TrackTags(title: "Own Name", number: nil))
+        #expect(try io.read(m4b).metadata.title == "Album")
+
+        // Everything else has no track tags, and ignores a restore.
+        let track = TrackTags(title: "Ignored", number: "1/2")
+        for url in [epub, pdf, mobi] {
+            #expect(try io.readTrackTags(at: url) == nil)
+            try io.write(tagged("Routed", author: "Ann Author"), restoringTrack: track, to: url)
+        }
+        #expect(try io.read(epub).metadata.title == "Routed")
+        #expect(try io.read(pdf).metadata.title == "Routed")
+        #expect(try String(contentsOf: mobi, encoding: .utf8) == "opaque bytes")
+        #expect(throws: MetadataIOError.unsupportedFormat("txt")) {
+            try io.readTrackTags(at: dir.appendingPathComponent("a.txt"))
+        }
+    }
 }

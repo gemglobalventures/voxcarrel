@@ -69,6 +69,8 @@ public final class LibraryService {
         /// What the file held when the operation read it, before changing anything.
         /// Nil for extras (never opened) and for files that could not be read.
         var before: FileContents?
+        /// An audio file's own track title and number, read together with `before`.
+        var trackBefore: TrackTags?
         /// Why the last attempt to write the file's tags failed, or nil.
         var writeProblem: String?
         /// The text fields held inside the file once the operation is done.
@@ -88,6 +90,7 @@ public final class LibraryService {
     ) -> WorkingFile {
         let before = role == .extra ? nil : try? metadataIO.read(url)
         var file = WorkingFile(url: url, format: format, role: role, existing: existing, before: before)
+        if before != nil { file.trackBefore = try? metadataIO.readTrackTags(at: url) }
         file.writeProblem = existing?.writeProblem
         file.holdsCover = before?.cover != nil
         // Until it is written, a file is taken to hold what its format can, unless the
@@ -138,7 +141,7 @@ public final class LibraryService {
             if let before = file.before {
                 file.state = FileState(
                     pathAfter: file.url.path, metadataBefore: before.metadata, part: restorePart,
-                    coverBefore: coverChanged ? coverBefore : nil)
+                    trackBefore: file.trackBefore, coverBefore: coverChanged ? coverBefore : nil)
             }
         } catch {
             file.writeProblem = Self.describe(error)
@@ -237,6 +240,7 @@ public final class LibraryService {
     }
 
     /// Writes a file's earlier tags (and cover, if the operation changed it) back into it.
+    /// An audio file's own track title and number are put back exactly as they were.
     func restoreTags(_ state: FileState, token: String) throws {
         let cover: CoverChange
         switch state.coverBefore {
@@ -247,7 +251,7 @@ public final class LibraryService {
             cover = undoImage(named: name, token: token).map { .set($0) } ?? .keep
         }
         try metadataIO.write(
-            state.metadataBefore, cover: cover, part: state.part,
+            state.metadataBefore, cover: cover, part: state.part, restoringTrack: state.trackBefore,
             to: URL(fileURLWithPath: state.pathAfter))
     }
 

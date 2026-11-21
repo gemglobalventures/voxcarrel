@@ -70,6 +70,8 @@ enum AudioTagIO {
 
         var dateKey: String { kind == .mp4 ? "©day" : "TDRC" } // TagLib presents a v2.3 TYER as TDRC
         var commentKey: String { kind == .mp4 ? "©cmt" : "COMM" }
+        var trackTitleKey: String { kind == .mp4 ? "©nam" : "TIT2" }
+        var trackNumberKey: String { kind == .mp4 ? "trkn" : "TRCK" }
         /// The description proper, not counting the comment `read` falls back to.
         var description: String? { kind == .mp4 ? first("ldes", "desc") : first("TXXX:DESCRIPTION") }
     }
@@ -127,6 +129,12 @@ enum AudioTagIO {
             chapters: snap.chapters.map { Chapter(start: $0.startSeconds, title: $0.title) })
     }
 
+    /// The file's own track title and track number, exactly as its tags give them.
+    static func readTrackTags(_ url: URL) throws -> TrackTags {
+        let raw = try RawTags(url)
+        return TrackTags(title: raw.first(raw.trackTitleKey), number: raw.first(raw.trackNumberKey))
+    }
+
     // MARK: Write
 
     /// Safe write (copy, change, verify, swap). Returns an empty report: audio formats hold every field.
@@ -137,15 +145,21 @@ enum AudioTagIO {
     ///   it; a comment that says something else is the user's and is left alone;
     /// - only the cover picture is replaced or removed, never an MP3's other pictures.
     ///
+    /// - Parameter restoringTrack: When given, the track title and track number are set to
+    ///   exactly these values after everything else, whatever `part` says; a nil value
+    ///   removes that tag. Used to put a file back as it was. Nil changes nothing.
     /// - Throws: `MetadataIOError.unreadable` for a file with no measurable audio, before
     ///   anything is copied.
     @discardableResult
-    static func write(_ metadata: BookMetadata, cover: CoverChange, part: PartPosition?, to url: URL) throws -> WriteReport {
+    static func write(
+        _ metadata: BookMetadata, cover: CoverChange, part: PartPosition?,
+        restoringTrack: TrackTags? = nil, to url: URL
+    ) throws -> WriteReport {
         let name = url.lastPathComponent
         let before = try read(url)
         try SafeFileUpdate.update(url) { copy in
             do {
-                try writeInPlace(metadata, cover: cover, part: part, to: copy)
+                try writeInPlace(metadata, cover: cover, part: part, restoringTrack: restoringTrack, to: copy)
             } catch let error as NSError where error.domain == CTBErrorDomain {
                 throw error.code == 2 ? MetadataIOError.locked(name) : MetadataIOError.unreadable(name)
             }
@@ -164,7 +178,10 @@ enum AudioTagIO {
     }
 
     /// The raw TagLib write. Modifies `url` in place.
-    static func writeInPlace(_ metadata: BookMetadata, cover: CoverChange, part: PartPosition?, to url: URL) throws {
+    static func writeInPlace(
+        _ metadata: BookMetadata, cover: CoverChange, part: PartPosition?,
+        restoringTrack: TrackTags? = nil, to url: URL
+    ) throws {
         let existing = try RawTags(url)
         let changes = CTBChanges()
         var set: [String: [String]] = [:]
@@ -209,6 +226,11 @@ enum AudioTagIO {
             put("TLAN", metadata.language)
             put("TXXX:ISBN", metadata.isbn)
             put("TXXX:ASIN", metadata.asin)
+        }
+        // Putting a file back as it was: its own track title and number win over the mapping above.
+        if let restoringTrack {
+            put(existing.trackTitleKey, restoringTrack.title)
+            put(existing.trackNumberKey, restoringTrack.number)
         }
         // A date with the right year may be a full date ("2019-03-01"): keep it.
         if let year = metadata.year {

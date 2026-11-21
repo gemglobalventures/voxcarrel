@@ -23,11 +23,13 @@ struct FileState: Codable, Equatable {
     /// Absolute path of the file after the operation.
     var pathAfter: String
     var metadataBefore: BookMetadata
-    /// The part position to give when writing `metadataBefore` back: the file's place among
-    /// the book's audio parts before the operation, or, for a file the operation brought
-    /// into the library as one of several parts, the place it was given (so that its own
-    /// track title, which was not touched, is not touched by the restore either).
+    /// The file's place among the book's audio parts before the operation, or, for a file
+    /// the operation brought into the library as one of several parts, the place it was
+    /// given. Only decides the track tags when `trackBefore` is nil.
     var part: PartPosition?
+    /// An audio file's own track title and number before the operation. Restoring puts
+    /// these back exactly. Nil for other formats.
+    var trackBefore: TrackTags?
     /// Set only when the operation changed the cover inside the file.
     var coverBefore: CoverBefore?
 }
