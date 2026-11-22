@@ -42,6 +42,12 @@ public final class LibraryService {
         FolderLister().list($0, includePDFs: $1)
     }
 
+    /// How the files under a watch folder that are kept elsewhere and not downloaded are
+    /// listed: `listWatchFolder` leaves them out. A test seam.
+    var listNotDownloaded: (_ folder: URL, _ includePDFs: Bool) -> [ListedFile] = {
+        FolderLister().listNotDownloaded($0, includePDFs: $1)
+    }
+
     /// Test seam: how the inbox check reads a file's tags, in place of `metadataIO`.
     var readInboxTags: ((URL) throws -> BookMetadata)?
 

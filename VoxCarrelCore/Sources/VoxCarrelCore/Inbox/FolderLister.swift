@@ -55,6 +55,19 @@ public struct FolderLister: Sendable {
     /// Each path is `folder`'s own path with the names below it added, so one folder
     /// given the same way lists an unchanged file the same way every time.
     public func list(_ folder: URL, includePDFs: Bool) -> FolderListing {
+        list(folder, includePDFs: includePDFs, downloaded: true)
+    }
+
+    /// The files `list` leaves out for one reason only: their contents are not on this
+    /// Mac. They are there all the same, each with the size and date it will have when
+    /// it is downloaded. Sorted by path; empty for a folder that cannot be listed.
+    public func listNotDownloaded(_ folder: URL, includePDFs: Bool) -> [ListedFile] {
+        list(folder, includePDFs: includePDFs, downloaded: false).files
+    }
+
+    /// - Parameter downloaded: Which files are wanted: those whose contents are on
+    ///   this Mac, or those whose contents are not.
+    private func list(_ folder: URL, includePDFs: Bool, downloaded: Bool) -> FolderListing {
         let fm = FileManager.default
         let root = URL(fileURLWithPath: folder.path, isDirectory: true)
         var isDirectory: ObjCBool = false
@@ -102,7 +115,7 @@ public struct FolderLister: Sendable {
                     values.isRegularFile == true,
                     let size = values.fileSize, size > 0,
                     let modifiedAt = values.contentModificationDate,
-                    isDownloaded(child)
+                    isDownloaded(child) == downloaded
                 else { continue }
                 files.append(ListedFile(
                     url: path.appendingPathComponent(name, isDirectory: false), size: Int64(size),

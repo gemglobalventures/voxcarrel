@@ -231,6 +231,30 @@ import VoxCarrelFixtures
         }
     }
 
+    /// The files left out for that reason alone can be asked for by themselves: they are
+    /// part of what is in the folder. What is left out for another reason is not among them.
+    @Test func IB12_theFilesNotDownloadedCanBeListedByThemselves() throws {
+        try withFolder { folder in
+            try touch(folder.appendingPathComponent("here.m4b"))
+            try touch(folder.appendingPathComponent("cloud.m4b"))
+            try touch(folder.appendingPathComponent("Sub/cloud.epub"))
+            try touch(folder.appendingPathComponent("Sub/cloud.pdf"))
+            try touch(folder.appendingPathComponent("Sub/cloud.txt"))
+            try touch(folder.appendingPathComponent(".hidden/cloud.m4b"))
+            try Data().write(to: folder.appendingPathComponent("cloud-empty.m4b"))
+
+            var lister = FolderLister()
+            lister.isDownloaded = { !$0.lastPathComponent.hasPrefix("cloud") }
+
+            let without = lister.listNotDownloaded(folder, includePDFs: false)
+            #expect(names(.found(without), under: folder) == ["Sub/cloud.epub", "cloud.m4b"])
+            let with = lister.listNotDownloaded(folder, includePDFs: true)
+            #expect(names(.found(with), under: folder) == ["Sub/cloud.epub", "Sub/cloud.pdf", "cloud.m4b"])
+            #expect(without.allSatisfy { $0.size == 1 })
+            #expect(lister.listNotDownloaded(folder.appendingPathComponent("Nowhere"), includePDFs: true).isEmpty)
+        }
+    }
+
     @Test func IB12_onlyAFileThatIsCurrentAndNotDatalessCountsAsDownloaded() {
         let dataless = UInt32(SF_DATALESS)
         // An ordinary file outside iCloud has no status at all.

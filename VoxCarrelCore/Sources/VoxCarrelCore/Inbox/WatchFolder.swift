@@ -72,7 +72,8 @@ public struct InboxArrival: Identifiable, Equatable, Sendable {
 /// A watch folder and whether it could be looked into at the last check.
 public struct WatchFolderStatus: Equatable, Sendable {
     public var folder: WatchFolder
-    /// A folder that is not enabled is not looked at, and is given as available.
+    /// A folder that is not enabled is not looked at, and is given as available. So is
+    /// one that overlaps the library.
     public var availability: FolderAvailability
 
     public init(folder: WatchFolder, availability: FolderAvailability) {

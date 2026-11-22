@@ -10,7 +10,8 @@ extension LibraryService {
     /// folder's own, however `url` reaches it (through a link, with `..`).
     ///
     /// Every file in the folder at this moment is recorded as its baseline, with the
-    /// folder and in one transaction: what was already there is not an arrival.
+    /// folder and in one transaction: what was already there is not an arrival. That
+    /// includes a file kept elsewhere and not downloaded, which is there all the same.
     ///
     /// Not an undoable operation, and the one recorded is left as it is. No file is touched.
     ///
@@ -31,7 +32,7 @@ extension LibraryService {
         case .around: throw WatchFolderProblem.containsLibrary
         case .apart: break
         }
-        let baseline = listWatchFolder(folder, false).files
+        let baseline = everythingThere(in: folder, includePDFs: false)
         // Checked against the folders as they are when this one is stored.
         return try store.insertWatchFolder(path: folder.path, addedAt: now, baseline: baseline) { existing in
             for other in existing where Self.relation(of: parts, to: other.url.pathComponents) != .apart {
@@ -53,9 +54,16 @@ extension LibraryService {
         if folder.includesPDFs,
             let stored = try store.watchFolders().first(where: { $0.id == folder.id }), !stored.includesPDFs
         {
-            baseline = listWatchFolder(stored.url, true).files.filter { FileFormat(url: $0.url) == .pdf }
+            baseline = everythingThere(in: stored.url, includePDFs: true).filter { FileFormat(url: $0.url) == .pdf }
         }
         try store.updateWatchFolderSettings(folder, baseline: baseline)
+    }
+
+    /// The book files under a folder at this moment, downloaded or not, for its baseline.
+    private func everythingThere(in folder: URL, includePDFs: Bool) -> [ListedFile] {
+        let listed = listWatchFolder(folder, includePDFs).files
+        let known = Set(listed.map(\.url.path))
+        return listed + listNotDownloaded(folder, includePDFs).filter { !known.contains($0.url.path) }
     }
 
     /// Stops watching a folder and forgets everything recorded about its files. No file
@@ -77,10 +85,14 @@ extension LibraryService {
     /// groups a drop of the folder's contents. Call it again whenever something may
     /// have changed, and a settle interval after any check that reports `hasUnsettled`.
     ///
-    /// The ledger is tidied on the way: an entry for a file that has gone from a
-    /// folder that could be listed, or that has changed since, is deleted. A folder
-    /// that is missing or may not be read keeps every entry. A folder that is not
-    /// enabled is not looked at.
+    /// The ledger is tidied on the way: an entry for a file that has changed since, or
+    /// that is known to have gone from a folder that could be listed, is deleted. A
+    /// file that is merely not listed (not downloaded, a PDF while PDFs do not count,
+    /// in a sub-folder that cannot be read) keeps its entry, and a folder that is
+    /// missing or may not be read keeps every entry. A folder that is not enabled is
+    /// not looked at. Nor is one that has come to be the library, inside it or around
+    /// it (the library was moved since the folder was added): the library's own books
+    /// are not arrivals.
     ///
     /// A file's tags are read once for each state of it (path, size, modification
     /// date) and remembered while it stays listed. No file is moved or changed, and
@@ -88,8 +100,9 @@ extension LibraryService {
     public func checkInbox(now: Date) throws -> InboxReport {
         var statuses: [WatchFolderStatus] = []
         var listed: [(folder: WatchFolder, files: [ListedFile])] = []
+        let library = LibraryLayout.canonicalFolder(layout.root).pathComponents
         for folder in try store.watchFolders() {
-            guard folder.isEnabled else {
+            guard folder.isEnabled, Self.relation(of: folder.url.pathComponents, to: library) == .apart else {
                 statuses.append(WatchFolderStatus(folder: folder, availability: .available))
                 continue
             }
@@ -117,7 +130,7 @@ extension LibraryService {
             for entry in try store.inboxEntries(folderId: folder.id) {
                 if let file = identities[entry.path], file.size == entry.size, file.modifiedAt == entry.modifiedAt {
                     hidden.insert(entry.path)
-                } else if let id = entry.id {
+                } else if let id = entry.id, identities[entry.path] != nil || Self.hasGone(entry.path, from: folder) {
                     outdated.append(id)
                 }
             }
@@ -227,6 +240,16 @@ extension LibraryService {
             let modifiedAt = values.contentModificationDate
         else { return nil }
         return ListedFile(url: url, size: Int64(size), modifiedAt: modifiedAt)
+    }
+
+    /// Whether nothing is at `path` any more while its watch folder is still there: the
+    /// file was deleted or moved away. False when that cannot be told, as when the
+    /// folder itself has gone (a drive unplugged in the middle of a check).
+    private static func hasGone(_ path: String, from folder: WatchFolder) -> Bool {
+        var info = stat()
+        guard lstat(path, &info) != 0, errno == ENOENT || errno == ENOTDIR else { return false }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// How one folder lies to another.
