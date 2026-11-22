@@ -44,8 +44,11 @@ public actor LibraryWorker {
     }
 
     /// Never throws; a search whose task is cancelled comes back looking like no matches.
-    public nonisolated func lookUp(_ query: LookupQuery, preferAudio: Bool, language: String?) async -> LookupResults {
-        await lookup.withLock { $0 }.search(query, preferAudio: preferAudio, language: language)
+    /// `sources`: the only sources to ask; nil for all of them.
+    public nonisolated func lookUp(
+        _ query: LookupQuery, preferAudio: Bool, language: String?, sources: Set<LookupSource>? = nil
+    ) async -> LookupResults {
+        await lookup.withLock { $0 }.search(query, preferAudio: preferAudio, language: language, sources: sources)
     }
 
     public nonisolated func lookupDetails(for candidate: LookupCandidate) async throws -> LookupCandidate {
@@ -243,6 +246,14 @@ public actor LibraryWorker {
 
     public func setReadStatus(_ status: ReadStatus, for bookIds: [Int64]) throws {
         try service.setReadStatus(status, for: bookIds)
+    }
+
+    /// Adds a book that is owned elsewhere and has no files here, or, when the library
+    /// has the book already, gives that book the copy (`LibraryService.addExternalBook`).
+    public func addExternalBook(
+        metadata: BookMetadata, cover: CoverImage?, copy: ExternalCopy
+    ) throws -> ExternalBookOutcome {
+        try service.addExternalBook(metadata: metadata, cover: cover, copy: copy)
     }
 
     /// Marks each book as owned on Audible, or takes the mark away. Only the catalogue

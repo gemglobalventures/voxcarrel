@@ -699,9 +699,15 @@ public final class AppModel {
     /// `updateReview`, closed by `confirmImport` or `cancelImport`.
     public internal(set) var review: ImportReview? {
         didSet {
-            // An import to review takes the window: a lookup for the inspected book
-            // closes, with nothing applied, so that the import's books can be looked up.
-            if oldValue == nil, review != nil, case .book = lookup?.target { closeLookup() }
+            // An import to review takes the window: a lookup for the inspected book, or
+            // for an Audible book to add, closes, with nothing applied or added, so that
+            // the import's books can be looked up.
+            if oldValue == nil, review != nil {
+                switch lookup?.target {
+                case .book, .newAudibleBook: closeLookup()
+                case .importEntry, nil: break
+                }
+            }
             closeLookupIfItsTargetHasGone()
         }
     }
@@ -802,8 +808,9 @@ public final class AppModel {
 
     /// The lookup that is open; not nil shows its sheet, over the import sheet when its
     /// `target` is an import entry and over the window otherwise. Opened by
-    /// `beginLookup`, closed by `applyLookup` or `cancelLookup`, and whenever what it
-    /// was for has gone.
+    /// `beginLookup` or `beginAddAudibleBook`, closed by `applyLookup`,
+    /// `addLookupSelection`, `addAudibleBookByHand` or `cancelLookup`, and whenever what
+    /// it was for has gone.
     public internal(set) var lookup: LookupSession?
 
     /// A7: which country's Audible catalogue is searched. Remembered; the Mac's region's

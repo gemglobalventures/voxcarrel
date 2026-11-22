@@ -14,6 +14,9 @@ public struct LookupSession: Equatable, Sendable {
         case book(Int64)
         /// An entry in the import sheet.
         case importEntry(UUID)
+        /// Nothing yet: the chosen result is added to the library as a book that is on
+        /// Audible and has no files here.
+        case newAudibleBook
     }
 
     public enum Phase: Equatable, Sendable {
@@ -22,8 +25,22 @@ public struct LookupSession: Equatable, Sendable {
         case searching
         case results
         case noResults
-        /// The ticked values are being applied (a cover is being fetched): nothing can be changed.
+        /// The ticked values are being applied, or the book is being added (a cover is
+        /// being fetched): nothing can be changed.
         case applying
+    }
+
+    /// One detail of the selected result, to read: "Narrators", "Marcus Lindqvist".
+    public struct DetailLine: Identifiable, Equatable, Sendable {
+        public var label: String
+        public var value: String
+
+        public var id: String { label }
+
+        public init(label: String, value: String) {
+            self.label = label
+            self.value = value
+        }
     }
 
     /// One value of the selected match that could replace the book's own.
@@ -77,6 +94,9 @@ public struct LookupSession: Equatable, Sendable {
     /// The query the results shown are the answer to; nil when there are none, or when
     /// they are no longer what a search now would find.
     public private(set) var answeredQuery: LookupQuery?
+    /// True once any search of this session has finished, whatever it found, and
+    /// whether or not every source could be reached.
+    public private(set) var hasSearched = false
 
     /// K1
     public init(
@@ -95,6 +115,60 @@ public struct LookupSession: Equatable, Sendable {
 
     public var selected: LookupCandidate? {
         selectedId.flatMap { id in candidates.first { $0.id == id } }
+    }
+
+    // MARK: Adding an Audible book
+
+    /// True when the session is for adding an Audible book: there is no book to compare
+    /// with, so nothing is offered or ticked, and the chosen result is added whole.
+    public var isAddMode: Bool {
+        target == .newAudibleBook
+    }
+
+    /// The only sources a search of this session asks; nil for all of them. What Open
+    /// Library finds cannot be added as an Audible book.
+    public var sources: Set<LookupSource>? {
+        isAddMode ? [.audible] : nil
+    }
+
+    /// Whether the Add button applies: adding, with a result selected and nothing in progress.
+    public var canAdd: Bool {
+        isAddMode && phase == .results && selected != nil
+    }
+
+    /// Whether the book can be added from what is typed, with no result chosen: adding,
+    /// once the catalogue has been tried (a search has finished, whatever it found or
+    /// failed to reach), with a title in the search box and nothing in progress.
+    public var canAddByHand: Bool {
+        isAddMode && hasSearched && phase != .searching && phase != .applying && query.title.trimmedOrNil != nil
+    }
+
+    /// The book is being added; until the session closes nothing can be changed and it
+    /// cannot be added again.
+    public mutating func beginAdding() {
+        guard canAdd || canAddByHand else { return }
+        phase = .applying
+    }
+
+    /// The selected result's details, to read: title, authors, narrators, series and
+    /// number, length, year, publisher, language and description, each only when the
+    /// result has it. Empty when no result is selected.
+    public var detailLines: [DetailLine] {
+        guard let found = selected?.metadata else { return [] }
+        var series = found.series?.trimmedOrNil
+        if let name = series, let number = found.seriesNumber?.trimmedOrNil { series = "\(name) #\(number)" }
+        let lines: [(String, String?)] = [
+            ("Title", found.title.trimmedOrNil),
+            ("Authors", Self.names(found.authors).joined(separator: ", ").trimmedOrNil),
+            ("Narrators", Self.names(found.narrators).joined(separator: ", ").trimmedOrNil),
+            ("Series", series),
+            ("Length", LengthText.text(seconds: found.durationSeconds)),
+            ("Year", found.year.map(String.init)),
+            ("Publisher", found.publisher?.trimmedOrNil),
+            ("Language", found.language?.trimmedOrNil),
+            ("Description", found.summary?.trimmedOrNil),
+        ]
+        return lines.compactMap { label, value in value.map { DetailLine(label: label, value: $0) } }
     }
 
     /// A candidate is selected and something is ticked, and it is not being applied already.
@@ -149,6 +223,7 @@ public struct LookupSession: Equatable, Sendable {
             SourceOutcome(source: $0, found: results.found[$0] ?? 0, failure: results.failures[$0])
         }
         answeredQuery = query
+        hasSearched = true
         selectedId = candidates.first?.id
         offers = defaultOffers()
     }
@@ -264,7 +339,8 @@ public struct LookupSession: Equatable, Sendable {
 
     /// K3, K4: the selected candidate's offers with their default ticks.
     private func defaultOffers() -> [Offer] {
-        guard let candidate = selected else { return [] }
+        // N2: a book that is being added has no values of its own to replace.
+        guard !isAddMode, let candidate = selected else { return [] }
         var offers = Self.offerOrder.compactMap { offer($0, from: candidate) }
         // K5: the pair has one tick, the series': a found number is not put on a series
         // the book already has unless the user says so.

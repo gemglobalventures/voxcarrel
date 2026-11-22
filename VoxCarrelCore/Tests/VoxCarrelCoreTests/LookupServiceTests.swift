@@ -100,6 +100,38 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         #expect(partly.failures == [.openLibrary: .notReachable])
     }
 
+    /// N1 (plan 6): only the sources named are asked; nil asks them all.
+    @Test func S1_onlyTheNamedSourcesAreAsked() async throws {
+        let gate = Gate()
+        let open = FakeProvider(.openLibrary) { asked in
+            gate.arrive()
+            return [found(.openLibrary, "/works/OL1W", asked.title)]
+        }
+        let audible = FakeProvider(.audible, results: [found(.audible, "us:B000000001", "Project Hail Mary")])
+        let service = LookupService(providers: [open, audible], http: unusedHTTP)
+
+        let onlyAudible = await service.search(query, preferAudio: false, language: nil, sources: [.audible])
+        #expect(onlyAudible.candidates.map(\.id) == ["audible:us:B000000001"])
+        #expect(onlyAudible.searched == [.audible])
+        #expect(onlyAudible.found == [.audible: 1])
+        #expect(onlyAudible.failures.isEmpty)
+        // Open Library was never asked.
+        #expect(gate.arrivals == 0)
+
+        let all = await service.search(query, preferAudio: false, language: nil, sources: nil)
+        #expect(all.searched == [.openLibrary, .audible])
+        #expect(all.candidates.count == 2)
+        #expect(gate.arrivals == 1)
+        let both = await service.search(query, preferAudio: false, language: nil, sources: [.audible, .openLibrary])
+        #expect(both == all)
+
+        // No source named: nobody is asked.
+        let none = await service.search(query, preferAudio: false, language: nil, sources: [])
+        #expect(none.candidates.isEmpty)
+        #expect(none.searched.isEmpty)
+        #expect(gate.arrivals == 2)
+    }
+
     @Test func S1_oneFailingProviderDoesNotLoseTheOthers() async throws {
         let failing = FakeProvider(.audible) { _ in throw LookupError.notReachable }
         let working = FakeProvider(.openLibrary, results: [found(.openLibrary, "/works/OL1W", "Project Hail Mary")])

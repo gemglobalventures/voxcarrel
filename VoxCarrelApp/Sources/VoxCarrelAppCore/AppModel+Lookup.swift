@@ -34,7 +34,7 @@ extension AppModel {
         return !entry.isAddedToExisting
     }
 
-    private var isQuietForLookup: Bool {
+    var isQuietForLookup: Bool {
         isLibraryOpen && busyLabel == nil && storedPrompt == nil && lookup == nil
     }
 
@@ -57,6 +57,8 @@ extension AppModel {
     /// "Open Library: no matches · Audible (United Kingdom): 2 matches".
     public var lookupSourcesText: String {
         guard let outcomes = lookup?.outcomes, !outcomes.isEmpty else {
+            // N6: an Audible book is looked for in Audible alone.
+            if lookup?.isAddMode == true { return "Results from \(sourceName(.audible))" }
             return "Results from \(sourceName(.openLibrary)) and \(sourceName(.audible))"
         }
         return outcomes.map { outcome in
@@ -118,7 +120,7 @@ extension AppModel {
                 hasAudio: entry.hasAudio))
     }
 
-    private func open(_ session: LookupSession) {
+    func open(_ session: LookupSession) {
         lookupGeneration += 1
         forgetLookupThumbnails()
         lookup = session
@@ -164,9 +166,11 @@ extension AppModel {
         let query = session.query
         let preferAudio = session.preferAudio
         let language = lookupLanguage
+        // N1: an Audible book is looked for in Audible alone.
+        let sources = session.sources
         let generation = lookupGeneration
         let search = spawn {
-            let results = await worker.lookUp(query, preferAudio: preferAudio, language: language)
+            let results = await worker.lookUp(query, preferAudio: preferAudio, language: language, sources: sources)
             // A cancelled search comes back looking like one that found nothing, and
             // this may no longer be the lookup, or the query, it was made for (K2).
             guard !Task.isCancelled, self.lookupGeneration == generation, var session = self.lookup,
@@ -278,6 +282,9 @@ extension AppModel {
                     }
                 }
             }
+        case .newAudibleBook:
+            // Nothing is offered or ticked for a book that is being added (`canApply` is false).
+            break
         }
         closeLookup()
         if wantsCover, cover == nil {
@@ -292,7 +299,7 @@ extension AppModel {
     }
 
     /// Bytes that were fetched as a picture, as a cover; nil if they are not a JPEG or PNG.
-    private static func coverImage(_ data: Data) -> CoverImage? {
+    static func coverImage(_ data: Data) -> CoverImage? {
         guard let mime = CoverImage.sniffedMIME(data), mime == "image/jpeg" || mime == "image/png" else { return nil }
         return CoverImage(data: data, mime: mime)
     }
@@ -316,7 +323,8 @@ extension AppModel {
             if case .one(let detail, _) = inspecting, detail.row.id == id { return }
         case .importEntry(let id):
             if review?.entry(id) != nil { return }
-        case nil:
+        case .newAudibleBook, nil:
+            // An add is for no book: only the library changing, or an import, closes it.
             return
         }
         closeLookup()

@@ -23,11 +23,13 @@ extension LookupSession {
         current.asin?.trimmedOrNil != nil
     }
 
-    /// V4: what is still to be done once values have been applied.
+    /// V4: what is still to be done once values have been applied; for a book that is
+    /// being added, what adding does.
     public var reminderText: String {
         switch target {
         case .book: "Applied values still need Save."
         case .importEntry: "Applied values are imported with the book."
+        case .newAudibleBook: "The book is added to your library without files."
         }
     }
 }

@@ -52,8 +52,13 @@ public struct LookupService: Sendable {
     /// `language`: the two-letter code results are preferred in; nil for no preference.
     /// When the calling task is cancelled the requests are cancelled too, and the sources
     /// cut short are not reported as failures.
-    public func search(_ query: LookupQuery, preferAudio: Bool, language: String?) async -> LookupResults {
+    /// `sources`: the only sources to ask; nil for all of them. A source that is not
+    /// named is sent nothing and is not in `searched`.
+    public func search(
+        _ query: LookupQuery, preferAudio: Bool, language: String?, sources: Set<LookupSource>? = nil
+    ) async -> LookupResults {
         guard !query.isEmpty else { return LookupResults() }
+        let providers = providers.filter { sources?.contains($0.source) ?? true }
         var results = LookupResults(searched: providers.map(\.source))
         guard !Task.isCancelled else { return results }
 

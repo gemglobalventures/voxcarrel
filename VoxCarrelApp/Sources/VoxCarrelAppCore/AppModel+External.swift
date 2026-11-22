@@ -1,10 +1,12 @@
 import Foundation
 import VoxCarrelCore
 
-// Books owned on Audible (plan 6, Task 3). R7, R8.
+// Books owned on Audible (plan 6, Tasks 3 and 4). R7, R8; N1–N8.
 //
 // Marking a book changes only the catalogue: no file is opened, moved or written, and it
-// is not an operation Undo reverses. Taking the mark away again is the way back.
+// is not an operation Undo reverses. Taking the mark away again is the way back. Adding
+// an Audible book writes its stored cover and nothing else, and is not undone either:
+// removing the book is the way back.
 
 extension AppModel {
     // MARK: R8 Marking
@@ -103,5 +105,141 @@ extension BookDetail {
         var text = "On \(copy.kind.title)"
         if let store = copy.store.flatMap(AudibleStore.init(rawValue:)) { text += " (\(store.title))" }
         return row.hasFiles ? text : text + " · not on this Mac"
+    }
+}
+
+extension AppModel {
+    // MARK: N1 Beginning to add an Audible book
+
+    /// N1: whether an Audible book can be added now: a library is open, nothing is
+    /// running, and no question, sheet or unsaved edit is in the way. No selection is
+    /// needed. (Unsaved edits are in the way because the added book becomes the selection.)
+    public var canAddAudibleBook: Bool {
+        isQuietForLookup && review == nil && result == nil && libraryCheck == nil && !hasUnsavedChanges
+    }
+
+    /// N1: opens the lookup sheet for adding an Audible book: nothing to search for yet,
+    /// and nothing is asked until the user searches. Only Audible is ever asked. Does
+    /// nothing unless `canAddAudibleBook`.
+    public func beginAddAudibleBook() {
+        guard canAddAudibleBook else { return }
+        open(LookupSession(target: .newAudibleBook, current: BookMetadata(), hasCover: false, hasAudio: true))
+    }
+
+    /// The lookup when it is for adding an Audible book: its sheet belongs to the window.
+    public var addAudibleLookup: LookupSession? {
+        lookup?.isAddMode == true ? lookup : nil
+    }
+
+    // MARK: N3 Adding
+
+    static let addedWithoutCover = "The book was added, but its cover could not be downloaded."
+
+    /// N3: the sheet's Add button. Adds the selected result to the library as a book that
+    /// is on Audible and has no files here: with the result's details and cover, and an
+    /// Audible copy in the store of the settings with the result's ASIN. The sheet
+    /// closes, and the book is selected; when it is not among the books shown, the
+    /// sidebar moves to On Audible (and a search that still hides it is cleared).
+    ///
+    /// N4: when the library has the book already, that book is marked as also on Audible
+    /// and selected, nothing else about it changes, and `alert` says so.
+    ///
+    /// A cover that cannot be downloaded does not stop the book being added; `alert`
+    /// says it has none. Does nothing unless `lookup.canAdd`. While the book is being
+    /// added `lookup.phase` is `.applying`; if the sheet closes meanwhile nothing is added.
+    public func addLookupSelection() async {
+        guard let session = lookup, session.canAdd, let candidate = session.selected else { return }
+        await addAudibleBook(candidate.metadata, coverOf: candidate)
+    }
+
+    /// N5: adds an Audible book from what is typed in the search boxes, with no result
+    /// chosen: that title and author, no ASIN and no cover. Otherwise as
+    /// `addLookupSelection`. Does nothing unless `lookup.canAddByHand`.
+    public func addAudibleBookByHand() async {
+        guard let session = lookup, session.canAddByHand else { return }
+        let metadata = BookMetadata(
+            title: session.query.title.trimmed, authors: session.query.author.trimmedOrNil.map { [$0] } ?? [])
+        await addAudibleBook(metadata, coverOf: nil)
+    }
+
+    private func addAudibleBook(_ metadata: BookMetadata, coverOf candidate: LookupCandidate?) async {
+        guard busyLabel == nil, var session = lookup else { return }
+        // N7: from here on nothing in the sheet can be changed, and Add does nothing.
+        lookupSearch?.cancel()
+        session.beginAdding()
+        guard session.phase == .applying else { return }
+        lookup = session
+        let generation = lookupGeneration
+        guard let worker = await begin("Adding book…") else {
+            closeLookup()
+            return
+        }
+
+        var cover: CoverImage?
+        let hasCover = candidate?.coverURL != nil
+        if let candidate, hasCover {
+            // The row's picture, when it is the cover itself, has been fetched already.
+            if let url = candidate.coverURL, let data = lookupThumbnails[url] {
+                cover = Self.coverImage(data)
+            } else {
+                cover = try? await worker.lookupCover(for: candidate)
+                // The cover could not be had: the smaller picture of it is better than none.
+                if cover == nil, let data = cachedLookupThumbnail(for: candidate) { cover = Self.coverImage(data) }
+            }
+        }
+        // N7: the sheet closed meanwhile, whatever is open now: nothing is added.
+        guard lookupGeneration == generation, lookup != nil else {
+            busyLabel = nil
+            return
+        }
+
+        let asin = metadata.asin?.trimmedOrNil
+        let copy = ExternalCopy(kind: .audible, form: .audio, store: audibleStore.rawValue, itemId: asin)
+        var outcome: ExternalBookOutcome?
+        do {
+            outcome = try await worker.addExternalBook(metadata: metadata, cover: cover, copy: copy)
+        } catch {
+            show(error)
+        }
+        closeLookup()
+        await reloadAll()
+        if let outcome {
+            let id: Int64
+            var marked = false
+            switch outcome {
+            case .added(let bookId): id = bookId
+            case .markedExisting(let bookId): (id, marked) = (bookId, true)
+            }
+            // The book becomes the selection, unless that would take the inspector away
+            // from unsaved edits.
+            if !hasUnsavedChanges {
+                await show(book: id)
+            }
+            if marked {
+                // N4
+                let title = try? await worker.detail(bookId: id)?.row.book.title.trimmedOrNil
+                alert = "\(title.map { "“\($0)”" } ?? "That book") was already in your library. "
+                    + "It is now marked as also on Audible."
+            } else if hasCover, cover == nil {
+                alert = Self.addedWithoutCover
+            }
+        }
+        busyLabel = nil
+    }
+
+    /// Selects the book, first making sure it is among the books shown: when it is not,
+    /// the sidebar moves to On Audible, and a search that still hides it is cleared.
+    private func show(book id: Int64) async {
+        if !rows.contains(where: { $0.id == id }) {
+            sidebarSelection = .onAudible
+            await latestReload?.value
+        }
+        if !rows.contains(where: { $0.id == id }), !searchText.isEmpty {
+            searchText = ""
+            await latestReload?.value
+        }
+        guard rows.contains(where: { $0.id == id }) else { return }
+        applySelection([id], anchor: id)
+        await latestInspectorRefresh?.value
     }
 }

@@ -166,6 +166,10 @@ import VoxCarrelFixtures
         #expect(
             session(book, target: .importEntry(UUID())).reminderText
                 == "Applied values are imported with the book.")
+        // N6 (plan 6): adding an Audible book saves at once, and there are no files.
+        #expect(
+            LookupSession(target: .newAudibleBook, current: BookMetadata(), hasCover: false, hasAudio: true)
+                .reminderText == "The book is added to your library without files.")
     }
 
     // MARK: V6 Thumbnails

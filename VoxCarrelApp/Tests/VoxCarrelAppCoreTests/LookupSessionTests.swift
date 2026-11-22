@@ -532,4 +532,151 @@ import VoxCarrelCore
         #expect(session.outcomes.isEmpty)
         #expect(session.candidates.count == 1)
     }
+
+    // MARK: Adding an Audible book (plan 6, Task 4)
+
+    private func adding(finding candidates: [LookupCandidate]? = nil, title: String = "") -> LookupSession {
+        var session = LookupSession(target: .newAudibleBook, current: BookMetadata(), hasCover: false, hasAudio: true)
+        session.query.title = title
+        if let candidates {
+            session.beginSearch()
+            session.finishSearch(
+                LookupResults(candidates: candidates, searched: [.audible], found: [.audible: candidates.count]),
+                for: session.query)
+        }
+        return session
+    }
+
+    /// N1: an add begins with nothing to search for, and asks only Audible.
+    @Test func N1_addModeStartsEmptyAndAsksOnlyAudible() {
+        let session = adding()
+        #expect(session.isAddMode)
+        #expect(session.target == .newAudibleBook)
+        #expect(session.query == LookupQuery())
+        #expect(session.query.isEmpty)
+        #expect(session.phase == .idle)
+        #expect(session.preferAudio)
+        #expect(session.sources == [.audible])
+        #expect(!session.canSearch)
+        #expect(!session.canAdd)
+        #expect(!session.canAddByHand)
+        #expect(session.detailLines.isEmpty)
+
+        let lookup = LookupSession(target: .book(7), current: fullBook().metadata, hasCover: true, hasAudio: true)
+        #expect(!lookup.isAddMode)
+        #expect(lookup.sources == nil)
+        #expect(!LookupSession(target: .importEntry(UUID()), current: BookMetadata(), hasCover: false, hasAudio: false).isAddMode)
+    }
+
+    /// N2: nothing is offered and nothing can be ticked; the selected result is added whole.
+    @Test func N2_addModeHasNoOffersAndAddsTheSelectedResult() {
+        var session = adding(finding: [audible(), audible("B000000002", title: "Good Omens Again")], title: "Good Omens")
+        #expect(session.phase == .results)
+        #expect(session.selectedId == audible().id)
+        #expect(session.offers.isEmpty)
+        #expect(session.tickedFields.isEmpty)
+        #expect(!session.canApply)
+        #expect(session.canAdd)
+
+        session.setTicked(true, for: .title)
+        #expect(session.offers.isEmpty)
+        session.replaceSelected(with: audible())
+        #expect(session.offers.isEmpty)
+        session.select("audible:us:B000000002")
+        #expect(session.offers.isEmpty)
+        #expect(session.canAdd)
+        session.select(nil)
+        #expect(!session.canAdd)
+        #expect(session.detailLines.isEmpty)
+
+        // Not in a lookup for a book: there the ticked values are applied.
+        let lookup = self.session(finding: [audible()])
+        #expect(!lookup.canAdd)
+        #expect(!lookup.canAddByHand)
+        #expect(!lookup.offers.isEmpty)
+    }
+
+    /// N2: the selected result's details, to read.
+    @Test func N2_theSelectedResultsDetailsAreListed() {
+        var session = adding(finding: [audible(), openLibrary()], title: "Good Omens")
+        #expect(session.detailLines == [
+            LookupSession.DetailLine(label: "Title", value: "Good Omens (Full Cast)"),
+            LookupSession.DetailLine(label: "Authors", value: "Neil Gaiman, Terry Pratchett"),
+            LookupSession.DetailLine(label: "Narrators", value: "Rebecca Front, Michael Sheen"),
+            LookupSession.DetailLine(label: "Series", value: "Omens #1"),
+            LookupSession.DetailLine(label: "Length", value: "27h 47m"),
+            LookupSession.DetailLine(label: "Year", value: "2021"),
+            LookupSession.DetailLine(label: "Publisher", value: "Audible Studios"),
+            LookupSession.DetailLine(label: "Language", value: "fr"),
+            LookupSession.DetailLine(label: "Description", value: "Armageddon, with jokes."),
+        ])
+        #expect(session.detailLines.map(\.id) == session.detailLines.map(\.label))
+        // What a result does not have is left out.
+        session.select(openLibrary().id)
+        #expect(session.detailLines == [
+            LookupSession.DetailLine(label: "Title", value: "Good Omens"),
+            LookupSession.DetailLine(label: "Authors", value: "Terry Pratchett, Neil Gaiman"),
+            LookupSession.DetailLine(label: "Year", value: "1990"),
+        ])
+        // A series with no number is the series alone.
+        var plain = audible()
+        plain.metadata.seriesNumber = nil
+        plain.metadata.durationSeconds = nil
+        session = adding(finding: [plain], title: "Good Omens")
+        #expect(session.detailLines.first { $0.label == "Series" }?.value == "Omens")
+        #expect(!session.detailLines.contains { $0.label == "Length" })
+    }
+
+    /// N5: adding by hand is offered once the catalogue has been tried, for a title.
+    @Test func N5_addingByHandNeedsASearchThatFinishedAndATitle() {
+        var session = adding(title: "Rare Book")
+        #expect(!session.hasSearched)
+        #expect(!session.canAddByHand)
+        session.beginSearch()
+        #expect(!session.canAddByHand)
+        session.finishSearch(LookupResults(searched: [.audible], found: [.audible: 0]), for: session.query)
+        #expect(session.phase == .noResults)
+        #expect(session.hasSearched)
+        #expect(session.canAddByHand)
+        #expect(!session.canAdd)
+
+        // The title box is what is added: it may be changed, but not emptied.
+        session.query.title = "Rarer Book"
+        #expect(session.canAddByHand)
+        session.query.title = "   "
+        #expect(!session.canAddByHand)
+        session.query.title = "Rare Book"
+
+        // While another search runs, no; when it could not reach Audible, yes; with results, yes too.
+        session.beginSearch()
+        #expect(!session.canAddByHand)
+        session.finishSearch(
+            LookupResults(failures: [.audible: .notReachable], searched: [.audible]), for: session.query)
+        #expect(session.failureText != nil)
+        #expect(session.canAddByHand)
+        session.beginSearch()
+        session.finishSearch(
+            LookupResults(candidates: [audible()], searched: [.audible], found: [.audible: 1]), for: session.query)
+        #expect(session.canAddByHand)
+        #expect(session.canAdd)
+    }
+
+    /// N7: while the book is being added nothing can be changed, and it cannot be added twice.
+    @Test func N7_addingCannotBeBegunTwice() {
+        var session = adding(finding: [audible(), audible("B000000002")], title: "Good Omens")
+        session.beginAdding()
+        #expect(session.phase == .applying)
+        #expect(!session.canAdd)
+        #expect(!session.canAddByHand)
+        #expect(!session.canSearch)
+        session.select("audible:us:B000000002")
+        #expect(session.selectedId == audible().id)
+        session.beginSearch()
+        #expect(session.phase == .applying)
+
+        // Not a thing a lookup for a book does.
+        var lookup = self.session(finding: [audible()])
+        lookup.beginAdding()
+        #expect(lookup.phase == .results)
+    }
 }
