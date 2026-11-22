@@ -81,6 +81,12 @@ extension ImportReview {
             self.text = text
             self.isBlocking = isBlocking
         }
+
+        /// The SF Symbol that stands before the text, so that the two kinds can be told
+        /// apart where colour cannot be used: on a selected row.
+        public var symbol: String {
+            isBlocking ? "xmark.octagon.fill" : "exclamationmark.triangle.fill"
+        }
     }
 
     /// Q3: nil for an entry that is ready; "Needs attention: no author" for one that

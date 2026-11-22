@@ -155,4 +155,62 @@ import VoxCarrelCore
         #expect(row("Dune").placeholderHue == Double((((68 * 31 + 117) * 31 + 110) * 31 + 101) % 360) / 360)
         #expect(Set(titles.map { row($0).placeholderHue }).count > 3)
     }
+
+    // MARK: T7 The day a book was added
+
+    private func calendar(_ zone: String = "UTC") -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: zone)!
+        return calendar
+    }
+
+    private func date(_ year: Int, _ month: Int, _ day: Int, hour: Int = 12, in calendar: Calendar) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
+    }
+
+    /// T7: a day of this year is the day and the month; of any other, the month and the year.
+    @Test func addedDateIsShortAndLeavesOutWhatIsPlain() {
+        let utc = calendar()
+        let uk = Locale(identifier: "en_GB")
+        let now = date(2026, 11, 22, in: utc)
+        #expect(AddedDateText.compact(date(2026, 11, 22, in: utc), now: now, calendar: utc, locale: uk) == "22 Nov")
+        #expect(AddedDateText.compact(date(2026, 1, 3, in: utc), now: now, calendar: utc, locale: uk) == "3 Jan")
+        #expect(AddedDateText.compact(date(2025, 11, 22, in: utc), now: now, calendar: utc, locale: uk) == "Nov 2025")
+        #expect(AddedDateText.compact(date(2027, 2, 1, in: utc), now: now, calendar: utc, locale: uk) == "Feb 2027")
+    }
+
+    /// T7: the locale decides the order and the words.
+    @Test func addedDateFollowsTheLocale() {
+        let utc = calendar()
+        let now = date(2026, 11, 22, in: utc)
+        let day = date(2026, 11, 22, in: utc)
+        #expect(AddedDateText.compact(day, now: now, calendar: utc, locale: Locale(identifier: "en_US")) == "Nov 22")
+        #expect(AddedDateText.full(day, calendar: utc, locale: Locale(identifier: "en_GB")) == "22 November 2026")
+        #expect(AddedDateText.full(day, calendar: utc, locale: Locale(identifier: "en_US")) == "November 22, 2026")
+        let french = AddedDateText.compact(day, now: now, calendar: utc, locale: Locale(identifier: "fr_FR"))
+        #expect(french.hasPrefix("22 nov"))
+    }
+
+    /// T7: which year a moment is in is the calendar's time zone's to say.
+    @Test func addedDateTakesTheYearFromTheCalendar() {
+        let utc = calendar()
+        let singapore = calendar("Asia/Singapore")
+        let uk = Locale(identifier: "en_GB")
+        // 31 December 2025, 20:00 in UTC; 1 January 2026, 04:00 in Singapore.
+        let newYear = date(2025, 12, 31, hour: 20, in: utc)
+        let now = date(2026, 6, 1, in: utc)
+        #expect(AddedDateText.compact(newYear, now: now, calendar: utc, locale: uk) == "Dec 2025")
+        #expect(AddedDateText.compact(newYear, now: now, calendar: singapore, locale: uk) == "1 Jan")
+    }
+
+    // MARK: T8 The format symbols' tooltip
+
+    /// T8: what the book is, and the formats of its files.
+    @Test func formatsHelpNamesTheFormsAndTheFormats() {
+        #expect(row(formats: [.m4b]).formatsHelpText == "Audiobook: M4B")
+        #expect(row(ebook: true, formats: [.m4b, .epub]).formatsHelpText == "Audiobook and ebook: M4B, EPUB")
+        #expect(row(audio: false, ebook: true, formats: [.epub]).formatsHelpText == "Ebook: EPUB")
+        #expect(row(audio: false, formats: []).formatsHelpText == "")
+        #expect(row(formats: []).formatsHelpText == "Audiobook")
+    }
 }

@@ -85,7 +85,9 @@ private struct EntryList: View {
     var body: some View {
         List(selection: $selection) {
             ForEach(Array(review.entries.enumerated()), id: \.element.id) { index, entry in
-                EntryRow(entry: entry, status: review.status(of: entry.id), index: index)
+                EntryRow(
+                    entry: entry, status: review.status(of: entry.id), index: index,
+                    isSelected: selection.contains(entry.id))
             }
         }
         .listStyle(.inset)
@@ -99,6 +101,8 @@ private struct EntryRow: View {
     let entry: ImportReview.Entry
     let status: ImportReview.Status?
     let index: Int
+    /// Whether the list shows this row as selected, on its highlight.
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -136,12 +140,19 @@ private struct EntryRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     if let status {
-                        Text(status.text)
-                            .font(.caption)
-                            .foregroundStyle(status.isBlocking ? AnyShapeStyle(.red) : AnyShapeStyle(.orange))
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("review.entry.\(index).status")
+                        // Orange and red cannot be read on the highlight of a selected row:
+                        // there the words take the row's own text colour, and the symbol
+                        // says which kind of status it is.
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Image(systemName: status.symbol)
+                                .accessibilityHidden(true)
+                            Text(status.text)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("review.entry.\(index).status")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(statusStyle(status))
                     }
                 }
             }
@@ -150,6 +161,11 @@ private struct EntryRow: View {
         }
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func statusStyle(_ status: ImportReview.Status) -> AnyShapeStyle {
+        if isSelected { return AnyShapeStyle(.primary) }
+        return status.isBlocking ? AnyShapeStyle(.red) : AnyShapeStyle(.orange)
     }
 
     private var included: Binding<Bool> {
@@ -322,6 +338,8 @@ private struct EntryDetail: View {
 private struct FileLineView: View {
     @Environment(AppModel.self) private var model
     let entryId: UUID
+    private static let detachTitle = "Move to Its Own Book"
+
     let file: ImportReview.FileLine
     let index: Int
 
@@ -331,19 +349,27 @@ private struct FileLineView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
                 .accessibilityHidden(true)
+            // The name has the room the rest leave; the role and the button keep their own.
             Text(file.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .help(file.url.path)
                 .accessibilityIdentifier("review.file.\(index).name")
-            Spacer(minLength: 8)
             role
-            Button("Move to Its Own Book") {
+            Button {
                 let (id, url) = (entryId, file.url)
                 model.updateReview { $0.detach(file: url, from: id) }
+            } label: {
+                Label(Self.detachTitle, systemImage: "arrow.up.right.square")
+                    .labelStyle(.iconOnly)
             }
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
+            .fixedSize()
             .disabled(!file.canDetach)
-            .help("Take this file out of the book and make it a book of its own")
+            .help(Self.detachTitle)
+            .accessibilityLabel(Self.detachTitle)
             .accessibilityIdentifier("review.file.\(index).detach")
         }
         .controlSize(.small)
@@ -373,6 +399,7 @@ private struct FileLineView: View {
             Text(file.role.title)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .fixedSize()
                 .accessibilityIdentifier("review.file.\(index).role")
         }
     }

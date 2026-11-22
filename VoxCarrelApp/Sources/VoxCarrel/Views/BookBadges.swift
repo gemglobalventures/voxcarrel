@@ -8,17 +8,19 @@ import VoxCarrelCore
 /// Headphones when the book has audio, a book when it has an ebook.
 struct FormatBadges: View {
     let row: BookRow
+    /// A tooltip for both symbols in place of each one's own.
+    var help: String?
 
     var body: some View {
         HStack(spacing: 4) {
             if row.hasAudio {
                 Image(systemName: "headphones")
-                    .help("Audiobook")
+                    .help(help ?? "Audiobook")
                     .accessibilityLabel("Audiobook")
             }
             if row.hasEbook {
                 Image(systemName: "book.closed")
-                    .help("Ebook")
+                    .help(help ?? "Ebook")
                     .accessibilityLabel("Ebook")
             }
         }

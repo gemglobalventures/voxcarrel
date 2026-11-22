@@ -13,17 +13,20 @@ struct BookListView: View {
         ScrollViewReader { scroller in
             // The table fits its columns to the room there is, sharing it out equally above
             // each column's least width, so it is the least widths that decide whether all
-            // seven are seen: with the 17 points the table puts between columns they come
-            // to 600. Only Title has no greatest width, and takes the room the rest leave.
+            // seven are seen, and how wide each is when room is short. They come to 486,
+            // and to about 620 with the 17 points the table puts between columns and its
+            // insets: the room beside the sidebar and the inspector in a window of the
+            // default size is about 630. Title's is much the largest, and only Title has
+            // no greatest width: it takes the room the rest leave.
             Table(model.rows, selection: selection, sortOrder: $model.tableSortOrder) {
                 TableColumn("Title", value: \.titleSortKey) { row in
                     TitleCell(row: row)
                 }
-                .width(min: 130, ideal: 200)
+                .width(min: 160, ideal: 280)
                 TableColumn("Author", value: \.authorSortKey) { row in
                     TextCell(text: row.authorsText)
                 }
-                .width(min: 64, ideal: 130, max: 220)
+                .width(min: 70, ideal: 140, max: 240)
                 TableColumn("Series", value: \.seriesSortKey) { row in
                     TextCell(text: row.seriesText)
                 }
@@ -31,18 +34,16 @@ struct BookListView: View {
                 TableColumn("Formats", value: \.formatsSortKey) { row in
                     FormatsCell(row: row)
                 }
-                .width(min: 44, ideal: 70, max: 110)
+                .width(min: 44, ideal: 48, max: 60)
                 TableColumn("Length", value: \.lengthSortKey) { row in
                     TextCell(text: row.lengthText)
                         .monospacedDigit()
                 }
                 .width(min: 50, ideal: 60, max: 70)
                 TableColumn("Added", value: \.dateAddedSortKey) { row in
-                    Text(row.book.dateAdded, format: .dateTime.day().month(.abbreviated).year())
-                        .lineLimit(1)
-                        .foregroundStyle(.secondary)
+                    AddedCell(date: row.book.dateAdded)
                 }
-                .width(min: 76, ideal: 84, max: 96)
+                .width(min: 60, ideal: 66, max: 80)
                 TableColumn("Status", value: \.statusSortKey) { row in
                     StatusCell(status: row.book.readStatus)
                 }
@@ -107,16 +108,29 @@ private struct TextCell: View {
     }
 }
 
+/// The symbols alone; the formats' names are in the tooltip.
 private struct FormatsCell: View {
     let row: BookRow
 
     var body: some View {
-        HStack(spacing: 6) {
-            FormatBadges(row: row)
-            Text(row.formatsText)
-                .lineLimit(1)
-                .foregroundStyle(.secondary)
-        }
+        FormatBadges(row: row, help: row.formatsHelpText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .help(row.formatsHelpText)
+    }
+}
+
+/// A short date; the whole date is in the tooltip.
+private struct AddedCell: View {
+    let date: Date
+
+    var body: some View {
+        let full = AddedDateText.full(date)
+        Text(AddedDateText.compact(date))
+            .lineLimit(1)
+            .foregroundStyle(.secondary)
+            .help(full)
+            .accessibilityLabel(full)
     }
 }
 

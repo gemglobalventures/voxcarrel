@@ -150,6 +150,14 @@ import VoxCarrelCore
         #expect(review.status(of: id) == ImportReview.Status(text: "No files", isBlocking: true))
     }
 
+    /// Q3: a symbol tells the two kinds of status apart without colour.
+    @Test func aStatusHasASymbolOfItsKind() {
+        #expect(ImportReview.Status(text: "No files", isBlocking: true).symbol == "xmark.octagon.fill")
+        #expect(
+            ImportReview.Status(text: "Needs attention: no author", isBlocking: false).symbol
+                == "exclamationmark.triangle.fill")
+    }
+
     // MARK: Q4 Where it will go
 
     /// Q4

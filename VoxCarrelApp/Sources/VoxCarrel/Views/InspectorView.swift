@@ -45,82 +45,75 @@ private struct BookInspector: View {
         let markers = model.appOnlyMarkers
         let reasons = detail.attentionReasons
 
-        ScrollView {
-            VStack(alignment: .leading, spacing: InspectorMetrics.sectionSpacing) {
-                if !reasons.isEmpty {
-                    AttentionBanner(reasons: reasons)
-                }
+        InspectorPane {
+            if !reasons.isEmpty {
+                AttentionBanner(reasons: reasons)
+            }
 
-                VStack(spacing: 6) {
-                    CoverWell(row: detail.row, cover: model.draftCover)
-                    if markers.contains(.cover) {
-                        AppOnlyMarker()
-                    }
-                }
-                .frame(maxWidth: .infinity)
-
-                InspectorSection("Details") {
-                    field("Title", \.title, .title, id: "title")
-                    field("Subtitle", \.subtitle, .subtitle, id: "subtitle")
-                    field("Authors", \.authors, .authors, id: "authors", hint: InspectorMetrics.semicolonHint)
-                    if detail.row.hasAudio {
-                        field(
-                            "Narrators", \.narrators, .narrators, id: "narrators",
-                            hint: InspectorMetrics.semicolonHint)
-                    }
-                    HStack(alignment: .top, spacing: 8) {
-                        field("Series", \.series, .series, id: "series")
-                        InspectorField("Number", isAppOnly: markers.contains(.seriesNumber), compactMarker: true) {
-                            textField("Number", \.seriesNumber, id: "seriesNumber")
-                        }
-                        .frame(width: 64)
-                    }
-                    field("Genre", \.genre, .genre, id: "genre")
-                    field("Tags", \.tags, nil, id: "tags", hint: InspectorMetrics.semicolonHint)
-                    InspectorField("Rating") {
-                        RatingControl(rating: draft.rating)
-                    }
-                }
-
-                InspectorSection("Publishing") {
-                    HStack(alignment: .top, spacing: 8) {
-                        field("Year", \.year, .year, id: "year")
-                        field("Language", \.language, .language, id: "language")
-                    }
-                    field("Publisher", \.publisher, .publisher, id: "publisher")
-                    field("ISBN", \.isbn, .isbn, id: "isbn")
-                    field("ASIN", \.asin, .asin, id: "asin")
-                }
-
-                InspectorSection("Description", isAppOnly: markers.contains(.summary)) {
-                    TextEditor(text: text(\.summary))
-                        .font(.body)
-                        .scrollContentBackground(.hidden)
-                        .padding(.horizontal, 2)
-                        .padding(.vertical, 5)
-                        .frame(height: 120)
-                        .background(.background, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .strokeBorder(.separator, lineWidth: 1)
-                        }
-                        .accessibilityLabel("Description")
-                        .accessibilityIdentifier("inspector.description")
-                }
-
-                InspectorSection("Reading") {
-                    ReadingControls(detail: detail)
-                }
-
-                InspectorSection("Files") {
-                    FileListView(detail: detail)
+            VStack(spacing: 6) {
+                CoverWell(row: detail.row, cover: model.draftCover)
+                if markers.contains(.cover) {
+                    AppOnlyMarker()
                 }
             }
-            .padding(InspectorMetrics.padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            InspectorActions()
+            .frame(maxWidth: .infinity)
+
+            InspectorSection("Details") {
+                field("Title", \.title, .title, id: "title")
+                field("Subtitle", \.subtitle, .subtitle, id: "subtitle")
+                field("Authors", \.authors, .authors, id: "authors", hint: InspectorMetrics.semicolonHint)
+                if detail.row.hasAudio {
+                    field(
+                        "Narrators", \.narrators, .narrators, id: "narrators",
+                        hint: InspectorMetrics.semicolonHint)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    field("Series", \.series, .series, id: "series")
+                    InspectorField("Number", isAppOnly: markers.contains(.seriesNumber), compactMarker: true) {
+                        textField("Number", \.seriesNumber, id: "seriesNumber")
+                    }
+                    .frame(width: 64)
+                }
+                field("Genre", \.genre, .genre, id: "genre")
+                field("Tags", \.tags, nil, id: "tags", hint: InspectorMetrics.semicolonHint)
+                InspectorField("Rating") {
+                    RatingControl(rating: draft.rating)
+                }
+            }
+
+            InspectorSection("Publishing") {
+                HStack(alignment: .top, spacing: 8) {
+                    field("Year", \.year, .year, id: "year")
+                    field("Language", \.language, .language, id: "language")
+                }
+                field("Publisher", \.publisher, .publisher, id: "publisher")
+                field("ISBN", \.isbn, .isbn, id: "isbn")
+                field("ASIN", \.asin, .asin, id: "asin")
+            }
+
+            InspectorSection("Description", isAppOnly: markers.contains(.summary)) {
+                TextEditor(text: text(\.summary))
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 5)
+                    .frame(height: 120)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(.separator, lineWidth: 1)
+                    }
+                    .accessibilityLabel("Description")
+                    .accessibilityIdentifier("inspector.description")
+            }
+
+            InspectorSection("Reading") {
+                ReadingControls(detail: detail)
+            }
+
+            InspectorSection("Files") {
+                FileListView(detail: detail)
+            }
         }
     }
 
@@ -162,6 +155,25 @@ private struct BookInspector: View {
 }
 
 // MARK: - Parts
+
+/// What both inspectors are laid out in: their sections one under another, as wide as
+/// the column less the same padding on both sides, scrolling over Revert and Save.
+struct InspectorPane<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: InspectorMetrics.sectionSpacing) {
+                content
+            }
+            .padding(InspectorMetrics.padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            InspectorActions()
+        }
+    }
+}
 
 /// A heading and what belongs under it.
 struct InspectorSection<Content: View>: View {
@@ -384,17 +396,19 @@ struct InspectorActions: View {
             Button("Revert") {
                 model.discardChanges()
             }
+            .fixedSize()
             .disabled(!model.hasUnsavedChanges)
             .help("Put back the values as they were last saved")
             .accessibilityIdentifier("inspector.revert")
 
-            Spacer()
+            Spacer(minLength: 8)
 
             // ⌘S belongs to File ▸ Save, which works when the inspector is hidden too.
             Button("Save") {
                 Task { await model.save() }
             }
             .buttonStyle(.borderedProminent)
+            .fixedSize()
             .disabled(!model.canSave)
             .accessibilityIdentifier("inspector.save")
         }

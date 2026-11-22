@@ -13,6 +13,27 @@ public enum LengthText {
     }
 }
 
+/// The day a book was added, as the list shows it.
+public enum AddedDateText {
+    /// Short enough for a narrow column: the day and the month for a day in the year that
+    /// `now` is in ("22 Nov"), the month and the year for any other ("Nov 2025"), as the
+    /// locale writes them.
+    public static func compact(
+        _ date: Date, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current
+    ) -> String {
+        let style = Date.FormatStyle(locale: locale, calendar: calendar, timeZone: calendar.timeZone)
+        let thisYear = calendar.isDate(date, equalTo: now, toGranularity: .year)
+        return date.formatted(thisYear ? style.day().month(.abbreviated) : style.month(.abbreviated).year())
+    }
+
+    /// The whole date, for the tooltip: "22 November 2026".
+    public static func full(_ date: Date, calendar: Calendar = .current, locale: Locale = .current) -> String {
+        date.formatted(
+            Date.FormatStyle(
+                date: .long, time: .omitted, locale: locale, calendar: calendar, timeZone: calendar.timeZone))
+    }
+}
+
 extension ReadStatus {
     public var title: String {
         switch self {
@@ -49,6 +70,12 @@ extension BookRow {
     /// "M4B, EPUB"
     public var formatsText: String {
         formats.map { $0.rawValue.uppercased() }.joined(separator: ", ")
+    }
+
+    /// For the tooltip of the list's format symbols, which stand without words:
+    /// "Audiobook and ebook: M4B, EPUB". Empty when the book has no files.
+    public var formatsHelpText: String {
+        [formsText, formatsText.trimmedOrNil].compactMap { $0 }.joined(separator: ": ")
     }
 
     /// What there is to open; nil when the book has neither.
