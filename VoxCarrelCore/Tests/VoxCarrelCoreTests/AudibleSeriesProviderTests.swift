@@ -168,6 +168,20 @@ import Testing
         #expect(queryItems(try #require(http.urls.first))["title"] == "without remorse")
     }
 
+    /// What is searched for is cleaned and kept to the lookup's lengths before it is sent.
+    @Test func SC2_theTitleAndAuthorSentAreCleanedAndLimited() async throws {
+        let http = FakeHTTP(data: Self.json(["products": []]))
+        let provider = AudibleSeriesProvider(http: http, store: .us)
+        let long = String(repeating: "x", count: 2000)
+        _ = try await provider.series(ofBookWithASIN: nil, title: long, author: long)
+        _ = try await provider.series(ofBookWithASIN: nil, title: " Without\u{202E}\u{0007} Remorse\n", author: " Tom\tClancy ")
+        #expect(http.urls.count == 2)
+        #expect(queryItems(http.urls[0])["title"] == String(repeating: "x", count: LookupText.nameLimit))
+        #expect(queryItems(http.urls[0])["author"] == String(repeating: "x", count: LookupText.nameLimit))
+        #expect(queryItems(http.urls[1])["title"] == "Without Remorse")
+        #expect(queryItems(http.urls[1])["author"] == "Tom Clancy")
+    }
+
     @Test func SC2_noEqualTitleIsNothingAndNeverAGuess() async throws {
         let http = Self.recorded()
         let provider = AudibleSeriesProvider(http: http, store: .us)
@@ -547,6 +561,53 @@ import Testing
         #expect(none.urls.map(\.host) == ["api.audible.co.uk", "api.audible.com", "api.audible.com.au"])
     }
 
+    /// A book whose ASIN no store that is on knows (an ebook's, or one of a store that
+    /// is off) is searched for by its title and author, in the same stores, by SC2's rule.
+    @Test func SC8_anASINNoStoreKnowsFallsBackOnTheTitle() async throws {
+        func http(usKnowsTheBook: Bool = false) -> FakeHTTP {
+            FakeHTTP { url in
+                let us = url.host == "api.audible.com"
+                if url.path.hasSuffix("/B0UNKNOWN1") {
+                    if us, usKnowsTheBook {
+                        return (Self.json(["product": ["asin": "B0UNKNOWN1", "title": "Without Remorse"]]), 200)
+                    }
+                    // One store answers for an ID it does not know, the other says it has none.
+                    return us ? (Self.notFound, 404) : (fixture("au-badasin"), 200)
+                }
+                return us ? (fixture("au-series-search"), 200) : (Self.json(["products": []]), 200)
+            }
+        }
+        let asked = http()
+        let service = Self.service([.audible], [.uk, .us], http: asked)
+        let found = try await service.audibleSeries(ofBookWithASIN: "B0UNKNOWN1", title: "Without Remorse", author: "Tom Clancy")
+        #expect(found.map(\.id) == ["B0764TX3PG"])
+        #expect(found.map(\.store) == [.us])
+        #expect(asked.urls.map(\.host) == ["api.audible.co.uk", "api.audible.com", "api.audible.co.uk", "api.audible.com"])
+        #expect(asked.urls.prefix(2).allSatisfy { $0.path == "/1.0/catalog/products/B0UNKNOWN1" })
+        #expect(asked.urls.suffix(2).allSatisfy {
+            $0.path == "/1.0/catalog/products" && queryItems($0)["title"] == "Without Remorse"
+                && queryItems($0)["author"] == "Tom Clancy"
+        })
+
+        // No title that is this one's exactly: nothing, never a guess.
+        let other = http()
+        #expect(try await Self.service([.audible], [.uk, .us], http: other)
+            .audibleSeries(ofBookWithASIN: "B0UNKNOWN1", title: "With Remorse", author: "Tom Clancy").isEmpty)
+        #expect(other.urls.count == 4)
+
+        // With no title there is nothing to search for.
+        let untitled = http()
+        #expect(try await Self.service([.audible], [.uk, .us], http: untitled)
+            .audibleSeries(ofBookWithASIN: "B0UNKNOWN1", title: "  ", author: "Tom Clancy").isEmpty)
+        #expect(untitled.urls.count == 2)
+
+        // A store knows the book, and lists it in no series: that is the answer.
+        let known = http(usKnowsTheBook: true)
+        #expect(try await Self.service([.audible], [.uk, .us], http: known)
+            .audibleSeries(ofBookWithASIN: "B0UNKNOWN1", title: "Without Remorse", author: "Tom Clancy").isEmpty)
+        #expect(known.urls.count == 2)
+    }
+
     @Test func SC8_aStoreThatFailsIsSkippedUnlessAllFail() async throws {
         let recorded = Self.recorded()
         func http(_ answers: [String: Int]) -> FakeHTTP {
@@ -571,7 +632,8 @@ import Testing
         // Some fail and the rest know nothing: nothing found, not an error.
         let partly = http(["api.audible.co.uk": 503, "api.audible.com": 204, "api.audible.com.au": 0])
         #expect(try await ask(partly).isEmpty)
-        #expect(partly.urls.count == 3)
+        // No store knew the ID, so each was then asked for the title: three more.
+        #expect(partly.urls.count == 6)
         // All fail: the last error.
         let all = http(["api.audible.co.uk": 503, "api.audible.com": 0, "api.audible.com.au": 500])
         await #expect(throws: LookupError.refused(status: 500)) { _ = try await ask(all) }

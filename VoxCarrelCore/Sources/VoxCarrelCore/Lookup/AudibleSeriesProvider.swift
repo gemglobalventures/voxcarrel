@@ -128,14 +128,30 @@ public struct AudibleSeriesProvider: Sendable {
     /// one that has none. A book the store does not know is in no series.
     public func series(ofBookWithASIN asin: String?, title: String, author: String?) async throws -> [AudibleSeriesRef] {
         if let asin = asin.flatMap(AudibleProvider.asin) {
-            guard let product = try await product(asin, groups: Self.bookGroups) else { return [] }
-            return refs(product["series"])
+            return try await series(ofBookKnownAs: asin) ?? []
         }
+        return try await series(ofBookTitled: title, author: author)
+    }
 
+    /// The series the store lists the book with this ASIN in; nil when the store does
+    /// not know the book: it has no entry for the ID, or answers for it with nothing
+    /// but the ID. Nil, and nothing is asked, for an ID that is not a well-formed ASIN.
+    func series(ofBookKnownAs asin: String) async throws -> [AudibleSeriesRef]? {
+        guard let asin = AudibleProvider.asin(asin),
+              let product = try await product(asin, groups: Self.bookGroups),
+              LookupText.cleaned(product["title"] as? String, limit: LookupText.nameLimit) != nil
+        else { return nil }
+        return refs(product["series"])
+    }
+
+    /// The series of the first search result whose title is this one, as the lookup
+    /// compares titles; nothing when none is. The title and author are cleaned and
+    /// kept to the lookup's lengths before they are sent.
+    func series(ofBookTitled title: String, author: String?) async throws -> [AudibleSeriesRef] {
         let wanted = LookupText.comparable(title)
-        guard let title = title.nonBlank, !wanted.isEmpty else { return [] }
+        guard let title = LookupText.cleaned(title, limit: LookupText.nameLimit), !wanted.isEmpty else { return [] }
         var items: [(name: String, value: String)] = [("title", title)]
-        if let author = author?.nonBlank { items.append(("author", author)) }
+        if let author = LookupText.cleaned(author, limit: LookupText.nameLimit) { items.append(("author", author)) }
         items.append(("num_results", String(Self.searchLimit)))
         items.append(("products_sort_by", "Relevance"))
         items.append(("response_groups", Self.searchGroups))

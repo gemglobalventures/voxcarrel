@@ -283,21 +283,47 @@ public struct LookupService: Sendable {
     /// The Audible series a book is in. Empty, and nothing is sent, when Audible is off.
     /// Each store is asked in turn until one answers with at least one series. A store
     /// that fails is passed over; when every store failed, the last one's error is thrown.
+    ///
+    /// A book with an ASIN is asked about by it. When no store knows that ASIN (it is
+    /// an ebook's, or belongs to a store that is off) the book is searched for by its
+    /// title and author instead, in the same stores. A store that knows the book and
+    /// lists it in no series has answered: nothing is searched for then.
     public func audibleSeries(ofBookWithASIN asin: String?, title: String, author: String?) async throws -> [AudibleSeriesRef] {
         var answered = false
         var lastError: (any Error)?
-        for store in audibleStores {
-            try Task.checkCancellation()
-            do {
-                let found = try await AudibleSeriesProvider(http: http, store: store)
-                    .series(ofBookWithASIN: asin, title: title, author: author)
-                if !found.isEmpty { return found }
-                answered = true
-            } catch let error as CancellationError {
-                throw error
-            } catch {
-                lastError = error
+
+        /// Asks each store in turn; returns the first answer that names a series.
+        func ask(_ question: (AudibleSeriesProvider) async throws -> [AudibleSeriesRef]) async throws -> [AudibleSeriesRef] {
+            for store in audibleStores {
+                try Task.checkCancellation()
+                do {
+                    let found = try await question(AudibleSeriesProvider(http: http, store: store))
+                    answered = true
+                    if !found.isEmpty { return found }
+                } catch let error as CancellationError {
+                    throw error
+                } catch {
+                    lastError = error
+                }
             }
+            return []
+        }
+
+        var searches = true
+        if let asin = asin.flatMap(AudibleProvider.asin) {
+            var known = false
+            let found = try await ask { provider in
+                guard let series = try await provider.series(ofBookKnownAs: asin) else { return [] }
+                known = true
+                return series
+            }
+            if !found.isEmpty { return found }
+            // Known and in no series, or nobody could say: the title is not tried.
+            searches = !known && answered
+        }
+        if searches {
+            let found = try await ask { try await $0.series(ofBookTitled: title, author: author) }
+            if !found.isEmpty { return found }
         }
         if !answered, let lastError { throw lastError }
         return []
