@@ -62,3 +62,9 @@ VoxCarrelApp/Scripts/smoke-launch.sh
 ## Online lookup and privacy
 
 Look Up sends the title, author, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from them. Nothing is sent until you press Look Up. The Audible catalogue search is an unofficial interface and may change. VoxCarrel does not sign in to any account.
+
+## Licence
+
+VoxCarrel is free software, released under the [GNU Affero General Public License, version 3](LICENSE). You may use, study, change and share it; anything built from it must be shared under the same licence, including when it is offered to others over a network.
+
+Copyright © 2026 the VoxCarrel authors.
