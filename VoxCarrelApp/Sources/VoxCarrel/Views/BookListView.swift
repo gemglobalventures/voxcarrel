@@ -22,7 +22,7 @@ struct BookListView: View {
                 TableColumn("Title", value: \.titleSortKey) { row in
                     TitleCell(row: row)
                 }
-                .width(min: 160, ideal: 280)
+                .width(min: 152, ideal: 280)
                 TableColumn("Author", value: \.authorSortKey) { row in
                     TextCell(text: row.authorsText)
                 }
@@ -34,7 +34,7 @@ struct BookListView: View {
                 TableColumn("Formats", value: \.formatsSortKey) { row in
                     FormatsCell(row: row)
                 }
-                .width(min: 44, ideal: 48, max: 60)
+                .width(min: 54, ideal: 58, max: 70)
                 TableColumn("Length", value: \.lengthSortKey) { row in
                     TextCell(text: row.lengthText)
                         .monospacedDigit()
