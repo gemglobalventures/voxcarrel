@@ -26,6 +26,7 @@ The books in these pictures are generated samples from the demo library.
 - Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
 - Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
+- Checks a series against Audible's own list of it and shows the books you do not have, in order, so you can see what is missing.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
 - Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
 
@@ -85,7 +86,9 @@ VoxCarrelApp/Scripts/smoke-launch.sh
 
 ## Online lookup and privacy
 
-Nothing is sent anywhere until you press Look Up (or Check Edition, or search in Add Audible Book). Then the title, author, narrator, ISBN or Audible ID you search for is sent to the sources that are switched on, and cover images are downloaded from Open Library and Audible.
+Nothing is sent anywhere until you press Look Up (or Check Edition, Check Series, or search in Add Audible Book). Then the title, author, narrator, ISBN or Audible ID you search for is sent to the sources that are switched on, and cover images are downloaded from Open Library and Audible.
+
+Check Series sends the Audible IDs, or the titles and authors, of a few books of that series to the Audible stores that are switched on, and then asks for the series' list.
 
 Each source can be switched on or off in Settings ▸ Lookup. A source that is off is never contacted.
 
