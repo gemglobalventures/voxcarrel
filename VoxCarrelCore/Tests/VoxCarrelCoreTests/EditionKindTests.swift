@@ -122,8 +122,8 @@ private let bbcShort = found(
 }
 
 @Suite struct EditionKindFromFilesTests {
-    private func kind(title: String = "A Perfect Spy", subtitle: String? = nil, comment: String? = nil, names: [String] = []) -> EditionKindNote? {
-        EditionKindGuess.fromFiles(title: title, subtitle: subtitle, comment: comment, fileNames: names)
+    private func kind(title: String = "A Perfect Spy", subtitle: String? = nil, names: [String] = []) -> EditionKindNote? {
+        EditionKindGuess.fromFiles(title: title, subtitle: subtitle, fileNames: names)
     }
 
     // MARK: K2
@@ -143,14 +143,29 @@ private let bbcShort = found(
     ])
     func K2_theTitleSaysWhatItIs(title: String, kind: EditionKind, said: String) {
         #expect(self.kind(title: title) == EditionKindNote(
-            kind: kind, basis: .stated("the file's tags"), reason: "The title says “\(said)”."))
+            kind: kind, basis: .stated("the book's title"), reason: "The title says “\(said)”."))
     }
 
-    @Test func K2_theSubtitleAndTheCommentSayItToo() {
+    @Test func K2_theSubtitleSaysItToo() {
         #expect(kind(subtitle: "Unabridged") == EditionKindNote(
-            kind: .unabridged, basis: .stated("the file's tags"), reason: "The subtitle says “Unabridged”."))
-        #expect(kind(comment: "An abridged reading.") == EditionKindNote(
-            kind: .abridged, basis: .stated("the file's tags"), reason: "The description says “abridged”."))
+            kind: .unabridged, basis: .stated("the book's title"), reason: "The subtitle says “Unabridged”."))
+    }
+
+    /// A description is never read for it: it speaks of radio, casts and abridgements
+    /// of books that are none of those.
+    @Test(arguments: [
+        "As heard on BBC Radio 4's Book at Bedtime.", "The author presents a show on BBC Radio 2.",
+        "A sweeping saga with a full cast of unforgettable characters.", "Previously only available abridged, now complete.",
+        "Unabridged.", "A full-cast dramatisation.",
+    ])
+    func K2_theDescriptionIsNeverRead(description: String) throws {
+        let f = try LibraryFixture()
+        var metadata = LibraryFixture.meta("Salt Road", "Ann Author")
+        metadata.summary = description
+        let id = try f.importNew([try f.makeM4B("in.m4b", tags: metadata)], metadata)
+        #expect(try f.store.book(id: id)?.editionKind == nil)
+        #expect(try f.service.editionEvidence(for: id).stated == nil)
+        #expect(try f.service.checkEditions([EditionCheck(bookId: id, results: [])]).first?.kind == nil)
     }
 
     @Test func K2_aFileOrFolderNameSaysIt() {
@@ -164,7 +179,6 @@ private let bbcShort = found(
     /// "Unabridged" holds the word "abridged", and is looked for first.
     @Test func K2_unabridgedIsCheckedBeforeAbridged() {
         #expect(kind(title: "A Perfect Spy (Unabridged)")?.kind == .unabridged)
-        #expect(kind(title: "Unabridged", comment: "Not the abridged one.")?.kind == .unabridged)
         #expect(kind(title: "A Perfect Spy (Abridged)", names: ["Unabridged"])?.kind == .unabridged)
         // And either before a dramatisation.
         #expect(kind(title: "A Perfect Spy (Full Cast, Unabridged)")?.kind == .unabridged)
@@ -178,7 +192,7 @@ private let bbcShort = found(
     ])
     func K2_nothingIsReadIntoOtherWords(title: String) {
         #expect(kind(title: title) == nil)
-        #expect(kind(subtitle: title, comment: title, names: [title]) == nil)
+        #expect(kind(subtitle: title, names: [title]) == nil)
     }
 
     /// K2: nothing is taken out of the title: it is only read.
@@ -389,9 +403,20 @@ private let bbcShort = found(
     @Test(arguments: [
         (["Part 1.mp3", "Part 2.mp3", "Part 4.mp3"], true),
         (["Spy 01.mp3", "Spy 02.mp3", "Spy 03.mp3"], false),
-        (["Spy - 2 of 12.mp3", "Spy - 3 of 12.mp3", "Spy - 9 of 12.mp3"], true),
+        (["Spy - 2 of 12.mp3", "Spy - 3 of 12.mp3", "Spy - 9 of 12.mp3"], false),
+        (["Spy - 1 of 12.mp3", "Spy - 2 of 12.mp3", "Spy - 3 of 12.mp3", "Spy - 5 of 12.mp3"], true),
         (["CD1 Track 01.mp3", "CD1 Track 02.mp3", "CD2 Track 01.mp3"], false),
-        (["Disc 1.m4b", "Disc 3.m4b"], true),
+        (["Disc 1.m4b", "Disc 3.m4b"], false),
+        // Not parts with gaps: counted in twos or tens, times, from somewhere in the middle.
+        (["Chapter 2.mp3", "Chapter 4.mp3", "Chapter 6.mp3", "Chapter 8.mp3"], false),
+        (["Part 10.mp3", "Part 20.mp3", "Part 30.mp3"], false),
+        (["Book 000000.mp3", "Book 001532.mp3", "Book 003105.mp3"], false),
+        (["Chapter 07.mp3", "Chapter 08.mp3", "Chapter 10.mp3"], false),
+        (["1-01.mp3", "1-02.mp3", "2-01.mp3"], false),
+        // More missing than a quarter of what there should be.
+        (["Part 1.mp3", "Part 5.mp3", "Part 9.mp3"], false),
+        (["Chapter 01.mp3", "Chapter 02.mp3", "Chapter 04.mp3"], true),
+        (["Part 0.mp3", "Part 1.mp3", "Part 2.mp3", "Part 4.mp3"], true),
         (["Disc 0.m4b", "Disc 1.m4b"], false),
         (["Only.m4b"], false),
         (["Part 7.mp3"], false),
@@ -580,7 +605,7 @@ private let bbcShort = found(
         let f = try F()
         let id = try importBook(f, F.meta("A Perfect Spy (Unabridged)", "John le Carré"))
         #expect(try kind(f, id) == EditionKindNote(
-            kind: .unabridged, basis: .stated("the file's tags"), reason: "The title says “Unabridged”."))
+            kind: .unabridged, basis: .stated("the book's title"), reason: "The title says “Unabridged”."))
         // The title is left as it is.
         #expect(try f.store.book(id: id)?.title == "A Perfect Spy (Unabridged)")
     }
@@ -610,6 +635,110 @@ private let bbcShort = found(
         let f = try F()
         let id = try f.importNew([try f.makeEPUB("Unabridged.epub")], F.meta("A Perfect Spy (Unabridged)", "John le Carré"))
         #expect(try kind(f, id) == nil)
+    }
+
+    // MARK: Not known, by hand
+
+    @Test func notKnownByHandIsStoredAndNothingReplacesIt() throws {
+        let note = EditionKindNote.notKnownByHand
+        #expect(note.isSetByHand && note.isNotKnown && note.kind.isAbridged == nil && note.abridgedForMatching == nil)
+        #expect(try JSONDecoder().decode(EditionKindNote.self, from: JSONEncoder().encode(note)) == note)
+        #expect(!EditionKind.allCases.contains(.notKnown))
+        for found in [
+            EditionKindNote(kind: .abridged, basis: .stated("the book's title")), EditionKindNote(kind: .abridged, basis: .matched("Audible")),
+            EditionKindNote(kind: .abridged, basis: .inferred), EditionKindNote(kind: .abridged, basis: .estimated),
+        ] {
+            #expect(!found.mayReplace(note))
+        }
+
+        // In the library: neither what the title says nor what a lookup finds takes its place.
+        let f = try F()
+        let id = try importBook(f, F.meta("A Perfect Spy (Abridged)", "John le Carré"))
+        #expect(try kind(f, id)?.kind == .abridged)
+        try set(f, id, hours: 3, narrators: ["Frank Muller"], kind: note)
+        var found = BookMetadata(title: "A Perfect Spy", authors: ["John le Carré"])
+        found.narrators = ["Frank Muller"]
+        found.durationSeconds = 3 * h
+        let result = LookupCandidate(id: "audible:uk:B000000009", source: .audible, metadata: found, edition: EditionFacts(abridged: true))
+        let outcomes = try f.service.checkEditions([EditionCheck(bookId: id, results: [result])])
+        #expect(outcomes == [EditionCheckOutcome(bookId: id, kind: note, changed: false)])
+        #expect(try kind(f, id) == note)
+        _ = try f.service.reconcile()
+        #expect(try kind(f, id) == note)
+    }
+
+    /// Only a kind that is well founded is held against a lookup result.
+    @Test func onlyAWellFoundedKindCountsWhenMatching() {
+        #expect(EditionKindNote(kind: .abridged, basis: .stated("the file's name")).abridgedForMatching == true)
+        #expect(EditionKindNote(kind: .unabridged, basis: .stated("the book's title")).abridgedForMatching == false)
+        #expect(EditionKindNote(kind: .abridged, basis: .matched("Audible")).abridgedForMatching == true)
+        #expect(EditionKindNote(kind: .unabridged, basis: .setByHand).abridgedForMatching == false)
+        #expect(EditionKindNote(kind: .dramatised, basis: .setByHand).abridgedForMatching == nil)
+        #expect(EditionKindNote(kind: .abridged, basis: .inferred).abridgedForMatching == nil)
+        #expect(EditionKindNote(kind: .unabridged, basis: .estimated).abridgedForMatching == nil)
+    }
+
+    // MARK: The launch check
+
+    /// A kind once read from a description is looked at again, once: it stays only
+    /// when the title or the names of the files state it.
+    @Test func theLaunchCheckLooksAgainAtKindsReadFromTheTagsOnce() throws {
+        let f = try F()
+        let old = EditionKindNote(kind: .dramatised, basis: .stated("the file's tags"), reason: "The description says “BBC Radio”.")
+        let described = try importBook(f, F.meta("Salt Road", "Ann Author"), files: ["a.m4b"])
+        let titled = try importBook(f, F.meta("Quiet Rivers (Unabridged)", "Ann Author"), files: ["b.m4b"])
+        let named = try importBook(f, F.meta("Glass Hours", "Ann Author"), files: ["c.m4b"])
+        let byHand = try importBook(f, F.meta("Iron Field", "Ann Author"), files: ["d.m4b"])
+        let matched = try importBook(f, F.meta("Late Train", "Ann Author"), files: ["e.m4b"])
+        try set(f, described, hours: 3, kind: old)
+        try set(f, titled, hours: 3, kind: EditionKindNote(kind: .abridged, basis: .stated("the file's tags"), reason: "The description says “abridged”."))
+        try set(f, named, hours: 3, kind: EditionKindNote(kind: .abridged, basis: .stated("the file's name"), reason: "x"))
+        try set(f, byHand, hours: 3, kind: EditionKindNote(kind: .dramatised, basis: .setByHand))
+        try set(f, matched, hours: 3, kind: EditionKindNote(kind: .abridged, basis: .matched("Audible")))
+
+        _ = try f.service.reconcile()
+        #expect(try kind(f, described) == nil)
+        #expect(try kind(f, titled) == EditionKindNote(
+            kind: .unabridged, basis: .stated("the book's title"), reason: "The title says “Unabridged”."))
+        #expect(try kind(f, named)?.basis == .stated("the file's name"))
+        #expect(try kind(f, byHand) == EditionKindNote(kind: .dramatised, basis: .setByHand))
+        #expect(try kind(f, matched)?.basis == .matched("Audible"))
+        // Nothing of it is in the journal, and nothing else of the book changed.
+        #expect(try f.store.book(id: described)?.durationSeconds == 3 * h)
+
+        // Once: a kind so recorded afterwards (by an older copy of the app, say) is left.
+        try set(f, described, hours: 3, kind: old)
+        _ = try f.service.reconcile()
+        #expect(try kind(f, described) == old)
+    }
+
+    /// K7: a book that is where it was found is looked at by its files' names as they
+    /// are now; one that was filed, by what was recorded as it was imported.
+    @Test func partsOnceMissingAreLookedAtAgainWhereTheNamesAreKept() throws {
+        let f = try F()
+        let filed = try importBook(f, files: ["Spy/Part 1.m4b", "Spy/Part 2.m4b", "Spy/Part 4.m4b"])
+        let placed = try importBook(f, F.meta("Whole", "An Author"), files: ["Whole/Part 1.m4b", "Whole/Part 2.m4b", "Whole/Part 3.m4b"])
+        // As if catalogued where it was found, and recorded as missing a part.
+        var book = try #require(try f.store.book(id: placed))
+        book.partsAppearMissing = true
+        var rows = try f.store.files(bookId: placed)
+        for index in rows.indices { rows[index].path = "/outside/Whole/Part \(index + 1).m4b" }
+        var change = LibraryChange()
+        change.writes = [.init(book: book, files: rows)]
+        try f.store.apply(change)
+        #expect(try f.service.editionEvidence(for: placed).partsAppearMissing == false)
+        #expect(try f.service.editionEvidence(for: filed).partsAppearMissing == true)
+
+        try f.service.recheckEditions(books: try f.store.books(), files: Dictionary(grouping: try f.store.allFiles(), by: \.bookId))
+        #expect(try f.store.book(id: placed)?.partsAppearMissing == false)
+        #expect(try f.store.book(id: filed)?.partsAppearMissing == true)
+
+        // A part gone from where it was found is seen, though nothing was recorded.
+        rows = try f.store.files(bookId: placed)
+        rows[2].path = "/outside/Whole/Part 4.m4b"
+        change.writes = [.init(book: try #require(try f.store.book(id: placed)), files: rows)]
+        try f.store.apply(change)
+        #expect(try f.service.editionEvidence(for: placed).partsAppearMissing == true)
     }
 
     // MARK: K6, K7 what the files say
@@ -771,7 +900,7 @@ private let bbcShort = found(
         let f = try F()
         let id = try importBook(f, F.meta("A Perfect Spy (Unabridged)", "John le Carré"))
         let stated = try #require(try kind(f, id))
-        #expect(stated.basis == .stated("the file's tags"))
+        #expect(stated.basis == .stated("the book's title"))
 
         // The files say unabridged; three hours against twenty would infer abridged. Stated wins.
         try set(f, id, hours: 3, kind: stated)

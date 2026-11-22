@@ -145,7 +145,7 @@ import Testing
     @Test func cleanedRemovesControlAndDirectionCharacters() {
         #expect(LookupText.cleaned("A\u{202E}B\u{01}C\u{2066}D\u{2069}\u{7F}\u{9B}E", limit: 200) == "ABCDE")
         // Marks that belong in right-to-left text are kept.
-        #expect(LookupText.cleaned("שלום\u{200F} עולם", limit: 200) == "שלום\u{200F} עולם")
+        #expect(LookupText.cleaned("שלום\u{200F} עולם", limit: 200) == "שלום עולם")
         #expect(LookupText.cleaned("\u{01}\u{202E}", limit: 200) == nil)
         #expect(LookupText.cleaned("   ", limit: 200) == nil)
         #expect(LookupText.cleaned(nil, limit: 200) == nil)

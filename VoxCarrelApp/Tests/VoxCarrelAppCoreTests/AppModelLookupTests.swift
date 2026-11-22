@@ -269,6 +269,46 @@ import VoxCarrelFixtures
     }
 
     /// A2: not while something runs or a question waits.
+    /// An entry's length is held against a result only when it is the measured length
+    /// of its one audio file, as a library book's is only when its files were measured.
+    @Test func A2_anEntrysLengthIsComparedOnlyWhenItWasMeasured() async throws {
+        let one = URL(fileURLWithPath: "/inbox/Salt Road.m4b"), two = URL(fileURLWithPath: "/inbox/Salt Road 2.m4b")
+        var metadata = BookMetadata(title: "Salt Road", authors: ["Ines Calloway"])
+        // What the scan read from the first file.
+        metadata.durationSeconds = 1_800
+        func seed(_ files: [URL], measured: MeasuredAudio?) -> ImportSeed {
+            ImportSeed(
+                candidate: CandidateBook(files: files.map { CandidateFile(url: $0, role: .audio) }, metadata: metadata),
+                cover: nil, existingMatch: nil, measuredAudio: measured)
+        }
+        var review = ImportReview(
+            seeds: [
+                seed([one], measured: MeasuredAudio(file: one, seconds: 1_800)),
+                // Several parts: the first part's length is not the book's.
+                seed([one, two], measured: nil),
+                // Its length could not be measured.
+                seed([one], measured: nil),
+                // Measured, but not the file the entry has.
+                seed([one], measured: MeasuredAudio(file: two, seconds: 1_800)),
+                seed([one], measured: MeasuredAudio(file: one, seconds: 0)),
+            ], skipped: [], copyInsteadOfMove: false)
+        #expect(review.entries.map(\.measuredAudioSeconds) == [1_800, nil, nil, nil, nil])
+        // A file taken out to be a book of its own was not measured as one.
+        let whole = review.entries[1].id
+        review.detach(file: two, from: whole)
+        #expect(review.entries.allSatisfy { $0.id == review.entries[0].id || $0.measuredAudioSeconds == nil })
+
+        // In the model: the lookup for an entry is given that length and no other.
+        let h = try await reviewing(["Tidewater Chronicles"])
+        let audio = try entry(h, "Salt Road")
+        let parts = audio.candidate.files.filter { $0.role == .audio }.count
+        #expect((audio.measuredAudioSeconds != nil) == (parts == 1))
+        h.model.beginLookup(forEntry: audio.id)
+        #expect(h.model.lookup?.audioSeconds == audio.measuredAudioSeconds)
+        #expect(h.model.lookup?.bookContext?.audioSeconds == audio.measuredAudioSeconds)
+        h.model.cancelLookup()
+    }
+
     @Test func A2_notWhileBusy() async throws {
         let h = try await reviewing(["Quiet Rivers.epub"])
         let id = try entry(h, "Quiet Rivers").id

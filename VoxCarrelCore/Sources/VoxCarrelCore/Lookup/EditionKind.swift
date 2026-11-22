@@ -4,12 +4,19 @@ import Foundation
 /// made of it.
 public enum EditionKind: String, Codable, Sendable, CaseIterable {
     case unabridged, abridged, dramatised
+    /// The user's own word that the kind is not known: nothing worked out takes its
+    /// place. Only ever set by hand; a book nobody has said anything about has no note.
+    case notKnown
+
+    /// The kinds an edition can be. "Not known" is not one of them.
+    public static let allCases: [EditionKind] = [.unabridged, .abridged, .dramatised]
 
     public var title: String {
         switch self {
         case .unabridged: "Unabridged"
         case .abridged: "Abridged"
         case .dramatised: "Dramatised"
+        case .notKnown: "Not known"
         }
     }
 
@@ -19,7 +26,7 @@ public enum EditionKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .unabridged: false
         case .abridged: true
-        case .dramatised: nil
+        case .dramatised, .notKnown: nil
         }
     }
 }
@@ -58,6 +65,25 @@ public struct EditionKindNote: Codable, Equatable, Sendable {
 
     public var isSetByHand: Bool {
         basis == .setByHand
+    }
+
+    /// The user's own word that the kind is not known.
+    public static let notKnownByHand = EditionKindNote(kind: .notKnown, basis: .setByHand)
+
+    /// True for the user's own "not known": there is no kind to show or compare.
+    public var isNotKnown: Bool {
+        kind == .notKnown
+    }
+
+    /// Whether the book is abridged, when that is known well enough to hold a lookup
+    /// result against it: the book's own names say so, a result that was this very
+    /// edition did, or the user did. A kind worked out from a running time or a page
+    /// count is a guess, and is not evidence against a result.
+    public var abridgedForMatching: Bool? {
+        switch basis {
+        case .stated, .matched, .setByHand: kind.isAbridged
+        case .inferred, .estimated: nil
+        }
     }
 
     private var strength: Int {
@@ -143,8 +169,12 @@ public struct EditionKindAssessment: Equatable, Sendable {
 
 /// Works out what kind of edition a book is, from its own files and from what lookups found.
 public enum EditionKindGuess {
-    public static let tagsSource = "the file's tags"
+    /// The book's title or subtitle.
+    public static let titleSource = "the book's title"
     public static let namesSource = "the file's name"
+    /// What a kind read from the tags was recorded as when the description was read
+    /// too. Such a kind is looked at again, once (`LibraryService.recheckStatedEditions`).
+    public static let formerTagsSource = "the file's tags"
 
     /// Within this share of an unabridged edition's length, a book is that edition's length.
     static let sameLengthShare = 0.12
@@ -168,21 +198,21 @@ public enum EditionKindGuess {
         (.dramatised, "bbc[\\s_.\\-]*radio"),
     ]
 
-    /// From what the files and their names say, with no network: the words "unabridged"
-    /// or "abridged" as whole words, in any case; "full cast", "dramatisation", "radio
-    /// play" or "BBC Radio" for a dramatisation. Nothing is taken out of the title.
+    /// From what the book's title and the names of its files say, with no network: the
+    /// words "unabridged" or "abridged" as whole words, in any case; "full cast",
+    /// "dramatisation", "radio play" or "BBC Radio" for a dramatisation. Nothing is
+    /// taken out of the title.
+    ///
+    /// A description is never read: one says "as heard on BBC Radio" or "a full cast
+    /// of characters" of a book that is neither.
     ///
     /// `fileNames`: the names of the files and of their folders.
-    public static func fromFiles(
-        title: String, subtitle: String?, comment: String?, fileNames: [String]
-    ) -> EditionKindNote? {
-        let tagged: [(text: String?, place: String)] = [
-            (title, "The title"), (subtitle, "The subtitle"), (comment, "The description"),
-        ]
+    public static func fromFiles(title: String, subtitle: String?, fileNames: [String]) -> EditionKindNote? {
+        let tagged: [(text: String?, place: String)] = [(title, "The title"), (subtitle, "The subtitle")]
         for marker in markers {
             for (text, place) in tagged {
                 if let said = word(marker.pattern, in: text) {
-                    return EditionKindNote(kind: marker.kind, basis: .stated(tagsSource), reason: "\(place) says “\(said)”.")
+                    return EditionKindNote(kind: marker.kind, basis: .stated(titleSource), reason: "\(place) says “\(said)”.")
                 }
             }
             for name in fileNames {
@@ -228,10 +258,7 @@ public enum EditionKindGuess {
         _ candidates: [LookupCandidate], book: BookMetadata, bookSeconds: Double?, partsAppearMissing: Bool = false
     ) -> EditionKindAssessment {
         // A result that is this very edition and says what it is.
-        for candidate in candidates {
-            guard EditionMatch.verdict(candidate: candidate, book: book, bookSeconds: bookSeconds, bookIsAbridged: nil)
-                == .sameEdition
-            else { continue }
+        if let candidate = matchedResult(in: candidates, book: book, bookSeconds: bookSeconds) {
             let source = candidate.source.title
             if isDramatisation(candidate) {
                 return EditionKindAssessment(note: EditionKindNote(
@@ -308,6 +335,20 @@ public enum EditionKindGuess {
         return EditionKindAssessment()
     }
 
+    /// The first result that is the book's very edition, by its length, and says what
+    /// kind it is: the one a matched kind is taken from. The same reader is not
+    /// enough: a reader reads the abridgement too.
+    public static func matchedResult(
+        in candidates: [LookupCandidate], book: BookMetadata, bookSeconds: Double?
+    ) -> LookupCandidate? {
+        candidates.first { candidate in
+            let judged = EditionMatch.judgement(
+                candidate: candidate, book: book, bookSeconds: bookSeconds, bookIsAbridged: nil)
+            guard judged.verdict == .sameEdition, judged.lengthMatches else { return false }
+            return isDramatisation(candidate) || candidate.edition.abridged != nil
+        }
+    }
+
     /// A full-cast production, or one that calls itself a dramatisation.
     static func isDramatisation(_ candidate: LookupCandidate) -> Bool {
         candidate.metadata.narrators.contains(where: EditionMatch.isFullCast)
@@ -338,10 +379,15 @@ public enum EditionKindGuess {
 
     // MARK: Missing parts
 
-    /// Whether the names of a book's audio files are numbered with gaps: 1, 2, 4. Only
-    /// when exactly one number in the names changes from file to file.
+    /// Whether the names of a book's audio files are numbered with gaps: 1, 2, 4.
+    ///
+    /// Only when there are at least three files, exactly one number in the names
+    /// changes from file to file, that number starts at 0 or 1 and would count up by
+    /// one were none missing, and no more than a quarter of the parts it counts are
+    /// missing. Chapters numbered in twos or tens, discs 1 and 3, and names that are
+    /// times are not parts with gaps.
     public static func partsAppearMissing(fileNames: [String]) -> Bool {
-        guard fileNames.count >= 2 else { return false }
+        guard fileNames.count >= 3 else { return false }
         let numbers: [[Int]] = fileNames.map { name in
             let stem = (name as NSString).deletingPathExtension
             return stem.split(whereSeparator: { !$0.isASCII || !$0.isNumber }).compactMap { $0.count <= 6 ? Int($0) : nil }
@@ -350,7 +396,11 @@ public enum EditionKindGuess {
         let changing = (0..<count).filter { place in Set(numbers.map { $0[place] }).count > 1 }
         guard changing.count == 1, let place = changing.first else { return false }
         let parts = Set(numbers.map { $0[place] })
-        guard parts.count == fileNames.count, let low = parts.min(), let high = parts.max() else { return false }
-        return high - low + 1 > parts.count
+        guard parts.count == fileNames.count, let low = parts.min(), let high = parts.max(), low == 0 || low == 1 else {
+            return false
+        }
+        let expected = high - low + 1
+        let missing = expected - parts.count
+        return missing > 0 && missing * 4 <= expected
     }
 }

@@ -246,6 +246,19 @@ extension ImportReview.Entry {
         candidate.files.contains { $0.role == .audio }
     }
 
+    /// The measured length of the entry's audio: what a lookup result's length is
+    /// compared with, as a library book's is. Known only for an entry whose audio is
+    /// the one file that was measured when it was scanned: the parts of a book in
+    /// several files are not measured until it is imported, and a length that could
+    /// not be measured is not evidence.
+    public var measuredAudioSeconds: Double? {
+        let audio = candidate.files.filter { $0.role == .audio }
+        guard audio.count == 1, let measured = measuredAudio, measured.file == audio[0].url,
+              measured.seconds.isFinite, measured.seconds > 0
+        else { return nil }
+        return measured.seconds
+    }
+
     public var hasEbook: Bool {
         candidate.files.contains { $0.role == .ebook }
     }

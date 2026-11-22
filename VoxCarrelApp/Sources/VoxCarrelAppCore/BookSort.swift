@@ -88,7 +88,7 @@ public struct BookSort: Equatable, Sendable {
         case .unabridged: 0
         case .abridged: 1
         case .dramatised: 2
-        case nil: nil
+        case .notKnown, nil: nil
         }
     }
 
@@ -171,7 +171,10 @@ extension BookRow {
     public var lengthSortKey: Double { book.durationSeconds ?? 0 }
     public var dateAddedSortKey: Date { book.dateAdded }
     public var statusSortKey: String { book.readStatus.rawValue }
-    public var editionSortKey: String { book.editionKind?.kind.rawValue ?? "" }
+    public var editionSortKey: String {
+        guard let kind = book.editionKind?.kind, kind != .notKnown else { return "" }
+        return kind.rawValue
+    }
 }
 
 extension BookSortKey {

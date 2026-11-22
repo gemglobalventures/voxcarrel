@@ -44,32 +44,70 @@ public enum EditionMatch {
     /// than this many seconds.
     static let lengthShare = 0.05
     static let lengthSeconds = 600.0
+    /// The same for a result whose length is a catalogue's round figure ("18 hr.").
+    static let nominalLengthShare = 0.10
+    static let nominalLengthSeconds = 2700.0
+
+    /// How a result's title stands to the book's.
+    enum TitleRelation: Equatable {
+        /// The same title.
+        case same
+        /// One is the other with a subtitle after it: "Salt Road: A Novel", "Salt Road (Unabridged)".
+        case withSubtitle
+        /// Anything else, a title that only begins with the other included: "Dune Messiah".
+        case different
+    }
+
+    /// What a comparison came to, with what it rests on.
+    struct Judgement: Equatable {
+        var verdict: EditionVerdict
+        /// True when both lengths are known and agree.
+        var lengthMatches: Bool
+    }
 
     /// `book`: the details the book has now; `bookSeconds`: its measured audio length,
     /// nil without audio files; `bookIsAbridged`: nil when that is not known.
     public static func verdict(
         candidate: LookupCandidate, book: BookMetadata, bookSeconds: Double?, bookIsAbridged: Bool?
     ) -> EditionVerdict {
+        judgement(candidate: candidate, book: book, bookSeconds: bookSeconds, bookIsAbridged: bookIsAbridged).verdict
+    }
+
+    /// The verdict, and whether it rests on the length.
+    ///
+    /// A result is the book's own edition only when it is the same work (the same
+    /// title, or one with a subtitle) by the same author, nothing contradicts, and the
+    /// lengths agree. The same reader alone is enough only for the very same title of a
+    /// book whose own length is known, when the result gives no length: a reader reads
+    /// sequels and abridgements too.
+    static func judgement(
+        candidate: LookupCandidate, book: BookMetadata, bookSeconds: Double?, bookIsAbridged: Bool?
+    ) -> Judgement {
         var reasons: [String] = []
-        var matches = false
+        var narratorMatches = false
+        var lengthMatches = false
 
         // M1: who reads it. "Full Cast" is nobody.
         let theirs = people(candidate.metadata.narrators), ours = people(book.narrators)
         if !theirs.isEmpty, !ours.isEmpty {
             if theirs.contains(where: { name in ours.contains { LookupText.samePerson(name, $0) } }) {
-                matches = true
+                narratorMatches = true
             } else {
                 reasons.append("read by \(list(theirs)), not \(list(ours))")
             }
         }
 
         // M2: how long it is.
-        if let found = length(candidate.metadata.durationSeconds), let own = length(bookSeconds) {
+        let ownLength = length(bookSeconds)
+        if let found = length(candidate.metadata.durationSeconds), let own = ownLength {
+            let nominal = candidate.edition.lengthIsNominal
+            let share = nominal ? nominalLengthShare : lengthShare
+            let seconds = nominal ? nominalLengthSeconds : lengthSeconds
             let apart = abs(found - own)
-            if apart > own * lengthShare, apart > lengthSeconds {
+            if apart > own * share, apart > seconds {
                 reasons.append("\(label(found)); yours is \(label(own))")
             } else {
-                matches = true
+                lengthMatches = true
             }
         }
 
@@ -79,24 +117,48 @@ public enum EditionMatch {
         }
 
         // M4
-        if !reasons.isEmpty { return .differentEdition(reasons: reasons) }
-        // The same reader or the same length makes it the book's edition only when it
-        // is the book at all.
-        return matches && mayBeSameWork(candidate.metadata, book) ? .sameEdition : .unknown
+        if !reasons.isEmpty {
+            return Judgement(verdict: .differentEdition(reasons: reasons), lengthMatches: false)
+        }
+        let relation = titleRelation(candidate.metadata.title, book.title)
+        guard relation != .different, sharesAnAuthor(candidate.metadata, book) else {
+            return Judgement(verdict: .unknown, lengthMatches: false)
+        }
+        if lengthMatches { return Judgement(verdict: .sameEdition, lengthMatches: true) }
+        // The reader alone: the very same title, of a book whose own length is known.
+        let same = narratorMatches && relation == .same && ownLength != nil
+        return Judgement(verdict: same ? .sameEdition : .unknown, lengthMatches: false)
     }
 
-    /// False when the two are plainly different books: neither title begins with the
-    /// other, or both name authors and share none. Whatever is missing rules nothing out.
-    static func mayBeSameWork(_ found: BookMetadata, _ book: BookMetadata) -> Bool {
-        let theirs = LookupText.comparable(found.title), ours = LookupText.comparable(book.title)
-        if !theirs.isEmpty, !ours.isEmpty, !theirs.starts(with: ours), !ours.starts(with: theirs) { return false }
-        let their = found.authors.compactMap(\.nonBlank), our = book.authors.compactMap(\.nonBlank)
-        if !their.isEmpty, !our.isEmpty,
-           !their.contains(where: { name in our.contains { LookupText.samePerson(name, $0) } }) {
-            return false
-        }
-        return true
+    /// What may stand between a title and its subtitle.
+    private static let subtitleMarks = [":", " - ", " – ", " — ", "(", "[", ";"]
+
+    /// A title without anything after the first mark that begins a subtitle.
+    private static func head(_ title: String) -> String? {
+        let cuts = subtitleMarks.compactMap { title.range(of: $0)?.lowerBound }
+        guard let cut = cuts.min() else { return nil }
+        return String(title[..<cut])
     }
+
+    /// The same title; one that is the other with a subtitle after a colon, a dash or
+    /// in brackets; or a different one. A title that merely goes on with more words is
+    /// a different one. A title that is missing is taken to be the same.
+    static func titleRelation(_ first: String, _ second: String) -> TitleRelation {
+        let a = LookupText.comparable(first), b = LookupText.comparable(second)
+        if a.isEmpty || b.isEmpty || a == b { return .same }
+        let headA = head(first).map { LookupText.comparable($0) }, headB = head(second).map { LookupText.comparable($0) }
+        if let headA, !headA.isEmpty, headA == b || headA == headB { return .withSubtitle }
+        if let headB, !headB.isEmpty, headB == a { return .withSubtitle }
+        return .different
+    }
+
+    /// False when both name authors and share none. Whatever is missing rules nothing out.
+    static func sharesAnAuthor(_ found: BookMetadata, _ book: BookMetadata) -> Bool {
+        let their = found.authors.compactMap(\.nonBlank), our = book.authors.compactMap(\.nonBlank)
+        guard !their.isEmpty, !our.isEmpty else { return true }
+        return their.contains { name in our.contains { LookupText.samePerson(name, $0) } }
+    }
+
 
     public static func verdict(candidate: LookupCandidate, book: LookupBookContext) -> EditionVerdict {
         verdict(

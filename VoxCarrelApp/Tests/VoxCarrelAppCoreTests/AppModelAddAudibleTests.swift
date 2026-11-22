@@ -272,7 +272,8 @@ import VoxCarrelFixtures
     @Test func N3_theCopyNamesTheStoreOfTheChosenASIN() async throws {
         let h = try await searched([glassTide(cover: false)])
         h.model.audibleStore = .au
-        // The results came from another store: the search can be made again, but what is shown can still be added.
+        // The results came from the stores as they were: the search is made again at once.
+        await h.model.settle()
         await h.model.addLookupSelection()
         #expect(try added(h).externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0GLASSTID")])
         #expect(h.lookup.coverURLs.isEmpty)

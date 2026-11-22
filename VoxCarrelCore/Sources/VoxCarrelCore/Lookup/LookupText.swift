@@ -222,10 +222,12 @@ public enum LookupText {
     public static let summaryLimit = 50_000
 
     /// Control characters, and the characters that turn the direction of the text
-    /// around them (overrides, embeddings and isolates): never wanted in a book's details.
+    /// around them (marks, overrides, embeddings and isolates): never wanted in a
+    /// book's details.
     static func isUnwanted(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
         case 0x00...0x1F, 0x7F...0x9F: true
+        case 0x200E, 0x200F, 0x061C: true
         case 0x202A...0x202E, 0x2066...0x2069: true
         default: false
         }

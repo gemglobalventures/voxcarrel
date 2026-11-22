@@ -37,8 +37,10 @@ import Testing
         try await LibraryOfCongressProvider(http: FakeHTTP(data: answer(records))).search(query)
     }
 
-    private static func one(_ more: String) async throws -> LookupCandidate {
-        let found = try await search([record(more)])
+    private static func one(
+        _ more: String, title: String = "<titleInfo><title>The Book</title></titleInfo>"
+    ) async throws -> LookupCandidate {
+        let found = try await search([record(more, title: title)])
         #expect(found.count == 1)
         return try #require(found.first)
     }
@@ -228,7 +230,8 @@ import Testing
         // The accent is one character with its letter.
         #expect(candidate.metadata.authors.first?.unicodeScalars.contains("\u{301}") == false)
 
-        #expect(candidate.edition == EditionFacts(format: .cassette, abridged: false, publisher: "Recorded Books", year: 1987, stores: []))
+        #expect(candidate.edition == EditionFacts(
+            format: .cassette, abridged: false, publisher: "Recorded Books", year: 1987, stores: [], lengthIsNominal: true))
         // C6
         #expect(candidate.note == "Library of Congress · Cassette · Unabridged · 18h 0m · 1987")
         #expect(candidate.coverURL == nil)
@@ -350,10 +353,36 @@ import Testing
         "", "Full cast recording with music.", "Narrated by", "Read by .",
         "Read by a cast of some of the finest voices ever to have been gathered in one place.",
     ])
-    func C4_aNoteThatNamesNobodyFallsBackToTheOtherNames(text: String) async throws {
+    func C4_aPerformersNoteThatNamesNobodyLeavesNoNarrator(text: String) async throws {
+        // The record has a note of who performs: another name in it is not guessed to be one.
         let candidate = try await Self.one(
             #"<name type="personal"><namePart>Muller, Frank, 1951-</namePart></name><note type="performers">\#(text)</note>"#)
-        #expect(candidate.metadata.narrators == ["Frank Muller"])
+        #expect(candidate.metadata.narrators == [])
+    }
+
+    /// A name said to be a reader's is believed before anything else, and then no
+    /// other name is taken for one.
+    @Test func C4_namesWithAReadersRoleAreTheOnlyNarrators() async throws {
+        let candidate = try await Self.one(
+            #"<name type="personal"><namePart>Gaiman, Neil</namePart></name>"#
+                + #"<name type="personal"><namePart>Jarvis, Martin,</namePart><role><roleTerm>narrator</roleTerm></role></name>"#
+                + #"<note type="performers">Read by Someone Else.</note>"#)
+        #expect(candidate.metadata.narrators == ["Martin Jarvis"])
+    }
+
+    /// With no reader's role and no performers note, one other person is taken to be
+    /// the reader; two are as likely a second author and an editor, and are not.
+    @Test func C4_roleLessNamesAreNarratorsOnlyWhenThereIsExactlyOne() async throws {
+        let one = try await Self.one(#"<name type="personal"><namePart>Muller, Frank, 1951-</namePart></name>"#)
+        #expect(one.metadata.narrators == ["Frank Muller"])
+        let two = try await Self.one(
+            #"<name type="personal"><namePart>Gaiman, Neil</namePart></name><name type="personal"><namePart>Editor, Ed</namePart></name>"#)
+        #expect(two.metadata.narrators == [])
+        #expect(two.metadata.authors == ["Ann Author"])
+        // A name with some other part in the work is not a reader.
+        let other = try await Self.one(
+            #"<name type="personal"><namePart>Editor, Ed</namePart><role><roleTerm>editor</roleTerm></role></name>"#)
+        #expect(other.metadata.narrators == [])
     }
 
     @Test func C4_aNoteOfAnotherKindIsNotAPerformersNote() async throws {
@@ -734,10 +763,55 @@ import Testing
         }
     }
 
+    /// Only UTF-8 will do, wherever in its declaration an answer says what it is.
+    @Test(arguments: ["UTF-7", "ISO-8859-1", "utf-16", "windows-1252"])
+    func C8_anotherEncodingIsRefusedHoweverLongTheDeclaration(encoding: String) throws {
+        let body = String(decoding: Self.answer([Self.record()]), as: UTF8.self)
+            .replacingOccurrences(of: #"<?xml version="1.0"?>"#, with: "")
+        for padding in [1, 150, 300, 5_000] {
+            let declaration = #"<?xml version="1.0"\#(String(repeating: " ", count: padding))encoding="\#(encoding)"?>"#
+            let data = Data((declaration + body).utf8)
+            #expect(!MODSReader.isPlain(data))
+            #expect(throws: LookupError.unreadable) { _ = try MODSReader.records(in: data) }
+        }
+        // UTF-8 said, in either case and with either quote, or nothing said, is read.
+        for declaration in [
+            #"<?xml version="1.0" encoding="UTF-8"?>"#, "<?xml version='1.0' encoding='utf-8'?>",
+            #"<?xml version="1.0"\#(String(repeating: " ", count: 300))encoding="UTF-8"?>"#, #"<?xml version="1.0"?>"#, "",
+        ] {
+            #expect(try MODSReader.records(in: Data((declaration + body).utf8)).count == 1)
+        }
+        // A declaration with no end, or one that names its encoding unreadably.
+        #expect(!MODSReader.isPlain(Data((#"<?xml version="1.0" encoding="UTF-7" "# + body).utf8)))
+        #expect(!MODSReader.isPlain(Data(("<?xml version=\"1.0\" encoding=UTF-7?>" + body).utf8)))
+    }
+
+    /// Five megabytes of empty elements inside a record are read in good time.
+    @Test func C8_aRecordOfAMillionElementsIsReadInGoodTime() async throws {
+        var filler = ""
+        filler.reserveCapacity(5_000_000)
+        while filler.utf8.count < 4_900_000 { filler += "<a/>" }
+        let data = Self.answer([Self.record(filler)])
+        #expect(data.count < LibraryOfCongressProvider.byteLimit)
+        let clock = ContinuousClock()
+        let start = clock.now
+        let records = try MODSReader.records(in: data)
+        #expect(records.count == 1)
+        #expect(records.first?.titles.first?.title == "The Book")
+        #expect(clock.now - start < .seconds(10))
+    }
+
+    /// The marks that turn the direction of text are taken out of what is kept.
+    @Test func C8_directionMarksAreTakenOut() async throws {
+        let candidate = try await Self.one("", title: "<titleInfo><title>The\u{200F} Bo\u{200E}ok\u{061C}</title></titleInfo>")
+        #expect(candidate.metadata.title == "The Book")
+    }
+
     @Test func C8_hugeAndManyValuesAreKeptSmall() async throws {
         let huge = String(repeating: "wordy ", count: 120_000)
-        let names = String(repeating: #"<name type="personal"><namePart>Reader, Rae</namePart></name>"#, count: 20_000)
-        let many = (1...5_000).map { #"<name type="personal"><namePart>Reader\#($0), Rae</namePart></name>"# }.joined()
+        let role = "<role><roleTerm>narrator</roleTerm></role>"
+        let names = String(repeating: #"<name type="personal"><namePart>Reader, Rae</namePart>\#(role)</name>"#, count: 20_000)
+        let many = (1...5_000).map { #"<name type="personal"><namePart>Reader\#($0), Rae</namePart>\#(role)</name>"# }.joined()
         let result = await Self.timed(Self.answer([
             Self.record("<note>\(huge)</note><physicalDescription><extent>\(huge)</extent></physicalDescription>\(names)\(many)",
                         title: "<titleInfo><title>\(huge)</title></titleInfo>"),

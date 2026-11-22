@@ -141,11 +141,28 @@ public struct ImportSeed: Equatable, Sendable {
     /// Found in the candidate's files.
     public var cover: CoverImage?
     public var existingMatch: Book?
+    /// The measured length of the candidate's one audio file; nil when it has none or
+    /// several, or the file's length could not be measured.
+    public var measuredAudio: MeasuredAudio?
 
-    public init(candidate: CandidateBook, cover: CoverImage?, existingMatch: Book?) {
+    public init(
+        candidate: CandidateBook, cover: CoverImage?, existingMatch: Book?, measuredAudio: MeasuredAudio? = nil
+    ) {
+        self.measuredAudio = measuredAudio
         self.candidate = candidate
         self.cover = cover
         self.existingMatch = existingMatch
+    }
+}
+
+/// The measured length of one audio file that is waiting to be imported.
+public struct MeasuredAudio: Equatable, Sendable {
+    public var file: URL
+    public var seconds: Double
+
+    public init(file: URL, seconds: Double) {
+        self.file = file
+        self.seconds = seconds
     }
 }
 

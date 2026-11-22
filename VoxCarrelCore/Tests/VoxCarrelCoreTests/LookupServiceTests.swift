@@ -338,6 +338,36 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
     private static let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46])
     private static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00])
 
+    /// The source of the candidates whose covers are asked for: a service fetches
+    /// nothing for a source it does not ask.
+    private static let audible: [any LookupProvider] = [FakeProvider(.audible, results: [])]
+
+    /// A source that is off has no provider: its results' covers, pictures and details
+    /// are not fetched, and nothing is asked.
+    @Test func S6_nothingIsFetchedForASourceThatIsNotAsked() async throws {
+        let http = FakeHTTP(data: Self.jpeg)
+        var candidate = withCover("https://m.media-amazon.com/images/I/x.jpg")
+        candidate.thumbnailURL = URL(string: "https://m.media-amazon.com/images/I/x._SL500_.jpg")
+        candidate.hasMoreDetails = true
+        for configuration in [
+            LookupConfiguration(sources: [.openLibrary, .libraryOfCongress], audibleStores: [.uk]),
+            LookupConfiguration(sources: [], audibleStores: [.uk]),
+            // Audible with no store to ask is off.
+            LookupConfiguration(sources: [.audible], audibleStores: []),
+        ] {
+            let service = LookupService.standard(configuration, http: http)
+            await #expect(throws: LookupError.unreadable) { _ = try await service.cover(for: candidate) }
+            await #expect(throws: LookupError.unreadable) { _ = try await service.thumbnail(for: candidate) }
+            #expect(try await service.details(for: candidate) == candidate)
+        }
+        #expect(http.requests.isEmpty)
+        // On, it is fetched.
+        let on = LookupService.standard(LookupConfiguration(sources: [.audible], audibleStores: [.uk]), http: http)
+        #expect(try await on.cover(for: candidate) == CoverImage(data: Self.jpeg, mime: "image/jpeg"))
+        #expect(http.urls.map(\.absoluteString) == ["https://m.media-amazon.com/images/I/x.jpg"])
+        #expect(http.limits.allSatisfy { $0.insecure.isEmpty })
+    }
+
     private func withCover(_ url: String?) -> LookupCandidate {
         var candidate = found(.audible, "us:B000000001", "Project Hail Mary")
         candidate.coverURL = url.flatMap(URL.init(string:))
@@ -352,7 +382,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
     ])
     func S6_downloadsACoverFromAKnownHost(address: String) async throws {
         let http = FakeHTTP(data: Self.jpeg)
-        let cover = try await LookupService(providers: [], http: http).cover(for: withCover(address))
+        let cover = try await LookupService(providers: Self.audible, http: http).cover(for: withCover(address))
         #expect(cover == CoverImage(data: Self.jpeg, mime: "image/jpeg"))
         #expect(http.requests.count == 1)
         #expect(http.urls.first == URL(string: address))
@@ -362,7 +392,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
     /// A cover may be 10 MB at most, and may redirect only among the cover hosts and the Internet Archive.
     @Test func S6_coverRequestsAreLimited() async throws {
         let http = FakeHTTP(data: Self.jpeg)
-        _ = try await LookupService(providers: [], http: http).cover(for: withCover("https://covers.openlibrary.org/b/id/1-L.jpg"))
+        _ = try await LookupService(providers: Self.audible, http: http).cover(for: withCover("https://covers.openlibrary.org/b/id/1-L.jpg"))
         #expect(http.limits == [FakeHTTP.Limits(
             maxBytes: 10 * 1024 * 1024,
             redirectHosts: ["covers.openlibrary.org", "m.media-amazon.com", "images-na.ssl-images-amazon.com", "archive.org"])])
@@ -371,7 +401,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
     /// The row's picture: the smaller address when there is one, under the same rules as the cover.
     @Test func S6_theThumbnailIsFetchedFromItsOwnAddress() async throws {
         let http = FakeHTTP(data: Self.jpeg)
-        let service = LookupService(providers: [], http: http)
+        let service = LookupService(providers: Self.audible, http: http)
         var candidate = withCover("https://covers.openlibrary.org/b/id/1-L.jpg")
         candidate.thumbnailURL = URL(string: "https://covers.openlibrary.org/b/id/1-M.jpg")
         #expect(try await service.thumbnail(for: candidate) == CoverImage(data: Self.jpeg, mime: "image/jpeg"))
@@ -390,12 +420,12 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         #expect(http.urls.count == 2)
         candidate.thumbnailURL = URL(string: "https://covers.openlibrary.org/b/id/1-M.jpg")
         await #expect(throws: LookupError.unreadable) {
-            _ = try await LookupService(providers: [], http: FakeHTTP(data: Data("<html>".utf8))).thumbnail(for: candidate)
+            _ = try await LookupService(providers: Self.audible, http: FakeHTTP(data: Data("<html>".utf8))).thumbnail(for: candidate)
         }
     }
 
     @Test func S6_pngIsAcceptedAndTypedByItsBytes() async throws {
-        let cover = try await LookupService(providers: [], http: FakeHTTP(data: Self.png))
+        let cover = try await LookupService(providers: Self.audible, http: FakeHTTP(data: Self.png))
             .cover(for: withCover("https://covers.openlibrary.org/b/id/1-L.jpg"))
         #expect(cover.mime == "image/png")
         #expect(cover.data == Self.png)
@@ -417,7 +447,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
     ])
     func S6_anyOtherAddressIsRefusedWithoutARequest(address: String) async throws {
         let http = FakeHTTP(data: Self.jpeg)
-        let service = LookupService(providers: [], http: http)
+        let service = LookupService(providers: Self.audible, http: http)
         let candidate = withCover(address)
         try #require(candidate.coverURL != nil)
         await #expect(throws: LookupError.unreadable) {
@@ -429,7 +459,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
     @Test func S6_noCoverURLIsUnreadable() async throws {
         let http = FakeHTTP(data: Self.jpeg)
         await #expect(throws: LookupError.unreadable) {
-            _ = try await LookupService(providers: [], http: http).cover(for: withCover(nil))
+            _ = try await LookupService(providers: Self.audible, http: http).cover(for: withCover(nil))
         }
         #expect(http.requests.isEmpty)
     }
@@ -439,7 +469,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         #expect(CoverImage.sniffedMIME(gif) == "image/gif")
         for body in [gif, Data("<html>Not found</html>".utf8), Data(), Data([0xFF, 0xD8]), Data("%PDF-1.7".utf8)] {
             await #expect(throws: LookupError.unreadable) {
-                _ = try await LookupService(providers: [], http: FakeHTTP(data: body))
+                _ = try await LookupService(providers: Self.audible, http: FakeHTTP(data: body))
                     .cover(for: withCover("https://covers.openlibrary.org/b/id/1-L.jpg"))
             }
         }
@@ -449,20 +479,20 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         let limit = 10 * 1024 * 1024
         let atLimit = Self.jpeg + Data(count: limit - Self.jpeg.count)
         let candidate = withCover("https://m.media-amazon.com/images/I/x.jpg")
-        let cover = try await LookupService(providers: [], http: FakeHTTP(data: atLimit)).cover(for: candidate)
+        let cover = try await LookupService(providers: Self.audible, http: FakeHTTP(data: atLimit)).cover(for: candidate)
         #expect(cover.data.count == limit)
         await #expect(throws: LookupError.unreadable) {
-            _ = try await LookupService(providers: [], http: FakeHTTP(data: atLimit + Data([0]))).cover(for: candidate)
+            _ = try await LookupService(providers: Self.audible, http: FakeHTTP(data: atLimit + Data([0]))).cover(for: candidate)
         }
     }
 
     @Test func S6_downloadFailures() async throws {
         let candidate = withCover("https://m.media-amazon.com/images/I/x.jpg")
         await #expect(throws: LookupError.refused(status: 404)) {
-            _ = try await LookupService(providers: [], http: FakeHTTP(data: Self.jpeg, status: 404)).cover(for: candidate)
+            _ = try await LookupService(providers: Self.audible, http: FakeHTTP(data: Self.jpeg, status: 404)).cover(for: candidate)
         }
         await #expect(throws: LookupError.notReachable) {
-            _ = try await LookupService(providers: [], http: FakeHTTP(throwing: LookupError.notReachable)).cover(for: candidate)
+            _ = try await LookupService(providers: Self.audible, http: FakeHTTP(throwing: LookupError.notReachable)).cover(for: candidate)
         }
     }
 
@@ -516,7 +546,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
 
     @Test func S7_cancellationReachesDetailsAndCover() async throws {
         let cancelled = FakeHTTP { _ in throw CancellationError() }
-        let service = LookupService(providers: [OpenLibraryProvider(http: cancelled)], http: cancelled)
+        let service = LookupService(providers: [OpenLibraryProvider(http: cancelled)] + Self.audible, http: cancelled)
         await #expect(throws: CancellationError.self) {
             _ = try await service.details(for: found(.openLibrary, "/works/OL1W", "Project Hail Mary"))
         }

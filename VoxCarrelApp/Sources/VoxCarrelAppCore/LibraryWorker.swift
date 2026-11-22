@@ -217,9 +217,20 @@ public actor LibraryWorker {
                 .compactMap { (try? reader.read($0.url))?.cover }
                 .first
             return ImportSeed(
-                candidate: candidate, cover: cover, existingMatch: try service.existingMatch(for: candidate))
+                candidate: candidate, cover: cover, existingMatch: try service.existingMatch(for: candidate),
+                measuredAudio: Self.measuredAudio(of: candidate, reader: reader))
         }
         return (seeds, scan.skipped)
+    }
+
+    /// The length of the candidate's audio when it is one file whose length could be
+    /// measured. The parts of a book in several files are not read here.
+    private static func measuredAudio(of candidate: CandidateBook, reader: FileMetadataIO) -> MeasuredAudio? {
+        let audio = candidate.files.filter { $0.role == .audio }
+        guard audio.count == 1, let contents = try? reader.read(audio[0].url), !contents.lengthCouldNotBeMeasured,
+              let seconds = contents.metadata.durationSeconds, seconds.isFinite, seconds > 0
+        else { return nil }
+        return MeasuredAudio(file: audio[0].url, seconds: seconds)
     }
 
     /// As `prepareImport(_:)` for files found loose in the library folder: a folder in

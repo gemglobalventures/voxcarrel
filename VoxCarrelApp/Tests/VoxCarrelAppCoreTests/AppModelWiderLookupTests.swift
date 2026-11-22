@@ -8,13 +8,17 @@ import VoxCarrelFixtures
 
 /// The demo's Salt Road as the Library of Congress might have it: read by the same
 /// narrator, so the book's own edition.
-private func saltRoadCassette() -> LookupCandidate {
+///
+/// `seconds`: the length its record gives, a catalogue's round figure; nil for none.
+private func saltRoadCassette(seconds: Double? = nil) -> LookupCandidate {
     var candidate = foundBook(.libraryOfCongress, "9000001", title: "Salt road", authors: ["Ines Calloway"]) {
         $0.narrators = ["Marcus Lindqvist"]
         $0.publisher = "Recorded Tides"
         $0.year = 1999
+        $0.durationSeconds = seconds
     }
-    candidate.edition = EditionFacts(format: .cassette, abridged: false, publisher: "Recorded Tides", year: 1999)
+    candidate.edition = EditionFacts(
+        format: .cassette, abridged: false, publisher: "Recorded Tides", year: 1999, lengthIsNominal: seconds != nil)
     return candidate
 }
 
@@ -40,12 +44,14 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
     private let png = MediaFixtures.makeImage(.png)
 
     /// A demo library with the Library of Congress on, Salt Road selected, and its
-    /// lookup open and answered with the cassette and the re-reading.
+    /// lookup open and answered with the cassette (of the book's own length) and the
+    /// re-reading.
     private func lookedUp() async throws -> (Harness, Int64) {
         let h = try await Harness.demo()
         h.model.audibleStore = .uk
         h.model.setLookupSource(.libraryOfCongress, on: true)
-        h.lookup.find(.libraryOfCongress, [saltRoadCassette()])
+        let seconds = try #require(try h.book(try h.id("Salt Road")).durationSeconds)
+        h.lookup.find(.libraryOfCongress, [saltRoadCassette(seconds: seconds)])
         h.lookup.find(.audible, [saltRoadReread()])
         let id = try await h.select("Salt Road")
         h.model.beginLookup()
@@ -171,7 +177,7 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
             // A8c
             LookupSourceRow(
                 source: .libraryOfCongress, title: "Library of Congress", detail: "Cassette and CD editions with their narrators",
-                note: "Searches to this source are sent unencrypted, so the title and author you look up can be seen on your network.",
+                note: "Searches to this source are sent unencrypted, so the title, author or ISBN you look up can be seen on your network.",
                 isOn: false),
         ])
         h.model.setLookupSource(.libraryOfCongress, on: true)
@@ -353,9 +359,7 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
         h.lookup.narratorNotFound(.audible, "Marcus Lindqvist")
         try await h.select("Salt Road")
         h.model.beginLookup()
-        #expect(h.model.lookupNarratorFallbackText == nil)
         await h.model.settle()
-        #expect(h.model.lookupNarratorFallbackText == "Audible: nothing read by Marcus Lindqvist; showing other editions.")
         #expect(h.model.lookupSourcesText
             == "Open Library: no matches · Audible (UK, US, Australia): nothing read by Marcus Lindqvist; showing other editions")
 
@@ -363,7 +367,6 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
         h.lookup.find(.audible, [])
         h.model.updateLookupQuery { $0.author = "" }
         await h.model.searchLookup()
-        #expect(h.model.lookupNarratorFallbackText == nil)
         #expect(h.model.lookupSourcesText == "Open Library: no matches · Audible (UK, US, Australia): no matches")
 
         // The narrator was found: nothing to say.
@@ -371,10 +374,8 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
         h.lookup.narratorNotFound(.audible, nil)
         h.model.updateLookupQuery { $0.author = "Ines Calloway" }
         await h.model.searchLookup()
-        #expect(h.model.lookupNarratorFallbackText == nil)
         #expect(h.model.lookupSourcesText == "Open Library: no matches · Audible (UK, US, Australia): 1 match")
         h.model.cancelLookup()
-        #expect(h.model.lookupNarratorFallbackText == nil)
     }
 
     // MARK: A1, A3, A4, A5 taking from several results
@@ -486,17 +487,69 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
         #expect(h.model.lookupApplySummary == nil)
     }
 
-    /// A10: an answer that arrives after the sources were changed is for the lookup as it was.
-    @Test func A10_changingTheSourcesLetsTheSameSearchBeMadeAgain() async throws {
+    /// A10: changing the sources while a lookup is open searches again, with the
+    /// sources as they are now.
+    @Test func A10_changingTheSourcesSearchesAgain() async throws {
         let (h, _) = try await lookedUp()
         #expect(h.model.lookup?.canSearch == false)
-        h.model.setLookupSource(.openLibrary, on: false)
-        #expect(h.model.lookup?.canSearch == true)
-        #expect(h.model.lookupSourcesText == "Results from Audible (UK, US, Australia) and Library of Congress")
         let asked = h.lookup.asked.count
-        await h.model.searchLookup()
+        h.model.setLookupSource(.openLibrary, on: false)
+        #expect(h.model.lookup?.phase == .searching)
+        #expect(h.model.lookupSourcesText == "Results from Audible (UK, US, Australia) and Library of Congress")
+        await h.model.settle()
         #expect(h.lookup.asked.dropFirst(asked).map(\.source).sorted { $0.rawValue < $1.rawValue } == [.audible, .libraryOfCongress])
         #expect(h.model.lookupSourcesText == "Audible (UK, US, Australia): 1 match · Library of Congress: 1 match")
+    }
+
+    /// A source turned off while its results are shown: they go at once, with their
+    /// ticks, nothing more is fetched for them, and the search that was running for
+    /// the sources as they were is never shown.
+    @Test func aSourceTurnedOffWhileALookupIsOpenIsLeftBehind() async throws {
+        let (h, _) = try await lookedUp()
+        let cassette = try #require(h.model.lookup?.candidates.first { $0.source == .libraryOfCongress })
+        #expect(h.model.lookup?.selectedId == cassette.id)
+        #expect(h.model.lookup?.tickedFields(on: cassette.id).isEmpty == false)
+
+        // A search is running when the source goes off.
+        let gate = Gate()
+        h.lookup.hold(.libraryOfCongress, at: gate, then: [saltRoadCassette()])
+        h.model.updateLookupQuery { $0.author = "Calloway" }
+        let search = Task { await h.model.searchLookup() }
+        await gate.arrival()
+        let cancelled = h.lookup.cancelledSearches
+        let asked = h.lookup.asked.count
+
+        h.model.setLookupSource(.libraryOfCongress, on: false)
+        #expect(h.lookup.cancelledSearches > cancelled || h.model.lookup?.phase == .searching)
+        #expect(h.model.lookup?.candidates.contains { $0.source == .libraryOfCongress } == false)
+        await gate.release()
+        await search.value
+        await h.model.settle()
+
+        // What is shown is the answer of the sources that are on, and only they were asked again.
+        #expect(Set(h.lookup.asked.dropFirst(asked).map(\.source)) == [.openLibrary, .audible])
+        #expect(h.model.lookup?.candidates.map(\.source) == [.audible])
+        #expect(h.model.lookup?.outcomes.map(\.source) == [.openLibrary, .audible])
+        #expect(h.model.lookup?.tickedFields(on: cassette.id).isEmpty == true)
+        #expect(h.model.lookup?.applied().metadata.publisher != "Recorded Tides")
+        // Nothing is fetched for a result of a source that is off.
+        #expect(await h.model.lookupThumbnail(for: cassette) == nil)
+        h.model.cancelLookup()
+    }
+
+    /// The same reader with no length to go by is the book's edition, but says nothing
+    /// of its kind: a reader reads the abridgement too.
+    @Test func K3_aResultMatchedByItsReaderAloneGivesNoEditionKind() async throws {
+        let h = try await Harness.demo()
+        h.model.setLookupSource(.libraryOfCongress, on: true)
+        h.lookup.find(.libraryOfCongress, [saltRoadCassette()])
+        try await h.select("Salt Road")
+        h.model.beginLookup()
+        await h.model.settle()
+        let cassette = try #require(h.model.lookup?.candidates.first)
+        #expect(h.model.lookupBadgeText(for: cassette) == "Your edition")
+        #expect(h.model.lookup?.editionOffer == nil)
+        h.model.cancelLookup()
     }
 
     // MARK: A9 adding an Audible book

@@ -260,10 +260,15 @@ public struct LookupService: Sendable {
     // MARK: Details
 
     /// Anything more the candidate's source can add. A candidate from a source with no
-    /// provider is returned unchanged.
+    /// provider here (one that is off) is returned unchanged, and nothing is asked.
     public func details(for candidate: LookupCandidate) async throws -> LookupCandidate {
         guard let provider = providers.first(where: { $0.source == candidate.source }) else { return candidate }
         return try await provider.details(for: candidate)
+    }
+
+    /// Whether this service asks the candidate's source at all.
+    func asks(_ source: LookupSource) -> Bool {
+        providers.contains { $0.source == source }
     }
 
     // MARK: Cover
@@ -274,15 +279,18 @@ public struct LookupService: Sendable {
 
     /// Downloads the candidate's cover. Throws `.unreadable` when there is no cover, when
     /// its address is not `https` on one of the known cover hosts (no request is made), or
-    /// when what arrives is not a JPEG or PNG of at most 10 MB.
+    /// when what arrives is not a JPEG or PNG of at most 10 MB; and, with no request
+    /// made, when the candidate's source is one this service does not ask (it is off).
     public func cover(for candidate: LookupCandidate) async throws -> CoverImage {
-        try await image(at: candidate.coverURL)
+        guard asks(candidate.source) else { throw LookupError.unreadable }
+        return try await image(at: candidate.coverURL)
     }
 
     /// The same for the smaller picture a result's row shows: `thumbnailURL`, or the
     /// cover itself when the candidate has no smaller one.
     public func thumbnail(for candidate: LookupCandidate) async throws -> CoverImage {
-        try await image(at: candidate.thumbnailURL ?? candidate.coverURL)
+        guard asks(candidate.source) else { throw LookupError.unreadable }
+        return try await image(at: candidate.thumbnailURL ?? candidate.coverURL)
     }
 
     private func image(at url: URL?) async throws -> CoverImage {

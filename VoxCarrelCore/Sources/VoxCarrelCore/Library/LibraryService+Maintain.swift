@@ -314,6 +314,9 @@ extension LibraryService {
         }
         if !lookedOver { try store.setNote(Self.lengthHeadersNote, to: "1") }
 
+        // Edition kinds recorded under an older rule, and parts once thought missing.
+        try recheckEditions(books: try store.books(), files: rowsByBook)
+
         // R3, R4: one pass over the folder, by name only.
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey, .isRegularFileKey, .isHiddenKey]
         guard let walker = fm.enumerator(at: layout.root, includingPropertiesForKeys: keys, options: []) else {

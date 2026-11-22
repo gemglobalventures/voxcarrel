@@ -146,8 +146,20 @@ public struct LookupSession: Equatable, Sendable {
     /// when another result is selected, as are those of the book's own edition; the
     /// untouched ticks of any other result that was only looked at are not.
     private var touched: Set<String> = []
-    /// The user's own tick of the edition offer; nil while it has its first tick.
-    private var editionTick: Bool?
+    /// The user's own tick of the edition offer, and the offer it was made on; nil
+    /// while the offer has its first tick. A tick is for what was offered: when the
+    /// results come to offer another kind, or the same on other grounds, it goes.
+    private var editionTick: EditionTick?
+
+    private struct EditionTick: Equatable, Sendable {
+        var kind: EditionKind
+        var basis: EditionKindNote.Basis
+        var ticked: Bool
+
+        func isFor(_ note: EditionKindNote) -> Bool {
+            kind == note.kind && basis == note.basis
+        }
+    }
     /// What each source that was asked made of the last finished search, in the order
     /// they were asked; empty until a search has finished, and while another runs.
     public private(set) var outcomes: [SourceOutcome] = []
@@ -188,7 +200,9 @@ public struct LookupSession: Equatable, Sendable {
     public var bookContext: LookupBookContext? {
         guard !isAddMode else { return nil }
         return LookupBookContext(
-            metadata: current, audioSeconds: hasAudio ? audioSeconds : nil, isAbridged: editionKind?.kind.isAbridged)
+            metadata: current, audioSeconds: hasAudio ? audioSeconds : nil,
+            // Only a kind that is well founded is held against a result.
+            isAbridged: editionKind?.abridgedForMatching)
     }
 
     public var selected: LookupCandidate? {
@@ -335,24 +349,49 @@ public struct LookupSession: Equatable, Sendable {
         return reasons.isEmpty ? "Different edition" : "Different edition: " + reasons.joined(separator: "; ")
     }
 
-    /// What the results say of the book's edition kind, the selected result first: a
-    /// result that is this very edition and says what it is, or else what the running
-    /// time shows. Only for a library book that has audio.
-    private var editionAssessment: EditionKindAssessment {
-        guard case .book = target, hasAudio, !candidates.isEmpty else { return EditionKindAssessment() }
-        let ordered = (selected.map { [$0] } ?? []) + candidates.filter { $0.id != selectedId }
-        return EditionKindGuess.assess(
+    /// What the results say of the book's edition kind, and the result that says it
+    /// when one does. Only for a library book that has audio.
+    ///
+    /// With a result selected, that result first: a result that is this very edition
+    /// and says what it is, or else what the running time shows against all of them.
+    /// With none selected, only what the best result that is this very edition says:
+    /// nothing is worked out from results nobody has looked at.
+    private var editionFinding: (assessment: EditionKindAssessment, result: LookupCandidate?) {
+        guard case .book = target, hasAudio, !candidates.isEmpty else { return (EditionKindAssessment(), nil) }
+        guard let selected else {
+            guard let best = EditionKindGuess.matchedResult(in: candidates, book: current, bookSeconds: audioSeconds)
+            else { return (EditionKindAssessment(), nil) }
+            let note = EditionKindGuess.assess([best], book: current, bookSeconds: audioSeconds).note
+            return (EditionKindAssessment(note: note), best)
+        }
+        let ordered = [selected] + candidates.filter { $0.id != selected.id }
+        let assessment = EditionKindGuess.assess(
             ordered, book: current, bookSeconds: audioSeconds, partsAppearMissing: partsAppearMissing)
+        guard case .matched? = assessment.note?.basis else { return (assessment, nil) }
+        return (assessment, EditionKindGuess.matchedResult(in: ordered, book: current, bookSeconds: audioSeconds))
+    }
+
+    private var editionAssessment: EditionKindAssessment {
+        editionFinding.assessment
     }
 
     /// The edition kind the results give the book, offered with the other values; nil
     /// when they give none, or the one the book already has. Ticked to begin with only
-    /// when the book's edition is not known.
+    /// when the book's edition is not known; the user's own tick stands only while
+    /// the same kind is offered on the same grounds.
     public var editionOffer: EditionOffer? {
         guard let note = editionAssessment.note, note.kind != editionKind?.kind else { return nil }
+        let own = editionTick.flatMap { $0.isFor(note) ? $0.ticked : nil }
         return EditionOffer(
             label: "Edition", current: editionKind?.title ?? "", found: note.title, reason: note.helpText,
-            ticked: editionTick ?? (editionKind == nil), note: note)
+            ticked: own ?? (editionKind == nil), note: note)
+    }
+
+    /// The user's tick of the edition offer goes when that is no longer what is offered.
+    private mutating func settleEditionTick() {
+        guard let tick = editionTick else { return }
+        if let note = editionOffer?.note, tick.isFor(note) { return }
+        editionTick = nil
     }
 
     /// Said in place of an edition offer when the results show something about the
@@ -364,8 +403,8 @@ public struct LookupSession: Equatable, Sendable {
     }
 
     public mutating func setEditionTicked(_ ticked: Bool) {
-        guard phase != .applying, editionOffer != nil else { return }
-        editionTick = ticked
+        guard phase != .applying, let note = editionOffer?.note else { return }
+        editionTick = EditionTick(kind: note.kind, basis: note.basis, ticked: ticked)
     }
 
     // MARK: Searching
@@ -392,11 +431,28 @@ public struct LookupSession: Equatable, Sendable {
         phase == .results && answeredQuery == query && failureText == nil
     }
 
-    /// The sources are not the ones the results came from (another Audible store):
-    /// the same query may be searched for again.
-    public mutating func sourcesChanged() {
+    /// The sources are not the ones the results came from (another Audible store, a
+    /// source turned off): the same query may be searched for again.
+    ///
+    /// `sources`: the sources that are on now; nil to leave the results as they are.
+    /// The results of a source that is off go, with their ticks: nothing more is
+    /// fetched for them, and nothing of them is applied.
+    public mutating func sourcesChanged(to sources: Set<LookupSource>? = nil) {
         answeredQuery = nil
         outcomes = []
+        guard let sources, phase != .applying else { return }
+        let gone = Set(candidates.filter { !sources.contains($0.source) }.map(\.id))
+        guard !gone.isEmpty else { return }
+        candidates.removeAll { gone.contains($0.id) }
+        for id in gone {
+            ticks[id] = nil
+            decided[id] = nil
+            verdicts[id] = nil
+        }
+        touched.subtract(gone)
+        if let selectedId, gone.contains(selectedId) { self.selectedId = nil }
+        if phase == .results, candidates.isEmpty { phase = .noResults }
+        settleEditionTick()
     }
 
     /// K2: the answer to a search for `query`. Ignored when the query has changed since.
@@ -447,6 +503,7 @@ public struct LookupSession: Equatable, Sendable {
         }
         selectedId = id
         decideFirstTicks()
+        settleEditionTick()
     }
 
     /// K7: more has arrived about the selected candidate. Offers it adds have their
@@ -458,6 +515,7 @@ public struct LookupSession: Equatable, Sendable {
         else { return }
         candidates[index] = detailed
         decideFirstTicks()
+        settleEditionTick()
     }
 
     /// A2: gives the selected result's offers their first ticks, each once: an offer
@@ -578,9 +636,26 @@ public struct LookupSession: Equatable, Sendable {
     }
 
     /// A4: what will be applied, across results: "Narrators, year and publisher from
-    /// Library of Congress; description and cover from Audible". Results of one source
-    /// are named together. Nil when nothing is ticked.
+    /// Library of Congress; description and cover from Audible". Nil when nothing is
+    /// ticked.
+    ///
+    /// When more than one result of a source gives something, each is told apart by
+    /// who reads it and its year, and failing those by its stores: "narrators from
+    /// Audible (Rory Kinnear, 2025); year from Audible (Shaun Evans, 2024)". The
+    /// edition is named with the result that says it, or with how it was worked out.
     public var applySummary: String? {
+        // What each result gives, in the results' order.
+        var taken = Set<MetadataField>()
+        var gives: [(candidate: LookupCandidate, fields: Set<MetadataField>, edition: Bool)] = []
+        let offer = editionOffer.flatMap { $0.ticked ? $0 : nil }
+        let editionResult = offer == nil ? nil : editionFinding.result
+        for candidate in candidates {
+            let fields = Set(tickedFields(on: candidate.id).filter { taken.insert($0).inserted })
+            let edition = candidate.id == editionResult?.id
+            if !fields.isEmpty || edition { gives.append((candidate, fields, edition)) }
+        }
+        let givers = Dictionary(grouping: gives, by: \.candidate.source)
+
         var order: [String] = []
         var fields: [String: Set<MetadataField>] = [:]
         var edition: String?
@@ -588,13 +663,16 @@ public struct LookupSession: Equatable, Sendable {
             if !order.contains(name) { order.append(name) }
             return name
         }
-        var taken = Set<MetadataField>()
-        for candidate in candidates {
-            for field in tickedFields(on: candidate.id) where taken.insert(field).inserted {
-                fields[place("from \(candidate.source.title)"), default: []].insert(field)
+        for give in gives {
+            let source = give.candidate.source
+            var name = "from \(source.title)"
+            if let others = givers[source], others.count > 1 {
+                name += Self.distinguishing(give.candidate, among: others.map(\.candidate))
             }
+            fields[place(name), default: []].formUnion(give.fields)
+            if give.edition { edition = name }
         }
-        if let offer = editionOffer, offer.ticked {
+        if let offer, edition == nil {
             switch offer.note.basis {
             case .matched(let source): edition = place("from \(source)")
             case .estimated: edition = place("from the length of the printed book")
@@ -609,6 +687,26 @@ public struct LookupSession: Equatable, Sendable {
             return "\(Self.list(names)) \(place)"
         }.joined(separator: "; ")
         return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    /// " (Rory Kinnear, 2025)": what tells one result from the others of its source
+    /// that give something. Its first reader and its year; its stores too when those
+    /// do not tell it apart; "" when it has none of them.
+    private static func distinguishing(_ candidate: LookupCandidate, among others: [LookupCandidate]) -> String {
+        func words(_ candidate: LookupCandidate, stores: Bool) -> [String] {
+            var words: [String] = []
+            if let reader = candidate.metadata.narrators.lazy.compactMap(\.trimmedOrNil).first { words.append(reader) }
+            if let year = candidate.metadata.year { words.append(String(year)) }
+            if stores || words.isEmpty {
+                let named = candidate.edition.stores.compactMap(AudibleStore.init(rawValue:)).map(\.shortTitle)
+                if !named.isEmpty { words.append(named.joined(separator: ", ")) }
+            }
+            return words
+        }
+        var own = words(candidate, stores: false)
+        let alike = others.contains { $0.id != candidate.id && words($0, stores: false) == own }
+        if alike { own = words(candidate, stores: true) }
+        return own.isEmpty ? "" : " (\(own.joined(separator: ", ")))"
     }
 
     /// "narrators", "series number", "description", "ISBN".

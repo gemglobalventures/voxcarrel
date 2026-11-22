@@ -90,19 +90,33 @@ public struct LibraryOfCongressProvider: LookupProvider {
         metadata.subtitle = Self.withoutFinalMarks(LookupText.cleaned(titleInfo.subtitle, limit: LookupText.nameLimit))
 
         var authors: [String] = []
-        var others: [String] = []
+        var readers: [String] = []
+        var unsaid: [String] = []
         for name in record.names.filter(\.isPerson) {
             guard let said = Self.person(name) else { continue }
             if name.isAuthor {
                 authors.append(said)
-            } else if name.mayBeNarrator {
-                others.append(said)
+            } else if name.isNarrator {
+                readers.append(said)
+            } else if name.hasNoRole {
+                unsaid.append(said)
             }
         }
         metadata.authors = Self.people(authors)
-        let noted = record.notes.lazy.filter { $0.type?.lowercased() == "performers" }
-            .compactMap { Self.narrators(fromNote: $0.text, authors: metadata.authors) }.first
-        metadata.narrators = noted ?? Self.people(others)
+        // Who reads it: the people the record calls its readers; failing that, the ones
+        // its performers note names; and with neither, the one other person it names
+        // without saying what they did. Two such people are as likely a second author
+        // and an editor as readers, and are not taken.
+        let performerNotes = record.notes.filter { $0.type?.lowercased() == "performers" }
+        let others = Self.people(unsaid)
+        if !readers.isEmpty {
+            metadata.narrators = Self.people(readers)
+        } else if !performerNotes.isEmpty {
+            metadata.narrators = performerNotes.lazy
+                .compactMap { Self.narrators(fromNote: $0.text, authors: metadata.authors) }.first ?? []
+        } else if others.count == 1 {
+            metadata.narrators = others
+        }
 
         let dates = record.dates.filter { $0.type?.lowercased() == "marc" } + record.dates.filter { $0.type?.lowercased() != "marc" }
         metadata.year = dates.lazy.compactMap { Self.year($0.text) }.first
@@ -128,7 +142,10 @@ public struct LibraryOfCongressProvider: LookupProvider {
             metadata: metadata,
             note: note.joined(separator: " · "),
             hasMoreDetails: false,
-            edition: EditionFacts(format: format, abridged: abridged, publisher: metadata.publisher, year: metadata.year)
+            // A catalogue's length is a round figure: "18 hr.".
+            edition: EditionFacts(
+                format: format, abridged: abridged, publisher: metadata.publisher, year: metadata.year,
+                lengthIsNominal: metadata.durationSeconds != nil)
         )
     }
 
@@ -252,10 +269,14 @@ final class MODSReader: NSObject, XMLParserDelegate {
             usage?.lowercased() == "primary" || saidRoles.contains { ["author", "aut", "creator", "cre"].contains($0) }
         }
 
-        /// No part stated, or a reader's.
-        var mayBeNarrator: Bool {
-            let said = saidRoles
-            return said.isEmpty || said.contains { ["narrator", "nrt", "reader", "performer", "prf", "speaker", "spk"].contains($0) }
+        /// Said to be a reader.
+        var isNarrator: Bool {
+            saidRoles.contains { ["narrator", "nrt", "reader", "performer", "prf", "speaker", "spk"].contains($0) }
+        }
+
+        /// No part in the work is stated.
+        var hasNoRole: Bool {
+            saidRoles.isEmpty
         }
     }
 
@@ -328,12 +349,22 @@ final class MODSReader: NSObject, XMLParserDelegate {
         guard let text = String(data: data, encoding: .utf8) else { return false }
         let start = text.unicodeScalars.drop { $0 == "\u{FEFF}" || $0 == " " || $0 == "\n" || $0 == "\r" || $0 == "\t" }
         guard start.first == "<", !text.unicodeScalars.contains("\0") else { return false }
-        // Read as the encoding it says it is: only UTF-8 will do.
-        let opening = String(String.UnicodeScalarView(start.prefix(200)))
-        if opening.hasPrefix("<?xml"),
-           let named = LookupText.firstMatch("^<\\?xml[^>]*?encoding\\s*=\\s*[\"']([^\"']*)[\"']", in: opening),
-           named[1].lowercased() != "utf-8" {
-            return false
+        // Read as the encoding it says it is: only UTF-8 will do. The whole of the
+        // declaration is looked at, however long; one with no end is not XML.
+        let opening = String(String.UnicodeScalarView(start.prefix(5)))
+        if opening == "<?xml" {
+            let rest = String(String.UnicodeScalarView(start))
+            guard let end = rest.range(of: "?>") else { return false }
+            let declaration = String(rest[..<end.lowerBound])
+            if let named = LookupText.firstMatch("encoding\\s*=\\s*[\"']([^\"']*)[\"']", in: declaration),
+               named[1].lowercased() != "utf-8" {
+                return false
+            }
+            // Said, but not in a way that can be read: not taken on trust.
+            if declaration.lowercased().contains("encoding"),
+               LookupText.firstMatch("encoding\\s*=\\s*[\"']([^\"']*)[\"']", in: declaration) == nil {
+                return false
+            }
         }
         return text.range(of: "<!DOCTYPE", options: .caseInsensitive) == nil
             && text.range(of: "<!ENTITY", options: .caseInsensitive) == nil
@@ -368,14 +399,12 @@ final class MODSReader: NSObject, XMLParserDelegate {
             }
             return
         }
-        // The values that open a group of their own.
-        switch Array(path[recordDepth...]) {
-        case ["titleInfo"] where record.titles.count < Self.valueLimit:
+        // The values that open a group of their own: the record's own children.
+        guard path.count == recordDepth + 1 else { return }
+        if name == "titleInfo", record.titles.count < Self.valueLimit {
             record.titles.append(Title(type: attributeDict["type"]))
-        case ["name"] where record.names.count < Self.valueLimit:
+        } else if name == "name", record.names.count < Self.valueLimit {
             record.names.append(Name(type: attributeDict["type"], usage: attributeDict["usage"]))
-        default:
-            break
         }
     }
 
@@ -406,30 +435,36 @@ final class MODSReader: NSObject, XMLParserDelegate {
         func add(_ value: Typed, to list: inout [Typed]) {
             if list.count < Self.valueLimit { list.append(value) }
         }
-        switch Array(path[recordDepth...]) {
-        case ["titleInfo", "nonSort"]: setTitle(\.nonSort)
-        case ["titleInfo", "title"]: setTitle(\.title)
-        case ["titleInfo", "subTitle"]: setTitle(\.subtitle)
-        case ["name", "namePart"]:
+        // Where this is within the record: at most three deep is ever of use. Looked at
+        // in place: an answer may hold a million elements.
+        let depth = path.count - recordDepth
+        guard depth <= 3 else { return }
+        let place = (
+            path[recordDepth], depth >= 2 ? path[recordDepth + 1] : "", depth == 3 ? path[recordDepth + 2] : "")
+        switch place {
+        case ("titleInfo", "nonSort", ""): setTitle(\.nonSort)
+        case ("titleInfo", "title", ""): setTitle(\.title)
+        case ("titleInfo", "subTitle", ""): setTitle(\.subtitle)
+        case ("name", "namePart", ""):
             if let last = record.names.indices.last, record.names[last].parts.count < Self.valueLimit {
                 record.names[last].parts.append((type, text))
             }
-        case ["name", "role", "roleTerm"]:
+        case ("name", "role", "roleTerm"):
             if let last = record.names.indices.last, record.names[last].roles.count < Self.valueLimit {
                 record.names[last].roles.append(text)
             }
-        case ["typeOfResource"]: if record.typeOfResource.isEmpty { record.typeOfResource = text }
-        case ["originInfo", "dateIssued"]: add(Typed(type: attributes["encoding"], text: text), to: &record.dates)
-        case ["originInfo", "agent", "namePart"]: add(text, to: &record.agents)
-        case ["originInfo", "publisher"]: add(text, to: &record.publishers)
-        case ["originInfo", "edition"]: add(text, to: &record.editions)
-        case ["language", "languageTerm"]: add(text, to: &record.languages)
-        case ["physicalDescription", "form"]: add(text, to: &record.forms)
-        case ["physicalDescription", "extent"]: add(text, to: &record.extents)
-        case ["note"]: add(Typed(type: type, text: text), to: &record.notes)
-        case ["identifier"]:
+        case ("typeOfResource", "", ""): if record.typeOfResource.isEmpty { record.typeOfResource = text }
+        case ("originInfo", "dateIssued", ""): add(Typed(type: attributes["encoding"], text: text), to: &record.dates)
+        case ("originInfo", "agent", "namePart"): add(text, to: &record.agents)
+        case ("originInfo", "publisher", ""): add(text, to: &record.publishers)
+        case ("originInfo", "edition", ""): add(text, to: &record.editions)
+        case ("language", "languageTerm", ""): add(text, to: &record.languages)
+        case ("physicalDescription", "form", ""): add(text, to: &record.forms)
+        case ("physicalDescription", "extent", ""): add(text, to: &record.extents)
+        case ("note", "", ""): add(Typed(type: type, text: text), to: &record.notes)
+        case ("identifier", "", ""):
             if attributes["invalid"]?.lowercased() != "yes" { add(Typed(type: type, text: text), to: &record.identifiers) }
-        case ["recordInfo", "recordIdentifier"]: if record.identifier == nil { record.identifier = text }
+        case ("recordInfo", "recordIdentifier", ""): if record.identifier == nil { record.identifier = text }
         default: break
         }
     }

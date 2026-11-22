@@ -57,9 +57,17 @@ public struct BookDraft: Equatable, Sendable {
     /// known". Choosing the kind the book is already taken to be makes it the user's
     /// word, which nothing worked out later replaces. Choosing what was already chosen
     /// by hand changes nothing.
+    ///
+    /// "Not known" is the user's word too, and is kept: nothing worked out later (at
+    /// import, by a lookup, by Check Edition) gives the book a kind again until the
+    /// user chooses one. For a book nothing was ever known of, it is simply no kind.
     public mutating func chooseEditionKind(_ kind: EditionKind?) {
-        guard let kind else {
-            editionKind = nil
+        guard let kind, kind != .notKnown else {
+            if let own = original.editionKind {
+                editionKind = own.isNotKnown ? own : .notKnownByHand
+            } else {
+                editionKind = nil
+            }
             return
         }
         if let now = editionKind, now.kind == kind, now.isSetByHand { return }
@@ -74,7 +82,8 @@ public struct BookDraft: Equatable, Sendable {
     /// K9: whether the edition kind is to be marked "saved in app only": only a kind
     /// set by hand is.
     public var editionKindIsAppOnly: Bool {
-        editionKind?.isSetByHand ?? false
+        guard let editionKind else { return false }
+        return editionKind.isSetByHand && !editionKind.isNotKnown
     }
 
     var editionKindChanged: Bool { editionKind != original.editionKind }

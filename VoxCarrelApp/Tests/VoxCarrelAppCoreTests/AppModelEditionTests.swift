@@ -89,11 +89,126 @@ private func edition(
         h.model.setEditionKind(.abridged)
         #expect(!h.model.hasUnsavedChanges)
 
+        // "Not known" is the user's word too: it is kept, shows nothing, and nothing
+        // worked out afterwards takes its place.
         h.model.setEditionKind(nil)
         #expect(h.model.inspectorEditionKind == nil)
+        #expect(h.model.inspectorEditionLabel == nil)
         #expect(!h.model.editionKindIsAppOnly)
+        #expect(h.model.hasUnsavedChanges)
         await h.model.save()
-        #expect(try h.book(id).editionKind == nil)
+        #expect(try h.book(id).editionKind == .notKnownByHand)
+        #expect(h.model.rows.first { $0.id == id }?.editionLabel == nil)
+        #expect(h.model.inspectorEditionKind == nil)
+        // Chosen again: nothing to save.
+        h.model.setEditionKind(nil)
+        #expect(!h.model.hasUnsavedChanges)
+
+        // Check Edition asks nothing about it and leaves it.
+        let seconds = try #require(try h.book(id).durationSeconds)
+        let same = edition("Salt Road", author: "Ines Calloway", key: "uk:B0SALTROAD", narrators: ["Marcus Lindqvist"], seconds: seconds, abridged: true)
+        h.lookup.find(.audible, [same])
+        let asked = h.lookup.asked.count
+        await h.model.checkEdition()
+        #expect(h.lookup.asked.count == asked)
+        #expect(try h.book(id).editionKind == .notKnownByHand)
+
+        // Look Up offers what it finds, but does not tick it.
+        h.model.alert = nil
+        h.model.beginLookup()
+        await h.model.settle()
+        #expect(h.model.lookup?.editionOffer?.found == "Abridged")
+        #expect(h.model.lookup?.editionOffer?.ticked == false)
+        h.model.cancelLookup()
+
+        // A book nothing was ever known of has no kind to keep unknown.
+        try await setKind(h, id, nil)
+        h.model.setEditionKind(.abridged)
+        h.model.setEditionKind(nil)
+        #expect(!h.model.hasUnsavedChanges)
+    }
+
+    // MARK: Sources that do not answer
+
+    /// A book for which a source did not answer is not written: the rest is only part
+    /// of the evidence. The summary says how many were passed over, and why.
+    @Test func checkingWritesNothingForABookASourceDidNotAnswerFor() async throws {
+        let h = try await Harness.demo()
+        let salt = try h.id("Salt Road")
+        let keeper = try h.id("The Lighthouse Keeper")
+        let seconds = try #require(try h.book(salt).durationSeconds)
+        let keeperSeconds = try #require(try h.book(keeper).durationSeconds)
+        h.lookup.search(.audible) { query in
+            if query.title == "Salt Road" { throw LookupError.refused(status: 503) }
+            return [edition("The Lighthouse Keeper", author: "Eleanor Marsh", key: "uk:B0LIGHTHSE", seconds: keeperSeconds, abridged: true)]
+        }
+        // Open Library answers for both, and by itself would have Salt Road "probably unabridged".
+        h.lookup.search(.openLibrary) { query in
+            guard query.title == "Salt Road" else { return [] }
+            return [foundBook(.openLibrary, "/works/OL1W", title: "Salt Road", authors: ["Ines Calloway"]) {
+                $0.pageCount = Int(seconds / 3600 * 34)
+            }]
+        }
+        try await h.select(["Salt Road", "The Lighthouse Keeper"])
+        await h.model.checkEdition()
+        #expect(try h.book(salt).editionKind == nil)
+        #expect(try h.book(keeper).editionKind?.kind == .abridged)
+        #expect(h.model.alert == "“Salt Road” was skipped because Audible could not be reached.")
+        #expect(h.model.undoLabel == "Check edition of The Lighthouse Keeper")
+
+        // Both passed over, for different sources.
+        await h.model.undo()
+        h.model.alert = nil
+        h.lookup.search(.openLibrary) { query in
+            if query.title != "Salt Road" { throw LookupError.notReachable }
+            return []
+        }
+        await h.model.checkEdition()
+        #expect(try h.book(keeper).editionKind == nil)
+        #expect(h.model.alert == "2 books were skipped because Open Library and Audible could not be reached.")
+    }
+
+    /// With no source to be reached at all, the lookups are given up at the first
+    /// book and it is said plainly.
+    @Test func checkingOfflineSaysSoAndAsksNoFurther() async throws {
+        let h = try await Harness.demo()
+        h.lookup.fail(.audible, .notReachable)
+        h.lookup.fail(.openLibrary, .notReachable)
+        let before = h.model.undoLabel
+        try await h.select(["Salt Road", "The Lighthouse Keeper"])
+        await h.model.checkEdition()
+        // Asked once of each source, for the first book only.
+        #expect(h.lookup.asked.count == 2)
+        #expect(h.model.alert == "No lookup source could be reached. 2 books were skipped.")
+        #expect(h.model.undoLabel == before)
+        #expect(try h.book(try h.id("Salt Road")).editionKind == nil)
+
+        h.model.alert = nil
+        try await h.select("Salt Road")
+        await h.model.checkEdition()
+        #expect(h.model.alert == "No lookup source could be reached.")
+    }
+
+    /// Only a kind that is well founded is held against a result when a book is checked.
+    @Test func aGuessedKindIsNotHeldAgainstAResult() async throws {
+        let h = try await Harness.demo()
+        let id = try await h.select("Salt Road")
+        let seconds = try #require(try h.book(id).durationSeconds)
+        // Guessed unabridged from its length; the result that is this very edition says abridged.
+        try await setKind(h, id, EditionKindNote(kind: .unabridged, basis: .inferred))
+        h.lookup.find(.audible, [edition("Salt Road", author: "Ines Calloway", key: "uk:B0SALTROAD", narrators: ["Marcus Lindqvist"], seconds: seconds, abridged: true)])
+        h.model.beginLookup()
+        await h.model.settle()
+        let found = try #require(h.model.lookup?.candidates.first)
+        #expect(h.model.lookup?.bookContext?.isAbridged == nil)
+        #expect(h.model.lookupBadgeText(for: found) == "Your edition")
+        h.model.cancelLookup()
+
+        // Said by the user, it is held against it.
+        try await setKind(h, id, EditionKindNote(kind: .unabridged, basis: .setByHand))
+        h.model.beginLookup()
+        await h.model.settle()
+        #expect(h.model.lookupBadgeText(for: found) == "Different edition")
     }
 
     /// K9: a kind that was worked out is not marked; confirming it by hand makes it the user's.

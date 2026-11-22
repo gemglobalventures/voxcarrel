@@ -17,6 +17,9 @@ public struct ImportReview: Equatable, Sendable {
         public var existingMatch: Book?
         /// Only meaningful when `existingMatch` is not nil. Starts true.
         public var addToExisting: Bool
+        /// The measured length of the one audio file the entry came with, when it came
+        /// with one and its length could be measured.
+        var measuredAudio: MeasuredAudio?
 
         /// The folder last worked out for this entry as a new book, and the details it
         /// was worked out for. `computedFor` is nil until there has been an answer.
@@ -118,7 +121,7 @@ public struct ImportReview: Equatable, Sendable {
         entries = seeds.map { seed in
             Entry(
                 id: UUID(), candidate: seed.candidate, included: true, cover: seed.cover, coverChanged: false,
-                existingMatch: seed.existingMatch, addToExisting: true,
+                existingMatch: seed.existingMatch, addToExisting: true, measuredAudio: seed.measuredAudio,
                 // The seed's match was looked up for the details it came with.
                 matchedFor: MatchDetails(seed.candidate.metadata))
         }

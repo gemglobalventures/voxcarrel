@@ -78,6 +78,8 @@ extension EditionKindNote {
     /// files say so or the user did.
     public var label: String? {
         switch (kind, basis) {
+        // The user's own "not known" is nothing to show.
+        case (.notKnown, _): nil
         case (.unabridged, .stated), (.unabridged, .setByHand): title
         case (.unabridged, _): nil
         default: title
@@ -88,7 +90,11 @@ extension EditionKindNote {
     public var basisText: String {
         switch basis {
         case .stated(let source):
-            source == EditionKindGuess.namesSource ? "The file’s name says so." : "The file’s tags say so."
+            switch source {
+            case EditionKindGuess.namesSource: "The file’s name says so."
+            case EditionKindGuess.titleSource: "The title says so."
+            default: "The file’s tags say so."
+            }
         case .matched(let source): "Matched with a result from \(source)."
         case .inferred: "Worked out from its running time."
         case .estimated: "Estimated from the length of the printed book."

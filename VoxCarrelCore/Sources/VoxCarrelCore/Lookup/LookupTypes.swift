@@ -69,11 +69,15 @@ public struct EditionFacts: Equatable, Sendable {
     public var year: Int?
     /// The Audible store codes ("us", "uk") that list it, in the order asked; empty for other sources.
     public var stores: [String]
+    /// True when the result's length is a catalogue's round figure ("18 hr.") and not
+    /// the running time of a recording: it is compared more loosely.
+    public var lengthIsNominal: Bool
 
     public init(
         format: EditionFormat? = nil, abridged: Bool? = nil, publisher: String? = nil, year: Int? = nil,
-        stores: [String] = []
+        stores: [String] = [], lengthIsNominal: Bool = false
     ) {
+        self.lengthIsNominal = lengthIsNominal
         self.format = format
         self.abridged = abridged
         self.publisher = publisher

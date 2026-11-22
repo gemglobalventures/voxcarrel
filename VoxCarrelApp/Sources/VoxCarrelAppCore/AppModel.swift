@@ -885,10 +885,28 @@ public final class AppModel {
     }
 
     /// The lookup service is built again from the settings as they are now.
+    ///
+    /// A lookup that is open is brought into line: a search that is running is for
+    /// the sources as they were, and is cancelled, its answer never shown; the results
+    /// of a source that is now off go, with their ticks; and the search is made again
+    /// with the sources as they are. A lookup whose values are being applied is left
+    /// to finish.
     private func lookupSettingsChanged() {
         worker?.setLookupService(makeLookupService(lookupConfiguration))
-        // What an open lookup shows came from the sources as they were.
-        lookup?.sourcesChanged()
+        guard var session = lookup else { return }
+        guard session.phase != .applying else {
+            session.sourcesChanged()
+            lookup = session
+            return
+        }
+        lookupSearch?.cancel()
+        lookupDetailLoads.values.forEach { $0.cancel() }
+        lookupDetailLoads = [:]
+        // Whatever is still on its way was asked of the sources as they were.
+        lookupGeneration += 1
+        session.sourcesChanged(to: storedLookupSources)
+        lookup = session
+        startLookupSearch()
     }
 
     private var storedAudibleStore: AudibleStore
@@ -917,7 +935,7 @@ public final class AppModel {
     /// K8: true while Check Edition is looking books up: it can be cancelled.
     public internal(set) var isCheckingEdition = false
     /// The lookups of a Check Edition that is running.
-    @ObservationIgnored var editionCheck: Task<[EditionCheck]?, Never>?
+    @ObservationIgnored var editionCheck: Task<EditionLookups?, Never>?
     // MARK: Work in the background
 
     @ObservationIgnored private var background: [UUID: Task<Void, Never>] = [:]

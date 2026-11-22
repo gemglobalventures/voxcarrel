@@ -12,8 +12,7 @@ extension LibraryService {
         let audio = candidate.files.filter { $0.role == .audio }.map(\.url)
         guard !audio.isEmpty else { return nil }
         return EditionKindGuess.fromFiles(
-            title: candidate.metadata.title, subtitle: candidate.metadata.subtitle, comment: candidate.metadata.summary,
-            fileNames: Self.names(of: audio))
+            title: candidate.metadata.title, subtitle: candidate.metadata.subtitle, fileNames: Self.names(of: audio))
     }
 
     /// Whether the candidate's audio files are numbered with gaps, by the names they
@@ -51,12 +50,48 @@ extension LibraryService {
         let seconds = book.durationSeconds.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         return EditionEvidence(
             audioSeconds: measured ? seconds : nil,
-            // As recorded at import, or as the names say now (a book catalogued where it
-            // was found keeps its files' own names).
-            partsAppearMissing: book.partsAppearMissing
-                || EditionKindGuess.partsAppearMissing(fileNames: urls.map(\.lastPathComponent)),
+            partsAppearMissing: partsAppearMissing(in: book, audio: audio),
             stated: EditionKindGuess.fromFiles(
-                title: book.title, subtitle: book.subtitle, comment: book.summary, fileNames: Self.names(of: urls)))
+                title: book.title, subtitle: book.subtitle, fileNames: Self.names(of: urls)))
+    }
+
+    /// Whether the book's parts are numbered with gaps. A book catalogued where it was
+    /// found keeps its files' own names, which are read as they are now, so that parts
+    /// that have since arrived are seen. A book that was filed had its parts given new
+    /// names, and what was recorded as it was imported is all there is to go by.
+    func partsAppearMissing(in book: Book, audio: [BookFile]) -> Bool {
+        guard !audio.isEmpty, audio.allSatisfy({ $0.path.hasPrefix("/") }) else { return book.partsAppearMissing }
+        return EditionKindGuess.partsAppearMissing(fileNames: audio.map { store.url(for: $0).lastPathComponent })
+    }
+
+    static let statedEditionsNote = "statedEditionsRechecked"
+
+    /// Looks again at what the launch check can about editions, writing only to the
+    /// catalogue and nothing to the journal.
+    ///
+    /// Once in the life of a library: a kind recorded as stated by "the file's tags"
+    /// dates from when a book's description was read for it too, and a description says
+    /// "as heard on BBC Radio" of a book that is no dramatisation. Each such kind is
+    /// worked out again from the title and the names of the files, and goes when they
+    /// do not state it.
+    ///
+    /// Every time: a book that is where it was found and is recorded as having parts
+    /// missing is looked at by its files' names as they are now.
+    func recheckEditions(books: [Book], files: [Int64?: [BookFile]]) throws {
+        let recheckStated = try store.note(Self.statedEditionsNote) == nil
+        for book in books {
+            guard let id = book.id else { continue }
+            var updated = book
+            let audio = (files[id] ?? []).filter { $0.role == .audio }
+            if recheckStated, case .stated(EditionKindGuess.formerTagsSource)? = book.editionKind?.basis {
+                updated.editionKind = audio.isEmpty ? nil : EditionKindGuess.fromFiles(
+                    title: book.title, subtitle: book.subtitle,
+                    fileNames: Self.names(of: audio.map { store.url(for: $0) }))
+            }
+            if book.partsAppearMissing { updated.partsAppearMissing = partsAppearMissing(in: book, audio: audio) }
+            if updated != book { try store.update(updated) }
+        }
+        if recheckStated { try store.setNote(Self.statedEditionsNote, to: "1") }
     }
 
     /// What a check would make of the book's edition, given what a lookup found: the

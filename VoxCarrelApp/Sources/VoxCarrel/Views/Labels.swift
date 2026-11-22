@@ -119,6 +119,7 @@ extension EditionKind {
         case .unabridged: "text.book.closed"
         case .abridged: "scissors"
         case .dramatised: "theatermasks"
+        case .notKnown: "questionmark"
         }
     }
 }

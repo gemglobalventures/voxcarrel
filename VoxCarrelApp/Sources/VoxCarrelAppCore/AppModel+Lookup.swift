@@ -184,17 +184,6 @@ extension AppModel {
         }.joined(separator: " · ")
     }
 
-    /// A7: said on its own when the narrator search found nothing and the search was
-    /// repeated without it: "Audible: nothing read by Frank Muller; showing other
-    /// editions." Nil when that did not happen, or the second search found nothing either.
-    public var lookupNarratorFallbackText: String? {
-        let lines = (lookup?.outcomes ?? []).compactMap { outcome -> String? in
-            guard outcome.failure == nil, outcome.found > 0, let narrator = outcome.narratorNotFound else { return nil }
-            return "\(outcome.source.title): nothing read by \(narrator); showing other editions."
-        }
-        return lines.isEmpty ? nil : lines.joined(separator: " ")
-    }
-
     /// "Open Library", "Audible (United Kingdom)", "Audible (UK, US, Australia)"
     private func sourceName(_ source: LookupSource) -> String {
         switch source {
@@ -231,7 +220,7 @@ extension AppModel {
     // MARK: A8 The settings
 
     static let unencryptedNote =
-        "Searches to this source are sent unencrypted, so the title and author you look up can be seen on your network."
+        "Searches to this source are sent unencrypted, so the title, author or ISBN you look up can be seen on your network."
 
     /// A8b: one row for each lookup source, with what it is good for and whether it is
     /// on. A8c: the Library of Congress carries a second line.
@@ -327,8 +316,8 @@ extension AppModel {
             LookupSession(
                 target: .importEntry(id), current: entry.candidate.metadata, hasCover: entry.cover != nil,
                 hasAudio: entry.hasAudio,
-                // The length the scan read from the entry's audio files.
-                audioSeconds: entry.hasAudio ? entry.candidate.metadata.durationSeconds : nil))
+                // The measured length of its audio, when that is known (`measuredAudioSeconds`).
+                audioSeconds: entry.measuredAudioSeconds))
     }
 
     func open(_ session: LookupSession) {
@@ -369,7 +358,7 @@ extension AppModel {
     }
 
     @discardableResult
-    private func startLookupSearch() -> Task<Void, Never>? {
+    func startLookupSearch() -> Task<Void, Never>? {
         guard let worker, var session = lookup, session.phase != .applying, !session.query.isEmpty else { return nil }
         lookupSearch?.cancel()
         session.beginSearch()

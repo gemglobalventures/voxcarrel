@@ -43,8 +43,8 @@ private func verdict(
     }
 
     @Test func M1_oneNameInCommonIsEnough() {
-        #expect(verdict(result(narrators: ["Someone Else", "Muller, Frank,"]), narrators: ["frank muller"]) == .sameEdition)
-        #expect(verdict(result(narrators: ["Frank Muller"]), narrators: ["Other Reader", "Frank Muller"]) == .sameEdition)
+        #expect(verdict(result(narrators: ["Someone Else", "Muller, Frank,"]), narrators: ["frank muller"], hours: 18) == .sameEdition)
+        #expect(verdict(result(narrators: ["Frank Muller"]), narrators: ["Other Reader", "Frank Muller"], hours: 18) == .sameEdition)
     }
 
     @Test func M1_aSideWithNoNarratorsSaysNothing() {
@@ -124,11 +124,112 @@ private func verdict(
     @Test func M4_sameEditionNeedsAMatchAndNoContradiction() {
         #expect(verdict(result(narrators: ["Frank Muller"], hours: 18, abridged: false), narrators: ["Frank Muller"], hours: 18, abridged: false)
             == .sameEdition)
-        #expect(verdict(result(narrators: ["Frank Muller"]), narrators: ["Frank Muller"]) == .sameEdition)
+        // The same reader, of the very same title, when the book's own length is known
+        // and the result gives none.
+        #expect(verdict(result(narrators: ["Frank Muller"]), narrators: ["Frank Muller"], hours: 18) == .sameEdition)
+        // A book whose length is not known: the reader alone does not say which of
+        // their recordings it is.
+        #expect(verdict(result(narrators: ["Frank Muller"]), narrators: ["Frank Muller"]) == .unknown)
         #expect(verdict(result(hours: 18.1), hours: 18) == .sameEdition)
         // Nothing to go on.
         #expect(verdict(result()) == .unknown)
         #expect(verdict(result(narrators: ["Frank Muller"], hours: 18)) == .unknown)
+    }
+
+    // MARK: The same work
+
+    @Test(arguments: [
+        ("Dune", "Dune", EditionMatch.TitleRelation.same),
+        ("The Dune", "dune", .same),
+        ("Dune", "Dune: Deluxe Edition", .withSubtitle),
+        ("Dune (Unabridged)", "Dune", .withSubtitle),
+        ("Dune - Book One", "Dune", .withSubtitle),
+        ("Dune: A Novel", "Dune (Unabridged)", .withSubtitle),
+        ("Dune", "Dune Messiah", .different),
+        ("Dune Messiah", "Dune", .different),
+        ("The Hobbit", "The Hobbit and The Lord of the Rings", .different),
+        ("Dune", "Dune Messiah: Book Two", .different),
+        ("Dune", "Emma", .different),
+        ("", "Dune", .same),
+    ])
+    func titlesOfTheSameWork(first: String, second: String, relation: EditionMatch.TitleRelation) {
+        #expect(EditionMatch.titleRelation(first, second) == relation)
+        #expect(EditionMatch.titleRelation(second, first) == relation)
+    }
+
+    private func dune(_ title: String, narrators: [String] = ["Scott Brick"], hours: Double? = nil, abridged: Bool? = nil) -> LookupCandidate {
+        var metadata = BookMetadata(title: title, authors: ["Herbert, Frank"])
+        metadata.narrators = narrators
+        metadata.durationSeconds = hours.map { $0 * 3600 }
+        return LookupCandidate(
+            id: "libraryOfCongress:\(title)\(hours ?? 0)\(String(describing: abridged))", source: .libraryOfCongress, metadata: metadata,
+            edition: EditionFacts(abridged: abridged))
+    }
+
+    private var duneBook: BookMetadata {
+        var book = BookMetadata(title: "Dune", authors: ["Frank Herbert"])
+        book.narrators = ["Scott Brick"]
+        return book
+    }
+
+    /// A sequel read by the same reader is not the book's edition, and says nothing of
+    /// the book's kind.
+    @Test func aSequelByTheSameReaderIsNotTheBooksEdition() {
+        let sequel = dune("Dune Messiah", abridged: true)
+        #expect(EditionMatch.verdict(candidate: sequel, book: duneBook, bookSeconds: 21 * 3600, bookIsAbridged: nil) == .unknown)
+        #expect(EditionKindGuess.assess([sequel], book: duneBook, bookSeconds: 21 * 3600) == EditionKindAssessment())
+        // Nor one of the same length.
+        let long = dune("Dune Messiah", hours: 21, abridged: true)
+        #expect(EditionMatch.verdict(candidate: long, book: duneBook, bookSeconds: 21 * 3600, bookIsAbridged: nil) == .unknown)
+        #expect(EditionKindGuess.assess([long], book: duneBook, bookSeconds: 21 * 3600).note == nil)
+    }
+
+    @Test func aBoxSetIsNotTheBooksEdition() {
+        var book = BookMetadata(title: "The Hobbit", authors: ["J. R. R. Tolkien"])
+        book.narrators = ["Rob Inglis"]
+        var set = BookMetadata(title: "The Hobbit and The Lord of the Rings", authors: ["JRR Tolkien"])
+        set.narrators = ["Rob Inglis"]
+        let candidate = LookupCandidate(id: "audible:uk:B0BOXSET00", source: .audible, metadata: set, edition: EditionFacts(abridged: false))
+        #expect(EditionMatch.verdict(candidate: candidate, book: book, bookSeconds: 11 * 3600, bookIsAbridged: nil) == .unknown)
+        #expect(EditionMatch.verdict(candidate: candidate, book: book, bookSeconds: nil, bookIsAbridged: nil) == .unknown)
+        #expect(EditionKindGuess.assess([candidate], book: book, bookSeconds: 11 * 3600).note == nil)
+    }
+
+    /// A book whose length is not known, and an abridged and an unabridged recording
+    /// by its reader: neither is known to be the book's, and neither gives it a kind.
+    @Test func anUnmeasuredBookIsNotMatchedByItsReaderAlone() {
+        let whole = dune("Dune", hours: 21, abridged: false), cut = dune("Dune", hours: 6, abridged: true)
+        let unsaid = dune("Dune", abridged: true)
+        for candidate in [whole, cut, unsaid] {
+            #expect(EditionMatch.verdict(candidate: candidate, book: duneBook, bookSeconds: nil, bookIsAbridged: nil) == .unknown)
+        }
+        #expect(EditionKindGuess.assess([cut, whole, unsaid], book: duneBook, bookSeconds: nil) == EditionKindAssessment())
+        // Measured, the length says which; a result with no length gives no kind.
+        #expect(EditionKindGuess.assess([cut, whole], book: duneBook, bookSeconds: 21 * 3600).note
+            == EditionKindNote(kind: .unabridged, basis: .matched("Library of Congress"), reason: "Library of Congress lists your edition as unabridged."))
+        #expect(EditionMatch.verdict(candidate: unsaid, book: duneBook, bookSeconds: 21 * 3600, bookIsAbridged: nil) == .sameEdition)
+        #expect(EditionKindGuess.assess([unsaid], book: duneBook, bookSeconds: 21 * 3600).note == nil)
+    }
+
+    // MARK: A catalogue's round figure
+
+    /// "18 hr." in a catalogue is compared more loosely: 10% and 45 minutes.
+    @Test func aNominalLengthIsComparedLoosely() {
+        func nominal(_ hours: Double) -> LookupCandidate {
+            var candidate = result(.libraryOfCongress, "1", hours: hours)
+            candidate.edition.lengthIsNominal = true
+            return candidate
+        }
+        // 58 minutes short of "18 hr.": the same for a catalogue's figure, different for a measured one.
+        let own = 17.0 + 2.0 / 60
+        #expect(verdict(nominal(18), hours: own) == .sameEdition)
+        #expect(verdict(result(hours: 18), hours: own).isDifferent)
+        // Past a tenth and past 45 minutes, it is another edition.
+        #expect(verdict(nominal(18), hours: 16).isDifferent)
+        #expect(verdict(nominal(18), hours: 20.5).isDifferent)
+        // A short book: within 45 minutes, though more than a tenth.
+        #expect(verdict(nominal(3), hours: 2.4) == .sameEdition)
+        #expect(verdict(nominal(3), hours: 2) .isDifferent)
     }
 
     /// One contradiction outweighs any match, and every reason is given, in the order
@@ -151,7 +252,9 @@ private func verdict(
         #expect(verdict(result(title: "Smiley’s People", narrators: muller), narrators: muller) == .unknown)
         #expect(verdict(result(authors: ["Someone Else"], hours: 18), hours: 18) == .unknown)
         // A fuller or shorter form of the title, and a name written another way, are the same book.
-        #expect(verdict(result(title: "A Perfect Spy: A Novel", narrators: muller), narrators: muller) == .sameEdition)
+        #expect(verdict(result(title: "A Perfect Spy: A Novel", narrators: muller, hours: 18), narrators: muller, hours: 18) == .sameEdition)
+        // With a subtitle, the reader alone is not enough.
+        #expect(verdict(result(title: "A Perfect Spy: A Novel", narrators: muller), narrators: muller, hours: 18) == .unknown)
         #expect(verdict(result(title: "Perfect Spy", authors: ["Le Carré, John, 1931-2020"], hours: 18), hours: 18) == .sameEdition)
         #expect(verdict(result(authors: [], hours: 18), hours: 18) == .sameEdition)
         #expect(verdict(result(authors: ["A Translator", "John Le Carre"], hours: 18), hours: 18) == .sameEdition)
@@ -222,7 +325,8 @@ private struct ListProvider: LookupProvider {
         let results = await LookupService(providers: [audible], http: unusedHTTP)
             .search(query, preferAudio: true, language: nil, book: muller)
         #expect(results.candidates.map(\.id) == ["audible:uk:B0DIFFERENT", "audible:uk:B0OTHERBOOK"])
-        #expect(results.verdicts["audible:uk:B0OTHERBOOK"] == .sameEdition)
+        // A title that goes on with more words is another book, whatever else agrees.
+        #expect(results.verdicts["audible:uk:B0OTHERBOOK"] == .unknown)
     }
 
     /// The query's own ASIN still leads; among those, the edition orders.

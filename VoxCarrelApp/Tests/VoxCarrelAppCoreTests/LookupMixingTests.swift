@@ -24,7 +24,8 @@ import VoxCarrelCore
         return LookupCandidate(
             id: "libraryOfCongress:5615214", source: .libraryOfCongress, metadata: metadata,
             note: "Library of Congress · Cassette · Unabridged · 18h 0m · 1987",
-            edition: EditionFacts(format: .cassette, abridged: false, publisher: "Recorded Books", year: 1987))
+            edition: EditionFacts(
+                format: .cassette, abridged: false, publisher: "Recorded Books", year: 1987, lengthIsNominal: true))
     }
 
     /// A newer recording Audible sells: another edition.
@@ -325,17 +326,202 @@ import VoxCarrelCore
         #expect(session.canApply)
     }
 
-    /// Two results of one source are named once.
-    @Test func A4_resultsOfOneSourceAreNamedTogether() {
+    /// Two results of one source that both give something are told apart: by who
+    /// reads each and its year, and by its stores when those are the same.
+    @Test func A4_twoResultsOfOneSourceAreToldApart() {
         var second = kinnear()
         second.id = "audible:us:B0D3MX4TFN"
         second.metadata.narrators = ["Shaun Evans"]
+        second.metadata.year = 2024
+        second.edition.stores = ["us"]
         var session = session([kinnear(), second])
         session.setEditionTicked(false)
         session.setTicked(true, for: .summary)
+        // One result of the source gives something: it needs no telling apart.
+        #expect(session.applySummary == "Description from Audible")
         session.setTicked(true, for: .year, on: second.id)
-        #expect(session.applySummary == "Year and description from Audible")
-        #expect(session.applied().metadata.year == 2025)
+        #expect(session.applySummary == "Description from Audible (Rory Kinnear, 2025); year from Audible (Shaun Evans, 2024)")
+        #expect(session.applied().metadata.year == 2024)
+        session.setTicked(true, for: .narrators, on: second.id)
+        #expect(session.applySummary
+            == "Description from Audible (Rory Kinnear, 2025); narrators and year from Audible (Shaun Evans, 2024)")
+
+        // The same reader and year: the stores tell them apart.
+        var twin = kinnear()
+        twin.id = "audible:us:B0TWINTWIN"
+        twin.edition.stores = ["us"]
+        twin.metadata.publisher = "Another House"
+        var twins = self.session([kinnear(), twin])
+        twins.setEditionTicked(false)
+        twins.setTicked(true, for: .summary)
+        twins.setTicked(true, for: .publisher, on: twin.id)
+        #expect(twins.applySummary
+            == "Description from Audible (Rory Kinnear, 2025, UK, Australia); publisher from Audible (Rory Kinnear, 2025, US)")
+
+        // Another source's one result is named plainly beside them.
+        var mixed = self.session([cassette(), kinnear(), second], editionKind: EditionKindNote(kind: .unabridged, basis: .setByHand))
+        mixed.setTicked(true, for: .summary, on: kinnear().id)
+        mixed.setTicked(true, for: .genre, on: second.id)
+        #expect(mixed.applySummary == "Year, publisher and language from Library of Congress; "
+            + "description from Audible (Rory Kinnear, 2025); genre from Audible (Shaun Evans, 2024)")
+    }
+
+    // MARK: The trial case
+
+    /// The owner's cassette edition, measured at an hour under the catalogue's round
+    /// "18 hr.": the Library of Congress record is the book's own edition and gives its
+    /// year, publisher, language and kind; the recordings Audible sells are other editions.
+    @Test func theTrialCase_theCassetteIsTheBooksEditionAndAudiblesAreNot() {
+        var evans = kinnear()
+        evans.id = "audible:us:B0D3MX4TFN"
+        evans.metadata.narrators = ["Shaun Evans"]
+        let session = session([cassette(), kinnear(), evans], seconds: 17 * 3600)
+        #expect(session.candidates.first?.id == cassette().id)
+        #expect(session.badgeText(for: cassette().id) == "Your edition")
+        #expect(session.badgeText(for: kinnear().id) == "Different edition")
+        #expect(session.badgeText(for: evans.id) == "Different edition")
+        #expect(session.selectedId == cassette().id)
+        // The catalogue's spelling of the title is offered, and left unticked.
+        #expect(session.offers.map(\.id) == [.title, .year, .publisher, .language])
+        #expect(session.tickedFields == [.year, .publisher, .language])
+        #expect(session.editionOffer?.found == "Unabridged")
+        #expect(session.editionOffer?.ticked == true)
+        #expect(session.applySummary == "Year, publisher, language and edition from Library of Congress")
+        let applied = session.applied()
+        #expect(applied.metadata.year == 1987)
+        #expect(applied.metadata.publisher == "Recorded Books")
+        #expect(applied.metadata.narrators == ["Frank Muller"])
+        #expect(applied.editionKind == EditionKindNote(
+            kind: .unabridged, basis: .matched("Library of Congress"),
+            reason: "Library of Congress lists your edition as unabridged."))
+        // Nothing of the other editions is ticked when they are looked at.
+        var looking = session
+        looking.select(kinnear().id)
+        #expect(looking.tickedFields(on: kinnear().id).isEmpty)
+    }
+
+    // MARK: The edition offer and its tick
+
+    /// Two recordings of the book's own length, one said to be abridged.
+    private func twoOfTheSameLength() -> (LookupCandidate, LookupCandidate) {
+        var whole = kinnear()
+        whole.metadata.narrators = ["Frank Muller"]
+        whole.metadata.durationSeconds = 18 * 3600
+        var cut = whole
+        cut.id = "audible:us:B0CUTCUTCU"
+        cut.metadata.year = 1999
+        cut.metadata.durationSeconds = 18.2 * 3600
+        cut.edition = EditionFacts(format: .digital, abridged: true, stores: ["us"])
+        return (whole, cut)
+    }
+
+    /// The tick is for what was offered: when another kind comes to be offered, the
+    /// user's tick goes, and the new offer has its own first tick.
+    @Test func theEditionTickGoesWhenAnotherKindIsOffered() {
+        let (whole, cut) = twoOfTheSameLength()
+        // A book whose kind is a guess: an offer is unticked to begin with.
+        var session = session([whole, cut], editionKind: EditionKindNote(kind: .dramatised, basis: .inferred))
+        #expect(session.editionOffer?.found == "Unabridged")
+        #expect(session.editionOffer?.ticked == false)
+        session.setEditionTicked(true)
+        #expect(session.applied().editionKind?.kind == .unabridged)
+
+        // Only looked at: the offer is now "Abridged", and the tick made on "Unabridged" does not carry.
+        session.select(cut.id)
+        #expect(session.editionOffer?.found == "Abridged")
+        #expect(session.editionOffer?.ticked == false)
+        #expect(session.applied().editionKind == nil)
+        // Nor does it come back with the offer it was made on.
+        session.select(whole.id)
+        #expect(session.editionOffer?.found == "Unabridged")
+        #expect(session.editionOffer?.ticked == false)
+
+        // A tick stands while the same is offered.
+        session.setEditionTicked(true)
+        session.setTicked(true, for: .year)
+        #expect(session.editionOffer?.ticked == true)
+
+        // A book of no known kind: each offer begins ticked, and an untick is for that offer.
+        var fresh = self.session([whole, cut])
+        fresh.setEditionTicked(false)
+        #expect(fresh.applied().editionKind == nil)
+        fresh.select(cut.id)
+        #expect(fresh.editionOffer?.ticked == true)
+        #expect(fresh.applied().editionKind?.kind == .abridged)
+    }
+
+    /// With no result selected the offer is what the best result that is the book's
+    /// very edition says, and nothing is worked out from the rest.
+    @Test func withNothingSelectedTheOfferIsTheBestSameEditionsOnly() {
+        let (whole, cut) = twoOfTheSameLength()
+        var session = session([whole, cut])
+        session.select(cut.id)
+        #expect(session.editionOffer?.found == "Abridged")
+        session.select(nil)
+        #expect(session.editionOffer?.found == "Unabridged")
+        // The result that is the book's edition keeps its ticks, and gives the edition.
+        #expect(session.applySummary?.hasSuffix("and edition from Audible") == true)
+        #expect(session.applied().editionKind?.kind == .unabridged)
+
+        // No result is the book's edition: a running time would give "abridged", but
+        // not with nothing selected.
+        var short = self.session([kinnear()], seconds: 3 * 3600)
+        #expect(short.editionOffer?.found == "Abridged")
+        short.select(nil)
+        #expect(short.editionOffer == nil)
+        #expect(short.editionRemark == nil)
+        #expect(!short.canApply)
+    }
+
+    /// The summary names the result the edition is taken from.
+    @Test func theSummaryNamesTheResultTheEditionComesFrom() {
+        let (whole, cut) = twoOfTheSameLength()
+        var session = session([whole, cut], hasCover: true)
+        session.setTicked(true, for: .year, on: cut.id)
+        // The edition from the selected result, the year from the other.
+        #expect(session.applySummary?.contains("edition from Audible (Frank Muller, 2025)") == true)
+        #expect(session.applySummary?.contains("year from Audible (Frank Muller, 1999)") == true)
+        // Worked out from the running time: no result to name.
+        var short = self.session([kinnear()], hasCover: true, seconds: 3 * 3600)
+        for field in short.tickedFields { short.setTicked(false, for: field) }
+        #expect(short.applySummary == "Edition from its running time")
+    }
+
+    /// Only a kind that is well founded is held against a result.
+    @Test func aGuessedKindIsNotHeldAgainstResults() {
+        for basis in [EditionKindNote.Basis.inferred, .estimated] {
+            let guessed = LookupSession(
+                target: .book(7), current: spy(), hasCover: false, hasAudio: true, audioSeconds: 64_800,
+                editionKind: EditionKindNote(kind: .abridged, basis: basis))
+            #expect(guessed.bookContext?.isAbridged == nil)
+        }
+        for basis in [EditionKindNote.Basis.stated("the file's name"), .matched("Audible"), .setByHand] {
+            let known = LookupSession(
+                target: .book(7), current: spy(), hasCover: false, hasAudio: true, audioSeconds: 64_800,
+                editionKind: EditionKindNote(kind: .abridged, basis: basis))
+            #expect(known.bookContext?.isAbridged == true)
+        }
+        let unknown = LookupSession(
+            target: .book(7), current: spy(), hasCover: false, hasAudio: true, audioSeconds: 64_800, editionKind: .notKnownByHand)
+        #expect(unknown.bookContext?.isAbridged == nil)
+    }
+
+    /// The results of a source that is turned off go, with their ticks.
+    @Test func resultsOfASourceThatIsTurnedOffGo() {
+        var session = session([cassette(), kinnear(), work()])
+        session.setTicked(true, for: .summary, on: kinnear().id)
+        #expect(session.selectedId == cassette().id)
+        session.sourcesChanged(to: [.audible, .openLibrary])
+        #expect(session.candidates.map(\.id) == [kinnear().id, work().id])
+        #expect(session.selectedId == nil)
+        #expect(session.tickedFields == [.summary])
+        #expect(session.tickedFields(on: cassette().id).isEmpty)
+        #expect(session.verdict(for: cassette().id) == .unknown)
+        #expect(!session.isAnswered)
+        session.sourcesChanged(to: [])
+        #expect(session.candidates.isEmpty)
+        #expect(session.phase == .noResults)
+        #expect(!session.canApply)
     }
 
     // MARK: A5 applying
