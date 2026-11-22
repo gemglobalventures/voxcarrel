@@ -15,6 +15,9 @@ extension AppModel {
     /// How long after a look that saw unsettled files the next is taken: just over the
     /// time a file must stay unchanged to count as having arrived.
     static let inboxRecheckInterval: TimeInterval = SettleTracker.settleInterval + 1
+    /// The shortest time between two checks the watcher starts: a long download into a
+    /// watch folder reports a change every second, and each check lists every folder.
+    static let inboxWatcherGap: TimeInterval = 5
 
     // MARK: What is shown
 
@@ -103,6 +106,8 @@ extension AppModel {
         ticker.cancelAll()
         inboxTickScheduled = false
         inboxRecheckScheduled = false
+        inboxWatcherCheckScheduled = false
+        lastWatcherCheck = nil
         inboxCheckWanted = false
         inboxArrivals = []
         watchFolders = []
@@ -132,13 +137,37 @@ extension AppModel {
             }
         } else if paths != watchedPaths {
             // Held weakly: the model owns the watcher.
-            watcher.watch(enabled.map(\.url)) { [weak self] in self?.requestInboxCheck() }
+            watcher.watch(enabled.map(\.url)) { [weak self] in self?.watcherReported() }
             watchedPaths = paths
         }
         scheduleInboxTick()
     }
 
     // MARK: Checking
+
+    /// WF11: the watcher says something changed. The first report is checked at once;
+    /// reports in the gap after a check the watcher started bring one check between
+    /// them, when the gap is over. The ticker's checks take no part in this.
+    private func watcherReported() {
+        guard worker != nil, !inboxWatcherCheckScheduled else { return }
+        let now = inboxNow()
+        // A clock that has gone back says nothing about how long ago the last check was.
+        if let last = lastWatcherCheck, case let since = now.timeIntervalSince(last),
+            since >= 0, since < Self.inboxWatcherGap
+        {
+            inboxWatcherCheckScheduled = true
+            // Held weakly: the model owns the ticker.
+            ticker.schedule(after: Self.inboxWatcherGap - since) { [weak self] in
+                guard let self else { return }
+                self.inboxWatcherCheckScheduled = false
+                self.lastWatcherCheck = self.inboxNow()
+                self.requestInboxCheck()
+            }
+            return
+        }
+        lastWatcherCheck = now
+        requestInboxCheck()
+    }
 
     /// WF11: one check every minute while a folder is enabled. There is never more than
     /// one waiting: each schedules the next when it runs.

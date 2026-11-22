@@ -783,6 +783,11 @@ public final class AppModel {
     /// seen, are each waiting with the ticker.
     @ObservationIgnored var inboxTickScheduled = false
     @ObservationIgnored var inboxRecheckScheduled = false
+    /// WF11: a check for the watcher's reports is waiting with the ticker for the gap
+    /// after the last one to be over.
+    @ObservationIgnored var inboxWatcherCheckScheduled = false
+    /// WF11: when the last check the watcher started was begun; nil when there has been none.
+    @ObservationIgnored var lastWatcherCheck: Date?
     /// The folders the watcher was last started on; nil when it is stopped.
     @ObservationIgnored var watchedPaths: [String]?
     /// How many checks of the inbox have been made. For tests.

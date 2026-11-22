@@ -313,6 +313,87 @@ import VoxCarrelFixtures
         #expect(pending(h, 11) == 0)
     }
 
+    /// WF11: the watcher's first report is checked at once. Reports in the five seconds after a
+    /// check the watcher started bring exactly one check, when the five seconds are over.
+    @Test func watcherReportsWithinFiveSecondsBringOneCheckWhenTheyAreOver() async throws {
+        let (h, _) = try await watching()
+        let before = h.model.inboxCheckCount
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 1)
+        #expect(pending(h, 5) == 0)
+
+        h.watcher.fire()
+        h.clock.now += 2
+        h.watcher.fire()
+        h.clock.now += 2
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 1)
+        #expect(h.ticker.pending.map(\.delay).filter { $0 <= 5 } == [5])
+
+        h.clock.now += 1
+        h.ticker.run(delay: 5)
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 2)
+        #expect(pending(h, 5) == 0)
+
+        // The five seconds count from that check too.
+        h.clock.now += 4
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 2)
+        #expect(h.ticker.pending.map(\.delay).filter { $0 < 11 } == [1])
+        h.clock.now += 1
+        h.ticker.run(delay: 1)
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 3)
+
+        // After a quiet five seconds a report is checked at once again.
+        h.clock.now += 5
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 4)
+    }
+
+    /// WF11: the checks the ticker starts are not put off by the watcher's five seconds, and do
+    /// not put off the watcher's.
+    @Test func checksTheTickerStartsAreNotPutOff() async throws {
+        let (h, _) = try await watching()
+        let before = h.model.inboxCheckCount
+        h.watcher.fire()
+        await h.model.settle()
+        h.clock.now += 1
+        h.ticker.run(delay: 60)
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 2)
+
+        h.clock.now += 4
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 3)
+    }
+
+    /// WF10, WF11: a check the watcher's reports were waiting for is not made for a library that
+    /// has closed, and the next library's first report is checked at once.
+    @Test func aReportWaitingOutTheFiveSecondsIsDroppedWhenTheLibraryChanges() async throws {
+        let (h, _) = try await watching()
+        h.watcher.fire()
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(pending(h, 5) == 1)
+
+        await h.model.chooseLibrary(try makeTempDir())
+        await h.model.settle()
+        #expect(pending(h, 5) == 0)
+        await h.model.addWatchFolder(try makeTempDir())
+        await h.model.settle()
+        let before = h.model.inboxCheckCount
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCheckCount == before + 1)
+    }
+
     /// WF11: requests that come while a check runs make one more check when it ends, not one each.
     @Test func checksNeverOverlapAndRequestsDuringOneRunOnceMore() async throws {
         let (h, _) = try await watching()
@@ -322,10 +403,13 @@ import VoxCarrelFixtures
 
         h.watcher.fire()
         await gate.arrival()
+        h.clock.now += 5
         h.watcher.fire()
+        h.clock.now += 5
         h.watcher.fire()
         h.ticker.run(delay: 60)
         #expect(h.model.inboxCheckCount == before + 1)
+        #expect(pending(h, 5) == 0)
 
         await gate.release()
         await h.model.settle()
@@ -1250,6 +1334,7 @@ import VoxCarrelFixtures
         #expect(h.model.inboxNotices == ["The inbox could not be checked."])
 
         h.model.beforeInboxCheck = nil
+        h.clock.now += 5
         h.watcher.fire()
         await h.model.settle()
         #expect(h.model.inboxProblem == nil)
