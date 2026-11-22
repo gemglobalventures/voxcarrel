@@ -326,4 +326,30 @@ import VoxCarrelFixtures
         let text = UserMessage.text(for: error)
         #expect(text == "The library's database could not be read. It may be damaged, or not a VoxCarrel library.")
     }
+
+    // MARK: Lookup
+
+    /// K2: what a lookup source's failure is called, naming the source.
+    @Test func lookupFailuresNameTheSource() {
+        #expect(UserMessage.text(for: LookupError.notReachable, source: .audible) == "Audible could not be reached.")
+        #expect(UserMessage.text(for: LookupError.notReachable, source: .openLibrary)
+            == "Open Library could not be reached.")
+        #expect(UserMessage.text(for: LookupError.refused(status: 503), source: .openLibrary)
+            == "Open Library answered with an error.")
+        #expect(UserMessage.text(for: LookupError.refused(status: 429), source: .audible)
+            == "Audible answered with an error.")
+        #expect(UserMessage.text(for: LookupError.unreadable, source: .audible)
+            == "Audible sent an answer VoxCarrel could not read.")
+    }
+
+    /// A lookup error with no source to name is still a plain sentence.
+    @Test func aBareLookupErrorIsAPlainSentence() {
+        let notReachable: any Error = LookupError.notReachable
+        #expect(UserMessage.text(for: notReachable)
+            == "The lookup service could not be reached. Check your internet connection.")
+        let refused: any Error = LookupError.refused(status: 500)
+        #expect(UserMessage.text(for: refused) == "The lookup service answered with an error.")
+        let unreadable: any Error = LookupError.unreadable
+        #expect(UserMessage.text(for: unreadable) == "The lookup service sent an answer VoxCarrel could not read.")
+    }
 }

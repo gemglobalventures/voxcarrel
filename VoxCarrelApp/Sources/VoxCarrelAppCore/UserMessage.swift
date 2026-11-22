@@ -38,6 +38,7 @@ public enum UserMessage {
         case let error as CollectionError: text(for: error)
         case let error as MetadataIOError: text(for: error)
         case let error as OrganiserError: text(for: error)
+        case let error as LookupError: text(for: error, source: nil)
         default:
             // The database's own errors are written for programmers.
             LibraryStore.isDatabaseError(error)
@@ -117,6 +118,22 @@ public enum UserMessage {
                     sentence(cause),
                     outstanding.isEmpty ? "" : "These files are not where they were:",
                 ], outstanding.map { "\(name($0.from)) is now at \($0.to)" })
+        }
+    }
+
+    /// Why a lookup source gave no answer: "Audible could not be reached."
+    public static func text(for error: LookupError, source: LookupSource) -> String {
+        text(for: error, source: Optional(source))
+    }
+
+    private static func text(for error: LookupError, source: LookupSource?) -> String {
+        let name = source?.title ?? "The lookup service"
+        switch error {
+        case .notReachable:
+            return source == nil
+                ? "\(name) could not be reached. Check your internet connection." : "\(name) could not be reached."
+        case .refused: return "\(name) answered with an error."
+        case .unreadable: return "\(name) sent an answer VoxCarrel could not read."
         }
     }
 
