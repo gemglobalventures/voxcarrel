@@ -44,8 +44,10 @@ extension LibraryService {
     /// otherwise it is moved to where the original was.
     ///
     /// Only what the operation changed is restored: a book's read status and dates, and
-    /// its external copies (where else it is owned), stay as they are now, and a book with a file missing from disk stays (or becomes)
-    /// flagged as needing attention.
+    /// its external copies (where else it is owned), stay as they are now, except that
+    /// the Audible copies' item ID follows the ASIN back when undo changes it to another
+    /// one (a book that goes back to having none leaves its copies their ID). A book
+    /// with a file missing from disk stays (or becomes) flagged as needing attention.
     ///
     /// - Throws: `LibraryError.nothingToUndo` when there is nothing recorded, or what is
     ///   recorded cannot be undone by this code (it is then forgotten);
@@ -94,8 +96,17 @@ extension LibraryService {
                     // But a book that goes back to having no files must stay owned
                     // somewhere, so if it has since lost every copy it gets back the
                     // ones it had.
-                    if !(book.filesBefore.isEmpty && current.externalCopies.isEmpty) {
-                        before.externalCopies = current.externalCopies
+                    // (Copies a newer version recorded, which this one cannot read,
+                    // are always the ones the book has now.)
+                    let copiesBefore = before.externalCopies
+                    before.storedCopies = current.storedCopies
+                    if book.filesBefore.isEmpty && current.externalCopies.isEmpty {
+                        before.externalCopies = copiesBefore
+                    }
+                    // The ASIN does go back, and the Audible copies' IDs with it; but a
+                    // book that goes back to having no ASIN leaves its copies theirs.
+                    if !(before.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Self.keepAudibleIdInStep(&before, asinBefore: current.asin)
                     }
                 }
                 // A book with a file missing needs attention whatever it was before.

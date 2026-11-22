@@ -241,9 +241,91 @@ import VoxCarrelFixtures
         #expect(try store.books(ownedOn: .audible).isEmpty)
         #expect(try storedText(id, in: store) == text)
 
-        // Saving the book writes what this version read.
+        // Saving the book writes back what this version could not read.
         try store.update(fetched)
-        #expect(try storedText(id, in: store) == "[]")
+        #expect(try storedKinds(id, in: store) == ["kindle"])
+        #expect(try store.book(id: id) == fetched)
+    }
+
+    /// The `kind` of each entry of the stored list that is an object, in order.
+    func storedKinds(_ id: Int64, in store: LibraryStore) throws -> [String] {
+        let text = try #require(try storedText(id, in: store))
+        let list = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any])
+        return list.compactMap { ($0 as? [String: Any])?["kind"] as? String }
+    }
+
+    static let fromTheFuture = """
+        [{"kind":"kindle","form":"ebook","store":"uk","itemId":"K1","shelf":{"n":2,"tags":["a",null,true]}},\
+        {"kind":"audible","form":"audio","store":"uk","itemId":"B08G9PRS1K"},\
+        {"kind":"audible","form":"hologram"}]
+        """
+
+    /// The entries of the stored list this version cannot read, as JSON values.
+    func unread(_ id: Int64, in store: LibraryStore) throws -> [NSDictionary] {
+        let text = try #require(try storedText(id, in: store))
+        let list = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [NSDictionary])
+        return list.filter { ($0["kind"] as? String) != "audible" || ($0["form"] as? String) == "hologram" }
+    }
+
+    // M2: whatever changes a book, the copies a newer version recorded are written back
+    // whole: a save, the read status, marking and unmarking, and undo.
+    @Test func M2_copiesThisVersionCannotReadSurviveEveryChange() throws {
+        let f = try LibraryFixture()
+        let tags = LibraryFixture.meta("Future Book", "Ann Author")
+        let id = try f.importNew([try f.makeM4B("a.m4b", tags: tags)], tags)
+        try f.store.dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE book SET externalCopies = ? WHERE id = ?", arguments: [Self.fromTheFuture, id])
+        }
+        let kept = try unread(id, in: f.store)
+        #expect(kept.count == 2)
+        #expect(try f.store.book(id: id)?.externalCopies == [audible])
+
+        // The read status.
+        try f.service.setReadStatus(.finished, for: [id])
+        #expect(try unread(id, in: f.store) == kept)
+        #expect(try f.store.book(id: id)?.externalCopies == [audible])
+
+        // Unmarking and marking again.
+        try f.service.setExternalCopies([], for: id)
+        #expect(try unread(id, in: f.store) == kept)
+        #expect(try f.store.book(id: id)?.externalCopies.isEmpty == true)
+        #expect(try f.service.addExternalBook(metadata: tags, cover: nil, copy: audible) == .markedExisting(bookId: id))
+        #expect(try unread(id, in: f.store) == kept)
+        #expect(try f.store.book(id: id)?.externalCopies == [audible])
+
+        // A save, and its undo.
+        var edit = BookEdit(book: try #require(try f.store.book(id: id)))
+        edit.metadata.title = "Renamed"
+        _ = try f.service.save([edit])
+        #expect(try unread(id, in: f.store) == kept)
+        // The snapshot carries them too, but undo keeps the ones the book has now.
+        let later = #"[{"kind":"kobo","form":"ebook"},{"kind":"audible","form":"audio","store":"uk","itemId":"B08G9PRS1K"}]"#
+        try f.store.dbQueue.write { db in
+            try db.execute(sql: "UPDATE book SET externalCopies = ? WHERE id = ?", arguments: [later, id])
+        }
+        try f.service.undoLast()
+        #expect(try f.store.book(id: id)?.title == "Future Book")
+        #expect(try storedKinds(id, in: f.store) == ["audible", "kobo"])
+        #expect(try f.store.book(id: id)?.externalCopies == [audible])
+
+        // Rewriting tags and removing a collection membership aside, nothing else writes a book.
+        _ = try f.service.rewriteTags(for: [id])
+        #expect(try storedKinds(id, in: f.store) == ["audible", "kobo"])
+    }
+
+    // M2: a book read from a snapshot keeps them as well.
+    @Test func M2_unreadCopiesRoundTripThroughJSON() throws {
+        let store = try makeStore()
+        let id = try #require(try store.insert(book("Future"), files: []).id)
+        try store.dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE book SET externalCopies = ? WHERE id = ?", arguments: [Self.fromTheFuture, id])
+        }
+        let fetched = try #require(try store.book(id: id))
+        let back = try JSONDecoder().decode(Book.self, from: try JSONEncoder().encode(fetched))
+        #expect(back == fetched)
+        #expect(back.storedCopies.unread.count == 2)
     }
 
     // MARK: M3

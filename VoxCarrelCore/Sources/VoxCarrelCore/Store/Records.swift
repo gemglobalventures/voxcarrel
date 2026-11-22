@@ -43,13 +43,86 @@ public struct ExternalCopy: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Decodes to nil, instead of failing, when the value is not a `Value` this code can
-/// read: one unreadable element of a list then does not make the whole list unreadable.
-struct Tolerant<Value: Decodable>: Decodable {
-    var value: Value?
+/// Any JSON value, kept exactly as it was read so that it can be written back.
+enum JSONValue: Codable, Equatable, Sendable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([JSONValue])
+    case object([String: JSONValue])
 
     init(from decoder: Decoder) throws {
-        value = try? Value(from: decoder)
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() {
+            self = .null
+        } else if let value = try? c.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? c.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? c.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? c.decode([JSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try c.decode([String: JSONValue].self))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null: try c.encodeNil()
+        case .bool(let value): try c.encode(value)
+        case .number(let value): try c.encode(value)
+        case .string(let value): try c.encode(value)
+        case .array(let value): try c.encode(value)
+        case .object(let value): try c.encode(value)
+        }
+    }
+}
+
+/// A book's external copies as they are stored: one list, of which this code reads the
+/// copies it knows. An entry it cannot read (a kind added by a newer version, say) is
+/// kept exactly as it was and written back after the others, so that an older version
+/// changing a book never loses what a newer one recorded.
+struct StoredCopies: Codable, Equatable, Sendable {
+    /// The copies this code can read, without repeats.
+    var known: [ExternalCopy] = []
+    /// Everything else that was in the list, untouched.
+    var unread: [JSONValue] = []
+
+    init() {}
+
+    private enum Entry: Decodable {
+        case known(ExternalCopy)
+        case unread(JSONValue)
+
+        init(from decoder: Decoder) throws {
+            if let copy = try? ExternalCopy(from: decoder), copy.form != .extra {
+                self = .known(copy)
+            } else {
+                self = .unread(try JSONValue(from: decoder))
+            }
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        var list = try decoder.unkeyedContainer()
+        var known: [ExternalCopy] = []
+        while !list.isAtEnd {
+            switch try list.decode(Entry.self) {
+            case .known(let copy): known.append(copy)
+            case .unread(let value): unread.append(value)
+            }
+        }
+        self.known = ExternalCopy.withoutDuplicates(known)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var list = encoder.unkeyedContainer()
+        for copy in known { try list.encode(copy) }
+        for value in unread { try list.encode(value) }
     }
 }
 
@@ -94,11 +167,22 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     /// Where the book is owned other than as files in the library. Never holds the same
     /// copy twice (same kind, form, store and item ID); order is kept. A book with no
     /// files is valid only while this is not empty.
-    public var externalCopies: [ExternalCopy] = [] {
-        didSet {
-            let unique = ExternalCopy.withoutDuplicates(externalCopies)
-            if unique.count != externalCopies.count { externalCopies = unique }
-        }
+    ///
+    /// Copies recorded by a newer version, which this one cannot read, are not listed
+    /// here, and are kept with the book whatever is done to this list.
+    public var externalCopies: [ExternalCopy] {
+        get { storedCopies.known }
+        set { storedCopies.known = ExternalCopy.withoutDuplicates(newValue) }
+    }
+
+    /// The copies as stored, with those this code cannot read.
+    var storedCopies = StoredCopies()
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, subtitle, authors, narrators, series, seriesNumber, genre, year, publisher, summary
+        case language, isbn, asin, durationSeconds, pageCount, tags, rating, folderPath, needsAttention
+        case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
+        case storedCopies = "externalCopies"
     }
 
     /// True when the book is owned somewhere other than as files in the library.
@@ -186,12 +270,11 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         dateStarted = try c.decodeIfPresent(Date.self, forKey: .dateStarted)
         dateFinished = try c.decodeIfPresent(Date.self, forKey: .dateFinished)
         appOnlyFields = try c.decodeIfPresent([MetadataField].self, forKey: .appOnlyFields) ?? []
-        // A copy this code cannot read (a kind added by a newer version, say) is left
-        // out, and so is anything else that is not a usable list of copies: what a book
-        // is owned on must never make the book itself unreadable.
-        let copies = (try? c.decodeIfPresent([Tolerant<ExternalCopy>].self, forKey: .externalCopies)) ?? []
-        externalCopies = ExternalCopy.withoutDuplicates(
-            copies.compactMap(\.value).filter { $0.form != .extra })
+        // A copy this code cannot read (a kind added by a newer version, say) is not
+        // listed, and is kept to be written back. Text that is not a list of anything
+        // counts as no copies: what a book is owned on must never make the book itself
+        // unreadable.
+        storedCopies = (try? c.decodeIfPresent(StoredCopies.self, forKey: .storedCopies)) ?? StoredCopies()
     }
 
     /// The descriptive fields as one value.

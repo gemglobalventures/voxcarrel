@@ -221,6 +221,9 @@ import VoxCarrelFixtures
         var expected = before
         expected.externalCopies = [Self.audible]
         expected.asin = Self.asin
+        // No file was opened, so the files do not hold that ASIN yet: it is in the app only.
+        expected.appOnlyFields = MetadataField.allCases.filter { (before.appOnlyFields + [.asin]).contains($0) }
+        #expect(after.appOnlyFields.contains(.asin))
         #expect(after == expected)
         #expect(try f.store.files(bookId: id) == rowsBefore)
         #expect(try f.bytes(filed) == bytesBefore)
@@ -231,7 +234,7 @@ import VoxCarrelFixtures
 
         // Adding it again changes nothing (M5).
         let again = try f.service.addExternalBook(metadata: catalogue, cover: F.jpeg, copy: Self.audible)
-        #expect(again == .markedExisting(bookId: id))
+        #expect(again == .alreadyMarked(bookId: id))
         #expect(try f.store.book(id: id) == expected)
         // A second copy in another form joins the first.
         let ebook = ExternalCopy(kind: .audible, form: .ebook, store: "uk", itemId: Self.asin)
@@ -280,11 +283,153 @@ import VoxCarrelFixtures
         let again = try f.service.addExternalBook(
             metadata: Self.catalogue("Another Book: Retitled", "Someone Else", asin: "B0ANOTHER1"), cover: F.png,
             copy: ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0ANOTHER1"))
-        #expect(again == .markedExisting(bookId: onlyId))
+        #expect(again == .alreadyMarked(bookId: onlyId))
         #expect(try f.store.books().count == 2)
         // The entry keeps its own details and cover.
         #expect(try f.store.book(id: onlyId)?.title == "Another Book")
         #expect(f.service.covers.image(for: onlyId)?.data == F.jpeg.data)
+    }
+
+    // X3: a book that is marked already gets no second Audible copy, whatever store or
+    // ID the catalogue result has: its own ID is kept.
+    @Test func X3_aBookAlreadyMarkedGetsNoSecondCopy() throws {
+        let f = try F()
+        var tags = F.meta("Dune", "Frank Herbert")
+        tags.asin = "B0OLDOLD11"
+        let id = try f.importNew([try f.makeM4B("d.m4b", tags: tags)], tags)
+        let marked = ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0OLDOLD11")
+        try f.service.setExternalCopies([marked], for: id)
+        let before = try #require(try f.store.book(id: id))
+
+        let outcome = try f.service.addExternalBook(
+            metadata: Self.catalogue("Dune", "Frank Herbert", asin: "B0NEWNEW22"), cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "us", itemId: "B0NEWNEW22"))
+
+        #expect(outcome == .alreadyMarked(bookId: id))
+        #expect(try f.store.book(id: id) == before)
+        #expect(try f.store.book(id: id)?.externalCopies == [marked])
+    }
+
+    // X3: what the copy it has lacks (an item ID, a store) is filled in from the new one.
+    @Test func X3_aMarkedBooksCopyIsFilledIn() throws {
+        let f = try F()
+        let tags = F.meta("Dune", "Frank Herbert")
+        let id = try f.importNew([try f.makeM4B("d.m4b", tags: tags)], tags)
+        try f.service.setExternalCopies([ExternalCopy(kind: .audible, form: .audio)], for: id)
+        #expect(try f.store.book(id: id)?.asin == nil)
+
+        let outcome = try f.service.addExternalBook(
+            metadata: Self.catalogue("Dune", "Frank Herbert"), cover: nil, copy: Self.audible)
+
+        #expect(outcome == .alreadyMarked(bookId: id))
+        let after = try #require(try f.store.book(id: id))
+        #expect(after.externalCopies == [Self.audible])
+        #expect(after.asin == Self.asin)
+        #expect(after.appOnlyFields.contains(.asin))
+
+        // A copy without an ID on a book that has an ASIN means that ASIN, not the result's.
+        var other = F.meta("Emma", "Jane Austen")
+        other.asin = "B0FILEASIN"
+        let emma = try f.importNew([try f.makeM4B("e.m4b", tags: other)], other)
+        try f.store.modifyBook(id: emma) { book, _ in
+            book.externalCopies = [ExternalCopy(kind: .audible, form: .audio, store: "uk")]
+        }
+        #expect(try f.service.addExternalBook(
+            metadata: Self.catalogue("Emma", "Jane Austen", asin: "B0CATALOG1"), cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "us", itemId: "B0CATALOG1"))
+            == .alreadyMarked(bookId: emma))
+        #expect(try f.store.book(id: emma)?.externalCopies
+            == [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0FILEASIN")])
+        #expect(try f.store.book(id: emma)?.asin == "B0FILEASIN")
+    }
+
+    // X3: the ASIN a book with files is given by marking is in the app only, and says
+    // so, until its tags are written; a book with no files has nothing in the app only.
+    @Test func X3_theASINAMarkedBookTakesIsInTheAppOnlyUntilWritten() throws {
+        let f = try F()
+        let tags = F.meta("Dune", "Frank Herbert")
+        let id = try f.importNew([try f.makeM4B("d.m4b", tags: tags)], tags)
+        let filed = f.lib("Frank Herbert/Dune/Dune.m4b")
+        #expect(try f.store.book(id: id)?.appOnlyFields.contains(.asin) == false)
+
+        try f.service.setExternalCopies([Self.audible], for: id)
+        #expect(try f.store.book(id: id)?.asin == Self.asin)
+        #expect(try f.store.book(id: id)?.appOnlyFields.contains(.asin) == true)
+        #expect(try f.tags(filed).asin == nil)
+
+        _ = try f.service.rewriteTags(for: [id])
+        #expect(try f.tags(filed).asin == Self.asin)
+        #expect(try f.store.book(id: id)?.appOnlyFields.contains(.asin) == false)
+
+        guard case .added(let only) = try f.service.addExternalBook(
+            metadata: BookMetadata(title: "Typed", authors: ["Ann Author"]), cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "uk"))
+        else { return }
+        try f.service.setExternalCopies([Self.audible], for: only)
+        #expect(try f.store.book(id: only)?.asin == Self.asin)
+        #expect(try f.store.book(id: only)?.appOnlyFields.isEmpty == true)
+    }
+
+    // MARK: The ASIN and the Audible copies stay in step
+
+    // Saving another ASIN, for a book with no files or with files, changes the item ID
+    // of its Audible copies with it; clearing it clears theirs; undo takes both back.
+    @Test func savingAnotherASINChangesTheAudibleCopies() throws {
+        let f = try F()
+        guard case .added(let only) = try f.service.addExternalBook(
+            metadata: Self.catalogue("Wrong", "Ann Author", asin: "B0WRONG111"), cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0WRONG111"))
+        else { return }
+        let ebook = ExternalCopy(kind: .audible, form: .ebook, store: "us", itemId: "B0WRONG111")
+        try f.service.setExternalCopies(
+            [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0WRONG111"), ebook], for: only)
+
+        var edit = BookEdit(book: try #require(try f.store.book(id: only)))
+        edit.metadata.asin = " B0RIGHT222 "
+        _ = try f.service.save([edit])
+        #expect(try f.store.book(id: only)?.externalCopies == [
+            ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0RIGHT222"),
+            ExternalCopy(kind: .audible, form: .ebook, store: "us", itemId: "B0RIGHT222"),
+        ])
+        // A file tagged with the old ID no longer finds it; one with the new ID does.
+        var probe = F.meta("Other", "Someone")
+        probe.asin = "B0WRONG111"
+        #expect(try f.service.existingMatch(for: probe) == nil)
+        probe.asin = "B0RIGHT222"
+        #expect(try f.service.existingMatch(for: probe)?.id == only)
+
+        try f.service.undoLast()
+        #expect(try f.store.book(id: only)?.asin == "B0WRONG111")
+        #expect(try f.store.book(id: only)?.externalCopies.map(\.itemId) == ["B0WRONG111", "B0WRONG111"])
+
+        // A book with files.
+        var tags = F.meta("Filed", "Ann Author")
+        tags.asin = "B0FILED001"
+        let filed = try f.importNew([try f.makeM4B("f.m4b", tags: tags)], tags)
+        try f.service.setExternalCopies(
+            [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0FILED001")], for: filed)
+        edit = BookEdit(book: try #require(try f.store.book(id: filed)))
+        edit.metadata.asin = "B0FILED002"
+        _ = try f.service.save([edit])
+        #expect(try f.store.book(id: filed)?.externalCopies.map(\.itemId) == ["B0FILED002"])
+        #expect(try f.tags(f.lib("Ann Author/Filed/Filed.m4b")).asin == "B0FILED002")
+
+        // Clearing the ASIN clears the copies' IDs; the book stays marked.
+        edit = BookEdit(book: try #require(try f.store.book(id: filed)))
+        edit.metadata.asin = nil
+        _ = try f.service.save([edit])
+        #expect(try f.store.book(id: filed)?.externalCopies
+            == [ExternalCopy(kind: .audible, form: .audio, store: "uk")])
+
+        // An edit that leaves the ASIN alone leaves the copies alone, even ones that differ.
+        try f.store.modifyBook(id: filed) { book, _ in
+            book.asin = "B0FILED003"
+            book.externalCopies = [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0DIFFERS1")]
+        }
+        edit = BookEdit(book: try #require(try f.store.book(id: filed)))
+        edit.metadata.genre = "History"
+        _ = try f.service.save([edit])
+        #expect(try f.store.book(id: filed)?.externalCopies.map(\.itemId) == ["B0DIFFERS1"])
     }
 
     // X3, X8: a book that needs attention is not matched, so a separate entry is added.
@@ -323,6 +468,8 @@ import VoxCarrelFixtures
         expected.externalCopies = [Self.audible, ebook]
         // The decision "the ASIN is kept in step": an empty ASIN takes the Audible copy's ID.
         expected.asin = Self.asin
+        // It is not in the file yet, and is listed as in the app only.
+        expected.appOnlyFields = MetadataField.allCases.filter { (before.appOnlyFields + [.asin]).contains($0) }
         #expect(try f.store.book(id: id) == expected)
 
         try f.service.setExternalCopies([ebook], for: id)

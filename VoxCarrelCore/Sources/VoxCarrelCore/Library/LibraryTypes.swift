@@ -113,6 +113,9 @@ public enum ExternalBookOutcome: Equatable, Sendable {
     case added(bookId: Int64)
     /// The library already had this book; it now carries the copy too.
     case markedExisting(bookId: Int64)
+    /// The library already had this book, and it was already marked as owned there in
+    /// that form. Only what its copy lacked (an item ID, a store) was filled in.
+    case alreadyMarked(bookId: Int64)
 }
 
 public enum LibraryError: Error, Equatable {

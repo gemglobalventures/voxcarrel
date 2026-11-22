@@ -161,6 +161,7 @@ extension LibraryService {
             updated.appOnlyFields = fields
         }
         updated.metadata = metadata
+        Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)
         updated.tags = edit.tags
         updated.rating = edit.rating
         updated.folderPath = folderPath
@@ -204,6 +205,7 @@ extension LibraryService {
 
         var updated = book
         updated.metadata = metadata
+        Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)
         updated.tags = edit.tags
         updated.rating = edit.rating
         updated.appOnlyFields = []
@@ -214,5 +216,23 @@ extension LibraryService {
                 storedCoverBefore: storedCoverBefore),
             storedCover: edit.cover, records: [])
         return .saved(writeIndex: operation.writes.count - 1, refiled: false, problems: [])
+    }
+
+    /// A book's ASIN is its Audible ID: when it changes, the item ID of each of the
+    /// book's Audible copies changes with it, and clearing it clears theirs. So what
+    /// opens on the Audible website is always the book the ASIN names. Nothing changes
+    /// when the ASIN is as it was (ignoring surrounding spaces).
+    static func keepAudibleIdInStep(_ book: inout Book, asinBefore: String?) {
+        func tidy(_ text: String?) -> String? {
+            let trimmed = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        let now = tidy(book.asin)
+        guard now != tidy(asinBefore) else { return }
+        book.externalCopies = book.externalCopies.map { copy in
+            var copy = copy
+            if copy.kind == .audible { copy.itemId = now }
+            return copy
+        }
     }
 }

@@ -6,7 +6,9 @@ extension LibraryService {
     /// When the library already has the book (`existingMatch(for:)`: the same Audible ID,
     /// else the same title and first author) that book is given the copy instead and
     /// nothing else about it changes: its details, cover and files are left alone, and no
-    /// file is opened. Its `asin` is filled in from an Audible copy only when it had none.
+    /// file is opened. Its `asin` is filled in from an Audible copy only when it had none
+    /// (and, when it has files, is then listed among its `appOnlyFields`). A book that
+    /// already has such a copy gets no second one: `.alreadyMarked`.
     ///
     /// Otherwise a book is added with the details as given (`durationSeconds` and
     /// `pageCount` included), no files and no folder, and `cover` is stored for it. For
@@ -32,11 +34,12 @@ extension LibraryService {
 
         // X3
         if let match = try existingMatch(for: metadata), let id = match.id {
-            try store.modifyBook(id: id) { book, _ in
-                book.externalCopies.append(copy)
-                Self.fillASIN(of: &book)
+            var wasMarked = false
+            try store.modifyBook(id: id) { book, fileCount in
+                wasMarked = Self.give(copy, to: &book)
+                Self.fillASIN(of: &book, hasFiles: fileCount > 0)
             }
-            return .markedExisting(bookId: id)
+            return wasMarked ? .alreadyMarked(bookId: id) : .markedExisting(bookId: id)
         }
 
         // X2. A book with no files has nothing "in the app only" (X7), is never filed
@@ -67,7 +70,7 @@ extension LibraryService {
             // X4
             guard !copies.isEmpty || fileCount > 0 else { throw LibraryError.wouldLeaveNothing }
             book.externalCopies = copies
-            Self.fillASIN(of: &book)
+            Self.fillASIN(of: &book, hasFiles: fileCount > 0)
         }
     }
 
@@ -127,10 +130,39 @@ extension LibraryService {
         copies.lazy.filter { $0.kind == .audible }.compactMap(\.itemId).first
     }
 
+    /// Gives a book a copy. A book that already has one of that kind in that form keeps
+    /// it, and only what that one lacks (its item ID, its store) is filled in from
+    /// `copy`: an item ID it already has is never replaced, and no second copy of the
+    /// same thing is added.
+    /// - Returns: True when the book already had such a copy.
+    private static func give(_ copy: ExternalCopy, to book: inout Book) -> Bool {
+        var copies = book.externalCopies
+        guard let index = copies.firstIndex(where: { $0.kind == copy.kind && $0.form == copy.form }) else {
+            book.externalCopies.append(copy)
+            return false
+        }
+        if copies[index].itemId == nil {
+            // An Audible ID the book already has is the one its copy means.
+            let own = (book.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            copies[index].itemId = copy.kind == .audible && !own.isEmpty ? own : copy.itemId
+        }
+        if copies[index].store == nil { copies[index].store = copy.store }
+        book.externalCopies = copies
+        return true
+    }
+
     /// Keeps `asin` in step with the Audible copy: a book without an ASIN takes the
     /// copy's item ID. An ASIN the book already has is left alone (its files carry it).
-    private static func fillASIN(of book: inout Book) {
+    ///
+    /// No file is opened for this, so for a book with files the ASIN it takes is in
+    /// the app only until its tags are next written: it is listed as such.
+    private static func fillASIN(of book: inout Book, hasFiles: Bool) {
         let current = (book.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if current.isEmpty, let asin = audibleId(of: book.externalCopies) { book.asin = asin }
+        guard current.isEmpty, let asin = audibleId(of: book.externalCopies) else { return }
+        book.asin = asin
+        if hasFiles, !book.appOnlyFields.contains(.asin) {
+            let fields = Set(book.appOnlyFields + [.asin])
+            book.appOnlyFields = MetadataField.allCases.filter(fields.contains)
+        }
     }
 }
