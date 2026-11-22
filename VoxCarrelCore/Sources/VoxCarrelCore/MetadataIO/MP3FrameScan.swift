@@ -89,6 +89,10 @@ enum MP3FrameScan {
         var tailStart: UInt64
         /// Bytes passed over before the first frame that were not a tag.
         var leadingJunk: Int
+        /// The average bitrate of the audio in kbit/s, estimated from frames read at a
+        /// few places spread over it (`samplePoints`); nil when it was not estimated, or
+        /// frames were found at too few of the places.
+        var sampledKbps: Double?
         /// The first frame's header, and which of its bits every frame must share.
         fileprivate var firstHeader: UInt32
 
@@ -125,10 +129,75 @@ enum MP3FrameScan {
 
     // MARK: Entry points
 
-    /// The cheap look: a few small reads at the start and the end of the file.
-    static func open(_ url: URL) throws -> Opening {
-        let file = try ChunkedFile(url, chunk: 16 * 1024)
-        return try opening(of: file)
+    /// The cheap look: a few small reads at the start and the end of the file, and one at
+    /// each of `samplePoints` places in between to estimate the bitrate.
+    /// - Parameter onRead: Called with the number of bytes of each read made of the file.
+    static func open(_ url: URL, onRead: ((Int) -> Void)? = nil) throws -> Opening {
+        let file = try ChunkedFile(url, chunk: 16 * 1024, onRead: onRead)
+        var opening = try opening(of: file)
+        opening.sampledKbps = try sampledKbps(of: file, opening: opening)
+        return opening
+    }
+
+    /// How many places in the audio the cheap look reads frames at.
+    static let samplePoints = 8
+    /// How far from such a place a frame is looked for: two of the longest frames.
+    private static let sampleSearch: UInt64 = 2882
+    /// The most frames, and bytes of frames, read at one place: one buffer's worth.
+    private static let sampleFrames = 96
+    private static let sampleBytes = 12 * 1024
+
+    /// The average bitrate, from runs of frames at places spread evenly over the bytes of
+    /// the audio.
+    ///
+    /// The places are spread by bytes, so the stretches at a high bitrate get more of them
+    /// than their share of the time: what is averaged is therefore the time a byte lasts
+    /// at each place, which comes out right however the bitrate varies.
+    private static func sampledKbps(of file: ChunkedFile, opening: Opening) throws -> Double? {
+        let mask = Header.sameStreamMask
+        let wanted = opening.firstHeader & mask
+        let end = opening.tailStart
+        let from = opening.vbrHeader == .none ? opening.firstFrame.lowerBound : opening.firstFrame.upperBound
+        guard end > from else { return nil }
+        let stride = (end - from) / UInt64(samplePoints)
+
+        /// The length of the frame of this stream at `offset`, or nil.
+        func frame(at offset: UInt64) throws -> Int? {
+            guard offset + 4 <= end, let header = try file.header(at: offset), header & mask == wanted,
+                  let length = Header.frameLength(header), offset + UInt64(length) <= end
+            else { return nil }
+            return length
+        }
+
+        var secondsPerByte = 0.0
+        var places = 0
+        for point in 0..<samplePoints {
+            // A frame that is followed by another, or that ends where the audio does.
+            var position = from + stride * UInt64(point) + stride / 2
+            let limit = position + sampleSearch
+            var found = false
+            while position < limit {
+                if let length = try frame(at: position) {
+                    let next = position + UInt64(length)
+                    found = try next == end || frame(at: next) != nil
+                    if found { break }
+                }
+                position += 1
+            }
+            guard found else { continue }
+            var frames = 0
+            var bytes = 0
+            while frames < sampleFrames, bytes < sampleBytes, let length = try frame(at: position) {
+                frames += 1
+                bytes += length
+                position += UInt64(length)
+            }
+            let seconds = Double(frames * opening.samplesPerFrame) / Double(opening.sampleRate)
+            secondsPerByte += seconds / Double(bytes)
+            places += 1
+        }
+        guard places * 2 >= samplePoints, secondsPerByte > 0 else { return nil }
+        return 8 / (secondsPerByte / Double(places)) / 1000
     }
 
     /// Walks every frame.
@@ -470,8 +539,11 @@ final class ChunkedFile {
     private let buffer: UnsafeMutableRawBufferPointer
     private var start: UInt64 = 0
     private var filled = 0
+    private let onRead: ((Int) -> Void)?
 
-    init(_ url: URL, chunk: Int) throws {
+    /// - Parameter onRead: Called with the number of bytes of each read made of the file.
+    init(_ url: URL, chunk: Int, onRead: ((Int) -> Void)? = nil) throws {
+        self.onRead = onRead
         descriptor = Darwin.open(url.path, O_RDONLY)
         guard descriptor >= 0 else { throw MP3FrameScan.Failure.unreadable }
         var info = stat()
@@ -507,6 +579,7 @@ final class ChunkedFile {
                 throw MP3FrameScan.Failure.unreadable
             }
             if got == 0 { break }  // the file became shorter
+            onRead?(got)
             filled += got
         }
         return filled >= count ? UnsafeRawPointer(buffer.baseAddress!) : nil

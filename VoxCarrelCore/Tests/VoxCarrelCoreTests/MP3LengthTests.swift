@@ -167,6 +167,72 @@ final class ScanCounter: @unchecked Sendable {
         #expect(MP3Length.isPlausible(seconds: 72.8 * 60, audioBytes: 49_500_000))
     }
 
+    // A header wrong by a factor that leaves the bitrate one an MP3 can have: only the
+    // frames themselves, sampled across the file, show it.
+    @Test func aWrongHeaderInsideThePlausibleBandIsFound() throws {
+        let cases: [(Options, trueSeconds: Double)] = [
+            // 128 kbit/s stating half and a third: 256 and 384 kbit/s.
+            (Options(seconds: 600, statedFrames: 11_484), 22_969 * 1152.0 / 44_100),
+            (Options(seconds: 600, statedFrames: 7_700), 22_969 * 1152.0 / 44_100),
+            (Options(seconds: 600, header: .info, statedFrames: 11_484), 22_969 * 1152.0 / 44_100),
+            // 64 kbit/s MPEG-2 stating a fifth, and four times too much.
+            (Options(seconds: 600, statedFrames: 4_600, mpeg2: true), 22_969 * 576.0 / 22_050),
+            (Options(seconds: 600, statedFrames: 91_876, mpeg2: true), 22_969 * 576.0 / 22_050),
+            // A variable bitrate stating half.
+            (Options(seconds: 600, statedFrames: 11_484, variableBitrate: true), 22_969 * 1152.0 / 44_100),
+        ]
+        for (options, trueSeconds) in cases {
+            let url = try write(options)
+            // The stated length is one the file's size allows.
+            let stated = try CTBTagFile.readMP3(atPath: url.path).durationSeconds
+            let opening = try MP3FrameScan.open(url)
+            #expect(MP3Length.isPlausible(seconds: stated, audioBytes: opening.audioBytes))
+
+            let counter = ScanCounter()
+            let contents = try AudioTagIO.read(url, scan: counter.scan)
+            #expect(counter.count == 1)
+            let problem = try #require(contents.lengthProblem)
+            #expect(abs(problem.statedSeconds - stated) < 0.01)
+            #expect(abs(problem.trueSeconds - trueSeconds) < 0.001)
+            #expect(contents.metadata.durationSeconds == problem.trueSeconds)
+            #expect(problem.repairable)
+        }
+    }
+
+    @Test func theSampledBitrateIsTheAverageOverTime() throws {
+        // Constant: every frame is 417 bytes of 1152 samples at 44.1 kHz.
+        let constant = try #require(try MP3FrameScan.open(try write(Options(seconds: 600))).sampledKbps)
+        #expect(abs(constant - 417 * 8 * 44.1 / 1152) < 0.01)
+        // Half the time at 128 and half at 32 kbit/s is 80 on average, though four fifths
+        // of the bytes are at 128.
+        let varying = try #require(
+            try MP3FrameScan.open(try write(Options(seconds: 600, variableBitrate: true))).sampledKbps)
+        #expect(abs(varying - 80) < 80 * 0.15)
+    }
+
+    @Test func aLongHealthyFileIsNotScannedWhateverItsBitrateDoes() throws {
+        let counter = ScanCounter()
+        for options in [
+            Options(seconds: 600), Options(seconds: 600, header: .info), Options(seconds: 600, variableBitrate: true),
+            Options(seconds: 600, mpeg2: true, variableBitrate: true), Options(seconds: 600, header: .vbri),
+        ] {
+            #expect(try AudioTagIO.read(try write(options), scan: counter.scan).lengthProblem == nil)
+        }
+        #expect(counter.count == 0)
+    }
+
+    @Test func theCheapLookReadsLittle() throws {
+        // Ten minutes, 9.6 MB, behind a cover of a megabyte.
+        let tag = MediaFixtures.id3v23Tag(frames: [
+            ("APIC", MediaFixtures.id3Picture(Data(count: 1_000_000), mime: "image/jpeg", type: 3)),
+        ])
+        let url = try write(Options(seconds: 600, prefix: tag, id3v1: true))
+        var reads: [Int] = []
+        _ = try MP3FrameScan.open(url) { reads.append($0) }
+        #expect(reads.count <= 16)
+        #expect(reads.reduce(0, +) <= 200_000)
+    }
+
     @Test func aSmallDifferenceIsNotAProblem() {
         #expect(!MP3Length.differs(stated: 3600, measured: 3630))  // under 1%
         #expect(MP3Length.differs(stated: 3600, measured: 3700))

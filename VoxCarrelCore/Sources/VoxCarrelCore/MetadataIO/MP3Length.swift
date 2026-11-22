@@ -12,6 +12,11 @@ enum MP3Length {
     static let plausibleKbps = 6.0...400.0
     /// How far a header's byte count may be from the audio the file holds.
     static let byteCountTolerance = 0.03
+    /// How far the bitrate a header's length amounts to may be from the bitrate of the
+    /// frames sampled across the file. An Info header is that of a constant bitrate, where
+    /// the two agree closely; a variable bitrate is only known roughly from a sample.
+    static let constantBitrateTolerance = 0.02
+    static let variableBitrateTolerance = 0.25
 
     /// Whether a stated length is believable for this many bytes of audio.
     static func isPlausible(seconds: Double, audioBytes: UInt64) -> Bool {
@@ -20,7 +25,11 @@ enum MP3Length {
     }
 
     /// Whether the frames must be counted: a stated length is implausible for the audio
-    /// the file holds, or its header counts a different number of bytes.
+    /// the file holds, its header counts a different number of bytes, or the header's
+    /// length would need another bitrate than the frames sampled across the file have.
+    ///
+    /// The last catches a header that is wrong by a factor too small to be implausible:
+    /// half the true length at 128 kbit/s is 256 kbit/s, which an MP3 can be.
     ///
     /// Two lengths are stated: the one the tag library reads (`statedSeconds`) and the
     /// one the header's own frame count amounts to. They differ when the tag library
@@ -33,6 +42,12 @@ enum MP3Length {
             let difference = abs(Double(stated) - Double(audioBytes))
             if difference > Double(audioBytes) * byteCountTolerance { return true }
         }
+        if let seconds = opening.headerSeconds, let sampled = opening.sampledKbps, sampled > 0 {
+            let implied = Double(audioBytes) * 8 / seconds / 1000
+            let tolerance = opening.vbrHeader.xing?.isInfo == true
+                ? constantBitrateTolerance : variableBitrateTolerance
+            if abs(implied - sampled) > sampled * tolerance { return true }
+        }
         return false
     }
 
@@ -44,8 +59,9 @@ enum MP3Length {
 
     /// The file's length, and what is wrong with its header if it states another.
     ///
-    /// A healthy file costs a few small reads at its start and end. A file that cannot be
-    /// measured (free format, or sync lost) keeps its stated length and reports no problem.
+    /// A healthy file costs a few small reads: at its start, its end, and a few places in
+    /// between. A file that cannot be measured (free format, or sync lost) keeps its
+    /// stated length and reports no problem.
     static func resolve(_ url: URL, statedSeconds: Double, scan: Scan) -> (seconds: Double, problem: LengthProblem?) {
         guard let opening = try? MP3FrameScan.open(url), needsScan(statedSeconds: statedSeconds, opening: opening),
               let measured = try? scan(url)
