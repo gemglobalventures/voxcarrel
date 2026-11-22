@@ -429,7 +429,7 @@ public enum LookupText {
         return text
     }
 
-    private static func isNameSuffix(_ word: String) -> Bool {
+    static func isNameSuffix(_ word: String) -> Bool {
         ["jr", "sr", "ii", "iii", "iv"].contains(word.lowercased().replacingOccurrences(of: ".", with: ""))
     }
 
