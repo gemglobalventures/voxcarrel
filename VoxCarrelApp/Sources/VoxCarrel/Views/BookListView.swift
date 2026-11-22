@@ -11,38 +11,42 @@ struct BookListView: View {
         @Bindable var model = model
 
         ScrollViewReader { scroller in
+            // The table fits its columns to the room there is, sharing it out equally above
+            // each column's least width, so it is the least widths that decide whether all
+            // seven are seen: with the 17 points the table puts between columns they come
+            // to 600. Only Title has no greatest width, and takes the room the rest leave.
             Table(model.rows, selection: selection, sortOrder: $model.tableSortOrder) {
                 TableColumn("Title", value: \.titleSortKey) { row in
                     TitleCell(row: row)
                 }
-                .width(min: 160, ideal: 300)
+                .width(min: 130, ideal: 200)
                 TableColumn("Author", value: \.authorSortKey) { row in
                     TextCell(text: row.authorsText)
                 }
-                .width(min: 90, ideal: 170)
+                .width(min: 64, ideal: 130, max: 220)
                 TableColumn("Series", value: \.seriesSortKey) { row in
                     TextCell(text: row.seriesText)
                 }
-                .width(min: 80, ideal: 170)
+                .width(min: 50, ideal: 120, max: 200)
                 TableColumn("Formats", value: \.formatsSortKey) { row in
                     FormatsCell(row: row)
                 }
-                .width(min: 70, ideal: 120)
+                .width(min: 44, ideal: 70, max: 110)
                 TableColumn("Length", value: \.lengthSortKey) { row in
                     TextCell(text: row.lengthText)
                         .monospacedDigit()
                 }
-                .width(min: 60, ideal: 70)
+                .width(min: 50, ideal: 60, max: 70)
                 TableColumn("Added", value: \.dateAddedSortKey) { row in
                     Text(row.book.dateAdded, format: .dateTime.day().month(.abbreviated).year())
                         .lineLimit(1)
                         .foregroundStyle(.secondary)
                 }
-                .width(min: 88, ideal: 100)
+                .width(min: 76, ideal: 84, max: 96)
                 TableColumn("Status", value: \.statusSortKey) { row in
                     StatusCell(status: row.book.readStatus)
                 }
-                .width(min: 90, ideal: 110)
+                .width(min: 52, ideal: 90, max: 100)
             }
             .contextMenu(forSelectionType: Int64.self) { ids in
                 if !ids.isEmpty {
