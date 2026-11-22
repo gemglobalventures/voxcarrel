@@ -16,6 +16,13 @@ struct SidebarView: View {
     var body: some View {
         List(selection: selection) {
             Section("Library") {
+                // WF13: first, while there is a watch folder. A count of zero shows no badge.
+                if model.showsInbox {
+                    Label(model.title(of: .inbox), systemImage: SidebarItem.inbox.symbol)
+                        .badge(model.inboxCount)
+                        .tag(SidebarItem.inbox)
+                        .accessibilityIdentifier("sidebar.inbox")
+                }
                 ForEach(SidebarItem.fixed, id: \.self) { item in
                     Label(model.title(of: item), systemImage: item.symbol)
                         .badge(Text("\(model.sidebar.counts[item] ?? 0)"))

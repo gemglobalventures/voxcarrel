@@ -304,6 +304,12 @@ extension AppModel {
         await review(inboxArrivals.filter { $0.id == id })
     }
 
+    /// WF18: opens the import review for the rows the table was asked to open (a
+    /// double-click, or Return), whatever else is selected.
+    public func reviewInbox(opening ids: Set<String>) async {
+        await review(inboxArrivals.filter { ids.contains($0.id) })
+    }
+
     /// The arrivals go to the review grouped as the Inbox shows them: a folder of parts
     /// is one book there, as it is here.
     private func review(_ arrivals: [InboxArrival]) async {

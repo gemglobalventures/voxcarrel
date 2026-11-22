@@ -467,6 +467,14 @@ private struct BottomBar: View {
                 Toggle("Copy files, leave originals in place", isOn: copy)
                     .toggleStyle(.checkbox)
                     .accessibilityIdentifier("review.copy")
+                // WF19: why Copy is ticked for books from the Inbox.
+                if let note = review.inboxNote {
+                    Text(note)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("review.inboxNote")
+                }
             } else {
                 Text("These files are in the library folder already, so they will be moved into place.")
                     .font(.callout)

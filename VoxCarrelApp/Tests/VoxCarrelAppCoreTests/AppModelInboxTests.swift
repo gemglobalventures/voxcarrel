@@ -747,6 +747,22 @@ import VoxCarrelFixtures
         #expect(h.model.review?.entries.map(\.candidate.metadata.title) == ["Night Train to Vostok"])
     }
 
+    /// WF18: the rows the table opens (a double-click, or Return) are reviewed, whatever
+    /// else is selected; with none there is nothing to review.
+    @Test func theRowsTheTableOpensAreReviewed() async throws {
+        let (h, folder) = try await watching()
+        try drop(Self.ebook, into: folder)
+        try drop(Self.parts, into: folder)
+        await arrive(h)
+        h.model.inboxSelection = [try arrivalId(h, "Quiet Rivers")]
+
+        await h.model.reviewInbox(opening: [])
+        #expect(h.model.review == nil)
+
+        await h.model.reviewInbox(opening: [try arrivalId(h, "Night Train to Vostok")])
+        #expect(h.model.review?.entries.map(\.candidate.metadata.title) == ["Night Train to Vostok"])
+    }
+
     /// WF18: a book the library has already is offered to it, as in any import.
     @Test func anArrivalIsMatchedToTheLibrarysBook() async throws {
         let h = try await Harness.demo()

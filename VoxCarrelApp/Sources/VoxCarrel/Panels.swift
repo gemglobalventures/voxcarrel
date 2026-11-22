@@ -20,6 +20,22 @@ enum Panels {
         Task { await model.chooseLibrary(folder) }
     }
 
+    /// Asks for one folder and has the library watch it. A folder that cannot be watched
+    /// is refused by the model, which says why.
+    static func addWatchFolder(for model: AppModel) {
+        let panel = NSOpenPanel()
+        panel.identifier = NSUserInterfaceItemIdentifier("panel.addWatchFolder")
+        panel.title = "Add Watch Folder"
+        panel.message = "Choose a folder to watch for books that arrive."
+        panel.prompt = "Watch"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { await model.addWatchFolder(folder) }
+    }
+
     /// Asks for files and folders and begins importing them.
     static func importFiles(into model: AppModel) {
         let panel = NSOpenPanel()

@@ -2,10 +2,11 @@ import SwiftUI
 import VoxCarrelAppCore
 import VoxCarrelCore
 
-/// V7; plan 7, V3: the settings, on two tabs: General (the library folder, copying on
-/// import) and Lookup (the sources, the Audible stores, and what a lookup sends).
+/// V7; plan 7, V3: the settings, on three tabs: General (the library folder, copying on
+/// import), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
+/// Folders (the folders watched for books that arrive).
 struct SettingsView: View {
-    /// Both tabs are this wide; the window takes its height from the tab that is shown.
+    /// Every tab is this wide; the window takes its height from the tab that is shown.
     static let width: CGFloat = 560
 
     @Environment(AppModel.self) private var model
@@ -22,6 +23,11 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Lookup", systemImage: "magnifyingglass")
                         .accessibilityIdentifier("settings.tab.lookup")
+                }
+            WatchFolderSettings(model: model)
+                .tabItem {
+                    Label("Watch Folders", systemImage: "tray.and.arrow.down")
+                        .accessibilityIdentifier("settings.tab.watchFolders")
                 }
         }
         // A question or a message is shown by the main window: it comes in front of this one.
@@ -223,5 +229,140 @@ private struct StoreTick: View {
         return Binding(
             get: { row.isOn },
             set: { model.setAudibleStore(store, searched: $0) })
+    }
+}
+
+/// The folders watched for books that arrive, each with its settings; under them, adding
+/// one. The tab has a height of its own and scrolls within it. Nothing can be changed
+/// while no library is open: the folders belong to the library.
+///
+/// The model is handed down, not read from the environment: a row of the list may be
+/// drawn once more after the list it was in has gone.
+private struct WatchFolderSettings: View {
+    let model: AppModel
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(model.watchFolderRows) { row in
+                    WatchFolderRowView(model: model, row: row)
+                }
+                HStack {
+                    Spacer()
+                    Button("Add Folder…") {
+                        Panels.addWatchFolder(for: model)
+                    }
+                    .accessibilityIdentifier("settings.watchFolders.add")
+                }
+            } header: {
+                Text("Watch Folders")
+            } footer: {
+                Text(
+                    "VoxCarrel watches these folders while it is open. Books that arrive are listed in the Inbox; "
+                        + "nothing is moved until you review them."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("settings.watchFolders.caption")
+            }
+        }
+        .formStyle(.grouped)
+        .disabled(!model.isLibraryOpen)
+        .frame(width: SettingsView.width, height: 460)
+    }
+}
+
+/// One watch folder: where it is and its switch; whether its books are moved or copied,
+/// whether PDFs count, and its buttons; and under them why it is not being watched.
+///
+/// Each control shows what the row says and asks the model for the change: the row
+/// changes when the library has saved it.
+private struct WatchFolderRowView: View {
+    let model: AppModel
+    let row: WatchFolderRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(row.path)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .help(row.path)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("settings.watchFolder.\(row.id).path")
+                Toggle("Watch \(row.path)", isOn: isEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .accessibilityIdentifier("settings.watchFolder.\(row.id).enabled")
+            }
+            HStack(spacing: 12) {
+                Picker("When reviewed", selection: mode) {
+                    Text("Move").tag(WatchFolderMode.move)
+                    Text("Copy").tag(WatchFolderMode.copy)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Whether a book reviewed from this folder is moved into the library or copied")
+                .accessibilityLabel("Move or copy books from \(row.path)")
+                .accessibilityIdentifier("settings.watchFolder.\(row.id).mode")
+                Toggle("Include PDFs", isOn: includesPDFs)
+                    .toggleStyle(.checkbox)
+                    .accessibilityIdentifier("settings.watchFolder.\(row.id).includesPDFs")
+                Spacer(minLength: 0)
+                Button("Scan Existing Files") {
+                    Task { await model.scanExisting(inWatchFolder: row.id) }
+                }
+                .help("List the books that were in this folder when it was added")
+                .accessibilityIdentifier("settings.watchFolder.\(row.id).scanExisting")
+                Button("Remove") {
+                    Task { await model.removeWatchFolder(row.id) }
+                }
+                .help("Stop watching this folder. Its files are left as they are.")
+                .accessibilityIdentifier("settings.watchFolder.\(row.id).remove")
+            }
+            .font(.callout)
+            .controlSize(.small)
+            if let note = row.note {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.watchFolder.\(row.id).note")
+            }
+        }
+    }
+
+    private var isEnabled: Binding<Bool> {
+        let model = model
+        let id = row.id
+        return Binding(
+            get: { row.isEnabled },
+            set: { enabled in
+                Task { await model.setWatchFolder(id, enabled: enabled) }
+            })
+    }
+
+    private var includesPDFs: Binding<Bool> {
+        let model = model
+        let id = row.id
+        return Binding(
+            get: { row.includesPDFs },
+            set: { included in
+                Task { await model.setWatchFolder(id, includesPDFs: included) }
+            })
+    }
+
+    private var mode: Binding<WatchFolderMode> {
+        let model = model
+        let id = row.id
+        return Binding(
+            get: { row.mode },
+            set: { mode in
+                Task { await model.setWatchFolder(id, mode: mode) }
+            })
     }
 }

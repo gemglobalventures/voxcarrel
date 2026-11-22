@@ -112,8 +112,7 @@ private struct BooksView: View {
             case .list: BookListView()
             }
         case .inbox:
-            // The arrivals are listed here.
-            Color.clear
+            InboxView()
         }
     }
 }

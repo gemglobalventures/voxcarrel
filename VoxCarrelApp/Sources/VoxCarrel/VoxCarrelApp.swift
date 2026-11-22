@@ -85,6 +85,12 @@ private struct ImportCommand: View {
         .keyboardShortcut("i", modifiers: .command)
         .disabled(!model.canImport)
         .accessibilityIdentifier("menu.file.import")
+        // The selected arrivals, or all of them when none is selected.
+        Button("Review Inbox…") {
+            Task { await model.reviewInbox() }
+        }
+        .disabled(!model.canReviewInbox)
+        .accessibilityIdentifier("menu.file.reviewInbox")
     }
 }
 
