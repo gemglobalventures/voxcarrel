@@ -509,6 +509,37 @@ private let notChecked = "Not checked against Audible"
         #expect(strays(h).isEmpty)
     }
 
+    /// Showing the hidden rows, or putting them away, lets go of rows that are no longer
+    /// shown and of nothing else: a book with unsaved edits that the series no longer
+    /// shows stays selected, with its edits.
+    @Test func showingHiddenRowsKeepsABookWithUnsavedEdits() async throws {
+        let h = try await checked()
+        try await selectMissing(h, "Lantern Reef")
+        await h.model.setSelectedMissingHidden(true)
+        let salt = try await h.edit("Salt Road", newTitle: "Salt Roads")
+        // The book leaves the series while its edits wait.
+        var book = try h.book(salt)
+        book.series = "Somewhere Else"
+        try h.store().update(book)
+        await h.model.reloadAll()
+        #expect(!h.model.rows.contains { $0.id == salt })
+        #expect(h.model.selection == [salt])
+        #expect(h.model.hasUnsavedChanges)
+
+        h.model.showsHiddenMissing = true
+        await h.model.settle()
+        #expect(h.model.rows.contains { $0.isMissing && $0.book.title == "Lantern Reef" })
+        #expect(h.model.selection == [salt])
+        #expect(h.model.hasUnsavedChanges)
+        #expect(h.draft?.title == "Salt Roads")
+
+        h.model.showsHiddenMissing = false
+        await h.model.settle()
+        #expect(h.model.selection == [salt])
+        #expect(h.draft?.title == "Salt Roads")
+        #expect(h.model.prompt == nil)
+    }
+
     // MARK: SV6 Nowhere else
 
     /// SV6: missing rows are in their own series' view and nowhere else, and count
@@ -741,11 +772,93 @@ private let notChecked = "Not checked against Audible"
         #expect(h.model.selectionCommands.mark)
     }
 
+    /// SV7: Select All in the list is the table's own, and comes to the model as every
+    /// row that is shown: it selects the library's books only, as in the grid.
+    @Test func everyRowAtOnceIsTheLibrarysBooksOnly() async throws {
+        let h = try await checked()
+        #expect(h.model.rows.count == 5)
+        h.model.select(Set(h.model.rows.map(\.id)))
+        await h.model.settle()
+        #expect(h.model.selection == (try h.ids(["Salt Road", "The Drowned Bell", "Harbour of Glass"])))
+        #expect(h.bulkDraft?.books.count == 3)
+        #expect(h.model.selectionCommands.mark)
+
+        // Anything less is what was asked for.
+        let glass = try missingRow(h, "The Glass Tide").id
+        let lantern = try missingRow(h, "Lantern Reef").id
+        h.model.select([glass, lantern])
+        await h.model.settle()
+        #expect(h.model.selection == [glass, lantern])
+        let most = Set(h.model.rows.map(\.id)).subtracting([lantern])
+        h.model.select(most)
+        await h.model.settle()
+        #expect(h.model.selection == most)
+
+        // A series with nothing missing, and any other list of books: all of them.
+        h.model.sidebarSelection = .allBooks
+        await h.model.settle()
+        h.model.select(Set(h.model.rows.map(\.id)))
+        await h.model.settle()
+        #expect(h.model.selection.count == 12)
+    }
+
+    /// SV7: a length header is not repaired either, for a selection with a missing row
+    /// beside a book whose files could be repaired.
+    @Test func noLengthHeaderIsRepairedWithAMissingRow() async throws {
+        let (h, id) = try AppModelLengthTests().library()
+        var book = try h.book(id)
+        book.series = seriesName
+        book.seriesNumber = "1"
+        try h.store().update(book)
+        h.model.audibleStore = .us
+        h.model.otherAudibleStores = []
+        h.lookup.catalogue.set([
+            FakeCatalogue.Series(
+                id: "B0TIDEWATR", title: seriesName,
+                members: [
+                    Member(asin: "B0LONGBOOK", title: "Long Book", number: "1"),
+                    Member(asin: "B0GLASSTID", title: "The Glass Tide", number: "2"),
+                    Member(asin: "B0LANTERNR", title: "Lantern Reef", number: "3"),
+                ]),
+        ])
+        await h.model.start()
+        h.model.sidebarSelection = seriesItem
+        await h.model.settle()
+        await h.model.checkSeries()
+        let missing = try missingRow(h, "The Glass Tide").id
+        // The book's files can be repaired, when it is the book alone.
+        #expect(h.model.commands(for: [id]).repairLengthHeaders)
+        let files = try h.fileURLs(id)
+        let before = try files.map { try Data(contentsOf: $0) }
+        h.recordBusyLabels()
+
+        h.model.select([missing, id])
+        await h.model.settle()
+        #expect(h.model.selection == [missing, id])
+        #expect(!h.model.selectionCommands.repairLengthHeaders)
+        await h.model.repairLengthHeaders()
+        await h.model.repairLengthHeaders(for: [missing, id])
+
+        #expect(h.busyLabels == [])
+        #expect(try files.map { try Data(contentsOf: $0) } == before)
+        #expect(h.model.result == nil)
+        #expect(h.model.alert == nil)
+        #expect(strays(h).isEmpty)
+    }
+
     // MARK: SV8 One missing row
 
     /// SV8: one missing row selected is what is inspected; several are nothing.
     @Test func oneMissingRowIsInspected() async throws {
         let h = try await checked()
+        // At once, before anything has been fetched: never, even for a moment, as a
+        // book of the library with fields to edit.
+        let first = try missingRow(h, "The Glass Tide")
+        h.model.click(first.id, modifiers: [])
+        #expect(h.model.inspecting == .missing(try #require(first.missing)))
+        h.model.select([])
+        await h.model.settle()
+
         let glass = try await selectMissing(h, "The Glass Tide")
         #expect(h.model.selection == [glass.id])
         #expect(h.model.inspecting == .missing(try #require(glass.missing)))
@@ -812,6 +925,32 @@ private let notChecked = "Not checked against Audible"
         #expect(h.model.seriesHeader?.summary == "4 of 5 on Audible's list")
         #expect(h.lookup.catalogue.requests.count == sent)
         #expect(h.lookup.asked.isEmpty)
+        #expect(strays(h).isEmpty)
+    }
+
+    /// SV8: a missing book that the library has already, filed under another series, is
+    /// marked as on Audible as Add Audible Book marks one. Its own series name and
+    /// number are left exactly as they are, and no second book is made of it.
+    @Test func addingAMissingBookTheLibraryHasElsewhereLeavesItsSeriesAlone() async throws {
+        let h = try await checked(prepare: { h in
+            var metadata = BookMetadata(title: "The Glass Tide", authors: ["Ines Calloway"])
+            metadata.series = "Deep Water"
+            metadata.seriesNumber = "9"
+            _ = try h.store().insert(Book(metadata: metadata), files: [])
+        })
+        let id = try h.id("The Glass Tide")
+        try await selectMissing(h, "The Glass Tide")
+
+        await h.model.addMissingAsAudibleBook()
+
+        #expect(h.model.alert == "“The Glass Tide” was already in your library. It is now marked as also on Audible.")
+        let book = try h.book(id)
+        #expect(book.series == "Deep Water")
+        #expect(book.seriesNumber == "9")
+        #expect(book.isOwned(on: .audible))
+        #expect(try h.store().books().count == 13)
+        #expect(h.model.selection == [id])
+        #expect(h.model.busyLabel == nil)
         #expect(strays(h).isEmpty)
     }
 

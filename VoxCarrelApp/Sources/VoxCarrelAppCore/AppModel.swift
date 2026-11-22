@@ -359,8 +359,16 @@ public final class AppModel {
     }
 
     /// Selects exactly these books (those of them that are shown): for the list view and the keyboard.
+    ///
+    /// SV7: every row at once is Select All in the list, which is the table's own and
+    /// arrives here: as `selectAll`, it selects the library's books and not the rows
+    /// that stand for books the library does not have.
     public func select(_ ids: Set<Int64>) {
-        let shownIds = ids.intersection(rows.map(\.id))
+        var shownIds = ids.intersection(rows.map(\.id))
+        if shownIds.count == rows.count, holdsMissing(shownIds) {
+            let books = shownIds.filter { $0 > 0 }
+            if !books.isEmpty { shownIds = books }
+        }
         var newAnchor = anchor.flatMap { shownIds.contains($0) ? $0 : nil }
         if shownIds.count == 1 { newAnchor = shownIds.first }
         requestSelection(shownIds, anchor: newAnchor)
@@ -517,9 +525,10 @@ public final class AppModel {
             let books = ShownBooks(rows: rows.filter { !$0.isMissing }, series: shownSeries)
             let all = withMissingRows(books, search: shown.search)
             rows = storedSort.sorted(all, showing: shown.item)
-            // A hidden row that is no longer shown is no longer selected. (A selection
-            // with unsaved edits has no such row in it.)
-            let ids = selection.intersection(all.map(\.id))
+            // A hidden row that is no longer shown is no longer selected. Nothing else
+            // is let go: a book with unsaved edits stays selected though it is not shown.
+            let shownIds = Set(all.map(\.id))
+            let ids = selection.filter { $0 > 0 || shownIds.contains($0) }
             if ids != selection { applySelection(ids, anchor: nil) }
         }
     }
