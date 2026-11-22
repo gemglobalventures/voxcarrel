@@ -40,7 +40,8 @@ public struct SeriesChoice: Identifiable, Equatable, Sendable {
     /// The store and the series' own ID: what `AppModel.chooseSeries` is given.
     public var id: String
     public var title: String
-    /// "Audible US · your books are numbers 1, 2 and 6 here"
+    /// "Audible US · your books are numbers 1, 2 and 6 here": the numbers the books
+    /// have in this series.
     public var detail: String
 }
 
@@ -134,9 +135,8 @@ public struct ShownBooks: Equatable, Sendable {
 
 /// What Audible answered for one book that was asked about.
 struct SeriesAnswer: Equatable, Sendable {
-    /// The owner's number for the book.
-    var number: String?
-    /// The series Audible lists the book in; empty when it lists none, or not the book.
+    /// The series Audible lists the book in, each with the book's number in it; empty
+    /// when it lists none, or not the book.
     var refs: [AudibleSeriesRef]
 }
 
@@ -146,7 +146,9 @@ struct SeriesFound: Equatable, Sendable {
     var ref: AudibleSeriesRef
     /// How many of the books asked about are in it.
     var count: Int
-    /// The owner's numbers of those books, in series order; nil for a book with none.
+    /// The numbers those books have in this series, as Audible numbers them, in series
+    /// order; nil for a book Audible gives no number here. Not the owner's own numbers:
+    /// the same books are numbered differently in another order of the series.
     var numbers: [String?]
 }
 
@@ -316,7 +318,7 @@ enum SeriesRows {
                 // Of two spellings of its title, the one that sorts first: no order of answers decides.
                 if series.title < entry.ref.title { entry.ref.title = series.title }
                 entry.count += 1
-                entry.numbers.append(answer.number?.trimmedOrNil)
+                entry.numbers.append(ref.number?.trimmedOrNil)
                 found[choiceId(ref)] = entry
             }
         }
@@ -343,16 +345,21 @@ enum SeriesRows {
         return first.ref
     }
 
-    /// SV3: a series as the owner is offered it, with which of their books are in it.
+    /// SV3: a series as the owner is offered it, with the numbers their books have in it.
     static func choice(for found: SeriesFound) -> SeriesChoice {
         let numbers = found.numbers.compactMap { $0 }
+        // Two copies of one book have one number between them.
+        var seen: Set<String> = []
+        let different = numbers.filter { seen.insert($0).inserted }
         let books: String
         if numbers.count < found.numbers.count || numbers.isEmpty {
             books = found.count == 1 ? "1 of your books is here" : "\(found.count) of your books are here"
         } else if numbers.count == 1 {
             books = "your book is number \(numbers[0]) here"
+        } else if different.count == 1 {
+            books = "your books are number \(different[0]) here"
         } else {
-            books = "your books are numbers \(AppModel.list(numbers)) here"
+            books = "your books are numbers \(AppModel.list(different)) here"
         }
         return SeriesChoice(
             id: choiceId(found.ref), title: found.ref.title, detail: "\(storeName(found.ref.store)) · \(books)")

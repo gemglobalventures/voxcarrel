@@ -146,7 +146,7 @@ extension AppModel {
     /// A8b: nor while Audible is off as a lookup source (`addAudibleBookDisabledReason`).
     public var canAddAudibleBook: Bool {
         isQuietForLookup && lookupSources.contains(.audible) && review == nil && result == nil
-            && libraryCheck == nil && !hasUnsavedChanges
+            && libraryCheck == nil && seriesChoice == nil && !hasUnsavedChanges
     }
 
     /// N1: opens the lookup sheet for adding an Audible book: nothing to search for yet,

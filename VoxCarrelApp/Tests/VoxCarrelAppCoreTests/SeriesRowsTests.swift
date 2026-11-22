@@ -275,11 +275,11 @@ import VoxCarrelCore
     /// SV2: the asking stops once two books have been found in a series and every
     /// answer that found one names the same single series.
     @Test func whenTheAnswersAgree() {
-        let a = SeriesAnswer(number: "1", refs: [ref("B0SERIES0A", number: "1")])
-        let a2 = SeriesAnswer(number: "2", refs: [ref("B0SERIES0A", number: "2")])
-        let b = SeriesAnswer(number: "3", refs: [ref("B0SERIES0B")])
-        let both = SeriesAnswer(number: "4", refs: [ref("B0SERIES0A"), ref("B0SERIES0B")])
-        let none = SeriesAnswer(number: "5", refs: [])
+        let a = SeriesAnswer(refs: [ref("B0SERIES0A", number: "1")])
+        let a2 = SeriesAnswer(refs: [ref("B0SERIES0A", number: "2")])
+        let b = SeriesAnswer(refs: [ref("B0SERIES0B")])
+        let both = SeriesAnswer(refs: [ref("B0SERIES0A"), ref("B0SERIES0B")])
+        let none = SeriesAnswer(refs: [])
         #expect(!SeriesRows.agree([]))
         // One answer is not yet agreement: the first book may be the odd one out.
         #expect(!SeriesRows.agree([a]))
@@ -290,24 +290,30 @@ import VoxCarrelCore
         #expect(!SeriesRows.agree([a, both]))
         #expect(!SeriesRows.agree([both, both]))
         // The same ID in another store is another series.
-        #expect(!SeriesRows.agree([a, SeriesAnswer(number: "2", refs: [ref("B0SERIES0A", store: .uk)])]))
+        #expect(!SeriesRows.agree([a, SeriesAnswer(refs: [ref("B0SERIES0A", store: .uk)])]))
     }
 
     // MARK: SV3 Which series
 
-    /// SV3: every series found, the one with the most books first, with the owner's
-    /// numbers of the books found in it.
+    /// SV3: every series found, the one with the most books first, with the numbers
+    /// the books found in it have there: Audible's, not the owner's own.
     @Test func theSeriesFoundAreCounted() {
         let answers = [
-            SeriesAnswer(number: "6", refs: [ref("B0SERIES0B", "Beta", number: "1")]),
-            SeriesAnswer(number: "1", refs: [ref("B0SERIES0A", "Alpha", number: "1"), ref("B0SERIES0C", "Gamma", number: "4")]),
-            SeriesAnswer(number: "2", refs: [ref("B0SERIES0A", "Alpha", number: "2"), ref("B0SERIES0C", "Gamma", number: "5")]),
-            SeriesAnswer(number: nil, refs: []),
+            SeriesAnswer(refs: [ref("B0SERIES0B", "Beta", number: "1")]),
+            SeriesAnswer(refs: [ref("B0SERIES0A", "Alpha", number: "1"), ref("B0SERIES0C", "Gamma", number: "4")]),
+            SeriesAnswer(refs: [ref("B0SERIES0A", "Alpha", number: "2"), ref("B0SERIES0C", "Gamma", number: "5")]),
+            SeriesAnswer(refs: []),
         ]
         let found = SeriesRows.tally(answers)
         #expect(found.map(\.ref.id) == ["B0SERIES0A", "B0SERIES0C", "B0SERIES0B"])
         #expect(found.map(\.count) == [2, 2, 1])
-        #expect(found.map(\.numbers) == [["1", "2"], ["1", "2"], ["6"]])
+        #expect(found.map(\.numbers) == [["1", "2"], ["4", "5"], ["1"]])
+        // A book Audible gives no number in a series has none there.
+        let unnumbered = SeriesRows.tally([
+            SeriesAnswer(refs: [ref("B0SERIES0A", number: " 2 ")]), SeriesAnswer(refs: [ref("B0SERIES0A")]),
+            SeriesAnswer(refs: [ref("B0SERIES0A", number: "  ")]),
+        ])
+        #expect(unnumbered.map(\.numbers) == [["2", nil, nil]])
         // The series itself: no one book's number in it.
         #expect(found.allSatisfy { $0.ref.number == nil })
         #expect(SeriesRows.tally(answers.reversed()) == found)
@@ -334,6 +340,9 @@ import VoxCarrelCore
         }
         #expect(choice(["1", "2", "6"]).detail == "Audible US · your books are numbers 1, 2 and 6 here")
         #expect(choice(["2", "10"]).detail == "Audible US · your books are numbers 2 and 10 here")
+        // Two copies of one book are one number.
+        #expect(choice(["1", "1", "2"]).detail == "Audible US · your books are numbers 1 and 2 here")
+        #expect(choice(["3", "3"]).detail == "Audible US · your books are number 3 here")
         #expect(choice(["6"], store: .uk).detail == "Audible UK · your book is number 6 here")
         #expect(choice(["6", nil]).detail == "Audible US · 2 of your books are here")
         #expect(choice([nil]).detail == "Audible US · 1 of your books is here")

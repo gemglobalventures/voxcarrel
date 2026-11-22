@@ -70,7 +70,7 @@ extension AppModel {
             var answers: [SeriesAnswer] = []
             for book in SeriesRows.booksToAsk(try await worker.seriesCheckBooks(named: name)) {
                 let refs = try await worker.audibleSeries(ofBookWithASIN: book.asin, title: book.title, author: book.author)
-                answers.append(SeriesAnswer(number: book.number, refs: refs))
+                answers.append(SeriesAnswer(refs: refs))
                 if SeriesRows.agree(answers) { break }
             }
             let found = SeriesRows.tally(answers)

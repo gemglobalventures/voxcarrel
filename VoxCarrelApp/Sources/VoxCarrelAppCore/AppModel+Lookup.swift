@@ -107,6 +107,7 @@ extension AppModel {
     public var canLookUp: Bool {
         guard case .one = inspecting else { return false }
         return isQuietForLookup && canAskLookupSources && review == nil && result == nil && libraryCheck == nil
+            && seriesChoice == nil
     }
 
     /// A8b: why Look Up cannot be used whatever is selected: every lookup source is

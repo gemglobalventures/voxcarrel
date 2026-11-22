@@ -263,6 +263,46 @@ private let notChecked = "Not checked against Audible"
         #expect(h.model.alert == nil)
     }
 
+    /// SV3: each choice says which numbers the owner's books are in that Audible series,
+    /// whatever numbers the owner has given them.
+    @Test func aChoiceSaysTheBooksNumbersInThatSeries() async throws {
+        let published = tidewater(id: "B0PUBLISHD", title: "Tidewater (publication order)")
+        let story = tidewater(id: "B0STORYORD", title: "Tidewater (chronological order)") { members in
+            members[0].number = "2"
+            members[1].number = "4"
+            members[2].number = "5"
+        }
+        let h = try await shown([published, story])
+        await h.model.checkSeries()
+        #expect(h.model.seriesChoices?.map(\.detail) == [
+            "Audible US · your books are numbers 2, 4 and 5 here",
+            "Audible US · your books are numbers 1, 2 and 3 here",
+        ])
+    }
+
+    /// SV3: while the owner is being asked which series, no lookup is begun beneath
+    /// the question: its sheet would come up only when the question had been answered.
+    @Test func noLookupBeginsWhileTheChoiceIsAsked() async throws {
+        let published = tidewater(id: "B0PUBLISHD", title: "Tidewater (publication order)")
+        let story = tidewater(id: "B0STORYORD", title: "Tidewater (chronological order)")
+        let h = try await shown([published, story])
+        try await h.select("Salt Road")
+        #expect(h.model.canLookUp)
+        #expect(h.model.canAddAudibleBook)
+
+        await h.model.checkSeries()
+        #expect(h.model.seriesChoices != nil)
+        #expect(!h.model.canLookUp)
+        #expect(!h.model.canAddAudibleBook)
+        h.model.beginLookup()
+        h.model.beginAddAudibleBook()
+        #expect(h.model.lookup == nil)
+
+        h.model.cancelSeriesChoice()
+        #expect(h.model.canLookUp)
+        #expect(h.model.canAddAudibleBook)
+    }
+
     // MARK: SV4 The list
 
     /// SV4: the list is fetched and stored, the header and the rows show it, and it is
