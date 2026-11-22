@@ -13,7 +13,7 @@ struct LibraryCheckSheet: View {
                 Text("Library Check")
                     .font(.headline)
                     .accessibilityAddTraits(.isHeader)
-                Text("VoxCarrel looked over the library folder as it opened. Nothing has been changed.")
+                Text(summary.intro)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -58,6 +58,14 @@ struct LibraryCheckSheet: View {
                 } action: {
                     EmptyView()
                 }
+            }
+
+            if let corrected = summary.correctedLengths {
+                Divider()
+                Label(corrected, systemImage: "clock.arrow.circlepath")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("check.correctedLengths")
             }
 
             HStack {

@@ -86,6 +86,11 @@ extension BookDetail {
         files.contains { $0.file.writeProblem != nil }
     }
 
+    /// Whether any file's length header is wrong and can be repaired, so that repairing is offered.
+    public var showsRepairLength: Bool {
+        row.repairableLengthFiles > 0
+    }
+
     /// N5: "7h 42m · 12 chapters" for a book with audio; nil when it has none, or
     /// neither is known.
     public var audioSummaryText: String? {

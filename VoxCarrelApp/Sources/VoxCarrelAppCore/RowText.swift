@@ -11,6 +11,19 @@ public enum LengthText {
         if minutes == 0 { return "<1m" }
         return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
     }
+
+    /// As `text(seconds:)`, but a length under a minute is given in seconds: "42s".
+    public static func exact(seconds: Double) -> String {
+        guard seconds.isFinite, seconds >= 0 else { return "0s" }
+        return seconds < 59.5 ? "\(Int(seconds.rounded()))s" : text(seconds: seconds) ?? "0s"
+    }
+
+    /// What is wrong with a file whose length header states the wrong length.
+    public static func problem(_ problem: LengthProblem) -> String {
+        let text = "Length header is wrong: the file says \(exact(seconds: problem.statedSeconds)) but holds "
+            + "\(exact(seconds: problem.trueSeconds)). Some players will stop early."
+        return problem.repairable ? text : text + " This kind of header cannot be repaired here."
+    }
 }
 
 /// The day a book was added, as the list shows it.
@@ -142,6 +155,12 @@ extension BookRow {
         var parts: [String] = []
         if book.needsAttention { parts.append("Needs attention") }
         if hasWriteProblem { parts.append("Tags could not be written to a file") }
+        if lengthProblemFiles > 0 {
+            parts.append(
+                lengthProblemFiles == 1
+                    ? "A file states the wrong length: some players will stop early"
+                    : "\(lengthProblemFiles) files state the wrong length: some players will stop early")
+        }
         return parts.isEmpty ? nil : parts.joined(separator: ". ")
     }
 

@@ -19,6 +19,13 @@ struct FileListView: View {
                 .help("Try again to write this book's details into its files")
                 .accessibilityIdentifier("inspector.rewriteTags")
             }
+            if detail.showsRepairLength {
+                Button("Repair") {
+                    Task { await model.repairLengthHeaders() }
+                }
+                .help("Rewrite the length header of each file that states the wrong length. Undo puts the files back exactly.")
+                .accessibilityIdentifier("inspector.repairLength")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -74,6 +81,14 @@ private struct FileItem: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
                     .accessibilityIdentifier("inspector.file.\(file.id).writeProblem")
+            }
+            if let problem = file.lengthProblemText {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("inspector.file.\(file.id).lengthProblem")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

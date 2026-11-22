@@ -26,6 +26,14 @@ public struct LibraryCheckSummary: Equatable, Sendable {
     public var untracked: Section?
     /// Files an interrupted move left under a temporary name.
     public var stranded: Section?
+    /// What the check did, under the sheet's title.
+    public var intro = LibraryCheckSummary.nothingChanged
+    static let nothingChanged = "VoxCarrel looked over the library folder as it opened. Nothing has been changed."
+    static let noFileChanged = "VoxCarrel looked over the library folder as it opened. No file has been changed."
+
+    /// A line saying how many books had their length corrected, because their files
+    /// stated the wrong one; nil when none had.
+    public var correctedLengths: String?
 }
 
 extension AppModel {
@@ -67,7 +75,15 @@ extension AppModel {
                 lines: strandedLines(check.strandedFiles))
         }
 
+        if check.correctedLengths > 0 {
+            summary.intro = LibraryCheckSummary.noFileChanged
+            summary.correctedLengths = check.correctedLengths == 1
+                ? "The length of 1 book was corrected: its files stated the wrong length."
+                : "The length of \(check.correctedLengths) books was corrected: their files stated the wrong length."
+        }
+
         let isEmpty = summary.missing == nil && summary.untracked == nil && summary.stranded == nil
+            && summary.correctedLengths == nil
         return isEmpty ? nil : summary
     }
 

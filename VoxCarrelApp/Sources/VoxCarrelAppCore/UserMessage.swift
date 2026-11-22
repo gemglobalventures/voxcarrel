@@ -208,6 +208,29 @@ public enum UserMessage {
         return ResultSummary(headline: headline, problems: problems, isClean: problems.isEmpty)
     }
 
+    /// What repairing length headers left undone. `titles`: each book's title by its id.
+    public static func repairSummary(of outcomes: [SaveOutcome], titles: [Int64: String]) -> ResultSummary {
+        var problems: [ResultSummary.Line] = []
+        var files = 0
+        var books = 0
+        for outcome in outcomes {
+            switch outcome {
+            case .saved(let bookId, _, _, let fileProblems):
+                files += fileProblems.count
+                problems += fileProblems.map { line(shownTitle(titles[bookId]), $0) }
+            case .failed(let bookId, let reason):
+                books += 1
+                problems.append(.init(title: shownTitle(titles[bookId]), detail: sentence(reason)))
+            }
+        }
+        var parts: [String] = []
+        if files > 0 { parts.append("\(files) \(files == 1 ? "file" : "files") could not be repaired") }
+        if books > 0 { parts.append("\(books) \(books == 1 ? "book" : "books") could not be repaired") }
+        return ResultSummary(
+            headline: parts.isEmpty ? "Length headers repaired" : parts.joined(separator: ", "),
+            problems: problems, isClean: problems.isEmpty)
+    }
+
     // MARK: Field names
 
     public static func fieldName(_ field: MetadataField) -> String {

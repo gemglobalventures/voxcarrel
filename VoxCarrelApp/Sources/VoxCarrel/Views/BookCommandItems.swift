@@ -94,6 +94,11 @@ struct BookCommandItems: View {
         }
         .disabled(!applies.rewriteTags)
         .accessibilityIdentifier("\(prefix).rewriteTags")
+        Button("Repair Length Headers") {
+            Task { await model.repairLengthHeaders(for: books) }
+        }
+        .disabled(!applies.repairLengthHeaders)
+        .accessibilityIdentifier("\(prefix).repairLength")
 
         Divider()
 

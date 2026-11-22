@@ -31,6 +31,8 @@ public struct SelectionCommands: Equatable, Sendable {
     /// A collection is what the sidebar shows, so the books can be taken out of it.
     public var removeFromCollection = false
     public var rewriteTags = false
+    /// One of the books has a file whose wrong length header can be repaired.
+    public var repairLengthHeaders = false
     public var remove = false
 
     public init() {}
@@ -129,6 +131,7 @@ extension AppModel {
         commands.addToCollection = !sidebar.collections.isEmpty
         commands.removeFromCollection = shownCollection != nil
         commands.rewriteTags = someHaveFiles
+        commands.repairLengthHeaders = chosen.contains { $0.repairableLengthFiles > 0 }
         // Only books that are shown can be removed, and removing asks first: not while
         // another question is waiting (A24).
         commands.remove = shown != nil && prompt == nil

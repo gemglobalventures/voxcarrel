@@ -246,6 +246,25 @@ extension AppModel {
         }
     }
 
+    /// Repairs the wrong length headers in the selected books' files.
+    public func repairLengthHeaders() async {
+        await repairLengthHeaders(for: selection)
+    }
+
+    /// The same for these books, which need not be the selection. Does nothing when
+    /// none of them has a file that can be repaired.
+    public func repairLengthHeaders(for ids: Set<Int64>) async {
+        let ids = ordered(ids)
+        let files = rows.filter { ids.contains($0.id) }.map(\.repairableLengthFiles).reduce(0, +)
+        guard !ids.isEmpty, files > 0 else { return }
+        let titles = Dictionary(rows.map { ($0.id, $0.book.title) }) { first, _ in first }
+        await perform(files == 1 ? "Repairing 1 file…" : "Repairing \(files) files…") { worker in
+            let summary = UserMessage.repairSummary(
+                of: try await worker.repairLengthHeaders(for: ids), titles: titles)
+            if !summary.isClean { self.result = summary }
+        }
+    }
+
     /// Uses the file at `url` in place of a file that has gone missing.
     public func locate(fileId: Int64, at url: URL) async {
         await perform("Locating file…") { worker in

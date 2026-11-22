@@ -37,11 +37,18 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     /// Where the book's files that are not in the library folder are: those of a book
     /// that was catalogued where it was found. Empty for a filed book.
     public var outsideFiles: [String]
+    /// How many of the book's files state a length they do not have (`BookFile.lengthProblem`).
+    public var lengthProblemFiles: Int
+    /// How many of those have a header that can be repaired.
+    public var repairableLengthFiles: Int
 
     public init(
         id: Int64, book: Book, hasAudio: Bool, hasEbook: Bool, formats: [FileFormat], coverURL: URL?,
-        coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = [], hasFiles: Bool = true
+        coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = [], hasFiles: Bool = true,
+        lengthProblemFiles: Int = 0, repairableLengthFiles: Int = 0
     ) {
+        self.lengthProblemFiles = lengthProblemFiles
+        self.repairableLengthFiles = repairableLengthFiles
         self.outsideFiles = outsideFiles
         self.hasFiles = hasFiles
         self.id = id
@@ -73,6 +80,11 @@ public struct FileRow: Identifiable, Equatable, Sendable {
         self.name = name
         self.isMissing = isMissing
         self.allowedRoles = allowedRoles
+    }
+
+    /// What is wrong with the file's length header, in words; nil when nothing is.
+    public var lengthProblemText: String? {
+        file.lengthProblem.map(LengthText.problem)
     }
 
     /// The roles `LibraryService.setRole` accepts for a format: an audio format is always

@@ -166,7 +166,9 @@ public actor LibraryWorker {
             hasWriteProblem: files.contains { $0.writeProblem != nil },
             // A file left where it was found is recorded by its whole path.
             outsideFiles: files.filter { $0.path.hasPrefix("/") }.map { store.url(for: $0).path },
-            hasFiles: !files.isEmpty)
+            hasFiles: !files.isEmpty,
+            lengthProblemFiles: files.filter { $0.lengthProblem != nil }.count,
+            repairableLengthFiles: files.filter { $0.lengthProblem?.repairable == true }.count)
     }
 
     /// For each half-moved file, the name of the file it very likely was: the one file
@@ -244,6 +246,10 @@ public actor LibraryWorker {
 
     public func rewriteTags(for bookIds: [Int64]) throws -> [SaveOutcome] {
         try service.rewriteTags(for: bookIds)
+    }
+
+    public func repairLengthHeaders(for bookIds: [Int64]) throws -> [SaveOutcome] {
+        try service.repairLengthHeaders(for: bookIds)
     }
 
     public func setRole(_ role: FileRole, forFile fileId: Int64) throws {
