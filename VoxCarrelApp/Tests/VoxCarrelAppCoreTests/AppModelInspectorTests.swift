@@ -365,4 +365,70 @@ import VoxCarrelFixtures
     @Test func fileRolesHaveNames() {
         #expect(FileRole.allCases.map(\.title) == ["Audiobook", "Ebook", "Extra"])
     }
+
+    // MARK: N11 Unsaved edits are marked
+
+    /// N11: one book with unsaved edits is marked, in the inspector and by its id, until
+    /// the edits are saved or discarded.
+    @Test func aBookWithUnsavedEditsIsMarked() async throws {
+        let h = try await Harness.demo()
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+        #expect(h.model.editedBadgeHelp == "Has unsaved changes")
+
+        let id = try await h.select("Salt Road")
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+
+        h.model.updateDraft { $0.genre = "Sea Stories" }
+        #expect(h.model.editedBookIds == [id])
+        #expect(h.model.inspectorEditedText == "Edited · not saved")
+
+        // Typed back to what it was: nothing to save, nothing to mark.
+        h.model.updateDraft { $0.genre = $0.original.genre ?? "" }
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+
+        h.model.setCover(data: MediaFixtures.makeImage(.png))
+        #expect(h.model.editedBookIds == [id])
+        h.model.discardChanges()
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+
+        h.model.updateDraft { $0.genre = "Sea Stories" }
+        await h.model.save()
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+    }
+
+    /// N11: a save that does not go through leaves the book marked.
+    @Test func aBookWhoseSaveDidNotGoThroughStaysMarked() async throws {
+        let h = try await Harness.demo()
+        let id = try await h.select("Salt Road")
+        h.model.updateDraft { $0.title = " " }
+        await h.model.save()
+        #expect(h.model.alert != nil)
+        #expect(h.model.editedBookIds == [id])
+        #expect(h.model.inspectorEditedText == "Edited · not saved")
+    }
+
+    /// N11: with several books selected and a field changed, every one of them is marked.
+    @Test func everyBookOfAnEditedSelectionIsMarked() async throws {
+        let h = try await Harness.demo()
+        let ids = try await h.select(["Salt Road", "Quiet Rivers"])
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+
+        h.model.setBulkText("Travel", for: .genre)
+        #expect(h.model.editedBookIds == ids)
+        #expect(h.model.inspectorEditedText == "Edited · not saved")
+
+        h.model.discardChanges()
+        #expect(h.model.editedBookIds.isEmpty)
+
+        h.model.setBulkText("Travel", for: .genre)
+        await h.model.save()
+        #expect(h.model.editedBookIds.isEmpty)
+        #expect(h.model.inspectorEditedText == nil)
+    }
 }

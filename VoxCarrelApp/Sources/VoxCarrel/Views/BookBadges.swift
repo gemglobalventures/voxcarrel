@@ -86,6 +86,22 @@ struct StatusMarker: View {
     }
 }
 
+/// A pencil beside the title of a book that has edits not yet saved; nothing for any other.
+struct EditedBadge: View {
+    @Environment(AppModel.self) private var model
+    let id: Int64
+
+    var body: some View {
+        if model.editedBookIds.contains(id) {
+            Image(systemName: "pencil.circle.fill")
+                .foregroundStyle(EditedMark.tint)
+                .help(model.editedBadgeHelp)
+                .accessibilityLabel(model.editedBadgeHelp)
+                .accessibilityIdentifier("books.badge.edited")
+        }
+    }
+}
+
 /// A warning triangle for a book that needs attention or has a file whose tags were not written.
 struct WarningBadge: View {
     let row: BookRow

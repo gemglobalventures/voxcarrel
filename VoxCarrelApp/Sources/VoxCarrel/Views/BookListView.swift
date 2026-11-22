@@ -81,7 +81,7 @@ struct BookListView: View {
     }
 }
 
-/// A small cover, the title, and the warning triangle.
+/// A small cover, the title, the pencil of a book with unsaved edits, and the warning triangle.
 private struct TitleCell: View {
     let row: BookRow
 
@@ -92,6 +92,7 @@ private struct TitleCell: View {
             Text(row.book.title)
                 .lineLimit(1)
                 .help(row.book.title)
+            EditedBadge(id: row.id)
             WarningBadge(row: row)
         }
         .accessibilityIdentifier("books.row.\(row.id)")

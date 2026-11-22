@@ -160,11 +160,15 @@ private struct BookGridCell: View {
                 .overlay(alignment: .bottomTrailing) {
                     AudibleCoverLabel(row: row)
                 }
-            Text(row.book.title)
-                .font(.callout.weight(.medium))
-                .lineLimit(2, reservesSpace: true)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(row.book.title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                EditedBadge(id: row.id)
+                    .font(.callout)
+            }
             Text(row.firstAuthorText)
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -180,8 +180,40 @@ struct InspectorPane<Content: View>: View {
             .padding(InspectorMetrics.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Above everything, and not scrolled away: it stays in sight while it is true.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            InspectorEditedLabel()
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             InspectorActions(offersLookUp: offersLookUp)
+        }
+    }
+}
+
+/// The colour of everything that says "there are edits not yet saved".
+enum EditedMark {
+    static let tint = Color.orange
+}
+
+/// A pencil and a few words across the top of the inspector while there are edits not
+/// yet saved; nothing when there are none.
+private struct InspectorEditedLabel: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if let text = model.inspectorEditedText {
+            Label(text, systemImage: "pencil.circle.fill")
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(EditedMark.tint)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, InspectorMetrics.padding)
+                .padding(.vertical, 6)
+                .background(.bar)
+                .overlay(alignment: .bottom) {
+                    Divider()
+                }
+                .accessibilityIdentifier("inspector.edited")
         }
     }
 }
@@ -480,6 +512,8 @@ struct InspectorActions: View {
                 Task { await model.save() }
             }
             .buttonStyle(.borderedProminent)
+            // The one thing left to do while the inspector says "not saved".
+            .tint(model.inspectorEditedText == nil ? nil : EditedMark.tint)
             .fixedSize()
             .disabled(!model.canSave)
             .accessibilityIdentifier("inspector.save")

@@ -38,6 +38,27 @@ extension AppModel {
         draftCover != .none
     }
 
+    /// N11: the books that have edits not yet saved: the inspected book, or every book of
+    /// the selection whose shared fields were changed. Empty when there is nothing to save.
+    public var editedBookIds: Set<Int64> {
+        switch inspecting {
+        case .nothing: []
+        case .one(let detail, let draft): draft.isDirty ? [detail.row.id] : []
+        case .many(let draft): draft.isDirty ? Set(draft.books.compactMap(\.id)) : []
+        }
+    }
+
+    static let editedText = "Edited · not saved"
+
+    /// N11: what the inspector says at its top while there are edits not yet saved; nil
+    /// when there are none.
+    public var inspectorEditedText: String? {
+        hasUnsavedChanges ? Self.editedText : nil
+    }
+
+    /// N11: what the mark beside an edited book's title says when the pointer rests on it.
+    public var editedBadgeHelp: String { "Has unsaved changes" }
+
     /// N8: what a bulk field is given when its text is typed.
     public func setBulkText(_ text: String, for field: BulkField) {
         updateBulkDraft { $0.setText(text, for: field) }
