@@ -4,13 +4,16 @@ import VoxCarrelAppCore
 /// V5: the sheets, alerts and questions the model asks the window to show.
 ///
 /// One sheet at a time, in this order: progress, the import review, a result, and
-/// the launch check.
+/// the launch check. Which is up is `SheetPresentation`'s to say: a sheet of another
+/// kind is shown only when the one that is up has closed, so each has a sheet window
+/// of its own, at its own size.
 struct Dialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     /// Set a moment after an operation starts, so a short one shows no sheet at all.
     @State private var progressDue = false
+    @State private var sheets = SheetPresentation<ActiveSheet>()
 
-    private enum ActiveSheet: Identifiable {
+    private enum ActiveSheet: Identifiable, Equatable {
         case progress(String)
         case review(ImportReview)
         case result(ResultSummary)
@@ -26,7 +29,8 @@ struct Dialogs: ViewModifier {
         }
     }
 
-    private var sheet: ActiveSheet? {
+    /// The sheet the model wants shown now.
+    private var wanted: ActiveSheet? {
         if progressDue, let label = model.busyLabel { return .progress(label) }
         if let review = model.review { return .review(review) }
         if let result = model.result { return .result(result) }
@@ -44,9 +48,15 @@ struct Dialogs: ViewModifier {
                 try? await Task.sleep(for: .milliseconds(400))
                 if !Task.isCancelled { progressDue = true }
             }
+            .onChange(of: wanted, initial: true) {
+                sheets.want(wanted)
+            }
             // The model closes each sheet itself; nothing else can.
-            .sheet(item: Binding(get: { sheet }, set: { _ in })) { sheet in
-                switch sheet {
+            .sheet(item: Binding(get: { sheets.presented }, set: { _ in })) {
+                sheets.didDismiss(wanted: wanted)
+            } content: { presented in
+                // What the model has for this sheet now; what it last had, while the sheet closes.
+                switch wanted?.id == presented.id ? wanted ?? presented : presented {
                 case .progress(let label):
                     ProgressSheet(label: label)
                 case .review(let review):
@@ -60,8 +70,8 @@ struct Dialogs: ViewModifier {
                         .modifier(Questions(isActive: true))
                 }
             }
-            // While a sheet is up, the sheet shows them.
-            .modifier(Questions(isActive: sheet == nil))
+            // While a sheet is up, or about to be, the sheet shows them.
+            .modifier(Questions(isActive: sheets.isIdle && wanted == nil))
     }
 }
 
