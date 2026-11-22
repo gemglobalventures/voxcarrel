@@ -344,6 +344,10 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     /// found when the file was last read. Nil for a file with nothing wrong, and for one
     /// that has not been measured.
     public var lengthProblem: LengthProblem? = nil
+    /// Set for an MP3 whose length had to be measured and could not be, as found when the
+    /// file was last read: the length counted for it is the one it states. It holds for
+    /// the file as it was then (`UnmeasuredLength.describes`).
+    public var lengthUnmeasured: UnmeasuredLength? = nil
 
     public init(path: String, format: FileFormat, role: FileRole, position: Int) {
         self.id = nil
@@ -369,6 +373,7 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
         // A value this code cannot read counts as none: it must never make the file's
         // row, or an undo snapshot holding it, unreadable.
         lengthProblem = (try? c.decodeIfPresent(LengthProblem.self, forKey: .lengthProblem)) ?? nil
+        lengthUnmeasured = (try? c.decodeIfPresent(UnmeasuredLength.self, forKey: .lengthUnmeasured)) ?? nil
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

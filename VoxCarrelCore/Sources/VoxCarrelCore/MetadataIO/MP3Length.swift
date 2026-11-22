@@ -34,9 +34,10 @@ enum MP3Length {
     /// Two lengths are stated: the one the tag library reads (`statedSeconds`) and the
     /// one the header's own frame count amounts to. They differ when the tag library
     /// sets a header aside that other players go by.
-    static func needsScan(statedSeconds: Double, opening: MP3FrameScan.Opening) -> Bool {
+    /// - Parameter statedSeconds: Nil to judge by the header alone, without the tag library.
+    static func needsScan(statedSeconds: Double?, opening: MP3FrameScan.Opening) -> Bool {
         let audioBytes = opening.audioBytes
-        if !isPlausible(seconds: statedSeconds, audioBytes: audioBytes) { return true }
+        if let statedSeconds, !isPlausible(seconds: statedSeconds, audioBytes: audioBytes) { return true }
         if let seconds = opening.headerSeconds, !isPlausible(seconds: seconds, audioBytes: audioBytes) { return true }
         if let stated = opening.vbrHeader.statedBytes, stated > 0 {
             let difference = abs(Double(stated) - Double(audioBytes))
@@ -57,25 +58,34 @@ enum MP3Length {
         abs(stated - measured) > max(1, measured * 0.01)
     }
 
+    /// What `resolve` found.
+    struct Resolved: Equatable {
+        var seconds: Double
+        var problem: LengthProblem?
+        /// The frames had to be counted and could not be: `seconds` is the stated length.
+        var couldNotBeMeasured = false
+    }
+
     /// The file's length, and what is wrong with its header if it states another.
     ///
     /// A healthy file costs a few small reads: at its start, its end, and a few places in
     /// between. A file that cannot be measured (free format, or sync lost) keeps its
-    /// stated length and reports no problem.
-    static func resolve(_ url: URL, statedSeconds: Double, scan: Scan) -> (seconds: Double, problem: LengthProblem?) {
-        guard let opening = try? MP3FrameScan.open(url), needsScan(statedSeconds: statedSeconds, opening: opening),
-              let measured = try? scan(url)
-        else { return (statedSeconds, nil) }
+    /// stated length and reports no problem, but says that it could not be measured.
+    static func resolve(_ url: URL, statedSeconds: Double, scan: Scan) -> Resolved {
+        guard let opening = try? MP3FrameScan.open(url), needsScan(statedSeconds: statedSeconds, opening: opening)
+        else { return Resolved(seconds: statedSeconds) }
+        guard let measured = try? scan(url) else {
+            return Resolved(seconds: statedSeconds, couldNotBeMeasured: true)
+        }
         let trueSeconds = measured.durationSeconds
         // What the header says comes first: it is what a player that stops early goes by.
         let wrong = [opening.headerSeconds, statedSeconds].compactMap { $0 }
             .first { differs(stated: $0, measured: trueSeconds) }
-        guard let wrong else { return (trueSeconds, nil) }
-        return (
-            trueSeconds,
-            LengthProblem(
+        guard let wrong else { return Resolved(seconds: trueSeconds) }
+        return Resolved(
+            seconds: trueSeconds,
+            problem: LengthProblem(
                 statedSeconds: wrong, trueSeconds: trueSeconds,
-                repairable: measured.vbrHeader.xing?.hasRoomForRepair == true)
-        )
+                repairable: measured.vbrHeader.xing?.hasRoomForRepair == true))
     }
 }

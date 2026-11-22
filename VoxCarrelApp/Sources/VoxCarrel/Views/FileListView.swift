@@ -90,6 +90,14 @@ private struct FileItem: View {
                     .textSelection(.enabled)
                     .accessibilityIdentifier("inspector.file.\(file.id).lengthProblem")
             }
+            if let note = file.lengthUnmeasuredText {
+                Label(note, systemImage: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("inspector.file.\(file.id).lengthUnmeasured")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

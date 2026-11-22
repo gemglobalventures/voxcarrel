@@ -127,16 +127,15 @@ enum AudioTagIO {
             (t.series, t.seriesNumber) = parseGrouping(grouping)
         }
         t.durationSeconds = snap.durationSeconds
-        var lengthProblem: LengthProblem?
+        var length = MP3Length.Resolved(seconds: snap.durationSeconds)
         if raw.kind == .mp3 {
-            let length = MP3Length.resolve(url, statedSeconds: snap.durationSeconds, scan: scan)
+            length = MP3Length.resolve(url, statedSeconds: snap.durationSeconds, scan: scan)
             t.durationSeconds = length.seconds
-            lengthProblem = length.problem
         }
         return FileContents(
             metadata: t, cover: snap.coverData.map(CoverImage.stored),
             chapters: snap.chapters.map { Chapter(start: $0.startSeconds, title: $0.title) },
-            lengthProblem: lengthProblem)
+            lengthProblem: length.problem, lengthCouldNotBeMeasured: length.couldNotBeMeasured)
     }
 
     /// The file's own track title and track number, exactly as its tags give them.

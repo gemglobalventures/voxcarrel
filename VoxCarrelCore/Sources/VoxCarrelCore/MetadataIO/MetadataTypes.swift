@@ -75,6 +75,39 @@ public struct LengthProblem: Codable, Equatable, Sendable {
     }
 }
 
+/// An MP3 whose length could not be measured although something about it called for it:
+/// the length it is taken to have is the one its own header states, which may be wrong.
+/// Recorded with the size and date of the file as it was then, so that the same file is
+/// not measured again to no purpose.
+public struct UnmeasuredLength: Codable, Equatable, Sendable {
+    /// The file's size in bytes when it could not be measured.
+    public var size: Int64
+    /// When the file was last modified, in seconds since the reference date.
+    public var modified: Double
+    /// The length the file states, which is the one counted for it.
+    public var statedSeconds: Double
+
+    public init(size: Int64, modified: Double, statedSeconds: Double) {
+        self.size = size
+        self.modified = modified
+        self.statedSeconds = statedSeconds
+    }
+
+    /// For the file at `url` as it is now; nil when it cannot be looked at.
+    public init?(fileAt url: URL, statedSeconds: Double) {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? Int64, let date = attributes[.modificationDate] as? Date
+        else { return nil }
+        self.init(size: size, modified: date.timeIntervalSinceReferenceDate, statedSeconds: statedSeconds)
+    }
+
+    /// Whether the file at `url` is still the one that could not be measured.
+    public func describes(fileAt url: URL) -> Bool {
+        guard let now = UnmeasuredLength(fileAt: url, statedSeconds: statedSeconds) else { return false }
+        return now.size == size && abs(now.modified - modified) < 0.001
+    }
+}
+
 /// Everything read from one file.
 public struct FileContents: Equatable, Sendable {
     /// `durationSeconds` is set for audio and `pageCount` for PDFs. For an MP3 whose
@@ -84,15 +117,19 @@ public struct FileContents: Equatable, Sendable {
     public var chapters: [Chapter]
     /// Set for an MP3 that states a length it does not have.
     public var lengthProblem: LengthProblem?
+    /// True for an MP3 whose frames had to be counted and could not be: its length is
+    /// then the one it states, with nothing to check it against.
+    public var lengthCouldNotBeMeasured: Bool
 
     public init(
         metadata: BookMetadata = BookMetadata(), cover: CoverImage? = nil, chapters: [Chapter] = [],
-        lengthProblem: LengthProblem? = nil
+        lengthProblem: LengthProblem? = nil, lengthCouldNotBeMeasured: Bool = false
     ) {
         self.metadata = metadata
         self.cover = cover
         self.chapters = chapters
         self.lengthProblem = lengthProblem
+        self.lengthCouldNotBeMeasured = lengthCouldNotBeMeasured
     }
 }
 

@@ -60,12 +60,20 @@ struct LibraryCheckSheet: View {
                 }
             }
 
-            if let corrected = summary.correctedLengths {
+            if summary.correctedLengths != nil || summary.wrongLengthFiles != nil {
                 Divider()
+            }
+            if let corrected = summary.correctedLengths {
                 Label(corrected, systemImage: "clock.arrow.circlepath")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("check.correctedLengths")
+            }
+            if let wrong = summary.wrongLengthFiles {
+                Label(wrong, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("check.wrongLengthFiles")
             }
 
             HStack {

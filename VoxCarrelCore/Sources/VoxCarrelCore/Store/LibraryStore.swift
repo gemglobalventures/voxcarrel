@@ -125,6 +125,16 @@ public final class LibraryStore: Sendable {
                 t.add(column: "lengthProblem", .text)
             }
         }
+        migrator.registerMigration("v6") { db in
+            try db.alter(table: "bookFile") { t in
+                t.add(column: "lengthUnmeasured", .text)
+            }
+            // Facts about the library as a whole: what has been done to it once.
+            try db.create(table: "libraryNote") { t in
+                t.primaryKey("key", .text)
+                t.column("value", .text).notNull()
+            }
+        }
         return migrator
     }
 
@@ -219,19 +229,43 @@ public final class LibraryStore: Sendable {
 
     /// Records what measuring a book's audio files found: the book's length (nil leaves
     /// the recorded one), and for each file row named what is wrong with its length
-    /// header (nil for nothing). One transaction; no other column is touched, and the
+    /// header (nil for nothing) and whether it could not be measured (nil for "it could",
+    /// or "it did not need to be"). One transaction; no other column is touched, and the
     /// rows keep their ids.
     public func setMeasuredLength(
-        bookId: Int64, durationSeconds: Double?, lengthProblems: [Int64: LengthProblem?]
+        bookId: Int64, durationSeconds: Double?, lengthProblems: [Int64: LengthProblem?],
+        unmeasured: [Int64: UnmeasuredLength?] = [:]
     ) throws {
         try dbQueue.write { db in
             if let durationSeconds {
                 try Book.filter(key: bookId).updateAll(db, Column("durationSeconds").set(to: durationSeconds))
             }
-            for (fileId, problem) in lengthProblems {
+            for fileId in Set(lengthProblems.keys).union(unmeasured.keys) {
                 guard var file = try BookFile.fetchOne(db, key: fileId), file.bookId == bookId else { continue }
-                file.lengthProblem = problem
+                if let problem = lengthProblems[fileId] { file.lengthProblem = problem }
+                if let state = unmeasured[fileId] { file.lengthUnmeasured = state }
                 try file.update(db)
+            }
+        }
+    }
+
+    /// A fact recorded about the library as a whole, or nil when it has not been.
+    public func note(_ key: String) throws -> String? {
+        try dbQueue.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM libraryNote WHERE key = ?", arguments: [key])
+        }
+    }
+
+    /// Records a fact about the library as a whole; nil forgets it.
+    public func setNote(_ key: String, to value: String?) throws {
+        try dbQueue.write { db in
+            if let value {
+                try db.execute(
+                    sql: "INSERT INTO libraryNote (key, value) VALUES (?, ?) "
+                        + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    arguments: [key, value])
+            } else {
+                try db.execute(sql: "DELETE FROM libraryNote WHERE key = ?", arguments: [key])
             }
         }
     }

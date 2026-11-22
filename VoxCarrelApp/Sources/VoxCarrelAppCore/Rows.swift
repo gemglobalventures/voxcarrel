@@ -87,6 +87,12 @@ public struct FileRow: Identifiable, Equatable, Sendable {
         file.lengthProblem.map(LengthText.problem)
     }
 
+    /// Said when the file's length could not be measured, so nothing is known to be
+    /// wrong with its header and there is nothing to repair; nil otherwise.
+    public var lengthUnmeasuredText: String? {
+        file.lengthProblem == nil && file.lengthUnmeasured != nil ? LengthText.unmeasured : nil
+    }
+
     /// The roles `LibraryService.setRole` accepts for a format: an audio format is always
     /// audio; every ebook format is an ebook or an extra.
     public static func allowedRoles(for format: FileFormat) -> [FileRole] {

@@ -34,6 +34,9 @@ public struct LibraryCheckSummary: Equatable, Sendable {
     /// A line saying how many books had their length corrected, because their files
     /// stated the wrong one; nil when none had.
     public var correctedLengths: String?
+    /// A line saying how many files the check found to state the wrong length; nil when
+    /// it found none.
+    public var wrongLengthFiles: String?
 }
 
 extension AppModel {
@@ -82,8 +85,17 @@ extension AppModel {
                 : "The length of \(check.correctedLengths) books was corrected: their files stated the wrong length."
         }
 
+        if check.filesWithWrongLength > 0 {
+            summary.intro = LibraryCheckSummary.noFileChanged
+            summary.wrongLengthFiles =
+                (check.filesWithWrongLength == 1
+                    ? "1 file was found to state the wrong length. Its book is"
+                    : "\(check.filesWithWrongLength) files were found to state the wrong length. Their books are")
+                + " marked with a warning, and the inspector says what is wrong and whether it can be repaired."
+        }
+
         let isEmpty = summary.missing == nil && summary.untracked == nil && summary.stranded == nil
-            && summary.correctedLengths == nil
+            && summary.correctedLengths == nil && summary.wrongLengthFiles == nil
         return isEmpty ? nil : summary
     }
 

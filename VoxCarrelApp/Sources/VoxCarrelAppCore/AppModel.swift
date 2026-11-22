@@ -226,14 +226,16 @@ public final class AppModel {
         do {
             let report = try await worker.reconcile()
             // The check flags books with missing files and clears the flag of books that are whole
-            // again, and corrects the length of books whose files stated the wrong one.
+            // again, corrects the length of books whose files stated the wrong one, and marks
+            // files it finds to state the wrong length.
             if !report.booksWithMissingFiles.isEmpty || !report.booksRecovered.isEmpty
-                || report.correctedLengths > 0 {
+                || report.correctedLengths > 0 || report.filesWithWrongLength > 0 {
                 await reloadAll()
             }
             // A2
             let worthTelling = !report.booksWithMissingFiles.isEmpty || !report.untrackedFiles.isEmpty
                 || !report.strandedFiles.isEmpty || report.correctedLengths > 0
+                || report.filesWithWrongLength > 0
             if !report.booksWithMissingFiles.isEmpty {
                 // Q10: named now, so that the check can list them whatever the window shows later.
                 let missing = Set(report.booksWithMissingFiles)

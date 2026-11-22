@@ -161,6 +161,8 @@ extension LibraryService {
             updated.appOnlyFields = fields
         }
         updated.metadata = metadata
+        // The length is not editable, but what the files were just read to hold counts.
+        if writesTags { updated.durationSeconds = Self.remeasuredDuration(files, recorded: book.durationSeconds) }
         Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)
         updated.tags = edit.tags
         updated.rating = edit.rating

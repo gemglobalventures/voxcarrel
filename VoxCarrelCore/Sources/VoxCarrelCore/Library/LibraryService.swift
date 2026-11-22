@@ -29,6 +29,10 @@ public final class LibraryService {
     /// Test seam: called with each file the launch check opens to measure its length.
     var willMeasure: ((URL) -> Void)?
 
+    /// Test seam: called with the file, and the number of bytes, of each read the
+    /// launch check makes when it only looks at an MP3's length header.
+    var didReadHeader: ((URL, Int) -> Void)?
+
     /// Test seam: how `removeBook` sends one file to the Trash.
     var trashItem: (URL) throws -> Void = { _ = try LibraryService.moveToSystemTrash($0) }
 
@@ -219,6 +223,16 @@ public final class LibraryService {
             row.writeProblem = file.writeProblem
             row.originalName = file.originalName
             row.lengthProblem = file.role == .audio ? file.lengthProblem : nil
+            if file.role == .audio {
+                if let before = file.before {
+                    // As just read, and for the file as the operation leaves it.
+                    row.lengthUnmeasured = before.lengthCouldNotBeMeasured
+                        ? UnmeasuredLength(fileAt: file.url, statedSeconds: before.metadata.durationSeconds ?? 0)
+                        : nil
+                } else {
+                    row.lengthUnmeasured = file.existing?.lengthUnmeasured
+                }
+            }
             return row
         }
     }
@@ -227,6 +241,20 @@ public final class LibraryService {
     static func totalDuration(_ files: [WorkingFile]) -> Double? {
         let durations = files.filter { $0.role == .audio }.compactMap { $0.before?.metadata.durationSeconds }
         return durations.isEmpty ? nil : durations.reduce(0, +)
+    }
+
+    /// The length of a book whose files an operation has read, when a length header is
+    /// involved: one of its audio files is recorded as stating the wrong length, or was
+    /// just read as stating it. The length is then the sum of what was read, so that it
+    /// can never stay the one a wrong header gave. Otherwise, and when not every audio
+    /// file could be read (a sum over some of the parts would be wrong), `recorded`.
+    static func remeasuredDuration(_ files: [WorkingFile], recorded: Double?) -> Double? {
+        let audio = files.filter { $0.role == .audio }
+        guard audio.contains(where: { $0.lengthProblem != nil || $0.existing?.lengthProblem != nil }),
+              audio.allSatisfy({ $0.before?.metadata.durationSeconds != nil }),
+              let total = totalDuration(files)
+        else { return recorded }
+        return total
     }
 
     /// The first cover found in the files as read: audio files first, then ebooks.

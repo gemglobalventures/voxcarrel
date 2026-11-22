@@ -160,7 +160,7 @@ extension LibraryFixture {
 
         let report = try f.service.reconcile()
 
-        #expect(report == ReconcileReport(correctedLengths: 1))
+        #expect(report == ReconcileReport(correctedLengths: 1, filesWithWrongLength: 3))
         let book = try #require(try f.store.book(id: id))
         #expect(abs(try #require(book.durationSeconds) - 3 * Self.trueSeconds) < 0.01)
         #expect(!book.needsAttention)

@@ -59,8 +59,9 @@ extension LibraryService {
     ///
     /// Works in this order: the files are moved back, all or nothing; the tags inside
     /// them are put back, and the length headers a repair rewrote; the database is
-    /// restored in one transaction; and last the stored covers are put back and the undo
-    /// data deleted.
+    /// restored in one transaction; the restored books' lengths are checked against
+    /// their files (`checkLengths`); and last the stored covers are put back and the
+    /// undo data deleted.
     ///
     /// A copy the operation made is deleted only while the original still exists;
     /// otherwise it is moved to where the original was.
@@ -150,9 +151,10 @@ extension LibraryService {
                     before.needsAttention = true
                 }
                 let files = book.filesBefore.map { row -> BookFile in
-                    guard stillRepaired.contains(store.url(for: row).path) else { return row }
                     var row = row
-                    row.lengthProblem = nil
+                    // It holds for the file as it was then, and is found again if need be.
+                    row.lengthUnmeasured = nil
+                    if stillRepaired.contains(store.url(for: row).path) { row.lengthProblem = nil }
                     return row
                 }
                 var write = LibraryChange.BookWrite(book: before, files: files)
@@ -164,6 +166,17 @@ extension LibraryService {
         }
         try beforeCommit?()
         try store.apply(change)
+
+        // What has been learnt since about the length of the restored books' files, and
+        // the correction made of a length a wrong header gave, must not go back with the
+        // rest: the books are checked again as the launch check would, headers included.
+        for book in snapshot?.books ?? [] where book.bookBefore != nil {
+            guard let restored = try? store.book(id: book.bookId),
+                  let rows = try? store.files(bookId: book.bookId),
+                  rows.allSatisfy({ FileManager.default.fileExists(atPath: store.url(for: $0).path) })
+            else { continue }
+            _ = try? checkLengths(of: restored, files: rows, lookingAtHeaders: true)
+        }
 
         // U6: the database is restored; what is left cannot fail the undo.
         if let snapshot {

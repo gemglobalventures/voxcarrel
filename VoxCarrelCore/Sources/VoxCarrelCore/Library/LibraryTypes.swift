@@ -98,12 +98,17 @@ public struct ReconcileReport: Equatable, Sendable {
     /// Books whose recorded length was wrong because an MP3 of theirs states the wrong
     /// length, now corrected to the measured one.
     public var correctedLengths: Int
+    /// MP3 files found, by this check, to state a length they do not have: they were not
+    /// recorded as such before.
+    public var filesWithWrongLength: Int
 
     public init(
         booksWithMissingFiles: [Int64] = [], booksRecovered: [Int64] = [], untrackedFiles: [URL] = [],
-        removedWorkingCopies: Int = 0, strandedFiles: [URL] = [], correctedLengths: Int = 0
+        removedWorkingCopies: Int = 0, strandedFiles: [URL] = [], correctedLengths: Int = 0,
+        filesWithWrongLength: Int = 0
     ) {
         self.correctedLengths = correctedLengths
+        self.filesWithWrongLength = filesWithWrongLength
         self.booksWithMissingFiles = booksWithMissingFiles
         self.booksRecovered = booksRecovered
         self.untrackedFiles = untrackedFiles

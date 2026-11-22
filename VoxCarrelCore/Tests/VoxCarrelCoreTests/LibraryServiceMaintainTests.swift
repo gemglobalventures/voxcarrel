@@ -576,6 +576,8 @@ import VoxCarrelFixtures
         var edit = BookEdit(book: try #require(try f.store.book(id: filed)))
         edit.metadata.authors = []
         _ = try f.service.save([edit])  // filed, but no longer fileable
+        // A library notes, the first time, that its MP3 headers have been looked at.
+        _ = try f.service.reconcile()
         let changes = try totalChanges(f)
 
         let report = try f.service.reconcile()
@@ -700,6 +702,10 @@ import VoxCarrelFixtures
         let batch = try f.store.lastBatch()
         let tree = f.libraryTree()
         let hidden = f.hiddenTree()
+        // The first check of a library notes that its MP3 headers have been looked at:
+        // that, once, is all it writes.
+        #expect(try f.service.reconcile() == ReconcileReport())
+        #expect(try f.store.note(LibraryService.lengthHeadersNote) != nil)
         let changes = try totalChanges(f)
 
         let report = try f.service.reconcile()

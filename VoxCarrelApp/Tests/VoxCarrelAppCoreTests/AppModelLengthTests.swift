@@ -73,7 +73,36 @@ import VoxCarrelFixtures
                 + "This kind of header cannot be repaired here.")
     }
 
+    @Test func aHeaderThatStatesTooMuchIsNotSaidToStopPlayersEarly() {
+        let long = LengthProblem(statedSeconds: 3 * 3600, trueSeconds: 45 * 60, repairable: true)
+        #expect(
+            LengthText.problem(long)
+                == "Length header is wrong: the file says 3h 0m but holds 45m. Some players will show the wrong length.")
+    }
+
     // MARK: What is shown
+
+    // More bytes that are not audio lie among the frames than a measurement tolerates.
+    @Test func aFileThatCouldNotBeMeasuredSaysSoAndOffersNoRepair() async throws {
+        let junk = Data(repeating: 0x55, count: 64 * 1024 + 1)
+        let odd = Options(seconds: 30, statedFrames: 100, statedBytes: 41_700, junk: (afterFrame: 1000, bytes: junk))
+        let (h, id) = try library([odd, Options(seconds: 30)])
+        await h.model.start()
+
+        let row = try #require(h.model.rows.first { $0.id == id })
+        #expect(row.lengthProblemFiles == 0)
+        #expect(row.repairableLengthFiles == 0)
+        #expect(h.model.libraryCheckSummary == nil)
+        try await h.select("Long Book")
+        let detail = try #require(h.detail)
+        #expect(!detail.showsRepairLength)
+        #expect(!h.model.selectionCommands.repairLengthHeaders)
+        #expect(detail.files.map(\.lengthProblemText) == [nil, nil])
+        #expect(detail.files.map(\.lengthUnmeasuredText) == [
+            "VoxCarrel could not measure this file's length; the length shown comes from the file's own header.",
+            nil,
+        ])
+    }
 
     @Test func aBookWithWrongHeadersShowsTheWarningWithoutNeedingAttention() async throws {
         let (h, id) = try library()
@@ -262,6 +291,10 @@ import VoxCarrelFixtures
 
         let summary = try #require(h.model.libraryCheckSummary)
         #expect(summary.correctedLengths == "The length of 1 book was corrected: its files stated the wrong length.")
+        #expect(
+            summary.wrongLengthFiles
+                == "2 files were found to state the wrong length. Their books are marked with a warning, "
+                + "and the inspector says what is wrong and whether it can be repaired.")
         #expect(summary.intro == "VoxCarrel looked over the library folder as it opened. No file has been changed.")
         #expect(summary.missing == nil)
         #expect(summary.untracked == nil)
@@ -287,6 +320,14 @@ import VoxCarrelFixtures
         #expect(
             h.model.libraryCheckSummary?.correctedLengths
                 == "The length of 2 books was corrected: their files stated the wrong length.")
+        h.model.libraryCheck = ReconcileReport(filesWithWrongLength: 1)
+        let found = try #require(h.model.libraryCheckSummary)
+        #expect(
+            found.wrongLengthFiles
+                == "1 file was found to state the wrong length. Its book is marked with a warning, "
+                + "and the inspector says what is wrong and whether it can be repaired.")
+        #expect(found.correctedLengths == nil)
+        #expect(found.intro == "VoxCarrel looked over the library folder as it opened. No file has been changed.")
         // With nothing corrected the line is not there, and the files are said to be untouched.
         h.model.libraryCheck = ReconcileReport(untrackedFiles: [h.root.appendingPathComponent("Stray.epub")])
         let summary = try #require(h.model.libraryCheckSummary)

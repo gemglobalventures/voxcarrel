@@ -156,12 +156,15 @@ extension LibraryService {
             var updated = book
             updated.appOnlyFields = keepingCoverMembership(
                 of: book, in: Self.appOnlyFields(files: files, hasStoredCover: false))
+            updated.durationSeconds = Self.remeasuredDuration(files, recorded: book.durationSeconds)
             let newRows = bookFiles(files)
 
             // Recorded only when a file was really changed or the database would be.
             let changed = files.contains { $0.state != nil }
                 || updated.appOnlyFields != book.appOnlyFields
+                || updated.durationSeconds != book.durationSeconds
                 || newRows.map(\.writeProblem) != rows.map(\.writeProblem)
+                || newRows.map(\.lengthProblem) != rows.map(\.lengthProblem)
             if changed {
                 operation.add(
                     .init(book: updated, files: newRows),
@@ -260,11 +263,14 @@ extension LibraryService {
 
     /// Checks the library folder against the database. Run at launch.
     ///
-    /// Looks only at names, sizes and whether files exist. No file is opened, except the
-    /// audio files of a book whose recorded length cannot be right for their size
-    /// (`correctLengths`). Records nothing in the journal, and changes no file other than
-    /// deleting working copies left by an interrupted tag write. Symbolic links are not
-    /// followed, and packages and hidden folders are not looked inside.
+    /// Looks only at names, sizes and whether files exist. No file is opened, except for
+    /// what `checkLengths` does: the audio files of a book whose recorded length cannot
+    /// be right for their size, or one of whose files is recorded as stating the wrong
+    /// length, are read; and once in the life of a library, a few small reads are made
+    /// of every MP3 to look at its length header. Records nothing in the journal, and
+    /// changes no file other than deleting working copies left by an interrupted tag
+    /// write. Symbolic links are not followed, and packages and hidden folders are not
+    /// looked inside.
     public func reconcile() throws -> ReconcileReport {
         var report = ReconcileReport()
         let fm = FileManager.default
@@ -294,11 +300,19 @@ extension LibraryService {
             try store.setNeedsAttention(flagging: newlyFlagged, clearing: recovered)
         }
 
-        // R7: lengths recorded from MP3 headers that state the wrong length.
+        // R7: lengths recorded from MP3 headers that state the wrong length. R8: once for
+        // a library, and for a book whose files have come back, every MP3's header is
+        // looked at. The library is only noted as looked over once every book has been,
+        // so a check that was cut short is simply made again.
+        let lookedOver = try store.note(Self.lengthHeadersNote) != nil
         for book in books {
             guard let id = book.id, !report.booksWithMissingFiles.contains(id) else { continue }
-            if try correctLength(of: book, files: rowsByBook[id] ?? []) { report.correctedLengths += 1 }
+            let found = try checkLengths(
+                of: book, files: rowsByBook[id] ?? [], lookingAtHeaders: !lookedOver || recovered.contains(id))
+            if found.corrected { report.correctedLengths += 1 }
+            report.filesWithWrongLength += found.newlyWrong
         }
+        if !lookedOver { try store.setNote(Self.lengthHeadersNote, to: "1") }
 
         // R3, R4: one pass over the folder, by name only.
         let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey, .isRegularFileKey, .isHiddenKey]
@@ -337,49 +351,110 @@ extension LibraryService {
         return report
     }
 
-    /// R7 for one book: when the length recorded for it cannot be right for the size of
-    /// its audio files, and it has MP3s, measures them and records the true length and
-    /// what is wrong with each file's length header.
-    ///
-    /// The length is changed only when one of the files does state a wrong length.
-    /// The candidates are picked from sizes alone, so a book with nothing wrong costs one
-    /// `stat` a file. A book that was picked and has nothing wrong after all (a short
-    /// file with a large picture in it) is read again at the next launch; its frames are
-    /// not counted. Nothing is recorded in the journal and the book is not flagged.
+    /// The note a library carries once the header of every MP3 in it has been looked at.
+    static let lengthHeadersNote = "lengthHeadersChecked"
+
+    /// What `checkLengths` did for one book.
+    struct LengthCheck: Equatable {
+        /// The book's recorded length was changed.
+        var corrected = false
+        /// Files that were not recorded as stating the wrong length, and now are.
+        var newlyWrong = 0
+    }
+
+    /// R7 for one book: as `checkLengths` without looking at headers.
     /// - Returns: Whether the book's recorded length was changed.
     func correctLength(of book: Book, files rows: [BookFile]) throws -> Bool {
+        try checkLengths(of: book, files: rows, lookingAtHeaders: false).corrected
+    }
+
+    /// R7 and R8 for one book that has MP3s. Its audio files are measured (read, and
+    /// their frames counted where the header calls for it) when one of these holds:
+    /// - the length recorded for the book cannot be right for the size of its audio files;
+    /// - one of its files is recorded as stating the wrong length (the total may then
+    ///   have been recorded before that was known);
+    /// - `lookingAtHeaders`, and the length header of one of its MP3s is suspect:
+    ///   implausible for the file's size, or at odds with the bitrate of the frames
+    ///   sampled across the file (`MP3Length.needsScan`). This look costs a few small
+    ///   reads a file and does not use the tag library.
+    ///
+    /// What is found wrong with each file's header is recorded, and the book's length is
+    /// changed only when one of the files does state a wrong length: a length recorded
+    /// by hand, or for files since replaced, is not this check's to change.
+    ///
+    /// The first two are judged from the database and file sizes alone, so a book with
+    /// nothing wrong costs one `stat` a file. Not every file is opened when the book is
+    /// measured: a file recorded as stating the wrong length counts for the length
+    /// recorded as measured, unless the book's length is implausible; and a file that
+    /// could not be measured before, and has not changed since, counts for the length
+    /// it states. A book that is picked and has nothing wrong after all (a short file
+    /// with a large picture in it) is read again at the next launch; no frames are
+    /// counted for it. Nothing is recorded in the journal and the book is not flagged.
+    func checkLengths(of book: Book, files rows: [BookFile], lookingAtHeaders: Bool) throws -> LengthCheck {
         let audio = rows.filter { $0.role == .audio }
-        guard let id = book.id, let recorded = book.durationSeconds, recorded > 0,
-              audio.contains(where: { $0.format == .mp3 })
-        else { return false }
+        guard let id = book.id, audio.contains(where: { $0.format == .mp3 }) else { return LengthCheck() }
         var bytes: UInt64 = 0
         for row in audio {
             let size = try? FileManager.default.attributesOfItem(atPath: store.url(for: row).path)[.size] as? UInt64
-            guard let size else { return false }
+            guard let size else { return LengthCheck() }
             bytes += size
         }
-        guard !MP3Length.isPlausible(seconds: recorded, audioBytes: bytes) else { return false }
+        let recorded = book.durationSeconds ?? 0
+        let implausible = recorded > 0 && !MP3Length.isPlausible(seconds: recorded, audioBytes: bytes)
+        let knownWrong = audio.contains { $0.lengthProblem != nil }
+        guard implausible || knownWrong || (lookingAtHeaders && hasSuspectHeader(audio)) else { return LengthCheck() }
 
         // As when files are added (A5): a sum over some of the parts would be wrong.
         var total = 0.0
         var anyWrong = false
+        var found = LengthCheck()
         var problems: [Int64: LengthProblem?] = [:]
+        var unmeasured: [Int64: UnmeasuredLength?] = [:]
         for row in audio {
-            willMeasure?(store.url(for: row))
-            guard let fileId = row.id, let contents = try? metadataIO.read(store.url(for: row)),
+            let url = store.url(for: row)
+            if !implausible, let problem = row.lengthProblem {
+                total += problem.trueSeconds
+                anyWrong = true
+                continue
+            }
+            if let state = row.lengthUnmeasured, state.describes(fileAt: url) {
+                total += state.statedSeconds
+                continue
+            }
+            willMeasure?(url)
+            guard let fileId = row.id, let contents = try? metadataIO.read(url),
                   let seconds = contents.metadata.durationSeconds
-            else { return false }
+            else { return LengthCheck() }
             total += seconds
             if contents.lengthProblem != nil { anyWrong = true }
-            if contents.lengthProblem != row.lengthProblem { problems[fileId] = contents.lengthProblem }
+            if contents.lengthProblem != row.lengthProblem {
+                problems[fileId] = contents.lengthProblem
+                if row.lengthProblem == nil { found.newlyWrong += 1 }
+            }
+            let state = contents.lengthCouldNotBeMeasured
+                ? UnmeasuredLength(fileAt: url, statedSeconds: seconds) : nil
+            if state != row.lengthUnmeasured { unmeasured[fileId] = state }
         }
-        // Only a length that a wrong header explains is corrected: one that was recorded
-        // by hand, or for files since replaced, is not this check's to change.
-        let corrected = anyWrong && abs(total - recorded) > 0.5
-        guard corrected || !problems.isEmpty else { return false }
+        found.corrected = anyWrong && abs(total - recorded) > 0.5
+        guard found.corrected || !problems.isEmpty || !unmeasured.isEmpty else { return LengthCheck() }
         try store.setMeasuredLength(
-            bookId: id, durationSeconds: corrected ? total : recorded, lengthProblems: problems)
-        return corrected
+            bookId: id, durationSeconds: found.corrected ? total : nil, lengthProblems: problems,
+            unmeasured: unmeasured)
+        return found
+    }
+
+    /// Whether the length header of one of these MP3s is suspect, from a few small reads
+    /// of each. Files already known to state the wrong length, and files that could not
+    /// be measured and have not changed, are not opened.
+    private func hasSuspectHeader(_ audio: [BookFile]) -> Bool {
+        audio.contains { row in
+            guard row.format == .mp3, row.lengthProblem == nil else { return false }
+            let url = store.url(for: row)
+            if let state = row.lengthUnmeasured, state.describes(fileAt: url) { return false }
+            let onRead = didReadHeader.map { seam in { (bytes: Int) in seam(url, bytes) } }
+            guard let opening = try? MP3FrameScan.open(url, onRead: onRead) else { return false }
+            return MP3Length.needsScan(statedSeconds: nil, opening: opening)
+        }
     }
 
     /// What the launch check finds for one book.

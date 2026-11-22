@@ -10,8 +10,9 @@ extension LibraryService {
     /// one is left exactly as it was and is listed in the book's outcome with the reason.
     /// A file whose header is of a kind that cannot be rewritten is listed too.
     ///
-    /// A repaired file has no length problem any more. The book's length is not changed:
-    /// it was the measured one already.
+    /// A repaired file has no length problem any more. The book's length is the sum of
+    /// the measured lengths of its audio files, as it normally was already; a length that
+    /// was recorded before a wrong header was known of is put right here.
     ///
     /// The outcome for a book lists the files that could not be repaired; an unknown id
     /// gives `.failed`. Nothing is recorded for undo when no file was changed.
@@ -20,7 +21,7 @@ extension LibraryService {
         var handled = Set<Int64>()
         var repairedFiles = 0
         // Rows to correct for books in which no file was changed: not an operation.
-        var corrections: [(bookId: Int64, problems: [Int64: LengthProblem?])] = []
+        var corrections: [(bookId: Int64, seconds: Double?, problems: [Int64: LengthProblem?])] = []
 
         enum Prepared {
             case failed(String)
@@ -75,20 +76,25 @@ extension LibraryService {
                 }
             }
 
+            var updated = book
+            if let total = measuredLength(of: rows), abs(total - (book.durationSeconds ?? 0)) > 0.5 {
+                updated.durationSeconds = total
+            }
             if !repairs.isEmpty {
                 operation.add(
-                    .init(book: book, files: newRows),
+                    .init(book: updated, files: newRows),
                     snapshot: BookSnapshot(
                         bookId: bookId, bookBefore: book, filesBefore: rows, fileStates: [],
                         storedCoverBefore: storedCoverBefore, headerRepairs: repairs),
                     storedCover: .keep, records: [])
                 repairedFiles += repairs.count
-            } else if newRows != rows {
+            } else if newRows != rows || updated.durationSeconds != book.durationSeconds {
                 var changed: [Int64: LengthProblem?] = [:]
                 for (old, new) in zip(rows, newRows) where old.lengthProblem != new.lengthProblem {
                     if let id = old.id { changed[id] = new.lengthProblem }
                 }
-                corrections.append((bookId, changed))
+                let seconds = updated.durationSeconds != book.durationSeconds ? updated.durationSeconds : nil
+                corrections.append((bookId, seconds, changed))
             }
             return .done(appOnlyFields: book.appOnlyFields, problems: problems)
         }
@@ -103,7 +109,8 @@ extension LibraryService {
         }
         for correction in corrections {
             try store.setMeasuredLength(
-                bookId: correction.bookId, durationSeconds: nil, lengthProblems: correction.problems)
+                bookId: correction.bookId, durationSeconds: correction.seconds,
+                lengthProblems: correction.problems)
         }
         return zip(bookIds, prepared).map { bookId, result in
             switch result {
@@ -113,5 +120,27 @@ extension LibraryService {
                 return .saved(bookId: bookId, refiled: false, appOnlyFields: Set(fields), fileProblems: problems)
             }
         }
+    }
+
+    /// The length of a book from its audio files as they were recorded before a repair:
+    /// a file recorded as stating the wrong length counts for the length measured then
+    /// (a repair does not change it), a file that could not be measured for the length
+    /// it states, and every other file is read. Nil when a file cannot be read: a sum
+    /// over some of the parts would be wrong.
+    private func measuredLength(of rows: [BookFile]) -> Double? {
+        var total = 0.0
+        for row in rows where row.role == .audio {
+            let url = store.url(for: row)
+            if let problem = row.lengthProblem {
+                total += problem.trueSeconds
+            } else if let state = row.lengthUnmeasured, state.describes(fileAt: url) {
+                total += state.statedSeconds
+            } else if let seconds = (try? metadataIO.read(url))?.metadata.durationSeconds {
+                total += seconds
+            } else {
+                return nil
+            }
+        }
+        return total
     }
 }

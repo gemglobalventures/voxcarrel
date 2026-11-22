@@ -18,12 +18,20 @@ public enum LengthText {
         return seconds < 59.5 ? "\(Int(seconds.rounded()))s" : text(seconds: seconds) ?? "0s"
     }
 
-    /// What is wrong with a file whose length header states the wrong length.
+    /// What is wrong with a file whose length header states the wrong length. A header
+    /// that states too little makes players stop early; one that states too much only
+    /// makes them show the wrong length.
     public static func problem(_ problem: LengthProblem) -> String {
+        let effect = problem.statedSeconds < problem.trueSeconds
+            ? "Some players will stop early." : "Some players will show the wrong length."
         let text = "Length header is wrong: the file says \(exact(seconds: problem.statedSeconds)) but holds "
-            + "\(exact(seconds: problem.trueSeconds)). Some players will stop early."
+            + "\(exact(seconds: problem.trueSeconds)). \(effect)"
         return problem.repairable ? text : text + " This kind of header cannot be repaired here."
     }
+
+    /// Said of a file whose length had to be measured and could not be.
+    public static let unmeasured =
+        "VoxCarrel could not measure this file's length; the length shown comes from the file's own header."
 }
 
 /// The day a book was added, as the list shows it.
