@@ -510,6 +510,28 @@ import VoxCarrelFixtures
         #expect(h.model.inboxNotices.isEmpty)
     }
 
+    /// WF15: the library has been moved into a watch folder since the folder was added: the folder
+    /// is not watched, Settings and the Inbox say why, and nothing in it is offered.
+    @Test func aFolderThatHasComeToOverlapTheLibrarySaysSo() async throws {
+        let (h, folder) = try await watching()
+        let moved = folder.appendingPathComponent("Library", isDirectory: true)
+        try FileManager.default.moveItem(at: h.root, to: moved)
+        try drop(Self.ebook, into: folder)
+
+        await h.model.chooseLibrary(moved)
+        await h.model.settle()
+        #expect(h.model.isLibraryOpen)
+        h.clock.now += 11
+        h.ticker.run(delay: 11)
+        await h.model.settle()
+
+        let said = "This folder overlaps your library, so it is not being watched."
+        #expect(h.model.watchFolderRows.map(\.note) == [said])
+        #expect(h.model.inboxNotices == ["“\(folder.lastPathComponent)”: \(said)"])
+        #expect(h.model.inboxCount == 0)
+        #expect(h.model.showsInbox)
+    }
+
     /// WF15: a folder that is off says so, even when it is missing too.
     @Test func aFolderThatIsOffSaysOff() async throws {
         let (h, folder) = try await watching()

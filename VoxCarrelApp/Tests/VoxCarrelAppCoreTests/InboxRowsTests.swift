@@ -99,7 +99,9 @@ import VoxCarrelCore
         #expect(note(.missing) == "Folder not found. It will be watched again when it returns.")
         #expect(note(.notAllowed)
             == "VoxCarrel is not allowed to read this folder. Allow it in System Settings ▸ Privacy & Security ▸ Files and Folders.")
+        #expect(note(.overlapsLibrary) == "This folder overlaps your library, so it is not being watched.")
         #expect(note(.available, enabled: false) == "Off")
+        #expect(note(.overlapsLibrary, enabled: false) == "Off")
         // A folder that is off is not looked at: whatever was last known about it, it is Off.
         #expect(note(.missing, enabled: false) == "Off")
     }

@@ -55,6 +55,7 @@ public enum InboxText {
     public static let folderMissing = "Folder not found. It will be watched again when it returns."
     public static let folderNotAllowed =
         "VoxCarrel is not allowed to read this folder. Allow it in System Settings ▸ Privacy & Security ▸ Files and Folders."
+    public static let folderOverlapsLibrary = "This folder overlaps your library, so it is not being watched."
     public static let folderOff = "Off"
     public static let couldNotCheck = "The inbox could not be checked."
 
@@ -90,6 +91,7 @@ public enum InboxText {
         case .available: return nil
         case .missing: return folderMissing
         case .notAllowed: return folderNotAllowed
+        case .overlapsLibrary: return folderOverlapsLibrary
         }
     }
 

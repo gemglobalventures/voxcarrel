@@ -31,6 +31,9 @@ public enum FolderAvailability: Equatable, Sendable {
     case missing
     /// The folder is there and the system would not let it be read.
     case notAllowed
+    /// The folder is the library, inside it or around it (the library was moved since
+    /// the folder was added): it is not looked into.
+    case overlapsLibrary
 }
 
 /// What listing a watch folder found.

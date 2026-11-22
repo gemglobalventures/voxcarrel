@@ -250,6 +250,7 @@ import VoxCarrelFixtures
         #expect(!report.hasUnsettled)
         #expect(asked == 0)
         #expect(report.folders.map(\.folder.path) == [around.path])
+        #expect(report.folders.map(\.availability) == [.overlapsLibrary])
     }
 
     /// IB2, IB30: nor is anything offered from a watch folder that is now inside the
@@ -265,12 +266,22 @@ import VoxCarrelFixtures
             baseline: [ListedFile(url: inside.appendingPathComponent("never.m4b"), size: 1, modifiedAt: clock.now)]
         ) { _ in }
 
-        #expect(try settled(f, clock).arrivals.isEmpty)
+        let within = try settled(f, clock)
+        #expect(within.arrivals.isEmpty)
+        #expect(within.folders.map(\.availability) == [.overlapsLibrary])
         #expect(try entries(f, folder).count == 1)
+
+        // Turned off, it is not looked at, and nothing is said of it.
+        var off = folder
+        off.isEnabled = false
+        try f.service.updateWatchFolder(off)
+        #expect(try settled(f, clock).folders.map(\.availability) == [.available])
 
         try f.service.removeWatchFolder(id: folder.id)
         _ = try f.store.insertWatchFolder(path: root.path, addedAt: clock.now, baseline: []) { _ in }
-        #expect(try settled(f, clock).arrivals.isEmpty)
+        let same = try settled(f, clock)
+        #expect(same.arrivals.isEmpty)
+        #expect(same.folders.map(\.availability) == [.overlapsLibrary])
     }
 
     // MARK: IB30: slow disks and files still being copied

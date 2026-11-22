@@ -102,8 +102,12 @@ extension LibraryService {
         var listed: [(folder: WatchFolder, files: [ListedFile])] = []
         let library = LibraryLayout.canonicalFolder(layout.root).pathComponents
         for folder in try store.watchFolders() {
-            guard folder.isEnabled, Self.relation(of: folder.url.pathComponents, to: library) == .apart else {
+            guard folder.isEnabled else {
                 statuses.append(WatchFolderStatus(folder: folder, availability: .available))
+                continue
+            }
+            guard Self.relation(of: folder.url.pathComponents, to: library) == .apart else {
+                statuses.append(WatchFolderStatus(folder: folder, availability: .overlapsLibrary))
                 continue
             }
             let listing = listWatchFolder(folder.url, folder.includesPDFs)
