@@ -439,14 +439,15 @@ import VoxCarrelFixtures
         #expect(try f.service.reconcile() == ReconcileReport())
     }
 
-    // X9: a book that cannot be filed (no author) fails the item with a plain reason.
-    @Test func X9_aBookWithNoAuthorCannotTakeFiles() throws {
+    // X9: a book that cannot be filed (neither it nor its files name an author) fails the
+    // item with a plain reason.
+    @Test func X9_aBookWithNoAuthorAnywhereCannotTakeFiles() throws {
         let f = try F()
         let id = try addAudible(
             f, BookMetadata(title: "Typed Title"), cover: F.jpeg,
             copy: ExternalCopy(kind: .audible, form: .audio, store: "uk"))
         let before = try #require(try f.store.book(id: id))
-        let tags = F.meta("Typed Title", "File Author")
+        let tags = BookMetadata(title: "Typed Title")
         let audio = try f.makeM4B("typed.m4b", tags: tags, cover: F.png)
         let bytes = try f.bytes(audio)
 
@@ -470,6 +471,201 @@ import VoxCarrelFixtures
         #expect(try f.importedId(try importInto(f, id, [audio], tags: tags)) == id)
         #expect(exists(f.lib("Real Author/Typed Title/Typed Title.m4b")))
         #expect(try f.tags(f.lib("Real Author/Typed Title/Typed Title.m4b")).authors == ["Real Author"])
+    }
+
+    // X9: a book with no author takes its files' author, and is filed under it.
+    @Test func X9_aBookWithNoAuthorTakesItsFilesAuthor() throws {
+        let f = try F()
+        let id = try addAudible(
+            f, BookMetadata(title: "Typed Title"), cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "uk"))
+        let tags = F.meta("Another Name For It", "File Author")
+        let audio = try f.makeM4B("typed.m4b", tags: tags)
+
+        #expect(try f.importedId(try importInto(f, id, [audio], tags: tags)) == id)
+
+        let after = try #require(try f.store.book(id: id))
+        #expect(after.title == "Typed Title")
+        #expect(after.authors == ["File Author"])
+        #expect(after.folderPath == "File Author/Typed Title")
+        let filed = f.lib("File Author/Typed Title/Typed Title.m4b")
+        #expect(try f.tags(filed).title == "Typed Title")
+        #expect(try f.tags(filed).authors == ["File Author"])
+    }
+
+    // MARK: X9, nothing a file says is lost
+
+    static let byHand = ExternalCopy(kind: .audible, form: .audio, store: "uk")
+
+    /// What a well tagged file says of itself.
+    static func rich(_ title: String, _ author: String) -> BookMetadata {
+        var m = F.fullMeta(title, author)
+        m.asin = "B0RICHRICH"
+        return m
+    }
+
+    // X9: a book typed by hand (title and author only) is filled in from its files, and
+    // the files keep every tag they had.
+    @Test func X9_aBookTypedByHandIsFilledInFromItsFiles() throws {
+        let f = try F()
+        let id = try addAudible(f, F.meta("Rich Book", "Ann Author"), cover: nil, copy: Self.byHand)
+        let rich = Self.rich("Rich Book", "Ann Author")
+        let audio = try f.makeM4B("rich.m4b", tags: rich, cover: F.png, seconds: 2)
+        let ebook = try f.makeEPUB("rich.epub")
+        let ebookCover = try #require(try f.io.read(ebook).cover?.data)
+        let seconds = try duration(f, audio)
+        #expect(try f.service.existingMatch(for: f.candidate([audio, ebook], rich))?.id == id)
+
+        #expect(try f.importedId(try importInto(f, id, [audio, ebook], tags: rich)) == id)
+
+        let folder = "Ann Author/The Series/2 - Rich Book"
+        let after = try #require(try f.store.book(id: id))
+        // The entry now knows what its files knew.
+        #expect(details(after) == rich)
+        #expect(after.durationSeconds == seconds)
+        #expect(after.folderPath == folder)
+        #expect(after.externalCopies == [Self.byHand])
+        #expect(after.appOnlyFields.isEmpty)
+        // The audio file says all it said before.
+        let filedAudio = f.lib("\(folder)/Rich Book.m4b")
+        #expect(try f.tags(filedAudio) == rich)
+        #expect(try f.io.read(filedAudio).cover?.data == F.png.data)
+        // The ebook takes the book's title and author, is told what the audio knew, and keeps its cover.
+        let filedEbook = f.lib("\(folder)/Rich Book.epub")
+        let ebookTags = try f.tags(filedEbook)
+        #expect(ebookTags.title == "Rich Book")
+        #expect(ebookTags.authors == ["Ann Author"])
+        #expect(ebookTags.series == "The Series")
+        #expect(ebookTags.publisher == "Audible Studios")
+        #expect(try f.io.read(filedEbook).cover?.data == ebookCover)
+        // With no stored cover the book takes the first of the files'.
+        #expect(f.service.covers.image(for: id)?.data == F.png.data)
+        #expect(try f.service.reconcile() == ReconcileReport())
+    }
+
+    // X9: the book's own details win, and only what it lacks comes from the files.
+    @Test func X9_aCatalogueBookKeepsItsDetailsAndTakesWhatItLacks() throws {
+        let f = try F()
+        var catalogue = Self.catalogue("The Glass Tide", "Ines Calloway")
+        catalogue.isbn = nil
+        catalogue.genre = "   "
+        let id = try addAudible(f, catalogue)
+        var fileTags = Self.rich("glass tide rip", "Unknown Artist")
+        fileTags.narrators = ["Somebody Else"]
+        fileTags.genre = "Fantasy"
+        fileTags.isbn = "9780000000002"
+        fileTags.series = "Another Series"
+        fileTags.seriesNumber = "9"
+        let audio = try f.makeM4B("glass.m4b", tags: fileTags, cover: F.png)
+
+        #expect(try f.importedId(try importInto(f, id, [audio], tags: fileTags)) == id)
+
+        var expected = catalogue
+        expected.durationSeconds = nil
+        expected.genre = "Fantasy"
+        expected.isbn = "9780000000002"
+        let after = try #require(try f.store.book(id: id))
+        #expect(details(after) == expected)
+        #expect(after.asin == Self.asin)
+        #expect(after.narrators == ["Ray Porter"])
+        #expect(after.series == "The Series")
+        #expect(after.seriesNumber == "2")
+        let filed = f.lib("\(Self.glassFolder)/The Glass Tide.m4b")
+        #expect(try f.tags(filed) == expected)
+        // The book had a cover: that is the one in the file and in the app.
+        #expect(try f.io.read(filed).cover?.data == F.jpeg.data)
+        #expect(f.service.covers.image(for: id)?.data == F.jpeg.data)
+    }
+
+    // X9: a series number is only taken from a file that names the book's own series.
+    @Test func X9_aSeriesNumberComesOnlyWithItsSeries() throws {
+        let f = try F()
+        var typed = F.meta("Numbered", "Ann Author")
+        typed.series = "the series"
+        let id = try addAudible(f, typed, cover: nil, copy: Self.byHand)
+        var other = F.meta("Numbered", "Ann Author")
+        other.series = "Another Series"
+        other.seriesNumber = "9"
+        let first = try f.makeMP3("n/part1.mp3", tags: other)
+        let second = try f.makeMP3("n/part2.mp3", tags: Self.rich("Numbered", "Ann Author"))
+
+        #expect(try f.importedId(try importInto(f, id, [first, second], tags: other)) == id)
+
+        let after = try #require(try f.store.book(id: id))
+        #expect(after.series == "the series")
+        #expect(after.seriesNumber == "2")
+    }
+
+    // X9: undo gives the files back the tags and covers they had, and the entry the
+    // details it had.
+    @Test func X9_undoRestoresWhatTheFilesAndTheEntrySaid() throws {
+        let f = try F()
+        let id = try addAudible(f, F.meta("Rich Book", "Ann Author"), cover: F.jpeg, copy: Self.byHand)
+        let before = try #require(try f.store.book(id: id))
+        var said = Self.rich("rich book (rip)", "Unknown Artist")
+        said.narrators = ["File Narrator"]
+        let audio = try f.makeM4B("rich.m4b", tags: said, cover: F.png)
+        let ebook = try f.makeEPUB("rich.epub")
+        let ebookTags = try f.tags(ebook)
+        let ebookCover = try f.io.read(ebook).cover?.data
+
+        #expect(try f.importedId(try importInto(f, id, [audio, ebook], tags: said)) == id)
+        let enriched = try #require(try f.store.book(id: id))
+        #expect(enriched.narrators == ["File Narrator"])
+        #expect(enriched.title == "Rich Book")
+        let folder = try #require(enriched.folderPath)
+        #expect(try f.tags(f.lib("\(folder)/Rich Book.m4b")).authors == ["Ann Author"])
+        #expect(try f.io.read(f.lib("\(folder)/Rich Book.m4b")).cover?.data == F.jpeg.data)
+
+        try f.service.undoLast()
+
+        #expect(f.libraryTree().isEmpty)
+        #expect(f.inboxTree() == ["rich.epub", "rich.m4b"])
+        #expect(try f.tags(audio) == said)
+        #expect(try f.io.read(audio).cover?.data == F.png.data)
+        #expect(try f.tags(ebook) == ebookTags)
+        #expect(try f.io.read(ebook).cover?.data == ebookCover)
+        #expect(try f.store.book(id: id) == before)
+        #expect(try f.store.files(bookId: id).isEmpty)
+        #expect(f.service.covers.image(for: id)?.data == F.jpeg.data)
+    }
+
+    // X9: a book in several MP3 parts. What one part lacks another supplies (the first
+    // that has it), every part ends up saying the same, and undo puts each back.
+    @Test func X9_aBookInSeveralParts() throws {
+        let f = try F()
+        let id = try addAudible(f, F.meta("Long Book", "Ann Author"), cover: nil, copy: Self.byHand)
+        let before = try #require(try f.store.book(id: id))
+        var one = Self.rich("Long Book", "Ann Author")
+        one.year = nil
+        one.genre = nil
+        var two = Self.rich("Long Book", "Ann Author")
+        two.year = 1999
+        two.genre = "History"
+        two.narrators = ["Second Voice"]
+        let first = try f.makeMP3("long/part1.mp3", tags: one, seconds: 1)
+        let second = try f.makeMP3("long/part2.mp3", tags: two, seconds: 2)
+        let total = try duration(f, first) + duration(f, second)
+
+        #expect(try f.importedId(try importInto(f, id, [first, second], tags: one)) == id)
+
+        var expected = one
+        expected.year = 1999
+        expected.genre = "History"
+        let after = try #require(try f.store.book(id: id))
+        #expect(details(after) == expected)
+        #expect(after.durationSeconds == total)
+        let rows = try f.store.files(bookId: id)
+        #expect(rows.count == 2)
+        let urls = rows.map { f.store.url(for: $0) }
+        for url in urls { #expect(try f.tags(url) == expected) }
+        #expect(try urls.map { try f.track($0) } == ["1/2", "2/2"])
+
+        try f.service.undoLast()
+        #expect(try f.tags(first) == one)
+        #expect(try f.tags(second) == two)
+        #expect(try f.store.book(id: id) == before)
+        #expect(f.libraryTree().isEmpty)
     }
 
     // X9: all or nothing. A file that cannot be moved leaves the item exactly as it was.

@@ -345,15 +345,20 @@ extension LibraryService {
 
     /// The first files of a book that is in the library without any (one owned
     /// elsewhere). The book is filed exactly as a new book with its details would be,
-    /// by the same planner: its folder is made, the files are named, and the **book's**
-    /// details are written into them, with its stored cover where a file can hold one.
-    /// The item's own metadata and cover are not used, as for any book already in the
-    /// library. The book keeps its external copies and its stored cover; when it has no
-    /// stored cover the files keep theirs and the first of them becomes the book's.
+    /// by the same planner: its folder is made and the files are named.
     ///
-    /// All or nothing: if the book cannot be filed (no author, say) or a file cannot be
-    /// transferred, the item fails and nothing has moved. Undo takes the files back out
-    /// and leaves the book as the entry with no files it was.
+    /// Nothing a file says about the book is lost. The book's details are kept, and
+    /// each one it lacks is taken from the files (`filledIn`); the result is stored on
+    /// the book and written into every file, so no tag is ever replaced by nothing. The
+    /// item's own reviewed metadata and cover are not used, as for any book already in
+    /// the library. The book keeps its external copies. Its stored cover goes into the
+    /// files where they can hold one; when it has none the files keep theirs and the
+    /// first of them becomes the book's.
+    ///
+    /// All or nothing: if the book cannot be filed (neither it nor its files name an
+    /// author, say) or a file cannot be transferred, the item fails and nothing has
+    /// moved. Undo takes the files back out with the tags and covers they had, and
+    /// leaves the book as the entry with no files it was.
     private func prepareFirstFiles(
         _ item: ImportItem, book: Book, bookId: Int64, options: ImportOptions,
         into operation: inout PendingOperation
@@ -365,15 +370,19 @@ extension LibraryService {
             return .failed(Self.reason(for: error))
         }
 
+        // The book's details, with what it lacks taken from the files.
+        let details = Self.filledIn(book.metadata, from: files)
+
         let sources = item.candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
-        guard let plan = filingPlan(for: sources, metadata: book.metadata) else {
-            let title = book.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = title.isEmpty ? "That book" : "\"\(title)\""
-            let hasAuthor = !(book.authors.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard let plan = filingPlan(for: sources, metadata: details) else {
+            let title = details.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = title.isEmpty ? "That book" : "“\(title)”"
+            let hasAuthor = !(details.authors.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return .failed(
                 hasAuthor
                     ? "\(name) cannot be filed under its title and author, so files cannot be added to it yet"
-                    : "\(name) has no author, so its files cannot be filed: give it an author first")
+                    : "\(name) has no author, and neither have these files, so they cannot be filed: "
+                        + "give the book an author first")
         }
 
         // What undo needs is saved before anything moves, so a failure here leaves the
@@ -402,11 +411,16 @@ extension LibraryService {
         let parts = Self.partPositions(for: files.map(\.role))
         for index in files.indices {
             writeTags(
-                book.metadata, cover: cover, part: parts[index], to: &files[index],
+                details, cover: cover, part: parts[index], to: &files[index],
                 restorePart: parts[index], coverBefore: coversBefore[index])
         }
 
         var updated = book
+        // The facts about the files are not details: they are settled below.
+        var kept = details
+        kept.durationSeconds = book.durationSeconds
+        kept.pageCount = book.pageCount
+        updated.metadata = kept
         updated.folderPath = store.storedPath(for: plan.folder)
         // As A5: once there are audio files the length is theirs, when every one could
         // be read. Until then (and for ebooks alone) it stays as the book was added.
@@ -428,5 +442,53 @@ extension LibraryService {
                 storedCoverBefore: storedCoverBefore),
             storedCover: newCover.map { .set($0) } ?? .keep, records: records)
         return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
+    }
+
+    /// A book's details with each one it lacks taken from its files: the book's own
+    /// value wherever it has one, otherwise that of the first file, in filing order
+    /// (audio parts, then ebooks), that has one. Extras and files that could not be read
+    /// say nothing. The length and the page count are left as the book has them.
+    ///
+    /// A series and its number go together: a number is only taken from a file that
+    /// names the series the book ends up in.
+    static func filledIn(_ book: BookMetadata, from files: [WorkingFile]) -> BookMetadata {
+        let said = (files.filter { $0.role == .audio } + files.filter { $0.role == .ebook })
+            .compactMap { $0.before?.metadata }
+        func text(_ value: String?) -> String? {
+            let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : value
+        }
+        func names(_ value: [String]) -> [String]? {
+            value.contains { text($0) != nil } ? value : nil
+        }
+        func first<Value>(_ own: Value?, _ read: (BookMetadata) -> Value?) -> Value? {
+            own ?? said.lazy.compactMap(read).first
+        }
+        func same(_ a: String?, _ b: String?) -> Bool {
+            func key(_ value: String?) -> String {
+                (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            }
+            return key(a) == key(b)
+        }
+
+        var merged = book
+        merged.title = first(text(book.title)) { text($0.title) } ?? book.title
+        merged.subtitle = first(text(book.subtitle)) { text($0.subtitle) }
+        merged.authors = first(names(book.authors)) { names($0.authors) } ?? book.authors
+        merged.narrators = first(names(book.narrators)) { names($0.narrators) } ?? book.narrators
+        merged.series = first(text(book.series)) { text($0.series) }
+        if let series = merged.series {
+            merged.seriesNumber = first(text(book.seriesNumber)) {
+                same($0.series, series) ? text($0.seriesNumber) : nil
+            }
+        }
+        merged.genre = first(text(book.genre)) { text($0.genre) }
+        merged.year = first(book.year) { $0.year }
+        merged.publisher = first(text(book.publisher)) { text($0.publisher) }
+        merged.summary = first(text(book.summary)) { text($0.summary) }
+        merged.language = first(text(book.language)) { text($0.language) }
+        merged.isbn = first(text(book.isbn)) { text($0.isbn) }
+        merged.asin = first(text(book.asin)) { text($0.asin) }
+        return merged
     }
 }
