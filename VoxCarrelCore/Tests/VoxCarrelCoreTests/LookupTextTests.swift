@@ -51,7 +51,7 @@ import Testing
 
 @Suite struct LookupTextTests {
     // T2
-    @Test func T2_realAudibleSummaryBecomesParagraphs() throws {
+    @Test func T2_anAudibleSummaryBecomesParagraphs() throws {
         let json = try #require(try JSONSerialization.jsonObject(with: fixture("au-search")) as? [String: Any])
         let products = try #require(json["products"] as? [[String: Any]])
         let html = try #require(products[0]["publisher_summary"] as? String)
@@ -61,10 +61,14 @@ import Testing
         #expect(!text.contains("  "))
         #expect(!text.contains("\n\n\n"))
         let paragraphs = text.components(separatedBy: "\n\n")
-        #expect(paragraphs.count == 12)
-        #expect(paragraphs.first?.hasPrefix("A demonstration summary") == true)
-        #expect(paragraphs.contains("A placeholder sentence."))
-        #expect(paragraphs.last?.hasPrefix("PLEASE NOTE: To accommodate this audio edition") == true)
+        // The summary in the recorded answer is placeholder text in the shape Audible sends.
+        #expect(paragraphs == [
+            "A demonstration summary in bold italics for the tests.",
+            "A second line, set apart",
+            "This text stands in for a publisher's description. It is invented & says nothing about any real book.",
+            "The next paragraph has a line break here,\nthen carries on — with a numeric entity and some italics.",
+            "Note: none of this prose was written by a publisher.",
+        ])
         #expect(text == text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 

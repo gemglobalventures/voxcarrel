@@ -213,8 +213,16 @@ import Testing
         let after = try await OpenLibraryProvider(http: http).details(for: before)
         #expect(http.urls == [try #require(URL(string: "https://openlibrary.org/works/OL21745884W.json"))])
         let summary = try #require(after.metadata.summary)
-        #expect(summary.hasPrefix("A placeholder description"))
-        #expect(summary.hasSuffix("while taking us to places it never dreamed of going."))
+        // Placeholder text in the recorded answer: four paragraphs, Markdown emphasis and a source note.
+        #expect(summary == """
+        This text stands in for a description from Open Library–it is invented, and says nothing about any real book.
+
+        A second paragraph follows, as the descriptions there often run to several.
+
+        The third is one short line.
+
+        The last names Project Hail Mary and The Martian with Markdown emphasis, which is taken out.
+        """)
         #expect(summary.components(separatedBy: "\n\n").count == 4)
         #expect(!summary.contains("\r"))
         #expect(!after.hasMoreDetails)

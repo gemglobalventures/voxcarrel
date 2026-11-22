@@ -302,8 +302,19 @@ import Testing
             .search(LookupQuery(title: "Project Hail Mary", author: "Andy Weir"))
         let first = try #require(found.first)
         let summary = try #require(first.metadata.summary)
-        #expect(summary.hasPrefix("A demonstration summary."))
-        #expect(summary.contains("\n\nA placeholder description"))
+        // Placeholder text in the recorded answer, in the shape of a publisher's summary.
+        #expect(summary == """
+        A demonstration summary in bold italics for the tests.
+
+        A second line, set apart
+
+        This text stands in for a publisher's description. It is invented & says nothing about any real book.
+
+        The next paragraph has a line break here,
+        then carries on — with a numeric entity and some italics.
+
+        Note: none of this prose was written by a publisher.
+        """)
         #expect(!summary.contains("<"))
 
         var expected = BookMetadata(title: "Project Hail Mary", authors: ["Andy Weir"])
@@ -339,6 +350,14 @@ import Testing
         #expect(book.metadata.durationSeconds == 163_800.0)
         #expect(book.metadata.genre == "Science Fiction & Fantasy")
         #expect(book.note == "Audible · Unabridged · 45h 30m · English")
+        // Paragraphs set apart by line breaks inside one <p>.
+        #expect(book.metadata.summary == """
+        A demonstration summary for a book in a series, standing in for a publisher's description.
+
+        The paragraphs of this one are set apart by line breaks. It is invented & says nothing about any real book.
+
+        A last paragraph ends the placeholder.
+        """)
 
         let fallback = try await search("""
         {"products": [
