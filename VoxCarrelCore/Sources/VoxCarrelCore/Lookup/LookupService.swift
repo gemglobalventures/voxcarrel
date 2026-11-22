@@ -50,6 +50,8 @@ public struct LookupConfiguration: Equatable, Sendable {
 public struct LookupService: Sendable {
     let providers: [any LookupProvider]
     private let http: any HTTPFetching
+    /// The Audible stores a series is asked of, the user's own first; none when Audible is off.
+    let audibleStores: [AudibleStore]
 
     /// The only hosts a cover is downloaded from: the ones the providers produce.
     static let coverHosts: Set<String> = ["covers.openlibrary.org", "m.media-amazon.com", "images-na.ssl-images-amazon.com"]
@@ -57,9 +59,12 @@ public struct LookupService: Sendable {
     /// Scores this close count as equal when ordering results.
     static let nearEqual = 0.05
 
-    public init(providers: [any LookupProvider], http: any HTTPFetching) {
+    /// `audibleStores`: the stores the series requests may ask; with none, they ask nothing.
+    public init(providers: [any LookupProvider], http: any HTTPFetching, audibleStores: [AudibleStore] = []) {
         self.providers = providers
         self.http = http
+        var seen: Set<AudibleStore> = []
+        self.audibleStores = audibleStores.filter { seen.insert($0).inserted }
     }
 
     /// The standard set over the real network: of Open Library, Audible (in each of the
@@ -83,7 +88,9 @@ public struct LookupService: Sendable {
                 providers.append(LibraryOfCongressProvider(http: http))
             }
         }
-        return LookupService(providers: providers, http: http)
+        return LookupService(
+            providers: providers, http: http,
+            audibleStores: configuration.sources.contains(.audible) ? configuration.audibleStores : [])
     }
 
     /// The sources this service has a provider for, in the order they are asked.
@@ -269,6 +276,42 @@ public struct LookupService: Sendable {
     /// Whether this service asks the candidate's source at all.
     func asks(_ source: LookupSource) -> Bool {
         providers.contains { $0.source == source }
+    }
+
+    // MARK: Series
+
+    /// The Audible series a book is in. Empty, and nothing is sent, when Audible is off.
+    /// Each store is asked in turn until one answers with at least one series. A store
+    /// that fails is passed over; when every store failed, the last one's error is thrown.
+    public func audibleSeries(ofBookWithASIN asin: String?, title: String, author: String?) async throws -> [AudibleSeriesRef] {
+        var answered = false
+        var lastError: (any Error)?
+        for store in audibleStores {
+            try Task.checkCancellation()
+            do {
+                let found = try await AudibleSeriesProvider(http: http, store: store)
+                    .series(ofBookWithASIN: asin, title: title, author: author)
+                if !found.isEmpty { return found }
+                answered = true
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                lastError = error
+            }
+        }
+        if !answered, let lastError { throw lastError }
+        return []
+    }
+
+    /// Every book of a series, asked of the series' own store. Empty, and nothing is
+    /// sent, when Audible is off or that store is not one of the stores that are on.
+    public func audibleSeriesList(_ series: AudibleSeriesRef) async throws -> AudibleSeriesList {
+        guard audibleStores.contains(series.store) else {
+            var ref = series
+            ref.number = nil
+            return AudibleSeriesList(ref: ref, editions: [])
+        }
+        return try await AudibleSeriesProvider(http: http, store: series.store).list(series)
     }
 
     // MARK: Cover

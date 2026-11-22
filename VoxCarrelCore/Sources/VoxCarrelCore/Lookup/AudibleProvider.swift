@@ -213,7 +213,7 @@ public struct AudibleProvider: LookupProvider {
     }
 
     /// "unabridged" -> false, "abridged" -> true; nil for any other kind, which does not say.
-    private static func abridged(_ format: String?) -> Bool? {
+    static func abridged(_ format: String?) -> Bool? {
         switch format?.lowercased() {
         case "unabridged": false
         case "abridged": true
@@ -221,7 +221,7 @@ public struct AudibleProvider: LookupProvider {
         }
     }
 
-    private static func names(_ list: Any?) -> [String] {
+    static func names(_ list: Any?) -> [String] {
         LookupText.cleanedNames((list as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["name"] as? String })
     }
 
