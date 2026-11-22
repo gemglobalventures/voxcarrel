@@ -64,7 +64,9 @@ extension LibraryService {
     /// undo data deleted.
     ///
     /// A copy the operation made is deleted only while the original still exists;
-    /// otherwise it is moved to where the original was.
+    /// otherwise it is moved to where the original was. An original under a watch
+    /// folder is no longer remembered as imported, in the same transaction as the rest:
+    /// it arrives in the inbox again.
     ///
     /// Only what the operation changed is restored: a book's read status and dates, and
     /// its external copies (where else it is owned), stay as they are now, except that
@@ -162,6 +164,16 @@ extension LibraryService {
                 change.writes.append(write)
             } else {
                 change.deletedBookIds.append(book.bookId)
+            }
+        }
+        // The originals of an import by copy are not imported any more.
+        let copied = batch.moves.filter(\.wasCopy).map { URL(fileURLWithPath: $0.from) }
+        if !copied.isEmpty {
+            let folders = try store.watchFolders()
+            change.forgottenImports = copied.compactMap { url in
+                Self.ledgerPlace(of: url, among: folders).map {
+                    LibraryChange.ForgottenImport(folderId: $0.0.id, path: $0.1.path)
+                }
             }
         }
         try beforeCommit?()

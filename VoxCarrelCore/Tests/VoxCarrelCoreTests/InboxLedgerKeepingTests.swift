@@ -308,4 +308,54 @@ import VoxCarrelFixtures
         copying = false
         #expect(try settled(f, clock).arrivals.count == 2)
     }
+
+    // MARK: IB37: undoing an import by copy
+
+    /// A book copied from a watch folder, recorded as imported, with another file
+    /// recorded the same way before it and a third dismissed.
+    private func copiedFromTheInbox(_ f: F, _ clock: Clock) throws -> (folder: WatchFolder, original: URL) {
+        let added = try f.service.addWatchFolder(f.inbox, now: clock.now)
+        let original = try f.makeM4B("copied.m4b", tags: F.meta("Copied", "An Author"))
+        _ = try f.makeM4B("earlier.m4b", tags: F.meta("Earlier", "An Author"))
+        _ = try f.makeM4B("unwanted.m4b", tags: F.meta("Unwanted", "An Author"))
+        let arrivals = try settled(f, clock).arrivals
+        #expect(arrivals.count == 3)
+        let copied = try #require(arrivals.first { $0.id.hasSuffix("copied.m4b") })
+        try f.service.recordImported(try #require(arrivals.first { $0.id.hasSuffix("earlier.m4b") }).files)
+        try f.service.dismissArrivals(ids: arrivals.filter { $0.id.hasSuffix("unwanted.m4b") }.map(\.id))
+
+        _ = try f.importNew(copied.files, F.meta("Copied", "An Author"), mode: .copy)
+        try f.service.recordImported(copied.files)
+        #expect(try settled(f, clock).arrivals.isEmpty)
+        #expect(try entries(f, added).map(\.state) == [.imported, .dismissed, .imported])
+        return (added, original)
+    }
+
+    /// IB37: undoing an import by copy takes the book out of the library again, so its
+    /// originals are no longer imported: they arrive again. Nothing else is forgotten.
+    @Test func IB37_undoingACopyImportLetsItsOriginalsArriveAgain() throws {
+        let f = try F()
+        let clock = Clock()
+        let (added, original) = try copiedFromTheInbox(f, clock)
+
+        try f.service.undoLast()
+
+        #expect(exists(original))
+        #expect(try entries(f, added).map(\.path) == [added.path + "/earlier.m4b", added.path + "/unwanted.m4b"])
+        #expect(try entries(f, added).map(\.state) == [.imported, .dismissed])
+        #expect(try f.service.checkInbox(now: clock.later()).arrivals.map(\.id) == [added.path + "/copied.m4b"])
+    }
+
+    /// IB37: an undo that does not go through forgets nothing.
+    @Test func IB37_anUndoThatFailsForgetsNothing() throws {
+        let f = try F()
+        let clock = Clock()
+        let (added, _) = try copiedFromTheInbox(f, clock)
+        let ledger = try entries(f, added)
+
+        f.service.beforeCommit = { throw Boom() }
+        #expect(throws: Boom.self) { try f.service.undoLast() }
+
+        #expect(try entries(f, added) == ledger)
+    }
 }

@@ -630,6 +630,9 @@ public final class AppModel {
         await perform("Undoing…") { worker in
             _ = try await worker.undoLast()
         }
+        // WF20: an import from the Inbox that is undone leaves its books waiting again,
+        // and a copy that is undone changes nothing in the watch folder for the watcher to see.
+        if showsInbox { requestInboxCheck() }
     }
 
     public func dismissLibraryCheck() {

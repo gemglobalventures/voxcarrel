@@ -381,8 +381,9 @@ import VoxCarrelFixtures
     @Test func anOperationThatEndsBringsNoCheckOfItsOwn() async throws {
         let (h, _) = try await watching()
         let before = h.model.inboxCheckCount
-        await h.model.undo()
+        await h.model.createCollection(name: "Shelf", adding: [])
         await h.model.settle()
+        #expect(h.model.busyLabel == nil)
         #expect(h.model.inboxCheckCount == before)
     }
 
@@ -1066,6 +1067,29 @@ import VoxCarrelFixtures
         #expect(exists(book))
 
         await arrive(h)
+        #expect(h.model.inboxRows.map(\.title) == ["Quiet Rivers"])
+    }
+
+    /// WF20: undoing an import by Copy takes the book out of the library, so its originals are no
+    /// longer remembered as imported: they are an arrival again.
+    @Test func undoingACopyImportBringsTheBookBackToTheInbox() async throws {
+        let (h, folder) = try await watching()
+        await h.model.setWatchFolder(try id(h, folder), mode: .copy)
+        let book = try drop(Self.ebook, into: folder)
+        await arrive(h)
+        await h.model.reviewInbox()
+        await h.model.confirmImport()
+        await h.model.settle()
+        #expect(h.titles == ["Quiet Rivers"])
+        #expect(exists(book))
+        #expect(h.model.inboxCount == 0)
+
+        await h.model.undo()
+        await h.model.settle()
+        #expect(h.titles.isEmpty)
+        #expect(exists(book))
+        // Nothing changed in the watch folder, so the watcher says nothing: undo itself has
+        // the Inbox checked.
         #expect(h.model.inboxRows.map(\.title) == ["Quiet Rivers"])
     }
 

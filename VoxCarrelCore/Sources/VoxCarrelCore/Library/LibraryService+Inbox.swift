@@ -201,17 +201,22 @@ extension LibraryService {
         var found: [(file: ListedFile, folderId: Int64)] = []
         var seen: Set<String> = []
         for url in files {
-            // Under the folder as its listing spells the path; failing that, wherever
-            // the file really is (reached through a link, say).
-            for spelling in [url.standardizedFileURL, LibraryLayout.canonicalFolder(url)] {
-                guard let (folder, listedAs) = Self.place(of: spelling, among: folders) else { continue }
-                if seen.insert(listedAs.path).inserted, let file = Self.fileAsItIs(listedAs) {
-                    found.append((file, folder.id))
-                }
-                break
+            guard let (folder, listedAs) = Self.ledgerPlace(of: url, among: folders) else { continue }
+            if seen.insert(listedAs.path).inserted, let file = Self.fileAsItIs(listedAs) {
+                found.append((file, folder.id))
             }
         }
         try store.replaceInboxEntries(found, state: .imported)
+    }
+
+    /// The watch folder a file lies in and the path the ledger knows it by, however
+    /// `url` names it: under the folder as its listing spells the path; failing that,
+    /// wherever the file really is (reached through a link, say).
+    static func ledgerPlace(of url: URL, among folders: [WatchFolder]) -> (WatchFolder, URL)? {
+        for spelling in [url.standardizedFileURL, LibraryLayout.canonicalFolder(url)] {
+            if let place = place(of: spelling, among: folders) { return place }
+        }
+        return nil
     }
 
     /// The watch folder a file lies in, and the file's path as that folder's listing

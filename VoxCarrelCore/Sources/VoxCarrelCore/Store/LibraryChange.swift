@@ -24,6 +24,16 @@ public struct LibraryChange: Sendable {
     public var batch: Batch?
     /// When true, empties the journal (used after an undo).
     public var clearsJournal = false
+    /// For undo of an import by copy: files under watch folders that are no longer
+    /// imported. The inbox ledger's `imported` entries for them are deleted; an entry
+    /// of another kind stays.
+    var forgottenImports: [ForgottenImport] = []
+
+    struct ForgottenImport: Sendable {
+        var folderId: Int64
+        /// As the folder's listing spells it.
+        var path: String
+    }
 
     public struct Batch: Sendable {
         public var label: String
@@ -82,6 +92,14 @@ extension LibraryStore {
                     try file.insert(db)
                 }
                 books.append(book)
+            }
+
+            for file in change.forgottenImports {
+                try InboxEntryRecord
+                    .filter(
+                        Column("folderId") == file.folderId && Column("path") == file.path
+                            && Column("state") == InboxEntryState.imported.rawValue)
+                    .deleteAll(db)
             }
 
             var batchId: Int64?
