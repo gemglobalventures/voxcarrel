@@ -140,8 +140,10 @@ extension AppModel {
     /// N1: whether an Audible book can be added now: a library is open, nothing is
     /// running, and no question, sheet or unsaved edit is in the way. No selection is
     /// needed. (Unsaved edits are in the way because the added book becomes the selection.)
+    /// A8b: nor while Audible is off as a lookup source (`addAudibleBookDisabledReason`).
     public var canAddAudibleBook: Bool {
-        isQuietForLookup && review == nil && result == nil && libraryCheck == nil && !hasUnsavedChanges
+        isQuietForLookup && lookupSources.contains(.audible) && review == nil && result == nil
+            && libraryCheck == nil && !hasUnsavedChanges
     }
 
     /// N1: opens the lookup sheet for adding an Audible book: nothing to search for yet,
@@ -163,7 +165,8 @@ extension AppModel {
 
     /// N3: the sheet's Add button. Adds the selected result to the library as a book that
     /// is on Audible and has no files here: with the result's details and cover, and an
-    /// Audible copy in the store of the settings with the result's ASIN. The sheet
+    /// Audible copy with the result's ASIN, in the store that ASIN belongs to (A9: the
+    /// stores searched each have their own). The sheet
     /// closes, and the book is selected; when it is not among the books shown, the
     /// sidebar moves to On Audible (and a search that still hides it is cleared).
     ///
@@ -176,7 +179,7 @@ extension AppModel {
     /// added, the cover's download is cancelled, and nothing is busy from that moment.
     public func addLookupSelection() async {
         guard let session = lookup, session.canAdd, let candidate = session.selected else { return }
-        await addAudibleBook(candidate.metadata, coverOf: candidate)
+        await addAudibleBook(candidate.metadata, coverOf: candidate, store: candidate.audibleStore ?? audibleStore)
     }
 
     /// N5: adds an Audible book from what is typed in the search boxes, with no result
@@ -189,10 +192,12 @@ extension AppModel {
             title: session.query.title.trimmed, authors: session.query.author.trimmedOrNil.map { [$0] } ?? [])
         // An Audible ID typed in its box goes with the book when it is a well-formed one.
         metadata.asin = session.typedAudibleID
-        await addAudibleBook(metadata, coverOf: nil)
+        await addAudibleBook(metadata, coverOf: nil, store: audibleStore)
     }
 
-    private func addAudibleBook(_ metadata: BookMetadata, coverOf candidate: LookupCandidate?) async {
+    private func addAudibleBook(
+        _ metadata: BookMetadata, coverOf candidate: LookupCandidate?, store: AudibleStore
+    ) async {
         guard busyLabel == nil, var session = lookup else { return }
         // N7: from here on nothing in the sheet can be changed, and Add does nothing.
         lookupSearch?.cancel()
@@ -226,7 +231,7 @@ extension AppModel {
         }
 
         let asin = metadata.asin?.trimmedOrNil
-        let copy = ExternalCopy(kind: .audible, form: .audio, store: audibleStore.rawValue, itemId: asin)
+        let copy = ExternalCopy(kind: .audible, form: .audio, store: store.rawValue, itemId: asin)
         var outcome: ExternalBookOutcome?
         do {
             outcome = try await worker.addExternalBook(metadata: metadata, cover: cover, copy: copy)

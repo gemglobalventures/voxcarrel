@@ -3,8 +3,9 @@ import VoxCarrelCore
 
 @testable import VoxCarrelAppCore
 
-/// Stands in for Open Library, Audible and the network behind them: every `Harness`
-/// model looks things up here, so no test reaches the network.
+/// Stands in for Open Library, Audible, the Library of Congress and the network behind
+/// them: every `Harness` model looks things up here, so no test reaches the network.
+/// Like the real service it has a provider only for a source that is on.
 ///
 /// Each source finds nothing until a test says otherwise with `find`, `fail` or `hold`.
 final class FakeLookup: @unchecked Sendable {
@@ -14,9 +15,11 @@ final class FakeLookup: @unchecked Sendable {
 
     struct Asked: Equatable {
         var source: LookupSource
-        /// The Audible store the service that was asked had been built for.
+        /// The user's own Audible store, as the service that was asked had been built for it.
         var store: AudibleStore
         var query: LookupQuery
+        /// Every Audible store that service had been built to search, the user's own first.
+        var stores: [AudibleStore] = []
     }
 
     private let lock = NSLock()
@@ -25,14 +28,18 @@ final class FakeLookup: @unchecked Sendable {
     private var covering: Cover = { _ in throw LookupError.notReachable }
     private var recordedAsked: [Asked] = []
     private var recordedStores: [AudibleStore] = []
+    private var recordedConfigurations: [LookupConfiguration] = []
+    private var narratorsNotFound: [LookupSource: String] = [:]
     private var recordedDetails: [String] = []
     private var recordedCovers: [URL] = []
     private var recordedCancelled = 0
 
     /// Every search a source was asked to make, in order.
     var asked: [Asked] { lock.withLock { recordedAsked } }
-    /// The store of each service that was built, in order.
+    /// The user's own store of each service that was built, in order.
     var builtFor: [AudibleStore] { lock.withLock { recordedStores } }
+    /// What each service was built from, in order.
+    var built: [LookupConfiguration] { lock.withLock { recordedConfigurations } }
     /// The ids of the candidates details were asked for.
     var detailsAsked: [String] { lock.withLock { recordedDetails } }
     var coverURLs: [URL] { lock.withLock { recordedCovers } }
@@ -64,6 +71,12 @@ final class FakeLookup: @unchecked Sendable {
         lock.withLock { searches[source] = search }
     }
 
+    /// The source says it found nothing read by this narrator and searched again
+    /// without the name; nil for it to say nothing.
+    func narratorNotFound(_ source: LookupSource, _ narrator: String?) {
+        lock.withLock { narratorsNotFound[source] = narrator }
+    }
+
     func details(_ details: @escaping Details) {
         lock.withLock { detailing = details }
     }
@@ -79,28 +92,43 @@ final class FakeLookup: @unchecked Sendable {
 
     // MARK: The service
 
-    /// What `AppModel` is given in place of `LookupService.standard(store:)`.
-    func service(for store: AudibleStore) -> LookupService {
-        lock.withLock { recordedStores.append(store) }
+    /// What `AppModel` is given in place of `LookupService.standard(_:)`: a provider
+    /// for each source that is on, and none for one that is off.
+    func service(for configuration: LookupConfiguration) -> LookupService {
+        let store = configuration.audibleStores.first ?? .us
+        lock.withLock {
+            recordedStores.append(store)
+            recordedConfigurations.append(configuration)
+        }
         return LookupService(
-            providers: [
-                Provider(source: .openLibrary, store: store, fake: self),
-                Provider(source: .audible, store: store, fake: self),
-            ],
+            providers: LookupSource.allCases.filter(configuration.sources.contains).map {
+                Provider(source: $0, store: store, stores: configuration.audibleStores, fake: self)
+            },
             http: HTTP(fake: self))
+    }
+
+    /// A service for Open Library and Audible in one store: the settings a model begins with, less the other stores.
+    func service(store: AudibleStore) -> LookupService {
+        service(for: LookupConfiguration(sources: [.openLibrary, .audible], audibleStores: [store]))
     }
 
     private struct Provider: LookupProvider {
         let source: LookupSource
         let store: AudibleStore
+        let stores: [AudibleStore]
         let fake: FakeLookup
 
         func search(_ query: LookupQuery) async throws -> [LookupCandidate] {
             let search = fake.lock.withLock {
-                fake.recordedAsked.append(Asked(source: source, store: store, query: query))
+                fake.recordedAsked.append(Asked(source: source, store: store, query: query, stores: stores))
                 return fake.searches[source]
             }
             return try await search?(query) ?? []
+        }
+
+        func answer(to query: LookupQuery) async throws -> LookupAnswer {
+            let candidates = try await search(query)
+            return LookupAnswer(candidates: candidates, narratorNotFound: fake.lock.withLock { fake.narratorsNotFound[source] })
         }
 
         func details(for candidate: LookupCandidate) async throws -> LookupCandidate {

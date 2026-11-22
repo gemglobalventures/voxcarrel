@@ -124,7 +124,7 @@ import VoxCarrelFixtures
         let fake = FakeLookup()
         fake.find(.audible, [glassTide()])
         fake.find(.openLibrary, [foundBook(.openLibrary, "/works/OL9W", title: "The Glass Tide")])
-        let worker = try LibraryWorker(libraryRoot: try makeTempDir(), lookup: fake.service(for: .uk))
+        let worker = try LibraryWorker(libraryRoot: try makeTempDir(), lookup: fake.service(store: .uk))
         let query = LookupQuery(title: "The Glass Tide")
         let audible = await worker.lookUp(query, preferAudio: true, language: "en", sources: [.audible])
         #expect(audible.candidates == [glassTide()])
@@ -267,13 +267,14 @@ import VoxCarrelFixtures
         #expect(h.model.canAddAudibleBook)
     }
 
-    /// N3: the store is the one in the settings when the book is added.
-    @Test func N3_theCopyNamesTheSettingsStore() async throws {
+    /// N3, and plan 7, A9: the copy's store is the one the chosen result's ASIN belongs
+    /// to, whatever the settings say when the book is added.
+    @Test func N3_theCopyNamesTheStoreOfTheChosenASIN() async throws {
         let h = try await searched([glassTide(cover: false)])
         h.model.audibleStore = .au
         // The results came from another store: the search can be made again, but what is shown can still be added.
         await h.model.addLookupSelection()
-        #expect(try added(h).externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "au", itemId: "B0GLASSTID")])
+        #expect(try added(h).externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0GLASSTID")])
         #expect(h.lookup.coverURLs.isEmpty)
         #expect(h.model.alert == nil)
     }
@@ -581,19 +582,19 @@ import VoxCarrelFixtures
         h.model.audibleStore = .uk
         h.lookup.find(.audible, [glassTide()])
         h.model.beginAddAudibleBook()
-        #expect(h.model.lookupSourcesText == "Results from Audible (United Kingdom)")
+        #expect(h.model.lookupSourcesText == "Results from Audible (UK, US, Australia)")
         #expect(h.model.lookup?.reminderText == "The book is added to your library without files.")
         h.model.updateLookupQuery { $0.title = "The Glass Tide" }
         await h.model.searchLookup()
-        #expect(h.model.lookupSourcesText == "Audible (United Kingdom): 1 match")
+        #expect(h.model.lookupSourcesText == "Audible (UK, US, Australia): 1 match")
         h.model.audibleStore = .de
-        #expect(h.model.lookupSourcesText == "Results from Audible (Germany)")
+        #expect(h.model.lookupSourcesText == "Results from Audible (Germany, US, UK, Australia)")
 
         // A lookup for a book names both, as before.
         h.model.cancelLookup()
         try await h.select("Salt Road")
         h.model.beginLookup()
-        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (Germany)")
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (Germany, US, UK, Australia)")
     }
 
     // MARK: N7 The sheet's life

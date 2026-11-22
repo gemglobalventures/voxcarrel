@@ -174,6 +174,16 @@ extension BookRow {
         formats.contains { $0.defaultRole == .audio }
     }
 
+    /// The length of the book's audio files, when they have been measured: what a
+    /// lookup result's length is compared with. Nil for a book with no audio file here
+    /// (a length that was typed or came from a catalogue is not evidence), and when
+    /// the length of any file could not be measured.
+    public var measuredAudioSeconds: Double? {
+        guard hasAudioFile, unmeasuredLengthFiles == 0, let seconds = book.durationSeconds, seconds.isFinite, seconds > 0
+        else { return nil }
+        return seconds
+    }
+
     /// Whether listening to the book opens its page on the Audible website: it is on
     /// Audible as an audiobook and has no audio file here. (Plain opening goes there
     /// only when the book has no ebook file here either.)

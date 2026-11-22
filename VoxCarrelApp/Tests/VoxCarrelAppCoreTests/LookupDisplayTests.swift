@@ -89,7 +89,8 @@ import VoxCarrelFixtures
         let h = try Harness(root: try makeTempDir())
         #expect(h.model.lookUpHelp == "Look this book up online and choose which details to take")
         #expect(h.model.lookUpHelp(forEntry: UUID()) == h.model.lookUpHelp)
-        #expect(h.model.lookupPrivacyText == "Look Up sends the title, author, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from them (Open Library’s come from the Internet Archive, Audible’s from Amazon). Nothing is sent until you press Look Up.")
+        // Plan 7, A8: the narrator is sent too, and only the sources that are on are named.
+        #expect(h.model.lookupPrivacyText == "Look Up sends the title, author, narrator, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from Open Library and Audible. Nothing is sent until you press Look Up.")
     }
 
     /// V2: the ISBN and Audible ID boxes are there for a book that has the number, and

@@ -92,6 +92,13 @@ extension LookupSession.Offer {
     }
 }
 
+extension LookupSession.EditionOffer {
+    /// What the book has now: "Now: Abridged", or "Now: —" when its edition is not known.
+    public var currentText: String {
+        "Now: \(current.isEmpty ? "—" : current)"
+    }
+}
+
 extension LookupQuery {
     /// The ISBN box's text. An emptied box is no ISBN.
     public var isbnText: String {
@@ -137,11 +144,19 @@ extension AppModel {
     /// V1: what the import sheet's Look Up… button says when the pointer rests on it:
     /// what it does, or why it cannot be pressed for this entry.
     public func lookUpHelp(forEntry id: UUID) -> String {
-        review?.entry(id)?.isAddedToExisting == true ? Self.lookUpJoinedHelp : Self.lookUpHelp
+        if let reason = lookUpDisabledReason { return reason }
+        return review?.entry(id)?.isAddedToExisting == true ? Self.lookUpJoinedHelp : Self.lookUpHelp
     }
 
-    /// V1: the same for the inspector's button.
-    public var lookUpHelp: String { Self.lookUpHelp }
+    /// V1: the same for the inspector's button. A8b: with every lookup source off, why
+    /// it cannot be pressed.
+    public var lookUpHelp: String { lookUpDisabledReason ?? Self.lookUpHelp }
+
+    /// A8b: what Add Audible Book says when the pointer rests on it: what it does, or,
+    /// with Audible off, why it cannot be used.
+    public var addAudibleBookHelp: String {
+        addAudibleBookDisabledReason ?? "Add a book you own on Audible, without its files"
+    }
 
     // MARK: V6 Result covers
 

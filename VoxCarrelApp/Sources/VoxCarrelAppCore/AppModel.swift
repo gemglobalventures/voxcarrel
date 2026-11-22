@@ -53,20 +53,24 @@ public final class AppModel {
         didSet { isLibraryOpen = worker != nil }
     }
 
-    /// - Parameter lookupService: Makes what books are looked up with, for an Audible
-    ///   store; nil for the real sources over the network. Tests give fakes.
+    /// - Parameter lookupService: Makes what books are looked up with, from the lookup
+    ///   sources that are on and the Audible stores to search; nil for the real sources
+    ///   over the network. Tests give fakes.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
-        lookupService: ((AudibleStore) -> LookupService)? = nil
+        lookupService: ((LookupConfiguration) -> LookupService)? = nil
     ) {
         self.location = location
         self.opener = opener
         self.defaults = defaults
-        makeLookupService = lookupService ?? {
-            LookupService.standard(LookupConfiguration(sources: [.openLibrary, .audible], audibleStores: [$0]))
-        }
+        makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
             ?? AudibleStore.forRegion(Locale.current.region?.identifier)
+        // A8c: the Library of Congress is off until the user turns it on.
+        storedLookupSources = (defaults.array(forKey: Keys.lookupSources) as? [String])
+            .map { Set($0.compactMap(LookupSource.init)) } ?? Self.defaultLookupSources
+        storedOtherStores = (defaults.array(forKey: Keys.audibleStores) as? [String])
+            .map { Set($0.compactMap(AudibleStore.init)) } ?? Self.defaultOtherStores
         status = location.status()
         storedViewMode = defaults.string(forKey: Keys.viewMode).flatMap(ViewMode.init) ?? .grid
         storedSort = BookSort(
@@ -81,6 +85,8 @@ public final class AppModel {
         static let sortAscending = "sortAscending"
         static let copyOnImport = "copyOnImport"
         static let audibleStore = "audibleStore"
+        static let lookupSources = "lookupSources"
+        static let audibleStores = "audibleStores"
     }
 
     // MARK: Library
@@ -213,7 +219,7 @@ public final class AppModel {
         do {
             // Opening reads the disk and may create or migrate the catalogue: not on the main thread.
             let trashItem = trashItem
-            let lookup = makeLookupService(storedAudibleStore)
+            let lookup = makeLookupService(lookupConfiguration)
             worker = try await Task.detached {
                 try LibraryWorker(libraryRoot: folder, trashItem: trashItem, lookup: lookup)
             }.value
@@ -819,22 +825,76 @@ public final class AppModel {
     /// it was for has gone.
     public internal(set) var lookup: LookupSession?
 
-    /// A7: which country's Audible catalogue is searched. Remembered; the Mac's region's
-    /// to begin with. Changing it rebuilds what the open library looks books up with.
+    /// A7: the user's own Audible store: the one searched first, whose ASIN a result
+    /// carries when the store lists it, and where a book marked as on Audible is taken
+    /// to be. Remembered; the Mac's region's to begin with. Changing it rebuilds what
+    /// the open library looks books up with.
     public var audibleStore: AudibleStore {
         get { storedAudibleStore }
         set {
             guard newValue != storedAudibleStore else { return }
             storedAudibleStore = newValue
             defaults.set(newValue.rawValue, forKey: Keys.audibleStore)
-            worker?.setLookupService(makeLookupService(newValue))
-            // What an open lookup shows came from the store as it was.
-            lookup?.sourcesChanged()
+            lookupSettingsChanged()
         }
     }
 
+    static let defaultLookupSources: Set<LookupSource> = [.openLibrary, .audible]
+    static let defaultOtherStores: Set<AudibleStore> = [.us, .uk, .au]
+
+    /// A8b: the lookup sources that are on. Remembered; Open Library and Audible to
+    /// begin with (A8c: the Library of Congress is off until it is turned on). A source
+    /// that is off is never contacted: changing this rebuilds what the open library
+    /// looks books up with, from the sources that are on.
+    public var lookupSources: Set<LookupSource> {
+        get { storedLookupSources }
+        set {
+            guard newValue != storedLookupSources else { return }
+            storedLookupSources = newValue
+            defaults.set(LookupSource.allCases.filter(newValue.contains).map(\.rawValue), forKey: Keys.lookupSources)
+            lookupSettingsChanged()
+        }
+    }
+
+    /// A8: the Audible stores searched besides the user's own. Remembered; the United
+    /// States, the United Kingdom and Australia to begin with.
+    public var otherAudibleStores: Set<AudibleStore> {
+        get { storedOtherStores }
+        set {
+            guard newValue != storedOtherStores else { return }
+            storedOtherStores = newValue
+            defaults.set(AudibleStore.allCases.filter(newValue.contains).map(\.rawValue), forKey: Keys.audibleStores)
+            lookupSettingsChanged()
+        }
+    }
+
+    /// A8: the Audible stores a lookup searches: the user's own first, then the others
+    /// chosen, each once.
+    public var audibleStores: [AudibleStore] {
+        [storedAudibleStore] + AudibleStore.allCases.filter { $0 != storedAudibleStore && storedOtherStores.contains($0) }
+    }
+
+    /// What the lookup service is built from: the sources that are on, and the stores.
+    var lookupConfiguration: LookupConfiguration {
+        LookupConfiguration(sources: storedLookupSources, audibleStores: audibleStores)
+    }
+
+    /// A8b: whether there is any lookup source to ask.
+    var canAskLookupSources: Bool {
+        !storedLookupSources.isEmpty
+    }
+
+    /// The lookup service is built again from the settings as they are now.
+    private func lookupSettingsChanged() {
+        worker?.setLookupService(makeLookupService(lookupConfiguration))
+        // What an open lookup shows came from the sources as they were.
+        lookup?.sourcesChanged()
+    }
+
     private var storedAudibleStore: AudibleStore
-    @ObservationIgnored private let makeLookupService: (AudibleStore) -> LookupService
+    private var storedLookupSources: Set<LookupSource>
+    private var storedOtherStores: Set<AudibleStore>
+    @ObservationIgnored private let makeLookupService: (LookupConfiguration) -> LookupService
     /// The two-letter code of the language results are preferred in: the Mac's own.
     /// Tests give another.
     @ObservationIgnored var lookupLanguage = Locale.current.language.languageCode?.identifier
@@ -858,9 +918,6 @@ public final class AppModel {
     public internal(set) var isCheckingEdition = false
     /// The lookups of a Check Edition that is running.
     @ObservationIgnored var editionCheck: Task<[EditionCheck]?, Never>?
-    /// Whether there is any lookup source to ask.
-    var canAskLookupSources: Bool { true }
-
     // MARK: Work in the background
 
     @ObservationIgnored private var background: [UUID: Task<Void, Never>] = [:]

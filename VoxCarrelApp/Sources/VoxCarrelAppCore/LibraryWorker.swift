@@ -41,7 +41,8 @@ public actor LibraryWorker {
     // None of these touches the library, and none runs on the actor: the library goes
     // on answering while a source is slow.
 
-    /// Replaces what books are looked up with: for when the Audible store setting changes.
+    /// Replaces what books are looked up with: for when the lookup settings change (the
+    /// sources that are on, the Audible stores).
     public nonisolated func setLookupService(_ service: LookupService) {
         lookup.withLock { $0 = service }
     }
@@ -174,7 +175,8 @@ public actor LibraryWorker {
             outsideFiles: files.filter { $0.path.hasPrefix("/") }.map { store.url(for: $0).path },
             hasFiles: !files.isEmpty,
             lengthProblemFiles: files.filter { $0.lengthProblem != nil }.count,
-            repairableLengthFiles: files.filter { $0.lengthProblem?.repairable == true }.count)
+            repairableLengthFiles: files.filter { $0.lengthProblem?.repairable == true }.count,
+            unmeasuredLengthFiles: files.filter { $0.lengthUnmeasured != nil }.count)
     }
 
     /// For each half-moved file, the name of the file it very likely was: the one file

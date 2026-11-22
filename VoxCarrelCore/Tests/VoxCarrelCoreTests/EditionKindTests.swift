@@ -379,6 +379,8 @@ private let bbcShort = found(
         // Another work's pages, or none, say nothing.
         #expect(assess([found(.openLibrary, "/works/OL2W", title: "Another Book", pages: 612)], hours: 18) == EditionKindAssessment())
         #expect(assess([found(.openLibrary, "/works/OL1W", pages: nil)], hours: 18) == EditionKindAssessment())
+        // Only Open Library's count is a printed book's: another source's is not used.
+        #expect(assess([found(.audible, "us:B000000001", pages: 612)], hours: 18) == EditionKindAssessment())
         #expect(assess([work], hours: nil) == EditionKindAssessment())
     }
 

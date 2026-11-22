@@ -20,7 +20,8 @@ import VoxCarrelFixtures
             $0.summary = "A road, and salt."
             $0.asin = "B0SALTROAD"
             $0.year = 2019
-            $0.durationSeconds = 123_456
+            // Not the book's length, but near enough to be the same edition.
+            $0.durationSeconds = 300
             $0.pageCount = 321
         }
     }
@@ -95,7 +96,9 @@ import VoxCarrelFixtures
         h.model.beginLookup()
         let opened = try #require(h.model.lookup)
         #expect(opened.target == .book(id))
-        #expect(opened.query == LookupQuery(title: "Salt Roads", author: "Ines Calloway"))
+        // Plan 7: the book's first narrator goes with the search, and its audio editions are wanted.
+        #expect(opened.query == LookupQuery(
+            title: "Salt Roads", author: "Ines Calloway", narrator: "Marcus Lindqvist", wantsAudioEditions: true))
         #expect(opened.current.title == "Salt Roads")
         #expect(opened.current.publisher == "Typed Press")
         #expect(opened.current.narrators == ["Marcus Lindqvist"])
@@ -404,7 +407,8 @@ import VoxCarrelFixtures
         let found = try #require(h.model.lookup)
         h.model.updateLookupQuery { $0.author = "" }
         #expect(h.model.lookup == found)
-        #expect(h.lookup.asked.last?.query == LookupQuery(title: "Salt Road"))
+        #expect(h.lookup.asked.last?.query
+            == LookupQuery(title: "Salt Road", narrator: "Marcus Lindqvist", wantsAudioEditions: true))
     }
 
     /// A3, K2: a source that fails is named; the other's results still show.
@@ -1197,9 +1201,15 @@ import VoxCarrelFixtures
     @Test func A7_theSourcesInWords() async throws {
         let h = try Harness(root: try makeTempDir())
         h.model.audibleStore = .uk
-        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United Kingdom)")
+        // Plan 7, A8: the user's own store first, then the others that are searched.
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (UK, US, Australia)")
         h.model.audibleStore = .us
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (US, UK, Australia)")
+        // One store alone is named in full, as before.
+        h.model.otherAudibleStores = []
         #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United States)")
+        h.model.audibleStore = .uk
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United Kingdom)")
 
         let choices = AppModel.audibleStoreChoices
         #expect(Set(choices.map(\.store)) == Set(AudibleStore.allCases))
@@ -1408,28 +1418,28 @@ import VoxCarrelFixtures
         h.model.beginLookup()
         await gate.arrival()
         // Still searching: only where from.
-        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United States)")
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (US, UK, Australia)")
         await gate.release()
         await h.model.settle()
-        #expect(h.model.lookupSourcesText == "Open Library: no matches · Audible (United States): 2 matches")
+        #expect(h.model.lookupSourcesText == "Open Library: no matches · Audible (US, UK, Australia): 2 matches")
 
         h.lookup.find(.audible, [saltRoadOnAudible()])
         h.lookup.fail(.openLibrary, .notReachable)
         h.model.updateLookupQuery { $0.author = "" }
         await h.model.searchLookup()
-        #expect(h.model.lookupSourcesText == "Open Library: could not be reached · Audible (United States): 1 match")
+        #expect(h.model.lookupSourcesText == "Open Library: could not be reached · Audible (US, UK, Australia): 1 match")
 
         h.lookup.fail(.openLibrary, .refused(status: 500))
         h.lookup.fail(.audible, .unreadable)
         await h.model.searchLookup()
         #expect(h.model.lookupSourcesText
-            == "Open Library: answered with an error · Audible (United States): sent an answer VoxCarrel could not read")
+            == "Open Library: answered with an error · Audible (US, UK, Australia): sent an answer VoxCarrel could not read")
 
         // Another store: what was found is no longer that store's.
         h.model.audibleStore = .uk
-        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United Kingdom)")
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (UK, US, Australia)")
         h.model.cancelLookup()
-        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United Kingdom)")
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (UK, US, Australia)")
     }
 
     // MARK: An import arriving, and entries that join a book
@@ -1650,7 +1660,7 @@ import VoxCarrelFixtures
     @Test func theWorkerLooksUpWithItsService() async throws {
         let first = FakeLookup()
         first.find(.audible, [saltRoadOnAudible()])
-        let worker = try LibraryWorker(libraryRoot: try makeTempDir(), lookup: first.service(for: .us))
+        let worker = try LibraryWorker(libraryRoot: try makeTempDir(), lookup: first.service(store: .us))
         let query = LookupQuery(title: "Salt Road")
         let results = await worker.lookUp(query, preferAudio: true, language: "en")
         #expect(results.candidates == [saltRoadOnAudible()])
@@ -1670,7 +1680,7 @@ import VoxCarrelFixtures
         }
 
         let second = FakeLookup()
-        worker.setLookupService(second.service(for: .uk))
+        worker.setLookupService(second.service(store: .uk))
         _ = await worker.lookUp(query, preferAudio: true, language: nil)
         #expect(first.asked.count == 2)
         #expect(second.asked.map(\.store) == [.uk, .uk])

@@ -56,7 +56,12 @@ import VoxCarrelCore
         metadata.title = "  Good Omens "
         let session = LookupSession(target: .book(7), current: metadata, hasCover: true, hasAudio: true)
         #expect(session.target == .book(7))
+        // Plan 7: with the first narrator, and asking for audio editions, for a book that has audio.
         #expect(session.query == LookupQuery(
+            title: "Good Omens", author: "Terry Pratchett", isbn: "9780575048003", asin: "B0012345",
+            narrator: "Martin Jarvis", wantsAudioEditions: true))
+        let ebook = LookupSession(target: .book(7), current: metadata, hasCover: true, hasAudio: false)
+        #expect(ebook.query == LookupQuery(
             title: "Good Omens", author: "Terry Pratchett", isbn: "9780575048003", asin: "B0012345"))
         #expect(session.preferAudio)
         #expect(session.phase == .idle)
@@ -265,8 +270,9 @@ import VoxCarrelCore
         #expect(!full.canApply)
     }
 
-    /// K4: another candidate has offers of its own, ticked afresh.
-    @Test func K4_selectingAnotherCandidateStartsAfresh() {
+    /// K4, and plan 7, A1: another candidate has offers of its own, with its own ticks;
+    /// the ticks made on the first are kept.
+    @Test func K4_selectingAnotherCandidateShowsItsOwnTicksAndKeepsTheOthers() {
         var first = audible("B000000001")
         first.metadata.genre = "Comedy"
         var second = audible("B000000002")
@@ -281,7 +287,9 @@ import VoxCarrelCore
         #expect(session.selected == second)
         #expect(session.offers.first { $0.id == .genre }?.found == "Humour")
         #expect(session.offers.allSatisfy { !$0.ticked })
-        #expect(!session.canApply)
+        // A1: what was ticked on the first is still to be applied.
+        #expect(session.canApply)
+        #expect(session.tickedFields(on: first.id) == [.title, .genre])
 
         // Selecting the one that is selected changes nothing.
         session.setTicked(true, for: .genre)
@@ -296,7 +304,10 @@ import VoxCarrelCore
         #expect(session.selectedId == nil)
         #expect(session.selected == nil)
         #expect(session.offers.isEmpty)
-        #expect(!session.canApply)
+        // A1, A3: the genre is now the second's; the title is still the first's.
+        #expect(session.canApply)
+        #expect(session.tickedFields(on: first.id) == [.title])
+        #expect(session.tickedFields(on: second.id) == [.genre])
     }
 
     /// K4

@@ -1,8 +1,9 @@
 import Foundation
 import VoxCarrelCore
 
-/// The lookup sheet's state: what is searched for, what was found, the chosen match and a
-/// tick for each of its values that could be taken.
+/// The lookup sheet's state: what is searched for, what was found, whether each result
+/// is the book's own edition, the chosen match, and for every result a tick for each
+/// of its values that could be taken. Values can be taken from several results at once.
 ///
 /// A plain value: it asks nothing of the network or the library. `applied()` says what
 /// the book's details would be with the ticked values; putting them anywhere is the
@@ -52,6 +53,27 @@ public struct LookupSession: Equatable, Sendable {
         public var current: String
         public var found: String
         public var ticked: Bool
+        /// A2: why the value may not be the book's, for a value that belongs to an
+        /// edition (narrators, year, publisher, ASIN, ISBN) of a result that is plainly
+        /// another edition: "Different edition: read by Rory Kinnear, not Frank Muller".
+        /// Nil for every other offer.
+        public var reason: String? = nil
+    }
+
+    /// What kind of edition the book is taken to be from what was found, offered beside
+    /// the other values: "Abridged", with why.
+    public struct EditionOffer: Equatable, Sendable {
+        /// "Edition"
+        public var label: String
+        /// What the book has now, as text; "" when its edition is not known.
+        public var current: String
+        /// "Abridged", "Probably unabridged"
+        public var found: String
+        /// How that is known: "Audible lists your edition as abridged. Matched with a result from Audible."
+        public var reason: String
+        public var ticked: Bool
+        /// What applying it gives the book.
+        public var note: EditionKindNote
     }
 
     /// What one source made of the last search: how many it found, or why it gave no answer.
@@ -61,6 +83,24 @@ public struct LookupSession: Equatable, Sendable {
         public var found: Int
         /// Nil when the source answered.
         public var failure: LookupError?
+        /// A7: the narrator the source found nothing read by, so that it searched again
+        /// without the name; nil otherwise.
+        public var narratorNotFound: String? = nil
+    }
+
+    /// A5: what applying would do: the book's details with every ticked value, from
+    /// whichever result it is ticked on.
+    public struct Applied: Equatable, Sendable {
+        /// The current details with every ticked value put in.
+        public var metadata: BookMetadata
+        /// The fields that were ticked, in the offers' order, the cover included.
+        public var fields: [MetadataField]
+        /// The result whose cover is ticked; nil when no cover is.
+        public var coverCandidate: LookupCandidate?
+        /// The edition kind to give the book; nil when its offer is not ticked.
+        public var editionKind: EditionKindNote?
+
+        public var wantsCover: Bool { coverCandidate != nil }
     }
 
     public let target: Target
@@ -71,6 +111,14 @@ public struct LookupSession: Equatable, Sendable {
     public let typed: [MetadataField: String]
     public let hasCover: Bool
     public let hasAudio: Bool
+    /// The measured length of the book's audio files; nil when it has none, or when the
+    /// length cannot be relied on. What a result's length is compared with.
+    public let audioSeconds: Double?
+    /// What kind of edition the book is taken to be now; nil for not known.
+    public let editionKind: EditionKindNote?
+    /// Whether the book's numbered parts have gaps: a short length is then no sign of
+    /// an abridgement.
+    public let partsAppearMissing: Bool
 
     /// Editable in the sheet. Changing it while a search runs leaves that search behind:
     /// its answer will be for another query, and is ignored (K2).
@@ -86,8 +134,20 @@ public struct LookupSession: Equatable, Sendable {
     /// "Audible could not be reached."; nil when every source answered.
     public private(set) var failureText: String?
     public private(set) var selectedId: String?
-    /// For the selected candidate.
-    public private(set) var offers: [Offer] = []
+    /// A6: whether each result is the book's own edition, by candidate id. Empty when
+    /// the search was for no book.
+    public private(set) var verdicts: [String: EditionVerdict] = [:]
+    /// A1: the fields ticked on each result, by candidate id.
+    private var ticks: [String: Set<MetadataField>] = [:]
+    /// The fields of each result whose first tick has been decided: one offered later
+    /// (when more arrives about the result) is decided then.
+    private var decided: [String: Set<MetadataField>] = [:]
+    /// The results the user has ticked or unticked something on. Their ticks are kept
+    /// when another result is selected, as are those of the book's own edition; the
+    /// untouched ticks of any other result that was only looked at are not.
+    private var touched: Set<String> = []
+    /// The user's own tick of the edition offer; nil while it has its first tick.
+    private var editionTick: Bool?
     /// What each source that was asked made of the last finished search, in the order
     /// they were asked; empty until a search has finished, and while another runs.
     public private(set) var outcomes: [SourceOutcome] = []
@@ -98,19 +158,37 @@ public struct LookupSession: Equatable, Sendable {
     /// whether or not every source could be reached.
     public private(set) var hasSearched = false
 
-    /// K1
+    /// K1. The search carries the book's first narrator (a source that can search by
+    /// reader then does), and asks for audio editions when the book has audio.
     public init(
-        target: Target, current: BookMetadata, hasCover: Bool, hasAudio: Bool, typed: [MetadataField: String] = [:]
+        target: Target, current: BookMetadata, hasCover: Bool, hasAudio: Bool, typed: [MetadataField: String] = [:],
+        audioSeconds: Double? = nil, editionKind: EditionKindNote? = nil, partsAppearMissing: Bool = false
     ) {
         self.target = target
         self.current = current
         self.typed = typed.compactMapValues(\.trimmedOrNil)
         self.hasCover = hasCover
         self.hasAudio = hasAudio
+        self.audioSeconds = audioSeconds
+        self.editionKind = editionKind
+        self.partsAppearMissing = partsAppearMissing
+        let adding = target == .newAudibleBook
         query = LookupQuery(
             title: current.title.trimmed, author: current.authors.lazy.compactMap(\.trimmedOrNil).first ?? "",
-            isbn: current.isbn?.trimmedOrNil, asin: current.asin?.trimmedOrNil)
+            isbn: current.isbn?.trimmedOrNil, asin: current.asin?.trimmedOrNil,
+            // "Full Cast" is a credit, not someone to search for.
+            narrator: hasAudio
+                ? current.narrators.lazy.compactMap(\.trimmedOrNil).first { !EditionMatch.isFullCast($0) } : nil,
+            wantsAudioEditions: hasAudio && !adding)
         preferAudio = hasAudio
+    }
+
+    /// The book the search is for, so that results are judged and ranked against it;
+    /// nil when a book is being added, which has no edition yet.
+    public var bookContext: LookupBookContext? {
+        guard !isAddMode else { return nil }
+        return LookupBookContext(
+            metadata: current, audioSeconds: hasAudio ? audioSeconds : nil, isAbridged: editionKind?.kind.isAbridged)
     }
 
     public var selected: LookupCandidate? {
@@ -184,14 +262,110 @@ public struct LookupSession: Equatable, Sendable {
         return lines.compactMap { label, value in value.map { DetailLine(label: label, value: $0) } }
     }
 
-    /// A candidate is selected and something is ticked, and it is not being applied already.
+    /// Something is ticked, on the selected result or another, and it is not being
+    /// applied already.
     public var canApply: Bool {
-        phase == .results && selected != nil && offers.contains(where: \.ticked)
+        phase == .results && (!tickedFields.isEmpty || editionOffer?.ticked == true)
     }
 
-    /// The fields whose found values are to be taken, in the offers' order.
+    /// The fields whose found values are to be taken, from whichever result, in the
+    /// offers' order.
     public var tickedFields: [MetadataField] {
-        offers.filter(\.ticked).map(\.id)
+        let all = candidates.reduce(into: Set<MetadataField>()) { $0.formUnion(tickedFields(on: $1.id)) }
+        return Self.offerOrder.filter(all.contains)
+    }
+
+    /// A1: the fields ticked on one result, in the offers' order.
+    public func tickedFields(on id: String) -> [MetadataField] {
+        offers(for: id).filter(\.ticked).map(\.id)
+    }
+
+    /// For the selected candidate.
+    public var offers: [Offer] {
+        selectedId.map(offers(for:)) ?? []
+    }
+
+    /// A1: one result's offers with its own ticks. Empty for a result that is not
+    /// among the candidates, and when a book is being added.
+    public func offers(for id: String) -> [Offer] {
+        // N2: a book that is being added has no values of its own to replace.
+        guard !isAddMode, let candidate = candidates.first(where: { $0.id == id }) else { return [] }
+        let ticked = ticks[id] ?? []
+        let reason = Self.reasonText(verdicts[id])
+        return Self.offerOrder.compactMap { field in
+            guard var offer = offer(field, from: candidate) else { return nil }
+            offer.ticked = ticked.contains(field)
+            if Self.editionFields.contains(field) { offer.reason = reason }
+            return offer
+        }
+    }
+
+    // MARK: Editions
+
+    /// A2: the values that belong to an edition, not to the book whatever its edition.
+    static let editionFields: Set<MetadataField> = [.narrators, .year, .publisher, .asin, .isbn]
+
+    /// A6: whether the result is the book's own edition; `.unknown` when nothing says.
+    public func verdict(for id: String) -> EditionVerdict {
+        verdicts[id] ?? .unknown
+    }
+
+    /// A6: what a result's row is marked with: "Your edition", "Different edition", or
+    /// nil when it cannot be told.
+    public func badgeText(for id: String) -> String? {
+        switch verdict(for: id) {
+        case .sameEdition: "Your edition"
+        case .differentEdition: "Different edition"
+        case .unknown: nil
+        }
+    }
+
+    /// A6: why a result is marked "Different edition", for the badge's tooltip:
+    /// "Read by Rory Kinnear, not Frank Muller; 19h 59m; yours is 18h 0m". Nil otherwise.
+    public func badgeHelp(for id: String) -> String? {
+        let reasons = verdict(for: id).reasons
+        guard !reasons.isEmpty else { return nil }
+        let text = reasons.joined(separator: "; ")
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    /// A2: "Different edition: read by Rory Kinnear, not Frank Muller".
+    private static func reasonText(_ verdict: EditionVerdict?) -> String? {
+        guard case .differentEdition(let reasons)? = verdict else { return nil }
+        return reasons.isEmpty ? "Different edition" : "Different edition: " + reasons.joined(separator: "; ")
+    }
+
+    /// What the results say of the book's edition kind, the selected result first: a
+    /// result that is this very edition and says what it is, or else what the running
+    /// time shows. Only for a library book that has audio.
+    private var editionAssessment: EditionKindAssessment {
+        guard case .book = target, hasAudio, !candidates.isEmpty else { return EditionKindAssessment() }
+        let ordered = (selected.map { [$0] } ?? []) + candidates.filter { $0.id != selectedId }
+        return EditionKindGuess.assess(
+            ordered, book: current, bookSeconds: audioSeconds, partsAppearMissing: partsAppearMissing)
+    }
+
+    /// The edition kind the results give the book, offered with the other values; nil
+    /// when they give none, or the one the book already has. Ticked to begin with only
+    /// when the book's edition is not known.
+    public var editionOffer: EditionOffer? {
+        guard let note = editionAssessment.note, note.kind != editionKind?.kind else { return nil }
+        return EditionOffer(
+            label: "Edition", current: editionKind?.title ?? "", found: note.title, reason: note.helpText,
+            ticked: editionTick ?? (editionKind == nil), note: note)
+    }
+
+    /// Said in place of an edition offer when the results show something about the
+    /// book's length but no verdict: "13h 0m; shorter than the unabridged editions
+    /// (20h 0m), so it may be abridged or incomplete."
+    public var editionRemark: String? {
+        let assessment = editionAssessment
+        return assessment.note == nil ? assessment.remark : nil
+    }
+
+    public mutating func setEditionTicked(_ ticked: Bool) {
+        guard phase != .applying, editionOffer != nil else { return }
+        editionTick = ticked
     }
 
     // MARK: Searching
@@ -203,7 +377,11 @@ public struct LookupSession: Equatable, Sendable {
         candidates = []
         failureText = nil
         selectedId = nil
-        offers = []
+        verdicts = [:]
+        ticks = [:]
+        decided = [:]
+        touched = []
+        editionTick = nil
         outcomes = []
         answeredQuery = nil
     }
@@ -225,6 +403,11 @@ public struct LookupSession: Equatable, Sendable {
     public mutating func finishSearch(_ results: LookupResults, for query: LookupQuery) {
         guard query == self.query, phase != .applying else { return }
         candidates = results.candidates
+        verdicts = isAddMode ? [:] : results.verdicts
+        ticks = [:]
+        decided = [:]
+        touched = []
+        editionTick = nil
         phase = candidates.isEmpty ? .noResults : .results
         // In the order the sources were asked, then any other.
         let sources = results.searched + LookupSource.allCases.filter { !results.searched.contains($0) }
@@ -233,58 +416,122 @@ public struct LookupSession: Equatable, Sendable {
         }
         failureText = sentences.isEmpty ? nil : sentences.joined(separator: " ")
         outcomes = results.searched.map {
-            SourceOutcome(source: $0, found: results.found[$0] ?? 0, failure: results.failures[$0])
+            SourceOutcome(
+                source: $0, found: results.found[$0] ?? 0, failure: results.failures[$0],
+                narratorNotFound: results.narratorNotFound[$0])
         }
         answeredQuery = query
         hasSearched = true
         selectedId = candidates.first?.id
-        offers = defaultOffers()
+        decideFirstTicks()
     }
 
     // MARK: Choosing
 
-    /// K4: selects a candidate; its offers start with their default ticks. Nil selects
-    /// none. An id that is not among the candidates, or is the selected one, changes nothing.
+    /// K4, A1: selects a candidate. One that is selected for the first time gets its
+    /// first ticks (A2); one the user has ticked or unticked something on keeps its
+    /// ticks while another is selected, and has them still when it is selected again.
+    ///
+    /// So does a result that is the book's own edition, touched or not: its values are
+    /// the book's, and the cover or the description is then taken from another result.
+    /// The first ticks of any other result that was only looked at go when another is
+    /// selected: looking at a result is not choosing it, and nothing of it is applied.
+    /// Nil selects none. An id that is not among the candidates, or is the selected
+    /// one, changes nothing.
     public mutating func select(_ id: String?) {
         guard phase != .applying, id != selectedId else { return }
         if let id, !candidates.contains(where: { $0.id == id }) { return }
+        if let old = selectedId, !touched.contains(old), verdict(for: old) != .sameEdition {
+            ticks[old] = nil
+            decided[old] = nil
+        }
         selectedId = id
-        offers = defaultOffers()
+        decideFirstTicks()
     }
 
     /// K7: more has arrived about the selected candidate. Offers it adds have their
-    /// default ticks; the ticks of offers already shown are left as the user has them.
+    /// first ticks; the ticks of offers already shown are left as the user has them.
     /// Ignored when `detailed` is not the selected candidate.
     public mutating func replaceSelected(with detailed: LookupCandidate) {
         guard phase != .applying, let selectedId, detailed.id == selectedId,
               let index = candidates.firstIndex(where: { $0.id == selectedId })
         else { return }
         candidates[index] = detailed
-        let before = Dictionary(offers.map { ($0.id, $0.ticked) }) { first, _ in first }
-        var fresh = defaultOffers()
-        for index in fresh.indices {
-            if let ticked = before[fresh[index].id] { fresh[index].ticked = ticked }
-        }
-        // K5: a newly offered half of the series pair follows the half already shown.
-        if let series = fresh.firstIndex(where: { $0.id == .series }),
-           let number = fresh.firstIndex(where: { $0.id == .seriesNumber }) {
-            if let ticked = before[.series] ?? before[.seriesNumber] {
-                fresh[series].ticked = ticked
-                fresh[number].ticked = ticked
-            }
-        }
-        offers = fresh
+        decideFirstTicks()
     }
 
-    /// K5: series and series number are ticked and unticked together when both are offered.
-    public mutating func setTicked(_ ticked: Bool, for field: MetadataField) {
-        guard phase != .applying else { return }
-        let pair: Set<MetadataField> = [.series, .seriesNumber]
-        let fields: Set<MetadataField> = pair.contains(field) ? pair : [field]
-        guard offers.contains(where: { $0.id == field }) else { return }
-        for index in offers.indices where fields.contains(offers[index].id) {
-            offers[index].ticked = ticked
+    /// A2: gives the selected result's offers their first ticks, each once: an offer
+    /// decided already keeps the tick it has.
+    ///
+    /// A value is ticked to begin with when the book has none of its own, as before;
+    /// but nothing of a result that is plainly another edition, and nothing that is
+    /// ticked on another result already (A3: a field is taken from one result).
+    private mutating func decideFirstTicks() {
+        guard !isAddMode, let candidate = selected else { return }
+        let id = candidate.id
+        let offered = Self.offerOrder.compactMap { offer($0, from: candidate) }
+        let fields = Set(offered.map(\.id))
+        let before = decided[id] ?? []
+        var ticked = ticks[id] ?? []
+        let different = verdict(for: id).isDifferent
+        for offer in offered where !before.contains(offer.id) {
+            if offer.ticked, !different, !isTicked(offer.id, onOtherThan: id) { ticked.insert(offer.id) }
         }
+        // K5: the series pair has one tick. Decided together, it is the series': a found
+        // number is not put on a series the book already has unless the user says so.
+        // A half that is offered later follows the half already shown.
+        if fields.contains(.series), fields.contains(.seriesNumber) {
+            let seriesIsNew = !before.contains(.series), numberIsNew = !before.contains(.seriesNumber)
+            if seriesIsNew && !numberIsNew {
+                if ticked.contains(.seriesNumber) { ticked.insert(.series) } else { ticked.remove(.series) }
+            } else if seriesIsNew || numberIsNew {
+                if ticked.contains(.series) { ticked.insert(.seriesNumber) } else { ticked.remove(.seriesNumber) }
+            }
+            // The pair is one choice: it is on one result or none.
+            if ticked.contains(.series), isTicked(.series, onOtherThan: id) || isTicked(.seriesNumber, onOtherThan: id) {
+                ticked.subtract([.series, .seriesNumber])
+            }
+        }
+        ticks[id] = ticked
+        decided[id] = before.union(fields)
+    }
+
+    private func isTicked(_ field: MetadataField, onOtherThan id: String) -> Bool {
+        ticks.contains { $0.key != id && $0.value.contains(field) && candidateOffers($0.key, field) }
+    }
+
+    /// Whether the result still offers the field: a tick on a value that is no longer
+    /// offered counts for nothing.
+    private func candidateOffers(_ id: String, _ field: MetadataField) -> Bool {
+        guard let candidate = candidates.first(where: { $0.id == id }) else { return false }
+        return offer(field, from: candidate) != nil
+    }
+
+    /// K5, A3: ticks or unticks a value of the selected result. Series and series
+    /// number are ticked and unticked together when both are offered. Ticking a value
+    /// unticks the same value on every other result: a field is taken from one.
+    public mutating func setTicked(_ ticked: Bool, for field: MetadataField) {
+        guard let selectedId else { return }
+        setTicked(ticked, for: field, on: selectedId)
+    }
+
+    /// The same for any result, selected or not.
+    public mutating func setTicked(_ ticked: Bool, for field: MetadataField, on id: String) {
+        guard phase != .applying, candidateOffers(id, field) else { return }
+        let pair: Set<MetadataField> = [.series, .seriesNumber]
+        let fields = (pair.contains(field) ? pair : [field]).filter { candidateOffers(id, $0) }
+        var own = ticks[id] ?? []
+        if ticked {
+            own.formUnion(fields)
+            // A3: the pair moves together on the others too.
+            let taken: Set<MetadataField> = pair.contains(field) ? pair : [field]
+            for other in ticks.keys where other != id { ticks[other]?.subtract(taken) }
+        } else {
+            own.subtract(fields)
+        }
+        ticks[id] = own
+        decided[id, default: []].formUnion(fields)
+        touched.insert(id)
     }
 
     // MARK: Applying
@@ -296,31 +543,86 @@ public struct LookupSession: Equatable, Sendable {
         phase = .applying
     }
 
-    /// K6: the current values with every ticked offer applied, and whether the cover is
-    /// wanted. Duration and page count are always the book's own.
-    public func applied() -> (metadata: BookMetadata, wantsCover: Bool) {
+    /// K6, A5: the current values with every ticked offer applied, from whichever
+    /// result it is ticked on; the result whose cover is wanted; and the edition kind
+    /// when its offer is ticked. Duration and page count are always the book's own.
+    public func applied() -> Applied {
         var metadata = current
-        guard let found = selected?.metadata else { return (metadata, false) }
-        var wantsCover = false
-        for field in tickedFields {
-            switch field {
-            case .title: metadata.title = found.title.trimmed
-            case .subtitle: metadata.subtitle = found.subtitle?.trimmedOrNil
-            case .authors: metadata.authors = Self.names(found.authors)
-            case .narrators: metadata.narrators = Self.names(found.narrators)
-            case .series: metadata.series = found.series?.trimmedOrNil
-            case .seriesNumber: metadata.seriesNumber = found.seriesNumber?.trimmedOrNil
-            case .genre: metadata.genre = found.genre?.trimmedOrNil
-            case .year: metadata.year = found.year
-            case .publisher: metadata.publisher = found.publisher?.trimmedOrNil
-            case .summary: metadata.summary = found.summary?.trimmedOrNil
-            case .language: metadata.language = found.language?.trimmedOrNil
-            case .isbn: metadata.isbn = found.isbn?.trimmedOrNil
-            case .asin: metadata.asin = found.asin?.trimmedOrNil
-            case .cover: wantsCover = true
+        var fields = Set<MetadataField>()
+        var coverCandidate: LookupCandidate?
+        for candidate in candidates {
+            let found = candidate.metadata
+            for field in tickedFields(on: candidate.id) where fields.insert(field).inserted {
+                switch field {
+                case .title: metadata.title = found.title.trimmed
+                case .subtitle: metadata.subtitle = found.subtitle?.trimmedOrNil
+                case .authors: metadata.authors = Self.names(found.authors)
+                case .narrators: metadata.narrators = Self.names(found.narrators)
+                case .series: metadata.series = found.series?.trimmedOrNil
+                case .seriesNumber: metadata.seriesNumber = found.seriesNumber?.trimmedOrNil
+                case .genre: metadata.genre = found.genre?.trimmedOrNil
+                case .year: metadata.year = found.year
+                case .publisher: metadata.publisher = found.publisher?.trimmedOrNil
+                case .summary: metadata.summary = found.summary?.trimmedOrNil
+                case .language: metadata.language = found.language?.trimmedOrNil
+                case .isbn: metadata.isbn = found.isbn?.trimmedOrNil
+                case .asin: metadata.asin = found.asin?.trimmedOrNil
+                case .cover: coverCandidate = candidate
+                }
             }
         }
-        return (metadata, wantsCover)
+        let edition = editionOffer.flatMap { $0.ticked ? $0.note : nil }
+        return Applied(
+            metadata: metadata, fields: Self.offerOrder.filter(fields.contains), coverCandidate: coverCandidate,
+            editionKind: edition)
+    }
+
+    /// A4: what will be applied, across results: "Narrators, year and publisher from
+    /// Library of Congress; description and cover from Audible". Results of one source
+    /// are named together. Nil when nothing is ticked.
+    public var applySummary: String? {
+        var order: [String] = []
+        var fields: [String: Set<MetadataField>] = [:]
+        var edition: String?
+        func place(_ name: String) -> String {
+            if !order.contains(name) { order.append(name) }
+            return name
+        }
+        var taken = Set<MetadataField>()
+        for candidate in candidates {
+            for field in tickedFields(on: candidate.id) where taken.insert(field).inserted {
+                fields[place("from \(candidate.source.title)"), default: []].insert(field)
+            }
+        }
+        if let offer = editionOffer, offer.ticked {
+            switch offer.note.basis {
+            case .matched(let source): edition = place("from \(source)")
+            case .estimated: edition = place("from the length of the printed book")
+            default: edition = place("from its running time")
+            }
+        }
+        guard !order.isEmpty else { return nil }
+        let text: String = order.map { (place: String) -> String in
+            // In the offers' order, whichever result each came from; the edition last.
+            var names = Self.offerOrder.filter { fields[place]?.contains($0) ?? false }.map(Self.summaryName)
+            if edition == place { names.append("edition") }
+            return "\(Self.list(names)) \(place)"
+        }.joined(separator: "; ")
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    /// "narrators", "series number", "description", "ISBN".
+    private static func summaryName(_ field: MetadataField) -> String {
+        switch field {
+        case .isbn, .asin: label(field)
+        default: label(field).lowercased()
+        }
+    }
+
+    /// "a", "a and b", "a, b and c".
+    private static func list(_ names: [String]) -> String {
+        guard names.count > 1, let last = names.last else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + last
     }
 
     // MARK: Offers
@@ -350,21 +652,8 @@ public struct LookupSession: Equatable, Sendable {
         }
     }
 
-    /// K3, K4: the selected candidate's offers with their default ticks.
-    private func defaultOffers() -> [Offer] {
-        // N2: a book that is being added has no values of its own to replace.
-        guard !isAddMode, let candidate = selected else { return [] }
-        var offers = Self.offerOrder.compactMap { offer($0, from: candidate) }
-        // K5: the pair has one tick, the series': a found number is not put on a series
-        // the book already has unless the user says so.
-        if let series = offers.firstIndex(where: { $0.id == .series }),
-           let number = offers.firstIndex(where: { $0.id == .seriesNumber }) {
-            offers[number].ticked = offers[series].ticked
-        }
-        return offers
-    }
-
     /// Nil when the candidate has no value for the field, or the value is the book's own.
+    /// `ticked` says whether the value would be ticked to begin with: the book has none.
     private func offer(_ field: MetadataField, from candidate: LookupCandidate) -> Offer? {
         let found = candidate.metadata
         func text(_ theirs: String?, _ ours: String?) -> Offer? {

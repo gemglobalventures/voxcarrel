@@ -290,8 +290,10 @@ public enum EditionKindGuess {
             return EditionKindAssessment()
         }
 
-        // No audio edition to go by: a printed edition's page count.
-        guard let pages = relevant.lazy.compactMap({ $0.metadata.pageCount }).first(where: { $0 > 0 }) else {
+        // No audio edition to go by: the page count Open Library gives for the printed book.
+        guard let pages = relevant.lazy.filter({ $0.source == .openLibrary })
+            .compactMap({ $0.metadata.pageCount }).first(where: { $0 > 0 })
+        else {
             return EditionKindAssessment(remark: partsAppearMissing ? missing : nil)
         }
         let expected = Double(pages) / pagesAnHour * 3600

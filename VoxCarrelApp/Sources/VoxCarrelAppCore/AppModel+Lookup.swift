@@ -17,14 +17,108 @@ public struct AudibleStoreChoice: Identifiable, Equatable, Sendable {
     public var id: AudibleStore { store }
 }
 
+/// A lookup source as the settings list it (A8b).
+public struct LookupSourceRow: Identifiable, Equatable, Sendable {
+    public var source: LookupSource
+    /// "Library of Congress"
+    public var title: String
+    /// What it is good for: "Cassette and CD editions with their narrators".
+    public var detail: String
+    /// A second line, for a source there is something to warn about (A8c); nil otherwise.
+    public var note: String?
+    public var isOn: Bool
+
+    public var id: LookupSource { source }
+}
+
+/// An Audible store as the settings' list of stores to search shows it (A8).
+public struct AudibleStoreRow: Identifiable, Equatable, Sendable {
+    public var store: AudibleStore
+    /// The country's name: "United Kingdom".
+    public var title: String
+    /// Whether lookups search it.
+    public var isOn: Bool
+    /// The user's own store: always searched, and not to be switched off here.
+    public var isOwn: Bool
+    /// Whether its tick can be changed: Audible is on, and it is not the user's own.
+    public var isEnabled: Bool
+
+    public var id: AudibleStore { store }
+}
+
+extension AudibleStore {
+    /// A6: the store as a result's row names it: "US", "UK", "Australia".
+    public var shortTitle: String {
+        switch self {
+        case .us: "US"
+        case .uk: "UK"
+        default: title
+        }
+    }
+}
+
+extension LookupSource {
+    /// A8b: what the source is good for, in a line.
+    public var detail: String {
+        switch self {
+        case .openLibrary: "Books and their print and audio editions; covers"
+        case .audible: "Audiobook editions, narrators, series and covers"
+        case .libraryOfCongress: "Cassette and CD editions with their narrators"
+        }
+    }
+
+    /// The source in the middle of a sentence: "the Library of Congress".
+    var nameInSentence: String {
+        self == .libraryOfCongress ? "the \(title)" : title
+    }
+}
+
+extension LookupCandidate {
+    /// The Audible store the result's ASIN belongs to: the first of the stores that
+    /// list it. Nil for a result of another source, or of a store this version does
+    /// not know.
+    public var audibleStore: AudibleStore? {
+        guard source == .audible else { return nil }
+        if let first = edition.stores.first.flatMap(AudibleStore.init(rawValue:)) { return first }
+        // "audible:<store>:<asin>"
+        let parts = id.split(separator: ":")
+        return parts.count == 3 ? AudibleStore(rawValue: String(parts[1])) : nil
+    }
+
+    /// A6: the stores that list the result, "US, UK, Australia", when that is more
+    /// than the user's own store; nil for a result only their own store lists, and for
+    /// a result of another source.
+    public func storesText(own: AudibleStore) -> String? {
+        let stores = edition.stores.compactMap(AudibleStore.init(rawValue:))
+        guard source == .audible, !stores.isEmpty, stores != [own] else { return nil }
+        return stores.map(\.shortTitle).joined(separator: ", ")
+    }
+}
+
 extension AppModel {
     // MARK: Whether a lookup can begin
 
+    static let noLookupSourceReason = "Turn on a lookup source in Settings."
+    static let noAudibleReason = "Turn on Audible as a lookup source in Settings."
+
     /// A1: whether the inspected book can be looked up: a library is open, exactly one
-    /// book is inspected, nothing is running, and no question or other sheet is in the way.
+    /// book is inspected, a lookup source is on (A8b), nothing is running, and no
+    /// question or other sheet is in the way.
     public var canLookUp: Bool {
         guard case .one = inspecting else { return false }
-        return isQuietForLookup && review == nil && result == nil && libraryCheck == nil
+        return isQuietForLookup && canAskLookupSources && review == nil && result == nil && libraryCheck == nil
+    }
+
+    /// A8b: why Look Up cannot be used whatever is selected: every lookup source is
+    /// off. Nil when one is on.
+    public var lookUpDisabledReason: String? {
+        canAskLookupSources ? nil : Self.noLookupSourceReason
+    }
+
+    /// A8b: why Add Audible Book cannot be used whatever else is so: Audible is off.
+    /// Nil when it is on.
+    public var addAudibleBookDisabledReason: String? {
+        lookupSources.contains(.audible) ? nil : Self.noAudibleReason
     }
 
     /// A2: whether this entry of the import being reviewed can be looked up.
@@ -32,7 +126,7 @@ extension AppModel {
     /// Not an entry whose files are to join a book already in the library: that book
     /// keeps its own details, and anything found for the entry would be thrown away.
     public func canLookUpEntry(_ id: UUID) -> Bool {
-        guard isQuietForLookup, let entry = review?.entry(id) else { return false }
+        guard isQuietForLookup, canAskLookupSources, let entry = review?.entry(id) else { return false }
         return !entry.isAddedToExisting
     }
 
@@ -54,19 +148,31 @@ extension AppModel {
 
     // MARK: The sources, in words
 
-    /// Where results come from, "Results from Open Library and Audible (United Kingdom)",
-    /// and once a search has finished what each source made of it:
-    /// "Open Library: no matches · Audible (United Kingdom): 2 matches".
+    /// The sources a search of the open lookup asks, in the order they are asked: the
+    /// ones that are on, or Audible alone when an Audible book is being added.
+    private var askedSources: [LookupSource] {
+        LookupSource.allCases.filter { source in
+            lookupSources.contains(source) && (lookup?.sources?.contains(source) ?? true)
+        }
+    }
+
+    /// Where results come from, "Results from Open Library and Audible (UK, US,
+    /// Australia)", and once a search has finished what each source made of it:
+    /// "Open Library: no matches · Audible (UK, US, Australia): 2 matches".
+    ///
+    /// A7: a source that found nothing read by the book's narrator and searched again
+    /// without the name says so: "nothing read by Frank Muller; showing other editions".
     public var lookupSourcesText: String {
         guard let outcomes = lookup?.outcomes, !outcomes.isEmpty else {
-            // N6: an Audible book is looked for in Audible alone.
-            if lookup?.isAddMode == true { return "Results from \(sourceName(.audible))" }
-            return "Results from \(sourceName(.openLibrary)) and \(sourceName(.audible))"
+            let names = askedSources.map(sourceName)
+            return names.isEmpty ? "No lookup source is turned on" : "Results from \(Self.list(names))"
         }
         return outcomes.map { outcome in
             let said: String
             if let failure = outcome.failure {
                 said = UserMessage.shortText(for: failure)
+            } else if let narrator = outcome.narratorNotFound, outcome.found > 0 {
+                said = "nothing read by \(narrator); showing other editions"
             } else {
                 switch outcome.found {
                 case 0: said = "no matches"
@@ -78,19 +184,117 @@ extension AppModel {
         }.joined(separator: " · ")
     }
 
-    /// "Open Library", "Audible (United Kingdom)"
+    /// A7: said on its own when the narrator search found nothing and the search was
+    /// repeated without it: "Audible: nothing read by Frank Muller; showing other
+    /// editions." Nil when that did not happen, or the second search found nothing either.
+    public var lookupNarratorFallbackText: String? {
+        let lines = (lookup?.outcomes ?? []).compactMap { outcome -> String? in
+            guard outcome.failure == nil, outcome.found > 0, let narrator = outcome.narratorNotFound else { return nil }
+            return "\(outcome.source.title): nothing read by \(narrator); showing other editions."
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: " ")
+    }
+
+    /// "Open Library", "Audible (United Kingdom)", "Audible (UK, US, Australia)"
     private func sourceName(_ source: LookupSource) -> String {
         switch source {
-        case .openLibrary, .libraryOfCongress: source.title
-        case .audible: "\(source.title) (\(audibleStore.title))"
+        case .openLibrary, .libraryOfCongress: return source.title
+        case .audible:
+            let stores = audibleStores
+            let named = stores.count == 1 ? audibleStore.title : stores.map(\.shortTitle).joined(separator: ", ")
+            return "\(source.title) (\(named))"
         }
     }
 
-    /// V7: what the settings say a lookup sends, and where from it fetches.
-    public static let lookupPrivacyText =
-        "Look Up sends the title, author, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from them (Open Library’s come from the Internet Archive, Audible’s from Amazon). Nothing is sent until you press Look Up."
+    /// "a", "a and b", "a, b and c".
+    static func list(_ names: [String]) -> String {
+        guard names.count > 1, let last = names.last else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + last
+    }
 
-    public var lookupPrivacyText: String { Self.lookupPrivacyText }
+    /// A6: the stores that list a result, for its row: "US, UK, Australia"; nil when
+    /// only the user's own store does.
+    public func lookupStoresText(for candidate: LookupCandidate) -> String? {
+        candidate.storesText(own: audibleStore)
+    }
+
+    /// A6: what a result's row is marked with: "Your edition", "Different edition", or nil.
+    public func lookupBadgeText(for candidate: LookupCandidate) -> String? {
+        lookup?.badgeText(for: candidate.id)
+    }
+
+    /// A6: why a result is marked "Different edition", for the badge's tooltip.
+    public func lookupBadgeHelp(for candidate: LookupCandidate) -> String? {
+        lookup?.badgeHelp(for: candidate.id)
+    }
+
+    // MARK: A8 The settings
+
+    static let unencryptedNote =
+        "Searches to this source are sent unencrypted, so the title, author and narrator you look up can be seen on your network."
+
+    /// A8b: one row for each lookup source, with what it is good for and whether it is
+    /// on. A8c: the Library of Congress carries a second line.
+    public var lookupSourceRows: [LookupSourceRow] {
+        LookupSource.allCases.map { source in
+            LookupSourceRow(
+                source: source, title: source.title, detail: source.detail,
+                note: source == .libraryOfCongress ? Self.unencryptedNote : nil, isOn: lookupSources.contains(source))
+        }
+    }
+
+    /// A8b: turns a lookup source on or off.
+    public func setLookupSource(_ source: LookupSource, on: Bool) {
+        var sources = lookupSources
+        if on { sources.insert(source) } else { sources.remove(source) }
+        lookupSources = sources
+    }
+
+    /// A8: the Audible stores, by country name, each with whether lookups search it.
+    /// The user's own store is always searched. A8b: with Audible off the list is
+    /// shown disabled.
+    public var audibleStoreRows: [AudibleStoreRow] {
+        let searched = Set(audibleStores)
+        let audibleIsOn = lookupSources.contains(.audible)
+        return Self.audibleStoreChoices.map { choice in
+            let isOwn = choice.store == audibleStore
+            return AudibleStoreRow(
+                store: choice.store, title: choice.title, isOn: searched.contains(choice.store), isOwn: isOwn,
+                isEnabled: audibleIsOn && !isOwn)
+        }
+    }
+
+    /// A8b: whether the Audible stores list can be changed: Audible is on.
+    public var audibleStoresAreEnabled: Bool {
+        lookupSources.contains(.audible)
+    }
+
+    /// A8: has lookups search this store too, or no longer. The user's own store is
+    /// always searched: switching it off here does nothing.
+    public func setAudibleStore(_ store: AudibleStore, searched: Bool) {
+        var others = otherAudibleStores
+        if searched { others.insert(store) } else { others.remove(store) }
+        otherAudibleStores = others
+    }
+
+    /// A8, A8b, A8c: what the settings say a lookup sends, and where from it fetches,
+    /// naming only the sources that are on.
+    public var lookupPrivacyText: String {
+        Self.lookupPrivacyText(for: lookupSources)
+    }
+
+    static func lookupPrivacyText(for sources: Set<LookupSource>) -> String {
+        let on = LookupSource.allCases.filter(sources.contains)
+        guard !on.isEmpty else { return "Look Up is off. Turn on a lookup source to use it." }
+        var text = "Look Up sends the title, author, narrator, ISBN or Audible ID you search for to "
+            + list(on.map(\.nameInSentence))
+        // The Library of Congress has no covers.
+        let covers = on.filter { $0 != .libraryOfCongress }.map(\.title)
+        if !covers.isEmpty { text += ", and downloads cover images from \(list(covers))" }
+        text += ". Nothing is sent until you press Look Up."
+        if sources.contains(.libraryOfCongress) { text += " Searches to the Library of Congress are not encrypted." }
+        return text
+    }
 
     /// The Audible stores for the settings, by country name.
     public static let audibleStoreChoices: [AudibleStoreChoice] = AudibleStore.allCases
@@ -110,7 +314,10 @@ extension AppModel {
         open(
             LookupSession(
                 target: .book(detail.row.id), current: draft.typedMetadata, hasCover: draftCover != .none,
-                hasAudio: detail.row.hasAudio, typed: typed))
+                hasAudio: detail.row.hasAudio, typed: typed,
+                // What results are judged against: the measured length, and the edition as the draft has it.
+                audioSeconds: detail.row.measuredAudioSeconds, editionKind: draft.editionKind,
+                partsAppearMissing: detail.row.book.partsAppearMissing))
     }
 
     /// A2: the same for an entry of the import being reviewed, with its details and cover.
@@ -119,7 +326,9 @@ extension AppModel {
         open(
             LookupSession(
                 target: .importEntry(id), current: entry.candidate.metadata, hasCover: entry.cover != nil,
-                hasAudio: entry.hasAudio))
+                hasAudio: entry.hasAudio,
+                // The length the scan read from the entry's audio files.
+                audioSeconds: entry.hasAudio ? entry.candidate.metadata.durationSeconds : nil))
     }
 
     func open(_ session: LookupSession) {
@@ -170,9 +379,12 @@ extension AppModel {
         let language = lookupLanguage
         // N1: an Audible book is looked for in Audible alone.
         let sources = session.sources
+        // What the results are judged and ranked against.
+        let book = session.bookContext
         let generation = lookupGeneration
         let search = spawn {
-            let results = await worker.lookUp(query, preferAudio: preferAudio, language: language, sources: sources)
+            let results = await worker.lookUp(
+                query, preferAudio: preferAudio, language: language, sources: sources, book: book)
             // A cancelled search comes back looking like one that found nothing, and
             // this may no longer be the lookup, or the query, it was made for (K2).
             guard !Task.isCancelled, self.lookupGeneration == generation, var session = self.lookup,
@@ -226,10 +438,24 @@ extension AppModel {
         await load.value
     }
 
+    /// A3: ticks or unticks a value of the selected result. Ticking it unticks the
+    /// same value on every other result.
     public func setLookupTicked(_ ticked: Bool, for field: MetadataField) {
         guard var session = lookup else { return }
         session.setTicked(ticked, for: field)
         lookup = session
+    }
+
+    /// Ticks or unticks the edition offer.
+    public func setLookupEditionTicked(_ ticked: Bool) {
+        guard var session = lookup else { return }
+        session.setEditionTicked(ticked)
+        lookup = session
+    }
+
+    /// A4: what Apply will take, across results; nil when nothing is ticked.
+    public var lookupApplySummary: String? {
+        lookup?.applySummary
     }
 
     // MARK: Applying and closing
@@ -254,13 +480,17 @@ extension AppModel {
     /// closes meanwhile, nothing is applied. The lookup has closed before the save
     /// begins: from then on `busyLabel` is the progress shown.
     public func applyLookup() async {
-        guard var session = lookup, session.canApply, let candidate = session.selected else { return }
-        let (metadata, wantsCover) = session.applied()
-        let fields = session.tickedFields
+        guard var session = lookup, session.canApply else { return }
+        // A5: every ticked value, from whichever result it is ticked on.
+        let applied = session.applied()
+        let metadata = applied.metadata
+        let fields = applied.fields
+        let wantsCover = applied.wantsCover
         let target = session.target
 
         var cover: CoverImage?
-        if wantsCover {
+        // A5: the cover of the result whose cover is ticked.
+        if let candidate = applied.coverCandidate {
             // The row's picture, when it is the cover itself, has been fetched already.
             if let url = candidate.coverURL, let data = lookupThumbnails[url] {
                 cover = Self.coverImage(data)
@@ -282,7 +512,11 @@ extension AppModel {
         switch target {
         case .book(let id):
             guard case .one(let detail, _) = inspecting, detail.row.id == id else { break }
-            updateDraft { $0.take(fields, from: metadata) }
+            updateDraft {
+                $0.take(fields, from: metadata)
+                // In the catalogue only, and as it was found: not the user's own word.
+                if let kind = applied.editionKind { $0.editionKind = kind }
+            }
             if let cover { setCover(data: cover.data) }
             savesDraft = true
         case .importEntry(let id):
@@ -302,7 +536,7 @@ extension AppModel {
         closeLookup()
         var coverProblem: String?
         if wantsCover, cover == nil {
-            coverProblem = fields == [.cover]
+            coverProblem = fields == [.cover] && applied.editionKind == nil
                 ? Self.coverNotDownloaded : Self.coverNotDownloaded + " The other details were applied."
             alert = coverProblem
         }
