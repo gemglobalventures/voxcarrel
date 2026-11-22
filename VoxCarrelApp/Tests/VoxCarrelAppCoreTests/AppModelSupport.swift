@@ -31,6 +31,78 @@ final class RecordingOpener: FileOpener, @unchecked Sendable {
     }
 }
 
+/// A `FolderWatching` that watches nothing: a test says when something changed, with `fire()`.
+@MainActor
+final class FakeFolderWatcher: FolderWatching {
+    /// The folders it was last asked to watch; empty when stopped or never started.
+    private(set) var folders: [URL] = []
+    /// How many times `watch` and `stop` have been called.
+    private(set) var watchCount = 0
+    private(set) var stopCount = 0
+    private var onChange: (@MainActor () -> Void)?
+
+    /// Whether `watch` has been called since the last `stop`, even with no folders.
+    var isWatching: Bool { onChange != nil }
+
+    func watch(_ folders: [URL], onChange: @escaping @MainActor () -> Void) {
+        watchCount += 1
+        self.folders = folders
+        self.onChange = onChange
+    }
+
+    func stop() {
+        stopCount += 1
+        folders = []
+        onChange = nil
+    }
+
+    /// Reports a change, as the file system would. Does nothing when not watching.
+    func fire() {
+        onChange?()
+    }
+}
+
+/// A `Ticking` that never waits: scheduled actions are kept until a test runs them.
+@MainActor
+final class FakeTicker: Ticking {
+    struct Entry {
+        /// The delay it was scheduled with.
+        var delay: TimeInterval
+        fileprivate var action: @MainActor () -> Void
+    }
+
+    /// The actions scheduled and neither run nor cancelled, in the order they were scheduled.
+    private(set) var pending: [Entry] = []
+    /// How many times `cancelAll` has been called.
+    private(set) var cancelCount = 0
+
+    func schedule(after seconds: TimeInterval, _ action: @escaping @MainActor () -> Void) {
+        pending.append(Entry(delay: seconds, action: action))
+    }
+
+    func cancelAll() {
+        cancelCount += 1
+        pending = []
+    }
+
+    /// Runs the pending action with the shortest delay (the earliest scheduled, if several
+    /// share it), as if its time had come. Returns false when nothing is pending.
+    @discardableResult
+    func runNext() -> Bool {
+        guard let shortest = pending.map(\.delay).min() else { return false }
+        return run(delay: shortest)
+    }
+
+    /// Runs the earliest scheduled pending action with exactly this delay, leaving the
+    /// others pending. Returns false when there is none.
+    @discardableResult
+    func run(delay: TimeInterval) -> Bool {
+        guard let index = pending.firstIndex(where: { $0.delay == delay }) else { return false }
+        pending.remove(at: index).action()
+        return true
+    }
+}
+
 /// Holds whoever calls `wait()` until `release()`, and lets a test wait for them to arrive.
 actor Gate {
     private var isOpen = false
