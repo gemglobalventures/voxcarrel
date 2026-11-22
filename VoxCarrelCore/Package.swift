@@ -40,7 +40,9 @@ let package = Package(
                 "VoxCarrelFixtures",
                 "CTagBridge",
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
-            ]
+            ],
+            // Recorded lookup responses; no test touches the network.
+            resources: [.copy("Fixtures")]
         ),
     ],
     swiftLanguageModes: [.v5],
