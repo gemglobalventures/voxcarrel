@@ -22,7 +22,8 @@ The books in these pictures are generated samples from the demo library.
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
 - Keeps an audiobook, its ebook and companion files together as one book, in `Author/Series/Title` folders.
 - Edits details and covers for one book or many, written into the files and checked before they replace the originals.
-- Looks books up on Open Library and the Audible catalogue; you choose which fields to take, and applying them saves in one step.
+- Looks books up on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress, which knows many older cassette and CD editions. Results that are your exact edition are marked, as are different editions; you choose which fields to take, from one result or several, and applying them saves in one step.
+- Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
 - Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
@@ -81,7 +82,14 @@ VoxCarrelApp/Scripts/smoke-launch.sh
 
 ## Online lookup and privacy
 
-Look Up sends the title, author, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from them. Nothing is sent until you press Look Up. The Audible catalogue search is an unofficial interface and may change. VoxCarrel does not sign in to any account.
+Nothing is sent anywhere until you press Look Up (or Check Edition, or search in Add Audible Book). Then the title, author, narrator, ISBN or Audible ID you search for is sent to the sources that are switched on, and cover images are downloaded from Open Library and Audible.
+
+Each source can be switched on or off in Settings ▸ Lookup. A source that is off is never contacted.
+
+- **Open Library** and **Audible** are on by default and use encrypted connections. The Audible catalogue search is an unofficial interface and may change.
+- **The Library of Congress** is off by default. Its catalogue search is only offered over an unencrypted connection, so the title, author or ISBN you look up there can be seen on your network. It is the one exception to the app's rule of encrypted connections only.
+
+VoxCarrel does not sign in to any account.
 
 ## Support
 
