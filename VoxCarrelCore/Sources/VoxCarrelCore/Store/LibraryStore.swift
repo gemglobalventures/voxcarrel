@@ -749,15 +749,16 @@ extension LibraryStore {
 
     /// Stores a series' link and entries in place of any it had, in one transaction.
     /// An entry is stored hidden when `staysHidden` says so of it and an entry that was
-    /// hidden before. Links no book uses any more are deleted on the way.
+    /// hidden before, given the link that entry was stored under. Links no book uses
+    /// any more are deleted on the way.
     func replaceSeriesList(
         link: SeriesLinkRecord, entries: [SeriesEntryRecord],
-        staysHidden: (_ before: SeriesEntryRecord, _ now: SeriesEntryRecord) -> Bool
+        staysHidden: (_ was: SeriesLinkRecord, _ before: SeriesEntryRecord, _ now: SeriesEntryRecord) -> Bool
     ) throws {
         try dbQueue.write { db in
             var hidden: [SeriesEntryRecord] = []
-            if let old = try SeriesLinkRecord.filter(Column("seriesKey") == link.seriesKey).fetchOne(db),
-               let id = old.id {
+            let old = try SeriesLinkRecord.filter(Column("seriesKey") == link.seriesKey).fetchOne(db)
+            if let id = old?.id {
                 hidden = try SeriesEntryRecord
                     .filter(Column("linkId") == id && Column("isHidden") == true).fetchAll(db)
                 try SeriesLinkRecord.deleteOne(db, key: id)
@@ -771,7 +772,7 @@ extension LibraryStore {
                 entry.id = nil
                 entry.linkId = linkId
                 entry.position = position
-                entry.isHidden = hidden.contains { staysHidden($0, entry) }
+                entry.isHidden = old.map { was in hidden.contains { staysHidden(was, $0, entry) } } ?? false
                 try entry.insert(db)
             }
             try Self.deleteUnusedSeriesLinks(db)

@@ -184,6 +184,40 @@ import VoxCarrelFixtures
         #expect(missing.map(\.isHidden) == [true, true, false])
     }
 
+    /// A number says which book only within one Audible series: linked to another
+    /// series, an entry stays hidden only when it is the edition that was hidden.
+    @Test func SC22_aHiddenEntryIsNotKnownByItsNumberInAnotherAudibleSeries() throws {
+        let f = try F()
+        try add(f, "Patriot Games", number: "2")
+        try f.service.saveSeriesList(Self.list(Self.four), forSeries: Self.series, now: now)
+        for entry in try completeness(f).missing { try f.service.setMissingEntry(id: entry.id, hidden: true) }
+
+        // Another series: its number 3 is another book, and the edition that was hidden
+        // as number 4 is its number 7.
+        let other = [
+            Self.four[1],
+            Self.edition("B00000009X", "Debt of Honor", "3"),
+            Self.edition("B000000004", "Clear and Present Danger", "7"),
+        ]
+        try f.service.saveSeriesList(
+            Self.list(other, id: "B0SERIES02", title: "A Jack Ryan Novel (chronological order)"),
+            forSeries: Self.series, now: now)
+
+        var missing = try completeness(f).missing
+        #expect(missing.map(\.entry.preferred.asin) == ["B00000009X", "B000000004"])
+        #expect(missing.map(\.isHidden) == [false, true])
+
+        // The same ID in another store is another series too.
+        try f.service.setMissingEntry(id: missing[0].id, hidden: true)
+        var elsewhere = Self.list(
+            [Self.four[1], Self.edition("B00000008X", "Executive Orders", "3")], id: "B0SERIES02")
+        elsewhere.ref.store = .us
+        try f.service.saveSeriesList(elsewhere, forSeries: Self.series, now: now)
+        missing = try completeness(f).missing
+        #expect(missing.map(\.entry.preferred.asin) == ["B00000008X"])
+        #expect(missing.map(\.isHidden) == [false])
+    }
+
     @Test func SC22_anEmptyListIsRefusedAndWhatWasStoredStays() throws {
         let f = try F()
         try add(f, "Patriot Games", number: "2")

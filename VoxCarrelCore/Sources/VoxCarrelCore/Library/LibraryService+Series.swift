@@ -93,6 +93,9 @@ extension LibraryService {
     /// preferring the editions the library's books of that series have, in place of
     /// any link and list the series had. An entry that was hidden stays hidden while
     /// the list still has it: under the same number, or with the same preferred edition.
+    /// A number says which book only within one Audible series: when the list is of
+    /// another series than the one stored (another ID, or another store), only the
+    /// same preferred edition keeps an entry hidden.
     ///
     /// A link whose series no book is in any more is deleted on the way. Not an
     /// undoable operation, and the one recorded is left as it is. No file is touched.
@@ -110,8 +113,10 @@ extension LibraryService {
         let link = SeriesLinkRecord(
             id: nil, seriesKey: name, seriesName: name, audibleSeriesId: list.ref.id,
             audibleSeriesTitle: list.ref.title, store: list.ref.store.rawValue, checkedAt: now)
-        try store.replaceSeriesList(link: link, entries: entries.map(SeriesEntryRecord.init)) { before, now in
-            if SeriesMatch.sameNumber(before.number, now.number) { return true }
+        try store.replaceSeriesList(link: link, entries: entries.map(SeriesEntryRecord.init)) { was, before, now in
+            let sameSeries = was.store == link.store
+                && SeriesMatch.tidyASIN(was.audibleSeriesId) == SeriesMatch.tidyASIN(link.audibleSeriesId)
+            if sameSeries, SeriesMatch.sameNumber(before.number, now.number) { return true }
             guard let was = before.asins.first, let isNow = now.asins.first else { return false }
             return SeriesMatch.tidyASIN(was) == SeriesMatch.tidyASIN(isNow)
         }
