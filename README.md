@@ -95,7 +95,7 @@ VoxCarrel does not sign in to any account.
 
 Bug reports and ideas are welcome as issues.
 
-Code contributions will need a signed contributor agreement, which is not set up yet. Until it is, pull requests cannot be merged, so please open an issue before writing code.
+Code contributions need a signed [contributor licence agreement](https://gist.github.com/gemglobalventures/b4a6b846ea644b32fcfccd23dd57ee3e). You keep the copyright in your work; the agreement lets Gem Global Ventures Pte Ltd publish it under the AGPL and also under other licences. When you open your first pull request, a check asks you to sign by posting a comment. For anything larger than a small fix, please open an issue first.
 
 ## Acknowledgements
 
