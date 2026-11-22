@@ -79,6 +79,34 @@ private let glassASIN = "B0GLASSTID"
         #expect(h.model.alert == nil)
     }
 
+    /// Plan 6, 9: the books of a series are shown in the order of the series, the ones
+    /// here and the ones on Audible together, until the user chooses another sort.
+    @Test func aSeriesIsShownInItsOrder() async throws {
+        let (h, glass) = try await demoWithGlassTide()
+        let inOrder = ["Salt Road", "The Drowned Bell", "Harbour of Glass", "The Glass Tide"]
+        h.model.sidebarSelection = .browse(.series, "Tidewater Chronicles")
+        await h.model.settle()
+        #expect(h.model.rows.map(\.book.title) == inOrder)
+        #expect(h.model.rows.last?.id == glass)
+        #expect(h.model.sort == BookSort())
+
+        // A chosen sort is kept; back to the title, the series is in its order again.
+        h.model.sort = BookSort(key: .title, ascending: false)
+        #expect(h.model.rows.map(\.book.title) == inOrder.reversed())
+        h.model.sort = BookSort(key: .dateAdded)
+        #expect(h.model.rows.map(\.id) == BookSort(key: .dateAdded).sorted(h.model.rows).map(\.id))
+        h.model.sort = BookSort()
+        #expect(h.model.rows.map(\.book.title) == inOrder)
+        // And after the library changes.
+        await h.model.setOnAudible(true, for: [try h.id("Salt Road")])
+        #expect(h.model.rows.map(\.book.title) == inOrder)
+
+        // Elsewhere the same sort is by title.
+        h.model.sidebarSelection = .browse(.authors, "Ines Calloway")
+        await h.model.settle()
+        #expect(h.model.rows.map(\.book.title) == h.model.rows.map(\.book.title).sorted())
+    }
+
     // MARK: R1 Lists
 
     /// R1

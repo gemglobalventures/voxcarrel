@@ -9,6 +9,8 @@ public enum BookSortKey: String, CaseIterable, Sendable {
 public struct BookSort: Equatable, Sendable {
     public var key: BookSortKey = .title
     public var ascending = true
+    /// Set only while one series is being put in its own order (`sorted(_:showing:)`).
+    private var bySeriesNumber = false
 
     public init(key: BookSortKey = .title, ascending: Bool = true) {
         self.key = key
@@ -22,7 +24,17 @@ public struct BookSort: Equatable, Sendable {
     /// Rows that have no value for the key (no author, no series, no audio or ebook
     /// file, no duration) come last. Descending reverses the whole order, ties included,
     /// except that those rows still come last.
-    public func sorted(_ rows: [BookRow]) -> [BookRow] {
+    ///
+    /// The books of one series (`item` is that series in the sidebar) are shown in the
+    /// order of the series while the sort is by title, which is the sort nobody has
+    /// chosen: by number, numerically where the numbers are numbers, books with no
+    /// number last, ties by title. Any other key is the user's choice and is kept.
+    public func sorted(_ rows: [BookRow], showing item: SidebarItem? = nil) -> [BookRow] {
+        if key == .title, case .browse(.series, _)? = item {
+            var inSeriesOrder = self
+            inSeriesOrder.bySeriesNumber = true
+            return inSeriesOrder.sorted(rows)
+        }
         var valued: [BookRow] = []
         var valueless: [BookRow] = []
         for row in rows {
@@ -69,7 +81,8 @@ public struct BookSort: Equatable, Sendable {
     }
 
     private func hasValue(_ row: BookRow) -> Bool {
-        switch key {
+        if bySeriesNumber { return Self.text(row.book.seriesNumber) != nil }
+        return switch key {
         case .title, .dateAdded, .status: true
         case .author: Self.firstAuthor(row) != nil
         case .series: Self.text(row.book.series) != nil
@@ -107,7 +120,7 @@ public struct BookSort: Equatable, Sendable {
         var result: ComparisonResult = .orderedSame
         switch key {
         case .title:
-            break
+            if bySeriesNumber { result = Self.compareSeriesNumbers(a.book.seriesNumber, b.book.seriesNumber) }
         case .author:
             result = Self.compareText(Self.firstAuthor(a) ?? "", Self.firstAuthor(b) ?? "")
         case .series:

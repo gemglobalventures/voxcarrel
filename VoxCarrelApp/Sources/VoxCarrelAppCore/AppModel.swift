@@ -287,7 +287,7 @@ public final class AppModel {
             storedSort = newValue
             defaults.set(newValue.key.rawValue, forKey: Keys.sortKey)
             defaults.set(newValue.ascending, forKey: Keys.sortAscending)
-            rows = newValue.sorted(rows)
+            rows = newValue.sorted(rows, showing: shown.0)
         }
     }
 
@@ -406,7 +406,7 @@ public final class AppModel {
                 ask(about: .browse)
                 return
             }
-            rows = storedSort.sorted(fetched)
+            rows = storedSort.sorted(fetched, showing: item)
             rowsLoaded = true
             shown = (item, search)
             if !selection.isSubset(of: ids) {
@@ -439,7 +439,7 @@ public final class AppModel {
                 let search = storedSearchText
                 let fetched = try await worker.rows(for: item, search: search)
                 if generation == rowsGeneration {
-                    rows = storedSort.sorted(fetched)
+                    rows = storedSort.sorted(fetched, showing: item)
                     rowsLoaded = true
                     shown = (item, search)
                     if !(keepEdits && hasUnsavedChanges) {

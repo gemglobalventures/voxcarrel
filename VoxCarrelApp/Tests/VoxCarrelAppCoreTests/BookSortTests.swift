@@ -24,6 +24,31 @@ import VoxCarrelCore
 
     private func ids(_ sort: BookSort, _ rows: [BookRow]) -> [Int64] { sort.sorted(rows).map(\.id) }
 
+    /// Plan 6, 9: the books of one series are shown in the order of the series while the
+    /// sort is the one nobody chose (by title): numbers numerically, then numbers that
+    /// are not numbers, then books with none; ties by title.
+    @Test func oneSeriesIsShownInItsOwnOrderWhileSortedByTitle() {
+        let rows = [
+            row(1, "Zebra", series: "Saga", number: "1"), row(2, "Apple", series: "Saga", number: "10"),
+            row(3, "Mango", series: "Saga", number: "2"), row(4, "Aardvark", series: "Saga"),
+            row(5, "Kiwi", series: "Saga", number: "2.5"), row(6, "Lime", series: "Saga", number: "1-3"),
+            row(7, "Fig", series: "Saga", number: "2"),
+        ]
+        let series = SidebarItem.browse(.series, "Saga")
+        #expect(BookSort().sorted(rows, showing: series).map(\.id) == [1, 7, 3, 5, 2, 6, 4])
+        // Backwards is the same order reversed, with the books that have no number still last.
+        #expect(BookSort(key: .title, ascending: false).sorted(rows, showing: series).map(\.id) == [6, 2, 5, 3, 7, 1, 4])
+
+        // Anywhere else, and under any key the user chose, the sort is what it says.
+        #expect(BookSort().sorted(rows, showing: .allBooks).map(\.id) == BookSort().sorted(rows).map(\.id))
+        #expect(BookSort().sorted(rows, showing: .browse(.authors, "Someone")).map(\.id) == [4, 2, 7, 5, 6, 3, 1])
+        #expect(BookSort().sorted(rows, showing: nil).map(\.id) == [4, 2, 7, 5, 6, 3, 1])
+        let byAuthor = BookSort(key: .author)
+        #expect(byAuthor.sorted(rows, showing: series) == byAuthor.sorted(rows))
+        let byLength = BookSort(key: .length, ascending: false)
+        #expect(byLength.sorted(rows, showing: series) == byLength.sorted(rows))
+    }
+
     @Test func defaultsToTitleAscending() {
         #expect(BookSort() == BookSort(key: .title, ascending: true))
     }
