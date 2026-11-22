@@ -82,6 +82,7 @@ extension AppModel {
 
     private func open(_ session: LookupSession) {
         lookupGeneration += 1
+        forgetLookupThumbnails()
         lookup = session
         startLookupSearch()
     }
@@ -229,6 +230,7 @@ extension AppModel {
         lookupSearch = nil
         guard lookup != nil else { return }
         lookupGeneration += 1
+        forgetLookupThumbnails()
         lookup = nil
     }
 

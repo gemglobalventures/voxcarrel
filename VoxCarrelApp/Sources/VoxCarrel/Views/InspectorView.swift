@@ -45,7 +45,7 @@ private struct BookInspector: View {
         let markers = model.appOnlyMarkers
         let reasons = detail.attentionReasons
 
-        InspectorPane {
+        InspectorPane(offersLookUp: true) {
             if !reasons.isEmpty {
                 AttentionBanner(reasons: reasons)
             }
@@ -159,6 +159,8 @@ private struct BookInspector: View {
 /// What both inspectors are laid out in: their sections one under another, as wide as
 /// the column less the same padding on both sides, scrolling over Revert and Save.
 struct InspectorPane<Content: View>: View {
+    /// V1: whether Look Up… stands beside Revert: for one book, not for several.
+    var offersLookUp = false
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -170,7 +172,7 @@ struct InspectorPane<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            InspectorActions()
+            InspectorActions(offersLookUp: offersLookUp)
         }
     }
 }
@@ -387,12 +389,49 @@ private struct ReadingControls: View {
     }
 }
 
-/// I1, I2: Revert and Save, pinned under whatever is being edited.
+/// I1, I2: Revert and Save, pinned under whatever is being edited; for one book, Look
+/// Up… too (V1).
 struct InspectorActions: View {
+    private static let lookUpTitle = "Look Up…"
+
     @Environment(AppModel.self) private var model
+    var offersLookUp = false
 
     var body: some View {
-        HStack {
+        // Look Up… in words where the column is wide enough for all three; in a narrow
+        // column, as a magnifying glass, so that none of them is cut short.
+        ViewThatFits(in: .horizontal) {
+            bar(lookUpInWords: true)
+            bar(lookUpInWords: false)
+        }
+        .padding(.horizontal, InspectorMetrics.padding)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) {
+            Divider()
+        }
+    }
+
+    private func bar(lookUpInWords: Bool) -> some View {
+        HStack(spacing: 8) {
+            if offersLookUp {
+                Button {
+                    model.beginLookup()
+                } label: {
+                    if lookUpInWords {
+                        Text(Self.lookUpTitle)
+                    } else {
+                        Label(Self.lookUpTitle, systemImage: "magnifyingglass")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                .fixedSize()
+                .disabled(!model.canLookUp)
+                .help("Look this book up online and choose which details to take")
+                .accessibilityLabel(Self.lookUpTitle)
+                .accessibilityIdentifier("inspector.lookup")
+            }
+
             Button("Revert") {
                 model.discardChanges()
             }
@@ -411,12 +450,6 @@ struct InspectorActions: View {
             .fixedSize()
             .disabled(!model.canSave)
             .accessibilityIdentifier("inspector.save")
-        }
-        .padding(.horizontal, InspectorMetrics.padding)
-        .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .top) {
-            Divider()
         }
     }
 }

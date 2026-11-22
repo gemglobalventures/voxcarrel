@@ -821,6 +821,9 @@ public final class AppModel {
     /// Changes whenever a lookup is opened or closed: an answer that arrives for a
     /// lookup that has closed is not for the one that is open now.
     @ObservationIgnored var lookupGeneration = 0
+    /// V6: the covers of the open lookup's results, by address, and those on their way.
+    @ObservationIgnored var lookupThumbnails: [URL: Data] = [:]
+    @ObservationIgnored var lookupThumbnailLoads: [URL: Task<Data?, Never>] = [:]
 
     // MARK: Work in the background
 

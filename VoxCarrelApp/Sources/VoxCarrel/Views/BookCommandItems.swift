@@ -30,6 +30,13 @@ struct BookCommandItems: View {
             .keyboardShortcut(shortcut("r", [.command, .shift]))
             .disabled(!applies.reveal)
             .accessibilityIdentifier("\(prefix).reveal")
+        if ids == nil {
+            // V1: for the book in the inspector, so the Book menu's alone.
+            Button("Look Up…") { model.beginLookup() }
+                .keyboardShortcut(shortcut("l", .command))
+                .disabled(!model.canLookUp)
+                .accessibilityIdentifier("\(prefix).lookup")
+        }
 
         Divider()
 

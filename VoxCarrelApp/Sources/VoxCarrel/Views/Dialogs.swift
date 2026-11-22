@@ -3,10 +3,15 @@ import VoxCarrelAppCore
 
 /// V5: the sheets, alerts and questions the model asks the window to show.
 ///
-/// One sheet at a time, in this order: progress, the import review, a result, and
-/// the launch check. Which is up is `SheetPresentation`'s to say: a sheet of another
-/// kind is shown only when the one that is up has closed, so each has a sheet window
-/// of its own, at its own size.
+/// One sheet at a time, in this order: progress, the import review, a result, the
+/// launch check, and a lookup for the inspected book. Which is up is
+/// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
+/// is up has closed, so each has a sheet window of its own, at its own size.
+///
+/// A lookup is last: it is begun only when none of the others is wanted, and if one
+/// arrives while it is open (files opened from the Finder, say) that one is shown, and
+/// the lookup comes back as it was when it has been dealt with. A lookup for an entry of
+/// an import is not the window's sheet: it is shown over the import sheet (`ImportLookup`).
 struct Dialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     /// Set a moment after an operation starts, so a short one shows no sheet at all.
@@ -18,6 +23,7 @@ struct Dialogs: ViewModifier {
         case review(ImportReview)
         case result(ResultSummary)
         case check(LibraryCheckSummary)
+        case lookup(LookupSession)
 
         var id: String {
             switch self {
@@ -25,6 +31,7 @@ struct Dialogs: ViewModifier {
             case .review: "review"
             case .result: "result"
             case .check: "check"
+            case .lookup: "lookup"
             }
         }
     }
@@ -35,6 +42,7 @@ struct Dialogs: ViewModifier {
         if let review = model.review { return .review(review) }
         if let result = model.result { return .result(result) }
         if let check = model.libraryCheckSummary { return .check(check) }
+        if let lookup = model.inspectorLookup { return .lookup(lookup) }
         return nil
     }
 
@@ -61,16 +69,55 @@ struct Dialogs: ViewModifier {
                     ProgressSheet(label: label)
                 case .review(let review):
                     ImportReviewSheet(review: review)
-                        .modifier(Questions(isActive: true))
+                        .modifier(ImportLookup())
                 case .result(let summary):
                     ResultSheet(summary: summary)
                         .modifier(Questions(isActive: true))
                 case .check(let summary):
                     LibraryCheckSheet(summary: summary)
                         .modifier(Questions(isActive: true))
+                case .lookup(let lookup):
+                    LookupSheet(shown: lookup)
+                        .modifier(Questions(isActive: true))
                 }
             }
             // While a sheet is up, or about to be, the sheet shows them.
+            .modifier(Questions(isActive: sheets.isIdle && wanted == nil))
+    }
+}
+
+/// V5: on the import sheet: the lookup for one of its entries, as a sheet of its own
+/// over it, at its own size. The import sheet is as it was when the lookup closes.
+///
+/// The alert and the questions are shown by whichever of the two is in front: the
+/// lookup while it is up, and the import sheet once the lookup has gone (which is when
+/// it is told that a cover could not be downloaded).
+private struct ImportLookup: ViewModifier {
+    @Environment(AppModel.self) private var model
+    @State private var sheets = SheetPresentation<Shown>()
+
+    private struct Shown: Identifiable, Equatable {
+        let lookup: LookupSession
+
+        var id: String { "lookup" }
+    }
+
+    private var wanted: Shown? {
+        model.importLookup.map(Shown.init)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: wanted, initial: true) {
+                sheets.want(wanted)
+            }
+            // The model closes the lookup itself; nothing else can.
+            .sheet(item: Binding(get: { sheets.presented }, set: { _ in })) {
+                sheets.didDismiss(wanted: wanted)
+            } content: { presented in
+                LookupSheet(shown: presented.lookup)
+                    .modifier(Questions(isActive: true))
+            }
             .modifier(Questions(isActive: sheets.isIdle && wanted == nil))
     }
 }

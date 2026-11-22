@@ -37,6 +37,21 @@ struct SettingsView: View {
                 Toggle("Copy files when importing (leave originals in place)", isOn: $model.copyOnImport)
                     .accessibilityIdentifier("settings.copyOnImport")
             }
+            Section("Online Lookup") {
+                Picker("Audible store", selection: $model.audibleStore) {
+                    ForEach(AppModel.audibleStoreChoices) { choice in
+                        Text(choice.title).tag(choice.store)
+                    }
+                }
+                .accessibilityIdentifier("settings.audibleStore")
+                Text(
+                    "Look Up sends the title and author you search for to Open Library and Audible. Nothing is sent until you press Look Up."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("settings.lookupPrivacy")
+            }
         }
         .formStyle(.grouped)
         // A question or a message is shown by the main window: it comes in front of this one.

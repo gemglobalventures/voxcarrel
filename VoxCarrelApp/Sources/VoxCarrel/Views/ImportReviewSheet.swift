@@ -235,6 +235,13 @@ private struct EntryDetail: View {
                         InspectorField("Authors", hint: InspectorMetrics.semicolonHint) {
                             textField("Authors", text: $authors, id: "authors")
                         }
+                        // V1
+                        Button("Look Up…") {
+                            model.beginLookup(forEntry: entry.id)
+                        }
+                        .disabled(!model.canLookUpEntry(entry.id))
+                        .help("Look this book up online and choose which details to take")
+                        .accessibilityIdentifier("review.lookup")
                     }
                 }
 
@@ -293,6 +300,14 @@ private struct EntryDetail: View {
         }
         .onChange(of: narrators) { _, typed in
             setText(typed, for: .narrators)
+        }
+        // A lookup may have put other names into the entry: the boxes that keep their
+        // own text take the entry's again when it closes.
+        .onChange(of: model.importLookup == nil) { _, closed in
+            guard closed else { return }
+            let now = model.review ?? review
+            authors = now.text(for: .authors, of: entry.id)
+            narrators = now.text(for: .narrators, of: entry.id)
         }
     }
 
