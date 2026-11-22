@@ -6,6 +6,17 @@ VoxCarrel files your books into a tidy folder layout, writes details and covers 
 
 **Status:** early. It has been tested on generated sample books, not yet widely on real collections. Try it on copies first.
 
+![The library as a cover grid, with one book open in the inspector](Screenshots/library-grid.jpg)
+
+| | |
+|---|---|
+| ![A series with three local books and one owned on Audible](Screenshots/series-with-audible.jpg) | ![The library as a sortable list](Screenshots/library-list.jpg) |
+| A series shown in order: three books on this Mac, the fourth on Audible. | The same library as a sortable list. |
+
+![The import sheet, reviewing a folder of books before anything moves](Screenshots/import-review.jpg)
+
+The books in these pictures are generated samples from the demo library.
+
 ## What it does
 
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
