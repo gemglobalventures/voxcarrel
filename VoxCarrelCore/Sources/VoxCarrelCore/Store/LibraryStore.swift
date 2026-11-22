@@ -164,6 +164,36 @@ public final class LibraryStore: Sendable {
                 t.uniqueKey(["folderId", "path"])
             }
         }
+        migrator.registerMigration("v9") { db in
+            // A series of the library, tied to the series Audible lists it as.
+            try db.create(table: "seriesLink") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("seriesKey", .text).notNull().unique()
+                t.column("seriesName", .text).notNull()
+                t.column("audibleSeriesId", .text).notNull()
+                t.column("audibleSeriesTitle", .text).notNull()
+                t.column("store", .text).notNull()
+                t.column("checkedAt", .double).notNull()
+            }
+            // Audible's list of that series: one row for each book of it, in series order.
+            try db.create(table: "seriesEntry") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("linkId", .integer).notNull().indexed()
+                    .references("seriesLink", onDelete: .cascade)
+                t.column("position", .integer).notNull()
+                t.column("number", .text)
+                t.column("sort", .double).notNull()
+                t.column("title", .text).notNull()
+                t.column("asins", .text).notNull()
+                t.column("titles", .text).notNull()
+                t.column("authors", .text).notNull()
+                t.column("narrators", .text).notNull()
+                t.column("minutes", .integer)
+                t.column("isAbridged", .boolean)
+                t.column("releaseDate", .double)
+                t.column("isHidden", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 
@@ -698,6 +728,80 @@ extension LibraryStore {
             _ = try InboxEntryRecord
                 .filter(Column("folderId") == folderId && Column("state") == state.rawValue)
                 .deleteAll(db)
+        }
+    }
+}
+
+// MARK: Series lists
+
+extension LibraryStore {
+    /// The link stored for a series and its entries in series order; nil when the
+    /// series has none.
+    func seriesList(key: String) throws -> (link: SeriesLinkRecord, entries: [SeriesEntryRecord])? {
+        try dbQueue.read { db in
+            guard let link = try SeriesLinkRecord.filter(Column("seriesKey") == key).fetchOne(db), let id = link.id
+            else { return nil }
+            let entries = try SeriesEntryRecord
+                .filter(Column("linkId") == id).order(Column("position"), Column("id")).fetchAll(db)
+            return (link, entries)
+        }
+    }
+
+    /// Stores a series' link and entries in place of any it had, in one transaction.
+    /// An entry is stored hidden when `staysHidden` says so of it and an entry that was
+    /// hidden before. Links no book uses any more are deleted on the way.
+    func replaceSeriesList(
+        link: SeriesLinkRecord, entries: [SeriesEntryRecord],
+        staysHidden: (_ before: SeriesEntryRecord, _ now: SeriesEntryRecord) -> Bool
+    ) throws {
+        try dbQueue.write { db in
+            var hidden: [SeriesEntryRecord] = []
+            if let old = try SeriesLinkRecord.filter(Column("seriesKey") == link.seriesKey).fetchOne(db),
+               let id = old.id {
+                hidden = try SeriesEntryRecord
+                    .filter(Column("linkId") == id && Column("isHidden") == true).fetchAll(db)
+                try SeriesLinkRecord.deleteOne(db, key: id)
+            }
+            var link = link
+            link.id = nil
+            try link.insert(db)
+            guard let linkId = link.id else { return }
+            for (position, entry) in entries.enumerated() {
+                var entry = entry
+                entry.id = nil
+                entry.linkId = linkId
+                entry.position = position
+                entry.isHidden = hidden.contains { staysHidden($0, entry) }
+                try entry.insert(db)
+            }
+            try Self.deleteUnusedSeriesLinks(db)
+        }
+    }
+
+    /// Deletes a series' link; its entries go with it by cascade. Links no book uses
+    /// any more are deleted on the way.
+    func deleteSeriesList(key: String) throws {
+        try dbQueue.write { db in
+            _ = try SeriesLinkRecord.filter(Column("seriesKey") == key).deleteAll(db)
+            try Self.deleteUnusedSeriesLinks(db)
+        }
+    }
+
+    /// Deletes every link whose series no book is in, as `books(where:equals:)` decides
+    /// which books are in a series.
+    private static func deleteUnusedSeriesLinks(_ db: Database) throws {
+        try db.execute(sql: """
+            DELETE FROM seriesLink
+            WHERE NOT EXISTS (SELECT 1 FROM book WHERE book.\(BrowseField.series.rawValue) = seriesLink.seriesKey)
+            """)
+    }
+
+    /// Sets whether an entry is hidden, and nothing else.
+    /// - Returns: False when no entry has the id.
+    func setSeriesEntry(id: Int64, hidden: Bool) throws -> Bool {
+        try dbQueue.write { db in
+            try db.execute(sql: "UPDATE seriesEntry SET isHidden = ? WHERE id = ?", arguments: [hidden, id])
+            return db.changesCount > 0
         }
     }
 }

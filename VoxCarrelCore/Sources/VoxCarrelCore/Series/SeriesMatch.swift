@@ -174,7 +174,8 @@ public enum SeriesMatch {
         return a.asins.lexicographicallyPrecedes(b.asins)
     }
 
-    private static func tidyASIN(_ asin: String) -> String {
+    /// An ASIN for comparing: without surrounding space, in capitals.
+    static func tidyASIN(_ asin: String) -> String {
         asin.lookupTrimmed.uppercased()
     }
 

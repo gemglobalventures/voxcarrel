@@ -488,3 +488,93 @@ struct InboxEntryRecord: Codable, Equatable, Sendable, FetchableRecord, MutableP
         id = inserted.rowID
     }
 }
+
+/// A library series tied to an Audible series, as it is stored. The date is kept as a
+/// number, so that it comes back exactly as it went in.
+struct SeriesLinkRecord: Codable, Equatable, Sendable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "seriesLink"
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+
+    var id: Int64?
+    /// What says which series this is: the value of the books' `series` column.
+    var seriesKey: String
+    var seriesName: String
+    var audibleSeriesId: String
+    var audibleSeriesTitle: String
+    /// An `AudibleStore` raw value.
+    var store: String
+    var checkedAt: Date
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+/// One book of a series as Audible lists it, as it is stored: a `SeriesEntry` with what
+/// is known of its preferred edition.
+struct SeriesEntryRecord: Codable, Equatable, Sendable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "seriesEntry"
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+
+    var id: Int64?
+    var linkId: Int64
+    /// Its place in the series, from 0.
+    var position: Int
+    var number: String?
+    var sort: Double
+    /// The preferred edition's title.
+    var title: String
+    /// Every edition's ASIN, the preferred first.
+    var asins: [String]
+    /// Every title its editions go by, the preferred's first.
+    var titles: [String]
+    var authors: [String]
+    var narrators: [String]
+    var minutes: Int?
+    var isAbridged: Bool?
+    var releaseDate: Date?
+    var isHidden: Bool
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+
+    /// The row for an entry, not yet stored and not hidden.
+    init(_ entry: SeriesEntry) {
+        id = nil
+        linkId = 0
+        position = 0
+        number = entry.number
+        sort = entry.sort.isFinite ? entry.sort : .greatestFiniteMagnitude
+        title = entry.preferred.title
+        asins = entry.asins
+        titles = entry.titles
+        authors = entry.preferred.authors
+        narrators = entry.preferred.narrators
+        minutes = entry.preferred.minutes
+        isAbridged = entry.preferred.isAbridged
+        releaseDate = entry.preferred.releaseDate
+        isHidden = false
+    }
+
+    /// The entry this row holds. Its preferred edition carries the entry's own number
+    /// and ordering value.
+    var entry: SeriesEntry {
+        SeriesEntry(
+            number: number, sort: sort,
+            preferred: AudibleSeriesEdition(
+                asin: asins.first ?? "", title: title, number: number, sort: sort, authors: authors,
+                narrators: narrators, minutes: minutes, isAbridged: isAbridged, releaseDate: releaseDate),
+            asins: asins, titles: titles.isEmpty ? [title] : titles)
+    }
+}
