@@ -231,7 +231,7 @@ extension AppModel {
     // MARK: A8 The settings
 
     static let unencryptedNote =
-        "Searches to this source are sent unencrypted, so the title, author and narrator you look up can be seen on your network."
+        "Searches to this source are sent unencrypted, so the title and author you look up can be seen on your network."
 
     /// A8b: one row for each lookup source, with what it is good for and whether it is
     /// on. A8c: the Library of Congress carries a second line.

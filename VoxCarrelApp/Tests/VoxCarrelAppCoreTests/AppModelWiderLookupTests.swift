@@ -171,7 +171,7 @@ private func saltRoadReread(stores: [String] = ["uk", "us", "au"]) -> LookupCand
             // A8c
             LookupSourceRow(
                 source: .libraryOfCongress, title: "Library of Congress", detail: "Cassette and CD editions with their narrators",
-                note: "Searches to this source are sent unencrypted, so the title, author and narrator you look up can be seen on your network.",
+                note: "Searches to this source are sent unencrypted, so the title and author you look up can be seen on your network.",
                 isOn: false),
         ])
         h.model.setLookupSource(.libraryOfCongress, on: true)
