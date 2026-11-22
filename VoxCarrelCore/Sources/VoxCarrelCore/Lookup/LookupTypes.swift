@@ -122,15 +122,36 @@ public enum LookupError: Error, Equatable, Sendable {
     case unreadable
 }
 
+/// What one source found, with anything it has to say about how it searched.
+public struct LookupAnswer: Equatable, Sendable {
+    public var candidates: [LookupCandidate]
+    /// The narrator that was searched for when nothing read by them was found and the
+    /// search was made again without the name: `candidates` are then other editions.
+    /// Nil when the narrator was not searched for, or something was found.
+    public var narratorNotFound: String?
+
+    public init(candidates: [LookupCandidate] = [], narratorNotFound: String? = nil) {
+        self.candidates = candidates
+        self.narratorNotFound = narratorNotFound
+    }
+}
+
 /// One source of book details.
 public protocol LookupProvider: Sendable {
     var source: LookupSource { get }
     func search(_ query: LookupQuery) async throws -> [LookupCandidate]
+    /// What `search` finds, with what the source says about the search itself.
+    /// Default: the candidates and nothing more.
+    func answer(to query: LookupQuery) async throws -> LookupAnswer
     /// The candidate with anything more the source can add. Default: unchanged.
     func details(for candidate: LookupCandidate) async throws -> LookupCandidate
 }
 
 public extension LookupProvider {
+    func answer(to query: LookupQuery) async throws -> LookupAnswer {
+        LookupAnswer(candidates: try await search(query))
+    }
+
     func details(for candidate: LookupCandidate) async throws -> LookupCandidate { candidate }
 }
 

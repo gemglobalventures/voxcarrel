@@ -48,6 +48,11 @@ final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     var limits: [Limits] { lock.withLock { recordedLimits } }
     var urls: [URL] { requests.map(\.url) }
 
+    /// What this fake answers for `url`, without recording it: for one fake built on another.
+    func answerForTest(_ url: URL) throws -> (data: Data, status: Int) {
+        try answer(url)
+    }
+
     func get(
         _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>, insecure: Set<InsecureOrigin>
     ) async throws -> (data: Data, status: Int) {

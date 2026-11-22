@@ -10,15 +10,38 @@ public struct LookupResults: Equatable, Sendable {
     public var searched: [LookupSource]
     /// How many of `candidates` each source that answered found; 0 for one that found none.
     public var found: [LookupSource: Int]
+    /// Whether each candidate is the book's own edition, by candidate id. Empty when the
+    /// search was not told which book it was for.
+    public var verdicts: [String: EditionVerdict]
+    /// The sources that found nothing read by the narrator asked for and searched again
+    /// without the name, with that name: what they found are other editions.
+    public var narratorNotFound: [LookupSource: String]
 
     public init(
         candidates: [LookupCandidate] = [], failures: [LookupSource: LookupError] = [:], searched: [LookupSource] = [],
-        found: [LookupSource: Int] = [:]
+        found: [LookupSource: Int] = [:], verdicts: [String: EditionVerdict] = [:],
+        narratorNotFound: [LookupSource: String] = [:]
     ) {
         self.candidates = candidates
         self.failures = failures
         self.searched = searched
         self.found = found
+        self.verdicts = verdicts
+        self.narratorNotFound = narratorNotFound
+    }
+}
+
+/// Which sources a lookup asks, and which Audible stores.
+public struct LookupConfiguration: Equatable, Sendable {
+    /// The sources that are on. One that is not here is never contacted.
+    public var sources: Set<LookupSource>
+    /// The Audible stores to ask, the user's own first. A store named twice is asked once.
+    public var audibleStores: [AudibleStore]
+
+    public init(sources: Set<LookupSource>, audibleStores: [AudibleStore]) {
+        self.sources = sources
+        var seen: Set<AudibleStore> = []
+        self.audibleStores = audibleStores.filter { seen.insert($0).inserted }
     }
 }
 
@@ -39,10 +62,33 @@ public struct LookupService: Sendable {
         self.http = http
     }
 
-    /// The standard set: Open Library and Audible for `store`, over the real network.
-    public static func standard(store: AudibleStore) -> LookupService {
-        let http = URLSessionFetcher()
-        return LookupService(providers: [OpenLibraryProvider(http: http), AudibleProvider(http: http, store: store)], http: http)
+    /// The standard set over the real network: of Open Library, Audible (in each of the
+    /// configuration's stores) and the Library of Congress, the ones that are on.
+    public static func standard(_ configuration: LookupConfiguration) -> LookupService {
+        standard(configuration, http: URLSessionFetcher())
+    }
+
+    /// The same over `http`. A source that is off has no provider: nothing is ever
+    /// asked of it. Audible with no store to ask counts as off.
+    static func standard(_ configuration: LookupConfiguration, http: any HTTPFetching) -> LookupService {
+        var providers: [any LookupProvider] = []
+        for source in LookupSource.allCases where configuration.sources.contains(source) {
+            switch source {
+            case .openLibrary:
+                providers.append(OpenLibraryProvider(http: http))
+            case .audible:
+                guard !configuration.audibleStores.isEmpty else { continue }
+                providers.append(AudibleStoresProvider(http: http, stores: configuration.audibleStores))
+            case .libraryOfCongress:
+                providers.append(LibraryOfCongressProvider(http: http))
+            }
+        }
+        return LookupService(providers: providers, http: http)
+    }
+
+    /// The sources this service has a provider for, in the order they are asked.
+    public var sources: [LookupSource] {
+        providers.map(\.source)
     }
 
     // MARK: Search
@@ -54,8 +100,12 @@ public struct LookupService: Sendable {
     /// cut short are not reported as failures.
     /// `sources`: the only sources to ask; nil for all of them. A source that is not
     /// named is sent nothing and is not in `searched`.
+    /// `book`: the book the search is for; nil for none. With it, each result is judged
+    /// against the book (`verdicts`), and among results that match equally well the
+    /// book's own edition comes first and plainly different editions last.
     public func search(
-        _ query: LookupQuery, preferAudio: Bool, language: String?, sources: Set<LookupSource>? = nil
+        _ query: LookupQuery, preferAudio: Bool, language: String?, sources: Set<LookupSource>? = nil,
+        book: LookupBookContext? = nil
     ) async -> LookupResults {
         guard !query.isEmpty else { return LookupResults() }
         let providers = providers.filter { sources?.contains($0.source) ?? true }
@@ -68,14 +118,15 @@ public struct LookupService: Sendable {
         var seen: Set<String> = []
         for (provider, answer) in zip(providers, answers) {
             switch answer {
-            case .success(let candidates):
+            case .success(let said):
                 // Provider order; a second candidate with the same id is dropped.
                 var kept = 0
-                for candidate in candidates where seen.insert(candidate.id).inserted {
+                for candidate in said.candidates where seen.insert(candidate.id).inserted {
                     found.append(candidate)
                     kept += 1
                 }
                 results.found[provider.source, default: 0] += kept
+                if let narrator = said.narratorNotFound { results.narratorNotFound[provider.source] = narrator }
             case .failure(let error):
                 if error is CancellationError { continue }
                 results.failures[provider.source] = error as? LookupError ?? .unreadable
@@ -83,14 +134,20 @@ public struct LookupService: Sendable {
                 break
             }
         }
-        results.candidates = Self.ranked(found, query: query, preferAudio: preferAudio, language: language)
+        if let book {
+            for candidate in found {
+                results.verdicts[candidate.id] = EditionMatch.verdict(candidate: candidate, book: book)
+            }
+        }
+        results.candidates = Self.ranked(
+            found, query: query, preferAudio: preferAudio, language: language, verdicts: results.verdicts)
         return results
     }
 
     /// One answer per provider, in provider order; nil for one that gave none.
     private struct Answer: Sendable {
         var index: Int
-        var result: Result<[LookupCandidate], any Error>
+        var result: Result<LookupAnswer, any Error>
     }
 
     /// Asks every provider at once and waits for all of them.
@@ -99,15 +156,15 @@ public struct LookupService: Sendable {
     /// an optimised build has returned every answer under the first position.
     static func askAll(
         _ providers: [any LookupProvider], _ query: LookupQuery
-    ) async -> [Result<[LookupCandidate], any Error>?] {
-        var byIndex: [Int: Result<[LookupCandidate], any Error>] = [:]
+    ) async -> [Result<LookupAnswer, any Error>?] {
+        var byIndex: [Int: Result<LookupAnswer, any Error>] = [:]
         await withTaskGroup(of: Answer.self) { group in
             for index in providers.indices {
                 let provider = providers[index]
                 let position = index
                 group.addTask {
                     do {
-                        return Answer(index: position, result: .success(try await provider.search(query)))
+                        return Answer(index: position, result: .success(try await provider.answer(to: query)))
                     } catch {
                         return Answer(index: position, result: .failure(error))
                     }
@@ -121,10 +178,19 @@ public struct LookupService: Sendable {
     /// Best first. The query's own ASIN or ISBN leads; then by match score; among scores
     /// within `nearEqual` of each other the preferred kind of source comes first, and a
     /// result known to be in another language goes after the rest; ties keep their order.
-    static func ranked(_ candidates: [LookupCandidate], query: LookupQuery, preferAudio: Bool, language: String?) -> [LookupCandidate] {
+    ///
+    /// `verdicts`: for a search that is for a book, by candidate id. Among near-equal
+    /// scores the book's own edition then comes before everything else, and a plainly
+    /// different edition after everything else. A candidate with no verdict is unknown.
+    static func ranked(
+        _ candidates: [LookupCandidate], query: LookupQuery, preferAudio: Bool, language: String?,
+        verdicts: [String: EditionVerdict] = [:]
+    ) -> [LookupCandidate] {
         struct Entry {
             var candidate: LookupCandidate
             var index: Int
+            /// 0 the book's own edition, 1 not known, 2 another edition.
+            var editionRank: Int
             var score: Double
             var sourceRank: Int
             var otherLanguage: Bool
@@ -138,7 +204,14 @@ public struct LookupService: Sendable {
         var rest: [Entry] = []
         for (index, candidate) in candidates.enumerated() {
             let known = candidate.metadata.language.flatMap(LookupText.languageCode)
-            let entry = Entry(candidate: candidate, index: index, score: score(candidate, query: query),
+            let editionRank: Int
+            switch verdicts[candidate.id] {
+            case .sameEdition: editionRank = 0
+            case .differentEdition: editionRank = 2
+            case .unknown, nil: editionRank = 1
+            }
+            let entry = Entry(candidate: candidate, index: index, editionRank: editionRank,
+                              score: score(candidate, query: query),
                               sourceRank: candidate.source == preferred ? 0 : 1,
                               otherLanguage: wanted != nil && known != nil && known != wanted)
             let sameASIN = askedASIN != nil && candidate.metadata.asin?.nonBlank?.uppercased() == askedASIN
@@ -147,6 +220,7 @@ public struct LookupService: Sendable {
         }
 
         func byPreference(_ a: Entry, _ b: Entry) -> Bool {
+            if a.editionRank != b.editionRank { return a.editionRank < b.editionRank }
             if a.sourceRank != b.sourceRank { return a.sourceRank < b.sourceRank }
             if a.otherLanguage != b.otherLanguage { return !a.otherLanguage }
             if a.score != b.score { return a.score > b.score }

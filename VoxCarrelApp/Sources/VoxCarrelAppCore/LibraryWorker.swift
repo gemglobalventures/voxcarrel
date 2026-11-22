@@ -30,7 +30,10 @@ public actor LibraryWorker {
         let store = try LibraryStore(libraryRoot: libraryRoot)
         self.service = trashItem.map { LibraryService(store: store, trashItem: $0) } ?? LibraryService(store: store)
         self.lookup = OSAllocatedUnfairLock(
-            initialState: lookup ?? .standard(store: .forRegion(Locale.current.region?.identifier)))
+            initialState: lookup ?? .standard(
+                LookupConfiguration(
+                    sources: [.openLibrary, .audible],
+                    audibleStores: [.forRegion(Locale.current.region?.identifier)])))
     }
 
     // MARK: Looking up online
@@ -44,11 +47,14 @@ public actor LibraryWorker {
     }
 
     /// Never throws; a search whose task is cancelled comes back looking like no matches.
-    /// `sources`: the only sources to ask; nil for all of them.
+    /// `sources`: the only sources to ask; nil for all of them. `book`: the book the
+    /// search is for, so that results are judged and ranked against it; nil for none.
     public nonisolated func lookUp(
-        _ query: LookupQuery, preferAudio: Bool, language: String?, sources: Set<LookupSource>? = nil
+        _ query: LookupQuery, preferAudio: Bool, language: String?, sources: Set<LookupSource>? = nil,
+        book: LookupBookContext? = nil
     ) async -> LookupResults {
-        await lookup.withLock { $0 }.search(query, preferAudio: preferAudio, language: language, sources: sources)
+        await lookup.withLock { $0 }.search(
+            query, preferAudio: preferAudio, language: language, sources: sources, book: book)
     }
 
     public nonisolated func lookupDetails(for candidate: LookupCandidate) async throws -> LookupCandidate {

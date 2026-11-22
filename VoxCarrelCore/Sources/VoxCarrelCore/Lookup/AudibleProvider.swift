@@ -105,23 +105,31 @@ public struct AudibleProvider: LookupProvider {
     }
 
     public func search(_ query: LookupQuery) async throws -> [LookupCandidate] {
+        try await answer(to: query).candidates
+    }
+
+    /// The results, and the narrator's name when nothing read by them was found and
+    /// what is given is the same search without it.
+    public func answer(to query: LookupQuery) async throws -> LookupAnswer {
         let shared: [(name: String, value: String)] = [("response_groups", Self.responseGroups), ("image_sizes", Self.imageSizes)]
 
         if let asin = query.asin.flatMap(Self.asin) {
-            guard let url = LookupRequest.url(host: store.host, path: "/1.0/catalog/products/\(asin)", query: shared) else { return [] }
+            guard let url = LookupRequest.url(host: store.host, path: "/1.0/catalog/products/\(asin)", query: shared) else {
+                return LookupAnswer()
+            }
             let answer = try await LookupRequest.object(at: url, http: http)
             guard let product = answer["product"] as? [String: Any] else { throw LookupError.unreadable }
             // An unknown ASIN (one from another country's store, say) is answered with a
             // product that has no title: the title and author are searched for instead.
             // A request that failed has thrown by now, and is not searched around.
-            if let found = candidate(from: product) { return [found] }
+            if let found = candidate(from: product) { return LookupAnswer(candidates: [found]) }
         }
 
         var items: [(name: String, value: String)] = []
         if let title = query.title.nonBlank { items.append(("title", title)) }
         if let author = query.author.nonBlank { items.append(("author", author)) }
         // An ISBN alone cannot be searched here.
-        guard !items.isEmpty else { return [] }
+        guard !items.isEmpty else { return LookupAnswer() }
         items.append(("num_results", String(limit)))
         items.append(("products_sort_by", "Relevance"))
 
@@ -129,9 +137,10 @@ public struct AudibleProvider: LookupProvider {
             let found = try await products(matching: items + [("narrator", narrator)] + shared)
             // Nothing read by that narrator: the same search once more, without the name.
             // A request that failed has thrown by now, and is not searched around.
-            if !found.isEmpty { return found }
+            if !found.isEmpty { return LookupAnswer(candidates: found) }
+            return LookupAnswer(candidates: try await products(matching: items + shared), narratorNotFound: narrator)
         }
-        return try await products(matching: items + shared)
+        return LookupAnswer(candidates: try await products(matching: items + shared))
     }
 
     private func products(matching items: [(name: String, value: String)]) async throws -> [LookupCandidate] {

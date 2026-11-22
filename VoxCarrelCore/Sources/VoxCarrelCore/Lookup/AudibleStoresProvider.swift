@@ -18,20 +18,29 @@ public struct AudibleStoresProvider: LookupProvider {
     /// One store failing does not fail the others: throws only when every store
     /// failed, and then the first store's error.
     public func search(_ query: LookupQuery) async throws -> [LookupCandidate] {
-        guard !providers.isEmpty else { return [] }
+        try await answer(to: query).candidates
+    }
+
+    /// The narrator is reported as not found only when no store that answered had
+    /// anything read by them: every one of them searched again without the name.
+    public func answer(to query: LookupQuery) async throws -> LookupAnswer {
+        guard !providers.isEmpty else { return LookupAnswer() }
         let answers = await LookupService.askAll(providers, query)
 
-        var found: [[LookupCandidate]] = []
+        var found: [LookupAnswer] = []
         var firstError: (any Error)?
         for answer in answers {
             switch answer {
-            case .success(let candidates): found.append(candidates)
+            case .success(let said): found.append(said)
             case .failure(let error): firstError = firstError ?? error
             case nil: break
             }
         }
         if found.isEmpty, let firstError { throw firstError }
-        return Self.merged(found)
+        let missing = found.map(\.narratorNotFound)
+        return LookupAnswer(
+            candidates: Self.merged(found.map(\.candidates)),
+            narratorNotFound: missing.allSatisfy { $0 != nil } ? missing.compactMap { $0 }.first : nil)
     }
 
     /// Every edition once, in the first list's order and then what only later lists

@@ -62,7 +62,9 @@ public final class AppModel {
         self.location = location
         self.opener = opener
         self.defaults = defaults
-        makeLookupService = lookupService ?? { LookupService.standard(store: $0) }
+        makeLookupService = lookupService ?? {
+            LookupService.standard(LookupConfiguration(sources: [.openLibrary, .audible], audibleStores: [$0]))
+        }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
             ?? AudibleStore.forRegion(Locale.current.region?.identifier)
         status = location.status()

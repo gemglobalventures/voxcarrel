@@ -524,13 +524,4 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
             _ = try await service.cover(for: withCover("https://m.media-amazon.com/images/I/x.jpg"))
         }
     }
-
-    // MARK: The standard set
-
-    @Test func standardIsOpenLibraryAndAudible() {
-        let service = LookupService.standard(store: .uk)
-        #expect(service.providers.map(\.source) == [.openLibrary, .audible])
-        #expect(service.providers.contains { $0 is OpenLibraryProvider })
-        #expect(service.providers.contains { $0 is AudibleProvider })
-    }
 }
