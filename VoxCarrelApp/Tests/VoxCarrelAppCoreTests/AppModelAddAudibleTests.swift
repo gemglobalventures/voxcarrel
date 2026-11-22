@@ -577,6 +577,37 @@ import VoxCarrelFixtures
 
     // MARK: N6 The sources, in words
 
+    /// N6: the sheet goes on showing its session for the moment it takes to close after
+    /// the book has been added. Its bottom line is said of that session, so it still
+    /// names Audible alone then; and nothing but Audible was asked.
+    @Test func N6_theBottomLineOfASheetThatIsClosingStillNamesOnlyAudible() async throws {
+        let h = try await Harness.demo()
+        h.model.audibleStore = .uk
+        h.lookup.find(.audible, [glassTide(cover: false)])
+        h.lookup.find(.openLibrary, [foundBook(.openLibrary, "/works/OL9W", title: "The Glass Tide")])
+        h.model.beginAddAudibleBook()
+        let unsearched = try #require(h.model.lookup)
+        #expect(h.model.lookupSourcesText(for: unsearched) == "Results from Audible (UK, US, Australia)")
+        h.model.updateLookupQuery { $0.title = "The Glass Tide" }
+        await h.model.searchLookup()
+        let shown = try #require(h.model.lookup)
+        #expect(h.model.lookupSourcesText(for: shown) == "Audible (UK, US, Australia): 1 match")
+
+        await h.model.addLookupSelection()
+
+        // The lookup has closed: the model's own line is of every source that is on.
+        #expect(h.model.lookup == nil)
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (UK, US, Australia)")
+        #expect(h.model.lookupSourcesText(for: nil) == h.model.lookupSourcesText)
+        // The sheet's is of the session it shows.
+        #expect(h.model.lookupSourcesText(for: shown) == "Audible (UK, US, Australia): 1 match")
+        #expect(h.model.lookupSourcesText(for: unsearched) == "Results from Audible (UK, US, Australia)")
+        // And adding asked nothing of anyone: Audible was searched once, and that is all.
+        #expect(h.lookup.asked.map(\.source) == [.audible])
+        #expect(h.lookup.coverURLs.isEmpty)
+        #expect(h.lookup.detailsAsked.isEmpty)
+    }
+
     /// N6
     @Test func N6_theBottomLineNamesOnlyAudible() async throws {
         let h = try await Harness.demo()

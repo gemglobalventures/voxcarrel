@@ -149,11 +149,11 @@ extension AppModel {
 
     // MARK: The sources, in words
 
-    /// The sources a search of the open lookup asks, in the order they are asked: the
+    /// The sources a search of this lookup asks, in the order they are asked: the
     /// ones that are on, or Audible alone when an Audible book is being added.
-    private var askedSources: [LookupSource] {
+    private func askedSources(for session: LookupSession?) -> [LookupSource] {
         LookupSource.allCases.filter { source in
-            lookupSources.contains(source) && (lookup?.sources?.contains(source) ?? true)
+            lookupSources.contains(source) && (session?.sources?.contains(source) ?? true)
         }
     }
 
@@ -164,8 +164,17 @@ extension AppModel {
     /// A7: a source that found nothing read by the book's narrator and searched again
     /// without the name says so: "nothing read by Frank Muller; showing other editions".
     public var lookupSourcesText: String {
-        guard let outcomes = lookup?.outcomes, !outcomes.isEmpty else {
-            let names = askedSources.map(sourceName)
+        lookupSourcesText(for: lookup)
+    }
+
+    /// The same for the session a sheet shows. A sheet goes on showing its session for
+    /// the moment it takes to close, when the lookup itself has closed already: said
+    /// of that session, the line does not change under it then. (Said of no lookup, it
+    /// would name every source that is on, which for an Audible book being added are
+    /// sources that were never asked.)
+    public func lookupSourcesText(for session: LookupSession?) -> String {
+        guard let outcomes = session?.outcomes, !outcomes.isEmpty else {
+            let names = askedSources(for: session).map(sourceName)
             return names.isEmpty ? "No lookup source is turned on" : "Results from \(Self.list(names))"
         }
         return outcomes.map { outcome in

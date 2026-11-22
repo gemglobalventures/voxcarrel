@@ -233,6 +233,18 @@ extension BookRow {
         isMissing ? "On Audible's list, not in your library" : nil
     }
 
+    /// Plan 9: the day the book was added, for the list's Added column; nil for a book
+    /// the library does not have, which was never added.
+    public var addedDate: Date? {
+        isMissing ? nil : book.dateAdded
+    }
+
+    /// Plan 9: the book's read status, for the list's Status column; nil for a book the
+    /// library does not have, which has none.
+    public var shownReadStatus: ReadStatus? {
+        isMissing ? nil : book.readStatus
+    }
+
     /// What there is to open, here or on Audible; nil when the book has neither.
     public var formsText: String? {
         switch (hasAudio, hasEbook) {

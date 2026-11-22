@@ -41,11 +41,11 @@ struct BookListView: View {
                 }
                 .width(min: 50, ideal: 60, max: 70)
                 TableColumn("Added", value: \.dateAddedSortKey) { row in
-                    AddedCell(date: row.book.dateAdded)
+                    AddedCell(date: row.addedDate)
                 }
                 .width(min: 60, ideal: 66, max: 80)
                 TableColumn("Status", value: \.statusSortKey) { row in
-                    StatusCell(status: row.book.readStatus)
+                    StatusCell(status: row.shownReadStatus)
                 }
                 .width(min: 52, ideal: 90, max: 100)
             }
@@ -127,29 +127,34 @@ private struct FormatsCell: View {
     }
 }
 
-/// A short date; the whole date is in the tooltip.
+/// A short date; the whole date is in the tooltip. Nothing for a row that has no date.
 private struct AddedCell: View {
-    let date: Date
+    let date: Date?
 
     var body: some View {
-        let full = AddedDateText.full(date)
-        Text(AddedDateText.compact(date))
-            .lineLimit(1)
-            .foregroundStyle(.secondary)
-            .help(full)
-            .accessibilityLabel(full)
+        if let date {
+            let full = AddedDateText.full(date)
+            Text(AddedDateText.compact(date))
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .help(full)
+                .accessibilityLabel(full)
+        }
     }
 }
 
+/// Nothing for a row that has no status.
 private struct StatusCell: View {
-    let status: ReadStatus
+    let status: ReadStatus?
 
     var body: some View {
-        HStack(spacing: 5) {
-            StatusMarker(status: status)
-            Text(status.title)
-                .lineLimit(1)
-                .foregroundStyle(.secondary)
+        if let status {
+            HStack(spacing: 5) {
+                StatusMarker(status: status)
+                Text(status.title)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

@@ -150,6 +150,23 @@ import VoxCarrelCore
         #expect(!book.isMissing && book.missing == nil)
     }
 
+    /// A book the library does not have was never added to it and has no read status:
+    /// the list's Added and Status columns have nothing to show for its row.
+    @Test func aMissingRowHasNoDayAddedAndNoStatus() {
+        let row = SeriesRows.row(for: entry(12, "The Lost Book", number: "7"), link: link())
+        #expect(row.addedDate == nil)
+        #expect(row.shownReadStatus == nil)
+        var mine = Book(metadata: BookMetadata(title: "Mine"), dateAdded: Date(timeIntervalSince1970: 1_700_000_000))
+        mine.readStatus = .finished
+        let book = BookRow(
+            id: 5, book: mine, hasAudio: true, hasEbook: false, formats: [.m4b], coverURL: nil, hasWriteProblem: false)
+        #expect(book.addedDate == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(book.shownReadStatus == .finished)
+        var unread = book
+        unread.book.readStatus = .unread
+        #expect(unread.shownReadStatus == .unread)
+    }
+
     /// SV8: a missing entry in the words the inspector shows.
     @Test func aMissingEntryInWords() {
         let info = SeriesRows.info(for: entry(12, "The Lost Book", number: "7", minutes: 615), link: link(), canChange: true)

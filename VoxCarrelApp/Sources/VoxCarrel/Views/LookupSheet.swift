@@ -574,10 +574,10 @@ private struct BottomBar: View {
                 // Once a search has finished this says what each source found (and, plan 7
                 // A7, that nothing was read by the book's narrator): two lines at most,
                 // and all of it in the tooltip.
-                Text(model.lookupSourcesText)
+                Text(model.lookupSourcesText(for: lookup))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .help(model.lookupSourcesText)
+                    .help(model.lookupSourcesText(for: lookup))
                     .accessibilityIdentifier("lookup.sources")
                 Text(lookup.reminderText)
                     .lineLimit(1)
