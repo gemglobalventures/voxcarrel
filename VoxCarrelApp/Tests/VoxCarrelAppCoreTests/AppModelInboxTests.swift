@@ -154,6 +154,33 @@ import VoxCarrelFixtures
         #expect(h.ticker.pending.isEmpty)
     }
 
+    /// WF10: another library is chosen while a check of the first is on its way: what that check
+    /// finds belongs to a library that is no longer shown, and is not taken up, not even for a
+    /// moment: the watcher is never started again on the first library's folders.
+    @Test func aCheckThatEndsAfterAnotherLibraryIsChosenIsNotTakenUp() async throws {
+        let (h, folder) = try await watching()
+        try drop(Self.ebook, into: folder)
+        await arrive(h)
+        #expect(h.model.inboxCount == 1)
+        let gate = Gate()
+        h.model.beforeInboxCheck = { await gate.wait() }
+        h.watcher.fire()
+        await gate.arrival()
+
+        await h.model.chooseLibrary(try makeTempDir())
+        let watches = h.watcher.watchCount
+        #expect(!h.watcher.isWatching)
+        await gate.release()
+        await h.model.settle()
+
+        #expect(h.model.isLibraryOpen)
+        #expect(h.watcher.watchCount == watches)
+        #expect(!h.watcher.isWatching)
+        #expect(h.model.inboxCount == 0)
+        #expect(!h.model.showsInbox)
+        #expect(h.model.watchFolderRows.isEmpty)
+    }
+
     /// WF10: the library goes away (its folder cannot be found): the same.
     @Test func aLibraryThatClosesStopsTheWatcherAndEmptiesTheInbox() async throws {
         let (h, folder) = try await watching()
@@ -972,6 +999,48 @@ import VoxCarrelFixtures
         ticker.run(delay: 11)
         await model.settle()
         #expect(model.inboxCount == 0)
+    }
+
+    /// WF20: a book whose import failed is not remembered as imported: what is left of it is still
+    /// waiting afterwards.
+    @Test func anArrivalWhoseImportFailedIsStillWaiting() async throws {
+        let (h, folder) = try await watching()
+        await h.model.setWatchFolder(try id(h, folder), mode: .copy)
+        let parts = try drop(Self.parts, into: folder)
+        await arrive(h)
+        await h.model.reviewInbox()
+        #expect(h.model.review?.copyInsteadOfMove == true)
+        // One of its files goes while it is being reviewed.
+        let names = try FileManager.default.contentsOfDirectory(atPath: parts.path).sorted()
+        try FileManager.default.removeItem(at: parts.appendingPathComponent(try #require(names.first)))
+
+        await h.model.confirmImport()
+        await h.model.settle()
+
+        #expect(h.titles.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: parts.path).count == 3)
+        #expect(h.model.inboxRows.map(\.files) == ["3 files"])
+    }
+
+    /// WF20: undoing an import by Move puts the files back in the watch folder, where they are an
+    /// arrival again once they have settled. Nothing is remembered against them.
+    @Test func undoingAMoveImportBringsTheBookBackToTheInbox() async throws {
+        let (h, folder) = try await watching()
+        let book = try drop(Self.ebook, into: folder)
+        await arrive(h)
+        await h.model.reviewInbox()
+        await h.model.confirmImport()
+        await h.model.settle()
+        #expect(!exists(book))
+        #expect(h.model.inboxCount == 0)
+
+        await h.model.undo()
+        await h.model.settle()
+        #expect(h.titles.isEmpty)
+        #expect(exists(book))
+
+        await arrive(h)
+        #expect(h.model.inboxRows.map(\.title) == ["Quiet Rivers"])
     }
 
     /// WF20: a book that was left out of the import is still waiting afterwards.
