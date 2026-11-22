@@ -48,12 +48,21 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     /// How many of the book's files have a length that could not be measured
     /// (`BookFile.lengthUnmeasured`): the book's length is then not to be relied on.
     public var unmeasuredLengthFiles: Int
+    /// Not nil for a row that stands for a book the library does not have: one that
+    /// Audible's list of the series shown has and the library lacks. Such a row has a
+    /// negative id, which is no book's, and no files, cover or copies.
+    public var missing: MissingEntry?
+
+    /// Whether the row stands for a book the library does not have.
+    public var isMissing: Bool { missing != nil }
 
     public init(
         id: Int64, book: Book, hasAudio: Bool, hasEbook: Bool, formats: [FileFormat], coverURL: URL?,
         coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = [], hasFiles: Bool = true,
-        lengthProblemFiles: Int = 0, repairableLengthFiles: Int = 0, unmeasuredLengthFiles: Int = 0
+        lengthProblemFiles: Int = 0, repairableLengthFiles: Int = 0, unmeasuredLengthFiles: Int = 0,
+        missing: MissingEntry? = nil
     ) {
+        self.missing = missing
         self.unmeasuredLengthFiles = unmeasuredLengthFiles
         self.lengthProblemFiles = lengthProblemFiles
         self.repairableLengthFiles = repairableLengthFiles

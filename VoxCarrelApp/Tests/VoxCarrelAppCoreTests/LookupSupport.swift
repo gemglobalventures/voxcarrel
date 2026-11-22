@@ -33,6 +33,8 @@ final class FakeLookup: @unchecked Sendable {
     private var recordedDetails: [String] = []
     private var recordedCovers: [URL] = []
     private var recordedCancelled = 0
+    /// What stands in for the Audible stores' catalogues when a series is asked about.
+    let catalogue = FakeCatalogue()
 
     /// Every search a source was asked to make, in order.
     var asked: [Asked] { lock.withLock { recordedAsked } }
@@ -104,7 +106,9 @@ final class FakeLookup: @unchecked Sendable {
             providers: LookupSource.allCases.filter(configuration.sources.contains).map {
                 Provider(source: $0, store: store, stores: configuration.audibleStores, fake: self)
             },
-            http: HTTP(fake: self))
+            http: HTTP(fake: self),
+            // As the real service: the stores a series is asked of, none when Audible is off.
+            audibleStores: configuration.sources.contains(.audible) ? configuration.audibleStores : [])
     }
 
     /// A service for Open Library and Audible in one store: the settings a model begins with, less the other stores.
@@ -147,6 +151,7 @@ final class FakeLookup: @unchecked Sendable {
             _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>,
             insecure: Set<InsecureOrigin>
         ) async throws -> (data: Data, status: Int) {
+            if url.path.hasPrefix(FakeCatalogue.path) { return try await fake.catalogue.answer(url) }
             let cover = fake.lock.withLock {
                 fake.recordedCovers.append(url)
                 return fake.covering

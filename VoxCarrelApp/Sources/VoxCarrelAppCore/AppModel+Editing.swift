@@ -27,7 +27,7 @@ extension AppModel {
 
     public var hasUnsavedChanges: Bool {
         switch inspecting {
-        case .nothing: false
+        case .nothing, .missing: false
         case .one(_, let draft): draft.isDirty
         case .many(let draft): draft.isDirty
         }
@@ -39,7 +39,7 @@ extension AppModel {
         guard busyLabel == nil, worker != nil else { return }
         let edits: [BookEdit]
         switch inspecting {
-        case .nothing:
+        case .nothing, .missing:
             return
         case .one(_, let draft):
             guard draft.isDirty else { return }
@@ -66,25 +66,33 @@ extension AppModel {
         guard let worker = await begin(label) else { return }
         // Edits that were written are the book's own values now. Edits that were not
         // stay in the draft, to be tried again or discarded.
-        var everyBookSaved = false
+        let everyBookSaved = await write(edits, with: worker)
+        await finish(keepEdits: !everyBookSaved)
+    }
+
+    /// Writes edits as one save, which Undo reverses whole: the catalogue, the tags in
+    /// the files, and the files' places. What went wrong for any book is shown as the
+    /// result sheet, or as `alert` when nothing could be written at all. Returns
+    /// whether every book was saved. Part of an operation that is already running.
+    func write(_ edits: [BookEdit], with worker: LibraryWorker) async -> Bool {
         do {
             let outcomes = try await worker.save(edits)
             let titles = Dictionary(edits.map { ($0.bookId, $0.metadata.title) }) { first, _ in first }
             let summary = UserMessage.summary(of: outcomes, titles: titles)
             if !summary.isClean { result = summary }
-            everyBookSaved = !outcomes.contains {
+            return !outcomes.contains {
                 if case .failed = $0 { true } else { false }
             }
         } catch {
             show(error)
+            return false
         }
-        await finish(keepEdits: !everyBookSaved)
     }
 
     /// Puts the draft back to the book's own values.
     public func discardChanges() {
         switch inspecting {
-        case .nothing: break
+        case .nothing, .missing: break
         case .one(let detail, _): inspecting = .one(detail, BookDraft(book: detail.row.book))
         case .many(let draft): inspecting = .many(BulkDraft(books: draft.books))
         }
@@ -237,6 +245,8 @@ extension AppModel {
 
     /// The same for these books, which need not be the selection.
     public func rewriteTags(for ids: Set<Int64>) async {
+        // SV7
+        guard !holdsMissing(ids) else { return }
         let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         let titles = Dictionary(rows.map { ($0.id, $0.book.title) }) { first, _ in first }
@@ -254,6 +264,8 @@ extension AppModel {
     /// The same for these books, which need not be the selection. Does nothing when
     /// none of them has a file that can be repaired.
     public func repairLengthHeaders(for ids: Set<Int64>) async {
+        // SV7
+        guard !holdsMissing(ids) else { return }
         let ids = ordered(ids)
         let files = rows.filter { ids.contains($0.id) }.map(\.repairableLengthFiles).reduce(0, +)
         guard !ids.isEmpty, files > 0 else { return }
@@ -274,6 +286,8 @@ extension AppModel {
 
     /// Dated now.
     public func setReadStatus(_ status: ReadStatus, for ids: Set<Int64>) async {
+        // SV7
+        guard !holdsMissing(ids) else { return }
         let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         await perform("Updating…") { worker in
@@ -285,7 +299,8 @@ extension AppModel {
 
     /// A15: asks whether to remove these books (those of them that are shown).
     public func requestRemove(_ ids: Set<Int64>) {
-        guard busyLabel == nil, worker != nil else { return }
+        // SV7: a book the library does not have cannot be removed from it.
+        guard busyLabel == nil, worker != nil, !holdsMissing(ids) else { return }
         let books = rows.filter { ids.contains($0.id) }
         guard !books.isEmpty else { return }
         raise(
@@ -309,6 +324,8 @@ extension AppModel {
         guard busyLabel == nil, case .removeBooks(let ids, let titles, _, let withoutFiles) = storedPrompt
         else { return }
         storedPrompt = nil
+        // SV7: never asked about such ids (`requestRemove`), and never acted on.
+        guard !holdsMissing(Set(ids)) else { return }
         let moveFilesToTrash = moveFilesToTrash && withoutFiles < ids.count
         await perform(ids.count == 1 ? "Removing book…" : "Removing \(ids.count) books…") { worker in
             let failures = await worker.removeBooks(ids: ids, moveFilesToTrash: moveFilesToTrash)
@@ -350,7 +367,8 @@ extension AppModel {
     }
 
     private func openFile(of id: Int64, role: FileRole?) async {
-        guard let worker else { return }
+        // SV7: a book the library does not have has nothing to open.
+        guard let worker, !holdsMissing([id]) else { return }
         do {
             guard let detail = try await worker.detail(bookId: id) else { throw LibraryError.bookNotFound(id) }
             let audio = detail.files.first { $0.file.role == .audio }
@@ -404,7 +422,8 @@ extension AppModel {
     /// A14: shows each book in the Finder: its folder, or for a book left where it was
     /// found, its first file. A book with no files has nothing to show.
     public func reveal(_ ids: Set<Int64>) {
-        guard !ids.isEmpty else { return }
+        // SV7
+        guard !ids.isEmpty, !holdsMissing(ids) else { return }
         spawn { await self.revealBooks(self.ordered(ids)) }
     }
 
@@ -452,6 +471,8 @@ extension AppModel {
     /// Makes a collection and puts these books in it. A blank name, or one another
     /// collection has, is refused with a sentence in `alert`.
     public func createCollection(name: String, adding ids: Set<Int64>) async {
+        // SV7
+        guard !holdsMissing(ids) else { return }
         guard busyLabel == nil, worker != nil, let name = collectionName(name, for: nil) else { return }
         let ids = ordered(ids)
         await perform("Creating collection…") { worker in
@@ -478,6 +499,8 @@ extension AppModel {
     }
 
     public func add(_ ids: Set<Int64>, toCollection id: Int64) async {
+        // SV7
+        guard !holdsMissing(ids) else { return }
         let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         await perform("Updating…") { worker in
@@ -486,6 +509,8 @@ extension AppModel {
     }
 
     public func remove(_ ids: Set<Int64>, fromCollection id: Int64) async {
+        // SV7
+        guard !holdsMissing(ids) else { return }
         let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         await perform("Updating…") { worker in

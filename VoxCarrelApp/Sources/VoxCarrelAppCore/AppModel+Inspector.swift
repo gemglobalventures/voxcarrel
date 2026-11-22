@@ -42,7 +42,7 @@ extension AppModel {
     /// the selection whose shared fields were changed. Empty when there is nothing to save.
     public var editedBookIds: Set<Int64> {
         switch inspecting {
-        case .nothing: []
+        case .nothing, .missing: []
         case .one(let detail, let draft): draft.isDirty ? [detail.row.id] : []
         case .many(let draft): draft.isDirty ? Set(draft.books.compactMap(\.id)) : []
         }

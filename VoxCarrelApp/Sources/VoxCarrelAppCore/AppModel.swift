@@ -11,6 +11,9 @@ public enum Inspecting: Equatable {
     case nothing
     case one(BookDetail, BookDraft)
     case many(BulkDraft)
+    /// One row is selected that stands for a book the library does not have: a book of
+    /// Audible's list of the series shown. There is nothing of it to edit.
+    case missing(MissingEntry)
 }
 
 /// A question the window must put to the user before the model goes on.
@@ -199,6 +202,8 @@ public final class AppModel {
         sidebar = SidebarData(counts: [:], browse: [:], collections: [])
         rows = []
         rowsLoaded = false
+        shownSeries = nil
+        seriesChoice = nil
         selection = []
         anchor = nil
         inspecting = .nothing
@@ -361,8 +366,10 @@ public final class AppModel {
         requestSelection(shownIds, anchor: newAnchor)
     }
 
+    /// Selects every book that is shown. SV7: not the rows that stand for books the
+    /// library does not have: there is nothing that can be done to them all at once.
     public func selectAll() {
-        requestSelection(Set(rows.map(\.id)), anchor: anchor)
+        requestSelection(Set(rows.filter { !$0.isMissing }.map(\.id)), anchor: anchor)
     }
 
     /// An arrow key in the grid, which shows the rows in `columns` columns: selects only
@@ -423,16 +430,19 @@ public final class AppModel {
         let generation = rowsGeneration
         do {
             // WF24: the inbox has no book rows, and the library is not asked for any.
-            let fetched = item == .inbox ? [] : try await worker.rows(for: item, search: search)
+            let read = item == .inbox
+                ? ShownBooks(rows: [], series: nil) : try await worker.shownBooks(for: item, search: search)
             await beforeApplyingRows?(search)
             // A5: a newer reload has started (or finished) since; its answer is the one wanted.
             guard generation == rowsGeneration else { return }
+            let fetched = withMissingRows(read, search: search)
             let ids = Set(fetched.map(\.id))
             // A8: showing these rows would take a book with unsaved edits out of the selection.
             if hasUnsavedChanges, !selection.isSubset(of: ids) {
                 ask(about: .browse)
                 return
             }
+            shownSeries = read.series
             rows = storedSort.sorted(fetched, showing: item)
             rowsLoaded = true
             shown = (item, search)
@@ -467,8 +477,12 @@ public final class AppModel {
                 let item = storedSidebarSelection
                 let search = storedSearchText
                 // WF24
-                let fetched = item == .inbox ? [] : try await worker.rows(for: item, search: search)
+                let read = item == .inbox
+                    ? ShownBooks(rows: [], series: nil) : try await worker.shownBooks(for: item, search: search)
                 if generation == rowsGeneration {
+                    // SV13: the series' list is read again with its books, from the catalogue.
+                    let fetched = withMissingRows(read, search: search)
+                    shownSeries = read.series
                     rows = storedSort.sorted(fetched, showing: item)
                     rowsLoaded = true
                     shown = (item, search)
@@ -481,6 +495,56 @@ public final class AppModel {
             show(error)
         }
         await refreshInspector(keepEdits: keepEdits)
+    }
+
+    // MARK: Missing books of a series
+
+    /// The series the rows are the books of, with what the catalogue holds of Audible's
+    /// list of it; nil while the rows are of anything else.
+    var shownSeries: ShownSeries?
+    /// SV3: the Audible series the owner is being asked to choose between; nil when
+    /// they are not being asked.
+    var seriesChoice: PendingSeriesChoice?
+    private var storedShowsHiddenMissing = false
+
+    /// SV5: whether the entries of Audible's list that the owner has hidden are shown
+    /// among the missing ones. Not remembered. Setting it changes `rows` at once.
+    public var showsHiddenMissing: Bool {
+        get { storedShowsHiddenMissing }
+        set {
+            guard newValue != storedShowsHiddenMissing else { return }
+            storedShowsHiddenMissing = newValue
+            let books = ShownBooks(rows: rows.filter { !$0.isMissing }, series: shownSeries)
+            let all = withMissingRows(books, search: shown.search)
+            rows = storedSort.sorted(all, showing: shown.item)
+            // A hidden row that is no longer shown is no longer selected. (A selection
+            // with unsaved edits has no such row in it.)
+            let ids = selection.intersection(all.map(\.id))
+            if ids != selection { applySelection(ids, anchor: nil) }
+        }
+    }
+
+    /// SV5, SV6: the library's books, and after them a row for each book of Audible's
+    /// list of the series that the library does not have. Only for a series, and never
+    /// among the results of a search.
+    private func withMissingRows(_ read: ShownBooks, search: String) -> [BookRow] {
+        guard search.trimmed.isEmpty else { return read.rows }
+        return read.rows + SeriesRows.rows(of: read.series?.completeness, showingHidden: storedShowsHiddenMissing)
+    }
+
+    /// SV7, SV14: whether any of these is the id of a row that stands for a book the
+    /// library does not have. Such an id is no book's: no book command applies to it,
+    /// and the library is never asked about it.
+    func holdsMissing(_ ids: Set<Int64>) -> Bool {
+        ids.contains { $0 <= 0 }
+    }
+
+    /// SV8: what is inspected when a missing row is among the selected: the one
+    /// missing row when it is all there is, otherwise nothing.
+    private func inspectingMissing(_ ids: Set<Int64>) -> Inspecting {
+        guard ids.count == 1, let id = ids.first, let entry = rows.first(where: { $0.id == id })?.missing
+        else { return .nothing }
+        return .missing(entry)
     }
 
     // MARK: Selecting
@@ -548,6 +612,11 @@ public final class AppModel {
     private func setSelection(_ ids: Set<Int64>, anchor: Int64?) {
         selection = ids
         self.anchor = anchor
+        // SV8
+        if holdsMissing(ids) {
+            inspecting = inspectingMissing(ids)
+            return
+        }
         if ids.count == 1, let id = ids.first {
             if case .one(let detail, _) = inspecting, detail.row.id == id { return }
             if let row = rows.first(where: { $0.id == id }) {
@@ -811,6 +880,20 @@ public final class AppModel {
         guard let worker, !selection.isEmpty else {
             inspecting = .nothing
             return
+        }
+        // SV14: a missing row has nothing in the library to fetch. One that is no
+        // longer shown is no longer selected.
+        if holdsMissing(selection) {
+            let shownIds = Set(rows.map(\.id))
+            selection = selection.filter { $0 > 0 || shownIds.contains($0) }
+            if holdsMissing(selection) {
+                inspecting = inspectingMissing(selection)
+                return
+            }
+            guard !selection.isEmpty else {
+                inspecting = .nothing
+                return
+            }
         }
         do {
             if selection.count == 1, let id = selection.first {

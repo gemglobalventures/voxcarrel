@@ -15,6 +15,10 @@ public actor LibraryWorker {
     /// What books are looked up with. Not part of the library, and not behind the
     /// actor: a lookup waits on the network and must not keep the library waiting.
     private nonisolated let lookup: OSAllocatedUnfairLock<LookupService>
+    /// The ids the worker was asked about that are no book's: zero or less. A row that
+    /// stands for a book the library does not have has such an id, and nothing should
+    /// ever ask the library about it; whatever does is passed over and noted here.
+    public nonisolated let strayIds = OSAllocatedUnfairLock<[Int64]>(initialState: [])
 
     /// Opens (creating if new) the library at `libraryRoot`.
     ///
@@ -71,6 +75,33 @@ public actor LibraryWorker {
         try await lookup.withLock { $0 }.thumbnail(for: candidate)
     }
 
+    /// The Audible series a book is in. Empty, and nothing is sent, when Audible is off
+    /// as a lookup source (`LookupService.audibleSeries`).
+    public nonisolated func audibleSeries(
+        ofBookWithASIN asin: String?, title: String, author: String?
+    ) async throws -> [AudibleSeriesRef] {
+        try await lookup.withLock { $0 }.audibleSeries(ofBookWithASIN: asin, title: title, author: author)
+    }
+
+    /// Every book of an Audible series, asked of the series' own store.
+    public nonisolated func audibleSeriesList(_ series: AudibleSeriesRef) async throws -> AudibleSeriesList {
+        try await lookup.withLock { $0 }.audibleSeriesList(series)
+    }
+
+    // MARK: Ids that are no book's
+
+    /// Whether `id` could be a book's. One that could not is noted in `strayIds`.
+    private func isBookId(_ id: Int64) -> Bool {
+        if id > 0 { return true }
+        strayIds.withLock { $0.append(id) }
+        return false
+    }
+
+    /// The ids that could be books', in the order given; the others are noted and left out.
+    private func bookIds(_ ids: [Int64]) -> [Int64] {
+        ids.filter(isBookId)
+    }
+
     // MARK: Reading
 
     /// The item's books in the store's order (by title), narrowed to those that match
@@ -89,6 +120,20 @@ public actor LibraryWorker {
         }
     }
 
+    /// The item's books and, when the item is one series, what the catalogue holds
+    /// about that series (plan 9, SV5, SV13): read in one turn, so that the books and
+    /// the list are of the same moment. Asks nothing of the network.
+    public func shownBooks(for item: SidebarItem, search: String) throws -> ShownBooks {
+        let rows = try self.rows(for: item, search: search)
+        guard case .browse(.series, let name) = item else { return ShownBooks(rows: rows, series: nil) }
+        let books = try service.librarySeriesBooks(named: name)
+        return ShownBooks(
+            rows: rows,
+            series: ShownSeries(
+                name: name, completeness: try service.seriesCompleteness(forSeries: name),
+                bookIds: Set(books.map(\.id))))
+    }
+
     public func sidebar() throws -> SidebarData {
         var counts: [SidebarItem: Int] = [:]
         for item in SidebarItem.fixed {
@@ -104,7 +149,7 @@ public actor LibraryWorker {
 
     /// The book and its files as they are now; nil when no book has that id.
     public func detail(bookId: Int64) throws -> BookDetail? {
-        guard let book = try store.book(id: bookId) else { return nil }
+        guard isBookId(bookId), let book = try store.book(id: bookId) else { return nil }
         let files = try store.files(bookId: bookId)
         let fileRows = files.compactMap { file -> FileRow? in
             guard let id = file.id else { return nil }
@@ -265,15 +310,21 @@ public actor LibraryWorker {
     // MARK: Changing
 
     public func save(_ edits: [BookEdit]) throws -> [SaveOutcome] {
-        try service.save(edits)
+        let edits = edits.filter { isBookId($0.bookId) }
+        guard !edits.isEmpty else { return [] }
+        return try service.save(edits)
     }
 
     public func rewriteTags(for bookIds: [Int64]) throws -> [SaveOutcome] {
-        try service.rewriteTags(for: bookIds)
+        let ids = self.bookIds(bookIds)
+        guard !ids.isEmpty else { return [] }
+        return try service.rewriteTags(for: ids)
     }
 
     public func repairLengthHeaders(for bookIds: [Int64]) throws -> [SaveOutcome] {
-        try service.repairLengthHeaders(for: bookIds)
+        let ids = self.bookIds(bookIds)
+        guard !ids.isEmpty else { return [] }
+        return try service.repairLengthHeaders(for: ids)
     }
 
     public func setRole(_ role: FileRole, forFile fileId: Int64) throws {
@@ -281,7 +332,9 @@ public actor LibraryWorker {
     }
 
     public func setReadStatus(_ status: ReadStatus, for bookIds: [Int64]) throws {
-        try service.setReadStatus(status, for: bookIds)
+        let ids = self.bookIds(bookIds)
+        guard !ids.isEmpty else { return }
+        try service.setReadStatus(status, for: ids)
     }
 
     // MARK: Editions
@@ -289,19 +342,25 @@ public actor LibraryWorker {
     /// What the book's own files say that bears on which edition it is. Reads the
     /// catalogue only.
     public func editionEvidence(for bookId: Int64) throws -> EditionEvidence {
-        try service.editionEvidence(for: bookId)
+        guard isBookId(bookId) else { throw LibraryError.bookNotFound(bookId) }
+        return try service.editionEvidence(for: bookId)
     }
 
     /// What a check of the book's edition would come to, given what a lookup found.
     /// Changes nothing.
     public func assessEdition(of bookId: Int64, results: [LookupCandidate]) throws -> EditionKindAssessment {
-        try service.assessEdition(of: bookId, results: results)
+        guard isBookId(bookId) else { throw LibraryError.bookNotFound(bookId) }
+        return try service.assessEdition(of: bookId, results: results)
     }
 
     /// Records each book's edition kind, worked out from its files and from what a
     /// lookup found for it, as one undoable operation (`LibraryService.checkEditions`).
     public func checkEditions(_ checks: [EditionCheck]) throws -> [EditionCheckOutcome] {
-        try service.checkEditions(checks)
+        let real = checks.filter { isBookId($0.bookId) }
+        // A check of no books at all is still a check, as it was before; one of nothing
+        // but ids that are no book's is not.
+        guard !real.isEmpty || checks.isEmpty else { return [] }
+        return try service.checkEditions(real)
     }
 
     /// Adds a book that is owned elsewhere and has no files here, or, when the library
@@ -323,7 +382,7 @@ public actor LibraryWorker {
     ///   no mark would be empty entries. Ids that are not in the library are passed over.
     public func setOnAudible(_ on: Bool, for bookIds: [Int64], store audibleStore: AudibleStore) throws -> [Int64] {
         var refused: [Int64] = []
-        for id in bookIds {
+        for id in self.bookIds(bookIds) {
             guard let book = try store.book(id: id), book.isOwned(on: .audible) != on else { continue }
             var copies = book.externalCopies
             if on {
@@ -345,7 +404,7 @@ public actor LibraryWorker {
     /// Removes each in turn; returns the ids that could not be removed, with why.
     public func removeBooks(ids: [Int64], moveFilesToTrash: Bool) -> [(id: Int64, reason: String)] {
         var failures: [(id: Int64, reason: String)] = []
-        for id in ids {
+        for id in bookIds(ids) {
             do {
                 try service.removeBook(id: id, moveFilesToTrash: moveFilesToTrash)
             } catch {
@@ -369,6 +428,40 @@ public actor LibraryWorker {
 
     public func reconcile() throws -> ReconcileReport {
         try service.reconcile()
+    }
+
+    // MARK: Series
+
+    // The series is named exactly as the sidebar names it. None of these is undone by
+    // Undo, and none touches a file.
+
+    /// The books of a series as Check Series asks Audible about them, by id.
+    public func seriesCheckBooks(named name: String) throws -> [SeriesCheckBook] {
+        try service.librarySeriesBooks(named: name).map { book in
+            let author = try store.book(id: book.id)?.authors.lazy.compactMap(\.trimmedOrNil).first
+            return SeriesCheckBook(
+                id: book.id, title: book.title, author: author, number: book.number, asin: book.asins.first)
+        }
+    }
+
+    public func saveSeriesList(_ list: AudibleSeriesList, forSeries name: String, now: Date) throws {
+        try service.saveSeriesList(list, forSeries: name, now: now)
+    }
+
+    /// Hides a missing entry of a stored list, or shows it again. `id` is the entry's
+    /// own (`MissingEntry.id`), not its row's.
+    public func setMissingEntry(id: Int64, hidden: Bool) throws {
+        try service.setMissingEntry(id: id, hidden: hidden)
+    }
+
+    public func unlinkSeries(named name: String) throws {
+        try service.unlinkSeries(named: name)
+    }
+
+    /// One edit for each book of the series that Audible numbers differently: to be
+    /// saved with `save`.
+    public func editsUsingAudibleNumbers(forSeries name: String) throws -> [BookEdit] {
+        try service.editsUsingAudibleNumbers(forSeries: name)
     }
 
     // MARK: Watch folders and the inbox
@@ -447,13 +540,13 @@ public actor LibraryWorker {
     }
 
     public func add(bookIds: [Int64], toCollection id: Int64) throws {
-        for bookId in bookIds {
+        for bookId in self.bookIds(bookIds) {
             try store.add(bookId: bookId, toCollection: id)
         }
     }
 
     public func remove(bookIds: [Int64], fromCollection id: Int64) throws {
-        for bookId in bookIds {
+        for bookId in self.bookIds(bookIds) {
             try store.remove(bookId: bookId, fromCollection: id)
         }
     }

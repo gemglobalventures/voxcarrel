@@ -40,11 +40,21 @@ public enum UserMessage {
         case let error as OrganiserError: text(for: error)
         case let error as LookupError: text(for: error, source: nil)
         case let error as WatchFolderError: text(for: error)
+        case let error as SeriesListError: text(for: error)
         default:
             // The database's own errors are written for programmers.
             LibraryStore.isDatabaseError(error)
                 ? "The library's database could not be read. It may be damaged, or not a VoxCarrel library."
                 : error.localizedDescription
+        }
+    }
+
+    /// Why Audible's list of a series could not be stored or changed.
+    private static func text(for error: SeriesListError) -> String {
+        switch error {
+        case .emptyList: "Audible has no books listed for that series, so nothing was changed."
+        case .noBooks: "No book in your library is in that series any more."
+        case .entryNotFound: "That book is no longer on the list. Check the series again."
         }
     }
 

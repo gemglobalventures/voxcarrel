@@ -9,7 +9,7 @@ struct InspectorView: View {
 
     var body: some View {
         switch model.inspecting {
-        case .nothing:
+        case .nothing, .missing:
             // I9
             Text("No book selected")
                 .foregroundStyle(.secondary)

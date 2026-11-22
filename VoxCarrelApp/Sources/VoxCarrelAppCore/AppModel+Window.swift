@@ -66,10 +66,12 @@ extension AppModel {
     /// How many books are shown: "128 books".
     public var windowSubtitle: String {
         if sidebarSelection == .inbox { return inboxSubtitle }
-        switch rows.count {
+        // SV6: the books of the library; not the rows for books it does not have.
+        let count = rows.filter { !$0.isMissing }.count
+        switch count {
         case 0: return "No books"
         case 1: return "1 book"
-        default: return "\(rows.count) books"
+        default: return "\(count) books"
         }
     }
 
@@ -113,9 +115,12 @@ extension AppModel {
 
     /// Which commands apply to these books: for a context menu, which may be for books
     /// other than the selection.
+    ///
+    /// SV7: none applies when any of them is a row that stands for a book the library
+    /// does not have.
     public func commands(for ids: Set<Int64>) -> SelectionCommands {
         var commands = SelectionCommands()
-        guard isLibraryOpen, !ids.isEmpty else { return commands }
+        guard isLibraryOpen, !ids.isEmpty, !holdsMissing(ids) else { return commands }
         let shown = rows.first { ids.contains($0.id) }
         if ids.count == 1, let book = shown {
             commands.open = book.hasAudio || book.hasEbook

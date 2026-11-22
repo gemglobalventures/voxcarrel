@@ -196,7 +196,7 @@ extension AppModel {
     }
 
     /// "a", "a and b", "a, b and c".
-    static func list(_ names: [String]) -> String {
+    nonisolated static func list(_ names: [String]) -> String {
         guard names.count > 1, let last = names.last else { return names.first ?? "" }
         return names.dropLast().joined(separator: ", ") + " and " + last
     }

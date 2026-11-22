@@ -21,6 +21,8 @@ extension AppModel {
     /// Unmarking a book that has no files would leave an empty entry: it stays marked,
     /// and `alert` names it and says to remove it instead.
     public func setOnAudible(_ on: Bool, for ids: Set<Int64>) async {
+        // SV7: a book the library does not have is added, not marked.
+        guard !holdsMissing(ids) else { return }
         let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         let store = audibleStore
@@ -47,7 +49,8 @@ extension AppModel {
 
     /// The same for these books: for a context menu.
     public func canMarkOnAudible(for ids: Set<Int64>) -> Bool {
-        isLibraryOpen && busyLabel == nil && !ids.isEmpty
+        // SV7
+        isLibraryOpen && busyLabel == nil && !ids.isEmpty && !holdsMissing(ids)
     }
 
     /// R8: what the menu item says: "Unmark as on Audible" when every selected book is
@@ -241,32 +244,39 @@ extension AppModel {
         closeLookup()
         await reloadAll()
         if let outcome {
-            let id: Int64
-            var said: String?
-            switch outcome {
-            case .added(let bookId): id = bookId
-            case .markedExisting(let bookId): (id, said) = (bookId, "was already in your library. It is now marked as also on Audible.")
-            case .alreadyMarked(let bookId): (id, said) = (bookId, "is already in your library and marked as on Audible.")
-            }
-            // The book becomes the selection, unless that would take the inspector away
-            // from unsaved edits.
-            if !hasUnsavedChanges {
-                await show(book: id)
-            }
-            if let said {
-                // N4
-                let title = try? await worker.detail(bookId: id)?.row.book.title.trimmedOrNil
-                alert = "\(title.map { "“\($0)”" } ?? "That book") \(said)"
-            } else if hasCover, cover == nil {
-                alert = Self.addedWithoutCover
-            }
+            let wasThere = await showAdded(outcome, with: worker)
+            if !wasThere, hasCover, cover == nil { alert = Self.addedWithoutCover }
         }
         busyLabel = nil
     }
 
+    /// An Audible book has been added, or found to be in the library already, and
+    /// everything has been read again: the book becomes the selection, and when it was
+    /// there already `alert` says so (N4). Returns whether it was there already.
+    @discardableResult
+    func showAdded(_ outcome: ExternalBookOutcome, with worker: LibraryWorker) async -> Bool {
+        let id: Int64
+        var said: String?
+        switch outcome {
+        case .added(let bookId): id = bookId
+        case .markedExisting(let bookId): (id, said) = (bookId, "was already in your library. It is now marked as also on Audible.")
+        case .alreadyMarked(let bookId): (id, said) = (bookId, "is already in your library and marked as on Audible.")
+        }
+        // The book becomes the selection, unless that would take the inspector away
+        // from unsaved edits.
+        if !hasUnsavedChanges {
+            await show(book: id)
+        }
+        guard let said else { return false }
+        // N4
+        let title = try? await worker.detail(bookId: id)?.row.book.title.trimmedOrNil
+        alert = "\(title.map { "“\($0)”" } ?? "That book") \(said)"
+        return true
+    }
+
     /// Selects the book, first making sure it is among the books shown: when it is not,
     /// the sidebar moves to On Audible, and a search that still hides it is cleared.
-    private func show(book id: Int64) async {
+    func show(book id: Int64) async {
         if !rows.contains(where: { $0.id == id }) {
             sidebarSelection = .onAudible
             await latestReload?.value

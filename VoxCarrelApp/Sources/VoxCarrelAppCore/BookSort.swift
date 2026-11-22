@@ -31,12 +31,26 @@ public struct BookSort: Equatable, Sendable {
     /// order of the series while the sort is by title, which is the sort nobody has
     /// chosen: by number, numerically where the numbers are numbers, books with no
     /// number last, ties by title. Any other key is the user's choice and is kept.
+    ///
+    /// Plan 9, SV5: rows that stand for books the library does not have (`isMissing`)
+    /// fall in place by number in the order of the series. Under any other sort they
+    /// come after the library's books, in the order of the series, whichever way the
+    /// sort runs: they have no place among books sorted by what a library book has.
     public func sorted(_ rows: [BookRow], showing item: SidebarItem? = nil) -> [BookRow] {
         if key == .title, case .browse(.series, _)? = item {
             var inSeriesOrder = self
             inSeriesOrder.bySeriesNumber = true
-            return inSeriesOrder.sorted(rows)
+            return inSeriesOrder.arranged(rows)
         }
+        let missing = rows.filter(\.isMissing)
+        guard !missing.isEmpty else { return arranged(rows) }
+        var inSeriesOrder = BookSort()
+        inSeriesOrder.bySeriesNumber = true
+        return arranged(rows.filter { !$0.isMissing }) + inSeriesOrder.arranged(missing)
+    }
+
+    /// The rows in this order, those with no value for the key last.
+    private func arranged(_ rows: [BookRow]) -> [BookRow] {
         var valued: [BookRow] = []
         var valueless: [BookRow] = []
         for row in rows {
@@ -116,7 +130,7 @@ public struct BookSort: Equatable, Sendable {
 
     /// Numbers first, in numeric order; then numbers that are not numbers ("1-3") as
     /// text; then books with no number.
-    private static func compareSeriesNumbers(_ a: String?, _ b: String?) -> ComparisonResult {
+    static func compareSeriesNumbers(_ a: String?, _ b: String?) -> ComparisonResult {
         func parts(_ value: String?) -> (group: Int, number: Double, text: String) {
             guard let value = text(value) else { return (2, 0, "") }
             if let number = Double(value), number.isFinite { return (0, number, value) }
