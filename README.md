@@ -4,7 +4,7 @@ A native Mac app for managing a personal library of audiobooks and ebooks: a mod
 
 VoxCarrel files your books into a tidy folder layout, writes details and covers into the files themselves, and looks books up online. It manages files you already own; it is not a store or a downloader.
 
-**Status:** early. It is tested mostly on generated sample books and has had only light use on real collections. Import by copy until you trust it with yours.
+**Status:** early. It has a large automated test suite, run on generated sample books, and has been used on a small real collection, not yet a large one. Import by copy until you trust it with yours.
 
 ![The library as a cover grid, with one book open in the inspector](Screenshots/library-grid.jpg)
 
