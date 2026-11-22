@@ -1,0 +1,693 @@
+{
+ "links": {
+  "self": "/works/OL15723132W/editions.json?limit=100",
+  "work": "/works/OL15723132W"
+ },
+ "size": 23,
+ "entries": [
+  {
+   "key": "/books/OL25644024M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Coronet Books"
+   ],
+   "publish_date": "1987",
+   "physical_format": "Paperback",
+   "isbn_10": [
+    "0340393130"
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 607
+  },
+  {
+   "key": "/books/OL7645335M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Pocket"
+   ],
+   "publish_date": "April 1, 2000",
+   "physical_format": "Mass Market Paperback",
+   "isbn_10": [
+    "0671042750"
+   ],
+   "isbn_13": [
+    "9780671042752"
+   ],
+   "covers": [
+    405153
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 688,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   }
+  },
+  {
+   "key": "/books/OL24216489M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Coronet"
+   ],
+   "publish_date": "1987",
+   "isbn_10": [
+    "0340393130"
+   ],
+   "isbn_13": [
+    "9780340393130"
+   ],
+   "covers": [
+    6550466
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 576
+  },
+  {
+   "key": "/books/OL18303723M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Knopf"
+   ],
+   "publish_date": "1986",
+   "isbn_10": [
+    "0394551419"
+   ],
+   "covers": [
+    5408963,
+    4151315
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "edition_name": "1st ed.",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 475,
+   "description": {
+    "type": "/type/text",
+    "value": "An invented description, standing in for a cataloguer's."
+   }
+  },
+  {
+   "key": "/books/OL2349070M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Hodder & Stoughton"
+   ],
+   "publish_date": "1986",
+   "isbn_10": [
+    "034038784X"
+   ],
+   "covers": [
+    201468
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 463,
+   "description": {
+    "type": "/type/text",
+    "value": "An invented description, standing in for a cataloguer's."
+   }
+  },
+  {
+   "key": "/books/OL10823902M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Chivers Press Ltd"
+   ],
+   "publish_date": "October 2000",
+   "physical_format": "Audio Cassette",
+   "isbn_10": [
+    "0754005569"
+   ],
+   "isbn_13": [
+    "9780754005568"
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   }
+  },
+  {
+   "key": "/books/OL22633019M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Coronet"
+   ],
+   "publish_date": "1994",
+   "isbn_10": [
+    "0340393130"
+   ],
+   "covers": [
+    6550476
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 607,
+   "notes": {
+    "type": "/type/text",
+    "value": "An invented note."
+   }
+  },
+  {
+   "key": "/books/OL10635194M",
+   "title": "A Perfect Spy (BBC Radio Collection)",
+   "publishers": [
+    "BBC Audiobooks"
+   ],
+   "publish_date": "September 12, 1988",
+   "physical_format": "Audio Cassette",
+   "isbn_10": [
+    "0563225785"
+   ],
+   "isbn_13": [
+    "9780563225782"
+   ],
+   "edition_name": "Abridged Ed edition",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   }
+  },
+  {
+   "key": "/books/OL18708800M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Bantam Books, Inc."
+   ],
+   "publish_date": "1987",
+   "isbn_10": [
+    "0553264567"
+   ],
+   "covers": [
+    6609241,
+    5431954,
+    4672958
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 517,
+   "notes": {
+    "type": "/type/text",
+    "value": "An invented note."
+   }
+  },
+  {
+   "key": "/books/OL10629257M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Hodder & Stoughton Ltd"
+   ],
+   "publish_date": "July 5, 2001",
+   "physical_format": "Hardcover",
+   "isbn_10": [
+    "0340733659"
+   ],
+   "isbn_13": [
+    "9780340733653"
+   ],
+   "covers": [
+    2398616
+   ],
+   "edition_name": "New Ed edition",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 704,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   }
+  },
+  {
+   "key": "/books/OL20211924M",
+   "title": "A Perfect spy",
+   "publishers": [
+    "BOC"
+   ],
+   "publish_date": "1988",
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "notes": {
+    "type": "/type/text",
+    "value": "An invented note."
+   }
+  },
+  {
+   "key": "/books/OL12578085M",
+   "title": "Perfect Spy",
+   "publishers": [
+    "Books On Tape"
+   ],
+   "physical_format": "Audio Cassette",
+   "isbn_10": [
+    "555367087X"
+   ],
+   "isbn_13": [
+    "9785553670870"
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   }
+  },
+  {
+   "key": "/books/OL10630569M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Sceptre"
+   ],
+   "publish_date": "January 20, 2000",
+   "physical_format": "Paperback",
+   "isbn_10": [
+    "0340766506"
+   ],
+   "isbn_13": [
+    "9780340766507"
+   ],
+   "covers": [
+    2399714,
+    204525
+   ],
+   "edition_name": "New Ed edition",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 704,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   }
+  },
+  {
+   "key": "/books/OL2721496M",
+   "title": "A perfect spy",
+   "publishers": [
+    "G.K. Hall"
+   ],
+   "publish_date": "1986",
+   "isbn_10": [
+    "0816141835",
+    "0816141843"
+   ],
+   "covers": [
+    7127165
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "edition_name": "[Large print].",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 757
+  },
+  {
+   "key": "/books/OL16412255M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Viking Press"
+   ],
+   "publish_date": "1986",
+   "isbn_10": [
+    "0670811629"
+   ],
+   "covers": [
+    14505906
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 475
+  },
+  {
+   "key": "/books/OL7823309M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Bantam"
+   ],
+   "publish_date": "June 1, 1990",
+   "physical_format": "Mass Market Paperback",
+   "isbn_10": [
+    "0553264567"
+   ],
+   "isbn_13": [
+    "9780553264562"
+   ],
+   "covers": [
+    5431953,
+    4672957
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 518,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   }
+  },
+  {
+   "key": "/books/OL8624863M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Hodder & Stoughton Audio Books"
+   ],
+   "publish_date": "June 6, 1996",
+   "physical_format": "Audio Cassette",
+   "isbn_10": [
+    "1859986927"
+   ],
+   "isbn_13": [
+    "9781859986929"
+   ],
+   "covers": [
+    2063020
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   }
+  },
+  {
+   "key": "/books/OL16159317M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Book Club Associates"
+   ],
+   "publish_date": "1986",
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 463,
+   "notes": {
+    "type": "/type/text",
+    "value": "An invented note."
+   }
+  },
+  {
+   "key": "/books/OL11259119M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Dh Audio"
+   ],
+   "publish_date": "October 1992",
+   "physical_format": "Audio cassette",
+   "isbn_10": [
+    "0886463408"
+   ],
+   "isbn_13": [
+    "9780886463403"
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   }
+  },
+  {
+   "key": "/books/OL11668673M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Chivers Large print (Chivers, Windsor, Paragon & C"
+   ],
+   "publish_date": "April 14, 1987",
+   "physical_format": "Paperback",
+   "isbn_10": [
+    "0862201837"
+   ],
+   "isbn_13": [
+    "9780862201838"
+   ],
+   "edition_name": "New Ed edition",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 757,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   },
+   "notes": {
+    "type": "/type/text",
+    "value": "An invented note."
+   }
+  },
+  {
+   "key": "/books/OL7950449M",
+   "title": "A Perfect Spy",
+   "publishers": [
+    "Scribner",
+    "Pocket Books"
+   ],
+   "publish_date": "December 31, 2002",
+   "physical_format": "Paperback",
+   "isbn_10": [
+    "0743457927"
+   ],
+   "isbn_13": [
+    "9780743457927"
+   ],
+   "covers": [
+    477740
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 608,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   }
+  },
+  {
+   "key": "/books/OL2551868M",
+   "title": "A perfect spy",
+   "publishers": [
+    "Knopf"
+   ],
+   "publish_date": "1986",
+   "isbn_10": [
+    "0394551419"
+   ],
+   "covers": [
+    4151314,
+    4151316,
+    5408962,
+    5408964,
+    6616089
+   ],
+   "languages": [
+    {
+     "key": "/languages/eng"
+    }
+   ],
+   "edition_name": "1st ed.",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 475
+  },
+  {
+   "key": "/books/OL9781563M",
+   "title": "A Perfect Spy (Coronet Books)",
+   "publishers": [
+    "Coronet Books"
+   ],
+   "publish_date": "May 5, 1994",
+   "physical_format": "Paperback",
+   "isbn_10": [
+    "0340393130"
+   ],
+   "isbn_13": [
+    "9780340393130"
+   ],
+   "covers": [
+    201480
+   ],
+   "edition_name": "New Ed edition",
+   "works": [
+    {
+     "key": "/works/OL15723132W"
+    }
+   ],
+   "type": {
+    "key": "/type/edition"
+   },
+   "number_of_pages": 576,
+   "first_sentence": {
+    "type": "/type/text",
+    "value": "An invented opening line."
+   }
+  }
+ ]
+}

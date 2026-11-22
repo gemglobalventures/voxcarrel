@@ -169,7 +169,7 @@ public struct AudibleProvider: LookupProvider {
 
         var note = [source.title]
         if let format = line("format_type") { note.append(Self.readable(format)) }
-        if let minutes { note.append(minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m") }
+        if let minutes { note.append(LookupText.lengthLabel(minutes: minutes)) }
         if let language { note.append(Self.readable(language)) }
 
         let images = product["product_images"] as? [String: Any]

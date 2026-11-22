@@ -385,6 +385,134 @@ public enum LookupText {
         return tidy
     }
 
+    // MARK: People
+
+    /// A person's name from a library catalogue, in the order it is said:
+    /// "Le Carré, John, 1931-2020" -> "John Le Carré". An accent written after its letter
+    /// is joined to it; dates, a fuller form in brackets and a final comma or full stop
+    /// are dropped. A name already in its natural order is unchanged.
+    public static func personName(fromCatalogue raw: String) -> String {
+        guard var text = cleaned(raw.precomposedStringWithCanonicalMapping, limit: nameLimit) else { return "" }
+        // "(John Ronald Reuel)"
+        text = text.replacingOccurrences(of: "\\s*\\([^()]{0,200}\\)", with: "", options: .regularExpression)
+        // ", 1931-2020", ", 1951-", ", b. 1951", ", d. 1900" at the end.
+        text = text.replacingOccurrences(
+            of: "[,\\s]+(?:(?:b|d|fl|ca)\\. ?)?[0-9]{3,4}\\??(?:\\s?-\\s?(?:[0-9]{3,4}\\??)?)?[.,\\s]*$", with: "",
+            options: .regularExpression)
+        text = withoutFinalPunctuation(text)
+        var parts = text.split(separator: ",", omittingEmptySubsequences: false)
+            .map { String($0).lookupTrimmed }
+        while let last = parts.last, last.isEmpty { parts.removeLast() }
+        guard let surname = parts.first, !surname.isEmpty else { return "" }
+
+        var suffix: String?
+        if parts.count == 3, isNameSuffix(parts[2]) { suffix = parts.removeLast() }
+        var name: String
+        if parts.count == 2, !parts[1].isEmpty, !isCompanyWord(parts[1]) {
+            name = "\(parts[1]) \(surname)"
+        } else {
+            name = parts.filter { !$0.isEmpty }.joined(separator: ", ")
+        }
+        if let suffix { name += " " + suffix }
+        return name.lookupTrimmed
+    }
+
+    /// Without the commas, spaces and full stop at its end. A full stop that ends an
+    /// initial or a suffix stays: "J. R. R.", "Jr.".
+    private static func withoutFinalPunctuation(_ text: String) -> String {
+        var text = text
+        while let last = text.last, last == "." || last == "," || last == " " {
+            if last == ".", let word = text.dropLast().split(whereSeparator: { $0 == " " || $0 == "," }).last,
+               word.count == 1 || isNameSuffix(String(word)) { break }
+            text.removeLast()
+        }
+        return text
+    }
+
+    private static func isNameSuffix(_ word: String) -> Bool {
+        ["jr", "sr", "ii", "iii", "iv"].contains(word.lowercased().replacingOccurrences(of: ".", with: ""))
+    }
+
+    private static func isCompanyWord(_ word: String) -> Bool {
+        ["inc", "ltd", "llc", "co", "corp"].contains(word.lowercased().replacingOccurrences(of: ".", with: ""))
+    }
+
+    /// True when the two names are the same person: ignoring case, accents, punctuation,
+    /// the full stops and spaces of initials, and the order "Surname, Given". An empty
+    /// name is nobody, not even another empty name.
+    public static func samePerson(_ a: String, _ b: String) -> Bool {
+        let first = nameWords(a), second = nameWords(b)
+        guard !first.isEmpty, !second.isEmpty else { return false }
+        return first.sorted() == second.sorted() || first.joined() == second.joined()
+    }
+
+    /// The words of a name for comparing, initials that stand together joined into one word.
+    private static func nameWords(_ name: String) -> [String] {
+        var words: [String] = []
+        var initials = ""
+        for word in comparable(personName(fromCatalogue: name).replacingOccurrences(of: ".", with: " "), droppingArticle: false) {
+            if word.count == 1 {
+                initials += word
+                continue
+            }
+            if !initials.isEmpty { words.append(initials) }
+            initials = ""
+            words.append(word)
+        }
+        if !initials.isEmpty { words.append(initials) }
+        return words
+    }
+
+    // MARK: Lengths
+
+    /// The most of an extent that is read.
+    static let extentCharacterLimit = 500
+    /// The longest length believed: 1,000 hours.
+    static let longestSeconds = 3_600_000.0
+
+    /// The playing time in a catalogue's description of what a recording is:
+    /// "12 sound cassettes (18 hr.)", "9 hr., 30 min." -> seconds. Nil when it gives no
+    /// time, a time for each part only, or one that is not from a second to 1,000 hours.
+    public static func seconds(fromExtent text: String) -> Double? {
+        let text = String(text.prefix(extentCharacterLimit)).lowercased()
+        guard !text.contains("each") else { return nil }
+        var seconds = 0.0
+        var found = false
+        // "10 1/2 hr."
+        if let parts = firstMatch("(?<![0-9./])(?:([0-9]{1,4}) )?([0-9]{1,2})/([0-9]{1,2}) ?(?:hrs?|hours?)(?![a-z])", in: text),
+           let over = Double(parts[2]), let under = Double(parts[3]), under > 0 {
+            seconds += ((Double(parts[1]) ?? 0) + over / under) * 3600
+            found = true
+        } else if let parts = firstMatch("(?<![0-9.,/])([0-9]{1,4}(?:\\.[0-9]{1,2})?) ?(?:hrs?|hours?)(?![a-z])", in: text),
+                  let hours = Double(parts[1]) {
+            seconds += hours * 3600
+            found = true
+        }
+        if let parts = firstMatch("(?<![0-9.,/])([0-9]{1,6}) ?(?:mins?|minutes?)(?![a-z])", in: text), let minutes = Double(parts[1]) {
+            seconds += minutes * 60
+            found = true
+        }
+        if let parts = firstMatch("(?<![0-9.,/])([0-9]{1,6}) ?(?:secs?|seconds?)(?![a-z])", in: text), let more = Double(parts[1]) {
+            seconds += more
+            found = true
+        }
+        guard found, seconds >= 1, seconds <= longestSeconds else { return nil }
+        return seconds
+    }
+
+    /// The whole match and its groups (empty for a group that took no part); nil for no match.
+    static func firstMatch(_ pattern: String, in text: String) -> [String]? {
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text))
+        else { return nil }
+        return (0..<match.numberOfRanges).map { Range(match.range(at: $0), in: text).map { String(text[$0]) } ?? "" }
+    }
+
+    /// "18h 0m", "45m".
+    static func lengthLabel(minutes: Int) -> String {
+        minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+    }
+
     // MARK: Matching
 
     /// 0...1: how well a found title and author match what was asked for. 1 is an exact

@@ -1,11 +1,11 @@
 import Foundation
 @testable import VoxCarrelCore
 
-/// A recorded response from `Fixtures/Lookup`, by file name without ".json".
-func fixture(_ name: String) -> Data {
-    guard let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures/Lookup"),
+/// A recorded response from `Fixtures/Lookup`, by file name without its extension.
+func fixture(_ name: String, type: String = "json") -> Data {
+    guard let url = Bundle.module.url(forResource: name, withExtension: type, subdirectory: "Fixtures/Lookup"),
           let data = try? Data(contentsOf: url)
-    else { fatalError("missing lookup fixture \(name).json") }
+    else { fatalError("missing lookup fixture \(name).\(type)") }
     return data
 }
 

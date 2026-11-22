@@ -81,7 +81,7 @@ extension AppModel {
     /// "Open Library", "Audible (United Kingdom)"
     private func sourceName(_ source: LookupSource) -> String {
         switch source {
-        case .openLibrary: source.title
+        case .openLibrary, .libraryOfCongress: source.title
         case .audible: "\(source.title) (\(audibleStore.title))"
         }
     }
