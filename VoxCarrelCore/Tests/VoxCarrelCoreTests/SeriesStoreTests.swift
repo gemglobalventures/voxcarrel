@@ -275,6 +275,53 @@ import VoxCarrelFixtures
         #expect(status.notInList.isEmpty)
     }
 
+    /// An entry is owned when any book of the library holds one of its ASINs, whatever
+    /// series that book is filed under. A title alone counts only within the series.
+    @Test func SC23_aBookFiledElsewhereOwnsAnEntryByItsASIN() throws {
+        let f = try F()
+        try add(f, "Patriot Games", number: "2")
+        // Its own ASIN, under another series; a copy's ID, under none; a title alone.
+        let elsewhere = try add(f, "Red October", number: "9", series: "Submarines", asin: " b000000001 ")
+        try add(f, "Kremlin", series: nil, copies: [ExternalCopy(kind: .audible, form: .audio, itemId: "B000000003")])
+        try add(f, "Clear and Present Danger", series: "Other")
+        try f.service.saveSeriesList(Self.list(Self.four), forSeries: Self.series, now: now)
+
+        let status = try completeness(f)
+
+        #expect(status.ownedCount == 3)
+        #expect(status.totalCount == 4)
+        #expect(status.missing.map(\.entry.preferred.title) == ["Clear and Present Danger"])
+        #expect(status.ownedCount + status.missing.filter { !$0.isHidden }.count == status.totalCount)
+        // The book is no book of the series: it is not listed, compared or renumbered.
+        #expect(status.notInList.isEmpty)
+        #expect(status.numberDifferences.isEmpty)
+        #expect(try f.service.editsUsingAudibleNumbers(forSeries: Self.series).isEmpty)
+        #expect(try f.service.librarySeriesBooks(named: Self.series).map(\.title) == ["Patriot Games"])
+        let book = try #require(try f.store.book(id: elsewhere))
+        #expect(book.series == "Submarines" && book.seriesNumber == "9")
+    }
+
+    /// An entry the list repeats under the title of one the library has (an edition
+    /// with no number beside the numbered one) is not missing, and is not counted.
+    @Test func SC23_aRepeatOfAnOwnedEntrysTitleIsNotMissing() throws {
+        let f = try F()
+        try add(f, "Patriot Games", number: "2")
+        try add(f, "Red October", series: "Submarines", asin: "B000000001")
+        var editions = Self.four
+        editions.append(Self.edition("B00000002U", "Patriot Games!", nil))
+        editions.append(Self.edition("B00000001U", "The Hunt for Red October", nil))
+        editions.append(Self.edition("B00000003U", "The Cardinal of the Kremlin", nil))
+        try f.service.saveSeriesList(Self.list(editions), forSeries: Self.series, now: now)
+
+        let status = try completeness(f)
+
+        #expect(status.ownedCount == 2)
+        // The two repeats of owned books are gone; the repeat of a book that is
+        // missing is still an entry of its own.
+        #expect(status.missing.map(\.entry.preferred.asin).sorted() == ["B000000003", "B00000003U", "B000000004"].sorted())
+        #expect(status.totalCount == 5)
+    }
+
     @Test func SC23_hiddenEntriesAreListedButNotCounted() throws {
         let f = try F()
         try add(f, "Patriot Games", number: "2")

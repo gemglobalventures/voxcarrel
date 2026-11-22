@@ -129,6 +129,15 @@ extension LibraryService {
     /// A book that is a second copy of one the list already counts as owned (it holds
     /// an ASIN of that entry, or goes by one of its titles) is not reported as missing
     /// from the list.
+    ///
+    /// An entry no book of the series matched is still owned when any book of the
+    /// library holds one of its ASINs (its own, or an Audible copy's), whatever series
+    /// that book is filed under: the book stays where it is, and is no book of this
+    /// series. A title alone counts only for books of the series.
+    ///
+    /// An entry whose title is the title of an entry the library has (an edition with
+    /// no number, listed beside the numbered one) is the same book again: it is not
+    /// missing, and is not counted.
     public func seriesCompleteness(forSeries name: String) throws -> SeriesCompleteness? {
         guard let stored = try store.seriesList(key: name),
               let audibleStore = AudibleStore(rawValue: stored.link.store)
@@ -143,7 +152,27 @@ extension LibraryService {
         /// Which row an entry came from: no two rows hold the same editions.
         func key(_ entry: SeriesEntry) -> [String] { entry.asins.map(SeriesMatch.tidyASIN) }
         let rows = Dictionary(stored.entries.map { (key($0.entry), $0) }, uniquingKeysWith: { first, _ in first })
-        let missing = result.missing.compactMap { entry -> MissingEntry? in
+        // Owned by a book filed elsewhere. The library's ASINs are read once, and only
+        // when there is an entry to look for.
+        var ownedEntries = result.owned.map(\.entry)
+        var unmatched = result.missing
+        if !unmatched.isEmpty {
+            let held = try libraryASINs()
+            let (elsewhere, rest) = unmatched.reduce(into: ([SeriesEntry](), [SeriesEntry]())) { parts, entry in
+                if entry.asins.contains(where: { held.contains(SeriesMatch.tidyASIN($0)) }) {
+                    parts.0.append(entry)
+                } else {
+                    parts.1.append(entry)
+                }
+            }
+            ownedEntries += elsewhere
+            unmatched = rest
+        }
+        // The same book again, under the title of one the library has.
+        let ownedTitles = Set(ownedEntries.flatMap { $0.titles.map { LookupText.comparable($0) } })
+        let missing = unmatched.compactMap { entry -> MissingEntry? in
+            let title = LookupText.comparable(entry.preferred.title)
+            if !title.isEmpty, ownedTitles.contains(title) { return nil }
             guard let row = rows[key(entry)], let id = row.id else { return nil }
             return MissingEntry(id: id, entry: entry, isHidden: row.isHidden)
         }
@@ -164,9 +193,20 @@ extension LibraryService {
         }
 
         return SeriesCompleteness(
-            link: link, ownedCount: result.owned.count,
-            totalCount: result.owned.count + missing.filter { !$0.isHidden }.count,
+            link: link, ownedCount: ownedEntries.count,
+            totalCount: ownedEntries.count + missing.filter { !$0.isHidden }.count,
             missing: missing, numberDifferences: differences, notInList: notInList)
+    }
+
+    /// Every ASIN the library holds: each book's own, and the item IDs of its Audible
+    /// copies, tidied for comparing. One read of the catalogue.
+    private func libraryASINs() throws -> Set<String> {
+        var held: Set<String> = []
+        for book in try store.books() {
+            let own = [book.asin] + book.externalCopies.filter { $0.kind == .audible }.map(\.itemId)
+            for asin in own.compactMap({ $0?.nonBlank }) { held.insert(SeriesMatch.tidyASIN(asin)) }
+        }
+        return held
     }
 
     /// Hides an entry of a stored list, or shows it again. Nothing else changes.
