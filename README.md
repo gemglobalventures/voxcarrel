@@ -91,6 +91,20 @@ Each source can be switched on or off in Settings ▸ Lookup. A source that is o
 
 VoxCarrel does not sign in to any account.
 
+## Contributing
+
+Bug reports and ideas are welcome as issues.
+
+Code contributions will need a signed contributor agreement, which is not set up yet. Until it is, pull requests cannot be merged, so please open an issue before writing code.
+
+## Acknowledgements
+
+VoxCarrel builds on these open-source libraries, each under its own licence:
+
+- [TagLib](https://taglib.org), through the [CXXTagLib](https://github.com/sbooth/CXXTagLib) package, for reading and writing audio tags: LGPL 2.1 or MPL 1.1.
+- [GRDB.swift](https://github.com/groue/GRDB.swift) for the catalogue database: MIT.
+- [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for reading and writing EPUB files: MIT.
+
 ## Support
 
 If VoxCarrel is useful to you, you can support its development:
