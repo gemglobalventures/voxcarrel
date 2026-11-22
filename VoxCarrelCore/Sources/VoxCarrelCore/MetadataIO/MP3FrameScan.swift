@@ -401,9 +401,14 @@ enum MP3FrameScan {
         }
         guard Header.layer(header) == 3 else { return .none }
 
-        // Xing/Info: straight after the side information.
-        let at = Header.sideInfoLength(header) + 4
-        if (tag("Xing", at: at) || tag("Info", at: at)), at + 8 <= frame.count {
+        // Xing/Info: straight after the side information. In a frame that carries a
+        // checksum, the two bytes of it come before the side information: most readers
+        // look in the usual place all the same, and some encoders put the header two
+        // bytes further on. The usual place is looked at first.
+        func isHeader(_ offset: Int) -> Bool { tag("Xing", at: offset) || tag("Info", at: offset) }
+        var at = Header.sideInfoLength(header) + 4
+        if !isHeader(at), Header.hasChecksum(header), isHeader(at + 2) { at += 2 }
+        if isHeader(at), at + 8 <= frame.count {
             let flags = word(at + 4)
             var field = at + 8
             var complete = true
@@ -507,6 +512,9 @@ enum MP3FrameScan {
             default: version(h) == 3 ? 1152 : 576
             }
         }
+
+        /// Whether two bytes of checksum follow the header (the protection bit is clear).
+        static func hasChecksum(_ h: UInt32) -> Bool { h & 0x0001_0000 == 0 }
 
         /// Bytes of side information after the header of a Layer III frame.
         static func sideInfoLength(_ h: UInt32) -> Int {

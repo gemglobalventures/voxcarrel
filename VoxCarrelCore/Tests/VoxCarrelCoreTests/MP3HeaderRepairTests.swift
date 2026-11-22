@@ -116,11 +116,23 @@ import VoxCarrelFixtures
             Options(statedFrames: 100, xingFlags: 0x01),
             Options(statedFrames: 100, statedBytes: 41_700, xingFlags: 0x03),
             Options(statedFrames: 100, statedBytes: 41_700, junk: (afterFrame: 300, bytes: Data(repeating: 0x55, count: 900))),
+            // Two channels: the header is further into the frame (36 and 21 bytes).
+            Options(statedFrames: 100, statedBytes: 41_700, channels: .stereo),
+            Options(statedFrames: 100, statedBytes: 41_700, lameExtension: true, channels: .jointStereo),
+            Options(statedFrames: 100, statedBytes: 20_800, mpeg2: true, channels: .stereo),
+            Options(header: .info, statedFrames: 100, statedBytes: 20_800, mpeg2: true, channels: .jointStereo),
+            // Frames with a checksum, the header in the usual place.
+            Options(statedFrames: 100, statedBytes: 41_700, crcProtected: true),
+            Options(statedFrames: 100, statedBytes: 41_700, channels: .stereo, crcProtected: true),
+            Options(statedFrames: 100, statedBytes: 20_800, mpeg2: true, channels: .jointStereo, crcProtected: true),
         ]
         for options in kinds {
             let s = try sample(options, tagged: true)
             #expect(try AudioTagIO.read(s.url).lengthProblem?.repairable == true)
+            // Players go by the wrong header, wherever in the frame it is.
+            if options.statedFrames == 100 { #expect(try await MediaFixtures.avDuration(s.url) < 5) }
             #expect(try MP3HeaderRepair().repair(s.url) != nil)
+            try expectOnlyTheHeaderChanged(s)
             #expect(try AudioTagIO.read(s.url).lengthProblem == nil)
             #expect(abs(try CTBTagFile.readMP3(atPath: s.url.path).durationSeconds - s.built.seconds) < 0.01)
             let av = try await MediaFixtures.avDuration(s.url)
@@ -130,6 +142,58 @@ import VoxCarrelFixtures
             #expect(xing.isInfo == (options.header == .info))
             #expect(xing.flags == options.xingFlags | 0x07)
             try expectAlone(s.url)
+        }
+    }
+
+    /// Only bytes of the first frame differ from the file as it was, and only from the
+    /// header's flags to the end of its seek table.
+    func expectOnlyTheHeaderChanged(_ s: Sample, sourceLocation: SourceLocation = #_sourceLocation) throws {
+        let now = try Data(contentsOf: s.url)
+        let frame = Int(try MP3FrameScan.measure(s.url).firstFrame.lowerBound)
+        let at = try #require(s.built.headerOffset, sourceLocation: sourceLocation)
+        #expect(now.count == s.bytes.count, sourceLocation: sourceLocation)
+        let differing = now.indices.filter { now[$0] != s.bytes[$0] }.map { $0 - frame }
+        #expect(!differing.isEmpty, sourceLocation: sourceLocation)
+        // The fields and seek table, and a LAME extension's music length and checksum.
+        let allowed = [at + 4..<at + 120, at + 148..<at + 152, at + 154..<at + 156]
+        #expect(differing.allSatisfy { offset in allowed.contains { $0.contains(offset) } }, sourceLocation: sourceLocation)
+    }
+
+    // A frame with a checksum can carry the header two bytes further on, after the
+    // checksum. The tag library finds it there; AVFoundation does not look there, and
+    // plays the file through. Both read the true length once it is repaired.
+    @Test func aHeaderPutAfterAFramesChecksumIsRepairedWhereItIs() async throws {
+        for options in [
+            Options(statedFrames: 100, statedBytes: 41_700, crcProtected: true, headerAfterCRC: true),
+            Options(statedFrames: 100, statedBytes: 41_700, lameExtension: true, channels: .stereo,
+                    crcProtected: true, headerAfterCRC: true),
+            Options(statedFrames: 100, statedBytes: 20_800, mpeg2: true, channels: .jointStereo,
+                    crcProtected: true, headerAfterCRC: true),
+        ] {
+            let s = try sample(options, tagged: true)
+            let at = try #require(s.built.headerOffset)
+            let found = try #require(try MP3FrameScan.measure(s.url).vbrHeader.xing)
+            #expect(found.offsetInFrame == at)
+            #expect(found.statedFrames == 100)
+            #expect(abs(try CTBTagFile.readMP3(atPath: s.url.path).durationSeconds - 100 * s.built.seconds / Double(s.built.frameCount)) < 0.01)
+            #expect(try AudioTagIO.read(s.url).lengthProblem?.repairable == true)
+
+            #expect(try MP3HeaderRepair().repair(s.url) != nil)
+
+            try expectOnlyTheHeaderChanged(s)
+            let xing = try #require(try MP3FrameScan.measure(s.url).vbrHeader.xing)
+            #expect(xing.offsetInFrame == at)
+            #expect(xing.statedFrames == UInt32(s.built.frameCount))
+            #expect(xing.statedBytes == UInt32(s.built.audioRange.count))
+            #expect(xing.lame?.crcIsValid != false)
+            #expect(try AudioTagIO.read(s.url).lengthProblem == nil)
+            #expect(abs(try CTBTagFile.readMP3(atPath: s.url.path).durationSeconds - s.built.seconds) < 0.01)
+            #expect(abs(try await MediaFixtures.avDuration(s.url) - s.built.seconds) < 0.5)
+            // And it goes back byte for byte.
+            let healthy = try sample(options)
+            let state = try #require(try MP3HeaderRepair().repair(healthy.url))
+            try MP3HeaderRepair().restore(state, at: healthy.url)
+            #expect(try Data(contentsOf: healthy.url) == healthy.bytes)
         }
     }
 
@@ -195,9 +259,45 @@ import VoxCarrelFixtures
         let data = try Data(contentsOf: s.url)
         let crcAt = offset + 21 + 154
         #expect(data[crcAt..<crcAt + 2] != s.bytes[crcAt..<crcAt + 2])
-        // The rest of the extension is as it was.
-        #expect(data[offset + 21 + 116..<crcAt] == s.bytes[offset + 21 + 116..<crcAt])
+        // The music length said what the byte count said, and says what it says now.
+        let musicAt = offset + 21 + 148
+        #expect([UInt8](s.bytes[musicAt..<musicAt + 4]) == [0, 0, 0xA2, 0xE4])  // 41,700
+        #expect(data[musicAt..<musicAt + 4] == data[offset + 21 + 12..<offset + 21 + 16])
+        #expect(data[musicAt..<musicAt + 4].reduce(0) { $0 << 8 | Int($1) } == s.built.audioRange.count)
+        // The rest of the extension is as it was, and the checksum covers all of it.
+        #expect(data[offset + 21 + 116..<musicAt] == s.bytes[offset + 21 + 116..<musicAt])
+        #expect(data[musicAt + 4..<crcAt] == s.bytes[musicAt + 4..<crcAt])
         #expect(MediaFixtures.crc16(data[offset..<crcAt]) == UInt16(data[crcAt]) << 8 | UInt16(data[crcAt + 1]))
+    }
+
+    // A music length that is not the header's byte count counts something else: what it
+    // should be cannot be told, so it stays.
+    @Test func aMusicLengthOfItsOwnIsLeftAlone() throws {
+        for own in [900_000, 0] as [UInt32] {
+            let s = try sample(
+                Options(statedFrames: 100, statedBytes: 41_700, lameExtension: true, lameMusicLength: own))
+            _ = try #require(try MP3HeaderRepair().repair(s.url))
+            let data = try Data(contentsOf: s.url)
+            #expect(data[21 + 148..<21 + 152] == s.bytes[21 + 148..<21 + 152])
+            #expect(data[21 + 12..<21 + 16].reduce(0) { $0 << 8 | Int($1) } == s.built.audioRange.count)
+            // The checksum is right for the frame as it now is.
+            #expect(try MP3FrameScan.measure(s.url).vbrHeader.xing?.lame?.crcIsValid == true)
+        }
+        // A byte count that was right already is not a reason to touch the music length:
+        // here only the frame count was wrong.
+        let s = try sample(Options(statedFrames: 100, lameExtension: true))
+        _ = try #require(try MP3HeaderRepair().repair(s.url))
+        let data = try Data(contentsOf: s.url)
+        #expect(data[21 + 148..<21 + 152] == s.bytes[21 + 148..<21 + 152])
+        // And a music length that is put right with a checksum that was wrong leaves the checksum.
+        var built = MediaFixtures.makeMP3(Options(statedFrames: 100, statedBytes: 41_700, lameExtension: true))
+        built.data[21 + 154] ^= 0xFF
+        let url = try makeTempDir().appendingPathComponent("book.mp3")
+        try built.data.write(to: url)
+        _ = try #require(try MP3HeaderRepair().repair(url))
+        let after = try Data(contentsOf: url)
+        #expect(after[21 + 148..<21 + 152] == after[21 + 12..<21 + 16])
+        #expect(after[21 + 154..<21 + 156] == built.data[21 + 154..<21 + 156])
     }
 
     @Test func aChecksumThatWasWrongIsLeftAlone() throws {
@@ -342,51 +442,191 @@ import VoxCarrelFixtures
         try expectCheckFails(nothing, s, "not as it was meant to be")
     }
 
-    @Test func tagsThatReadBackDifferentlyFailTheRepair() throws {
-        let s = try sample(.wrongHeader(), tagged: true)
-        for what in ["title", "cover", "chapters", "unreadable", "problem"] {
-            var repair = MP3HeaderRepair()
-            repair.read = { url in
-                var contents = try AudioTagIO.read(url)
-                guard isWorkingCopy(url) else { return contents }
-                switch what {
-                case "title": contents.metadata.title = "Another Title"
-                case "cover": contents.cover = nil
-                case "chapters": contents.chapters = [Chapter(start: 0, title: "One")]
-                case "unreadable": throw MetadataIOError.unreadable(url.lastPathComponent)
-                default: contents.lengthProblem = LengthProblem(statedSeconds: 1, trueSeconds: 60, repairable: true)
-                }
-                return contents
-            }
-            let text = what == "unreadable" ? "no longer reads as audio"
-                : (what == "problem" ? "still wrong" : "the tags or the cover changed")
-            try expectCheckFails(repair, s, text)
+    // The checks after the first are there for what the first cannot see. To show each
+    // of them catching real damage, the comparison of bytes is switched off and the
+    // working copy really is damaged: the checks themselves are the real ones.
+
+    /// A repair that does not compare bytes, and whose change also does `damage` to the
+    /// working copy (after writing the planned frame, unless `writingThePlan` is false).
+    func unguarded(
+        writingThePlan: Bool = true, _ damage: @escaping (URL, MP3HeaderRepair.Plan) throws -> Void
+    ) -> MP3HeaderRepair {
+        var repair = MP3HeaderRepair()
+        repair.compareBytes = { original, _, _ in try MP3HeaderRepair.sha256(of: original) }
+        repair.change = { copy, plan in
+            if writingThePlan { try MP3HeaderRepair.write(copy, plan) }
+            try damage(copy, plan)
         }
+        return repair
     }
 
-    @Test func framesThatMeasureDifferentlyFailTheRepair() throws {
+    @Test func tagsReallyChangedInTheCopyFailTheRepair() throws {
         let s = try sample(.wrongHeader(), tagged: true)
-        for what in ["count", "range", "header", "unmeasurable"] {
+        var other = BookMetadata(title: "Another Title", authors: ["An Author"])
+        other.narrators = ["A Narrator"]
+        other.summary = "What it is about."
+
+        let retitled = unguarded { copy, _ in
+            try AudioTagIO.writeInPlace(other, cover: .keep, part: PartPosition(index: 2, count: 5), to: copy)
+        }
+        try expectCheckFails(retitled, s, "the tags or the cover changed")
+
+        other.title = "The Book"
+        let uncovered = unguarded { copy, _ in
+            try AudioTagIO.writeInPlace(other, cover: .remove, part: PartPosition(index: 2, count: 5), to: copy)
+        }
+        try expectCheckFails(uncovered, s, "the tags or the cover changed")
+
+        let renumbered = unguarded { copy, _ in
+            try AudioTagIO.writeInPlace(other, cover: .keep, part: PartPosition(index: 3, count: 5), to: copy)
+        }
+        try expectCheckFails(renumbered, s, "the tags or the cover changed")
+
+        let notAudio = unguarded { copy, _ in try Data(repeating: 0x20, count: s.bytes.count).write(to: copy) }
+        try expectCheckFails(notAudio, s, "no longer reads as audio")
+
+        // Nothing written at all: the header in the copy is as wrong as it was.
+        try expectCheckFails(unguarded(writingThePlan: false) { _, _ in }, s, "still wrong")
+        // And a frame count that is still far out.
+        let farOut = unguarded { copy, plan in
+            try MP3HeaderRepair.write(Data([0, 0, 0, 200]), at: plan.firstFrame.lowerBound + 21 + 8, in: copy)
+        }
+        try expectCheckFails(farOut, s, "still wrong")
+    }
+
+    // What the comparison of what was read cannot be made to see by damaging an MP3:
+    // chapters, which the fixtures do not carry.
+    @Test func chaptersThatReadBackDifferentlyFailTheRepair() throws {
+        let s = try sample(.wrongHeader(), tagged: true)
+        var repair = MP3HeaderRepair()
+        repair.read = { url in
+            var contents = try AudioTagIO.read(url)
+            if isWorkingCopy(url) { contents.chapters = [Chapter(start: 0, title: "One")] }
+            return contents
+        }
+        try expectCheckFails(repair, s, "the tags or the cover changed")
+    }
+
+    @Test func framesReallyChangedInTheCopyFailTheRepair() throws {
+        let s = try sample(.wrongHeader(), tagged: true)
+        let frame = 417
+
+        // Ten frames fewer: a quarter of a second, too little for the header to be
+        // called wrong, but not the audio that was there.
+        let shorter = unguarded { copy, _ in
+            let handle = try FileHandle(forWritingTo: copy)
+            try handle.truncate(atOffset: UInt64(s.bytes.count - 10 * frame))
+            try handle.close()
+        }
+        try expectCheckFails(shorter, s, "no longer measures the same")
+
+        // The same number of bytes, but a frame in the middle is no frame any more.
+        let broken = unguarded { copy, plan in
+            let at = plan.firstFrame.upperBound + UInt64(1000 * frame)
+            try MP3HeaderRepair.write(Data(repeating: 0x55, count: frame), at: at, in: copy)
+        }
+        try expectCheckFails(broken, s, "no longer measures the same")
+
+        // More bytes that are not audio than a measurement tolerates.
+        let unmeasurable = unguarded { copy, plan in
+            let at = plan.firstFrame.upperBound + UInt64(1000 * frame)
+            try MP3HeaderRepair.write(Data(repeating: 0x55, count: 200 * frame), at: at, in: copy)
+        }
+        try expectCheckFails(unmeasurable, s, "no longer measures the same")
+
+        // A frame count five short of the frames: near enough not to be called wrong
+        // when read, and not what was measured.
+        let nearly = unguarded { copy, plan in
+            let count = UInt32(plan.frameCount - 5)
+            let bytes = Data([UInt8(count >> 24), UInt8(count >> 16 & 0xFF), UInt8(count >> 8 & 0xFF), UInt8(count & 0xFF)])
+            try MP3HeaderRepair.write(bytes, at: plan.firstFrame.lowerBound + 21 + 8, in: copy)
+        }
+        try expectCheckFails(nearly, s, "does not state what was measured")
+
+        // The seek table gone from the flags.
+        let noTable = unguarded { copy, plan in
+            try MP3HeaderRepair.write(Data([0, 0, 0, 0x03]), at: plan.firstFrame.lowerBound + 21 + 4, in: copy)
+        }
+        try expectCheckFails(noTable, s, "does not state what was measured")
+    }
+
+    // With the comparison of bytes on, as it always is, the same damage is caught first.
+    @Test func theSameDamageIsCaughtByTheComparisonOfBytes() throws {
+        let s = try sample(.wrongHeader(), tagged: true)
+        let other = BookMetadata(title: "Another Title", authors: ["An Author"])
+        let retitled = damaging { copy, _ in
+            try AudioTagIO.writeInPlace(other, cover: .keep, part: nil, to: copy)
+        }
+        try expectCheckFails(retitled, s, "changed")
+        let broken = damaging { copy, plan in
+            try MP3HeaderRepair.write(
+                Data(repeating: 0x55, count: 417), at: plan.firstFrame.upperBound + 417_000, in: copy)
+        }
+        try expectCheckFails(broken, s, "outside the first frame")
+    }
+
+    // The two files are compared a mebibyte at a time. Here the first frame lies across
+    // the end of the first mebibyte, with the header's seek table on both sides of it.
+    @Test func aFirstFrameAcrossTheEndOfAChunkIsComparedAsAnyOther() throws {
+        let chunk = 1 << 20
+        func tag(picture: Int) -> Data {
+            MediaFixtures.id3v23Tag(frames: [
+                ("APIC", MediaFixtures.id3Picture(Data(repeating: 0x37, count: picture), mime: "image/jpeg", type: 3)),
+            ])
+        }
+        // The frame begins 60 bytes before the end of the chunk: the header's fields run
+        // from byte 25 to byte 137 of it.
+        let overhead = tag(picture: 0).count
+        let prefix = tag(picture: chunk - 60 - overhead)
+        #expect(prefix.count == chunk - 60)
+        let s = try sample(Options(statedFrames: 100, statedBytes: 41_700, lameExtension: true, prefix: prefix))
+        let start = UInt64(chunk - 60)
+        #expect(try MP3FrameScan.measure(s.url).firstFrame == start..<start + 417)
+
+        // Bytes that may not change, on either side of the end of the chunk.
+        for offset in [2, 10, 22, 24, 21 + 121, 300, 416] as [UInt64] {
+            let repair = damaging { copy, _ in try flip(start + offset, in: copy) }
+            try expectCheckFails(repair, s, "other than the length header's fields")
+        }
+        // Fields that may change, but not to anything: on either side too.
+        for offset in [21 + 11, 21 + 30, 21 + 50, 21 + 110] as [UInt64] {
+            let repair = damaging { copy, _ in try flip(start + offset, in: copy) }
+            try expectCheckFails(repair, s, "not as it was meant to be")
+        }
+        // The last byte of the first chunk and the first of the second, outside the frame.
+        for offset in [start - 1, start + 417] {
+            let repair = damaging { copy, _ in try flip(offset, in: copy) }
+            try expectCheckFails(repair, s, "outside the first frame")
+        }
+
+        // And the repair itself goes through, and back.
+        let state = try #require(try MP3HeaderRepair().repair(s.url))
+        let repaired = try Data(contentsOf: s.url)
+        #expect(repaired != s.bytes)
+        let differing = repaired.indices.filter { repaired[$0] != s.bytes[$0] }
+        #expect(differing.contains { $0 < chunk } && differing.contains { $0 >= chunk })
+        #expect(try AudioTagIO.read(s.url).lengthProblem == nil)
+        try MP3HeaderRepair().restore(state, at: s.url)
+        #expect(try Data(contentsOf: s.url) == s.bytes)
+    }
+
+    // The one result of counting the frames that damage to the copy cannot produce while
+    // the bytes are compared: kept to show the comparison of the two measurements.
+    @Test func aMeasurementThatDiffersFailsTheRepair() throws {
+        let s = try sample(.wrongHeader(), tagged: true)
+        for what in ["count", "range"] {
             var repair = MP3HeaderRepair()
             repair.measure = { url in
                 var measured = try MP3FrameScan.measure(url, recordingOffsets: true)
                 guard isWorkingCopy(url) else { return measured }
-                switch what {
-                case "count":
+                if what == "count" {
                     measured.frameCount += 1
-                case "range":
+                } else {
                     measured.audioRange = measured.audioRange.lowerBound..<measured.audioRange.upperBound - 417
-                case "header":
-                    var xing = try #require(measured.vbrHeader.xing)
-                    xing.statedFrames = 100
-                    measured.vbrHeader = .xing(xing)
-                default:
-                    throw MP3FrameScan.Failure.syncLost
                 }
                 return measured
             }
-            try expectCheckFails(
-                repair, s, what == "header" ? "does not state what was measured" : "no longer measures the same")
+            try expectCheckFails(repair, s, "no longer measures the same")
         }
     }
 

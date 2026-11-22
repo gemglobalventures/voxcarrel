@@ -151,6 +151,43 @@ import VoxCarrelFixtures
         #expect(measured.vbrHeader.xing?.hasRoomForRepair == true)
     }
 
+    // The header's place depends on the version and the channels, and on nothing else:
+    // 4 bytes of frame header, then 32 (MPEG-1) or 17 (MPEG-2) bytes of side information
+    // for two channels, 17 or 9 for one.
+    @Test func theHeaderIsFoundWhereTheVersionAndChannelsPutIt() throws {
+        let places: [(mpeg2: Bool, channels: Options.Channels, at: Int)] = [
+            (false, .mono, 21), (false, .stereo, 36), (false, .jointStereo, 36),
+            (true, .mono, 13), (true, .stereo, 21), (true, .jointStereo, 21),
+        ]
+        for (mpeg2, channels, at) in places {
+            for crc in [false, true] {
+                for header in [Options.LengthHeader.xing, .info] {
+                    let options = Options(
+                        seconds: 10, header: header, statedFrames: 100, statedBytes: 41_700, lameExtension: true,
+                        mpeg2: mpeg2, channels: channels, crcProtected: crc)
+                    let measured = try expectAccurate(options)
+                    let xing = try #require(measured.vbrHeader.xing)
+                    #expect(xing.offsetInFrame == at)
+                    #expect(xing.isInfo == (header == .info))
+                    #expect(xing.statedFrames == 100)
+                    #expect(xing.statedBytes == 41_700)
+                    #expect(xing.hasRoomForRepair)
+                    #expect(xing.lame?.crcIsValid == true)
+                }
+            }
+            // After a checksum, two bytes further on; a healthy one is no problem there either.
+            let shifted = Options(seconds: 10, mpeg2: mpeg2, channels: channels, crcProtected: true, headerAfterCRC: true)
+            let xing = try #require(try expectAccurate(shifted).vbrHeader.xing)
+            #expect(xing.offsetInFrame == at + 2)
+            // Without a checksum nothing is looked for there: the frame is audio.
+            var plain = MediaFixtures.makeMP3(shifted)
+            for offset in plain.frameOffsets + [plain.firstFrame.lowerBound] { plain.data[offset + 1] |= 0x01 }
+            let unprotected = try MP3FrameScan.measure(try write(plain.data))
+            #expect(unprotected.vbrHeader == .none)
+            #expect(unprotected.frameCount == plain.frameCount + 1)
+        }
+    }
+
     @Test func framesOfDifferentBitrates() throws {
         let measured = try expectAccurate(Options(statedFrames: 100, variableBitrate: true))
         #expect(measured.audioRange.count < 2298 * 417)

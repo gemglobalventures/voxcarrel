@@ -115,6 +115,7 @@ public enum MediaFixtures {
     /// How `makeMP3(_:)` builds its file.
     public struct MP3Options: Sendable {
         public enum LengthHeader: Sendable { case none, xing, info, vbri }
+        public enum Channels: Sendable { case mono, stereo, jointStereo }
 
         /// Length of the audio itself, not counting the header frame.
         public var seconds: Double
@@ -138,13 +139,29 @@ public enum MediaFixtures {
         public var prefix: Data
         /// A 128-byte ID3v1 tag after the audio.
         public var id3v1: Bool
+        /// Mono unless said otherwise. The side information, and so the place of a
+        /// Xing/Info header, is longer for two channels.
+        public var channels: Channels
+        /// Every frame says it carries a checksum (two bytes after its header).
+        public var crcProtected: Bool
+        /// With `crcProtected`, Xing/Info only: the header is put two bytes further on,
+        /// after the checksum, where some encoders put it and many readers do not look.
+        public var headerAfterCRC: Bool
+        /// With `lameExtension`: the extension's "music length"; nil gives it the byte
+        /// count the header states, as encoders do.
+        public var lameMusicLength: UInt32?
 
         public init(
             seconds: Double = 60, header: LengthHeader = .xing, statedFrames: UInt32? = nil,
             statedBytes: UInt32? = nil, xingFlags: UInt32 = 0x0F, lameExtension: Bool = false,
             mpeg2: Bool = false, variableBitrate: Bool = false, junk: (afterFrame: Int, bytes: Data)? = nil,
-            prefix: Data = Data(), id3v1: Bool = false
+            prefix: Data = Data(), id3v1: Bool = false, channels: Channels = .mono, crcProtected: Bool = false,
+            headerAfterCRC: Bool = false, lameMusicLength: UInt32? = nil
         ) {
+            self.channels = channels
+            self.crcProtected = crcProtected
+            self.headerAfterCRC = headerAfterCRC
+            self.lameMusicLength = lameMusicLength
             self.seconds = seconds
             self.header = header
             self.statedFrames = statedFrames
@@ -178,22 +195,32 @@ public enum MediaFixtures {
         public var firstFrame: Range<Int>
         /// Where each audio frame begins.
         public var frameOffsets: [Int]
+        /// Where in the first frame the letters of a Xing/Info header are; nil without one.
+        public var headerOffset: Int?
 
         public var seconds: Double { Double(frameCount * samplesPerFrame) / Double(sampleRate) }
     }
 
-    /// A silent, mono Layer III stream of many frames, with the length header asked for
-    /// in a first frame of its own. See `makeSilentMP3` for why all-zero frames are valid.
+    /// A silent Layer III stream of many frames, with the length header asked for in a
+    /// first frame of its own. See `makeSilentMP3` for why all-zero frames are valid.
     public static func makeMP3(_ options: MP3Options = MP3Options()) -> BuiltMP3 {
         // MPEG-1: FF FB, 128 kbit/s at 44.1 kHz (417 bytes), 1152 samples a frame, header at 21.
         // MPEG-2: FF F3, 64 kbit/s at 22.05 kHz (208 bytes), 576 samples a frame, header at 13.
         let sampleRate = options.mpeg2 ? 22_050 : 44_100
         let samplesPerFrame = options.mpeg2 ? 576 : 1152
-        let versionByte: UInt8 = options.mpeg2 ? 0xF3 : 0xFB
+        // The last bit of the second byte is clear when a checksum follows the header.
+        let versionByte: UInt8 = (options.mpeg2 ? 0xF3 : 0xFB) & (options.crcProtected ? 0xFE : 0xFF)
+        // Fourth byte: channel mode in the top two bits (3 mono, 0 stereo, 1 joint stereo).
+        let modeByte: UInt8
+        switch options.channels {
+        case .mono: modeByte = 0xC4
+        case .stereo: modeByte = 0x04
+        case .jointStereo: modeByte = 0x44
+        }
         func frame(bitrateIndex: UInt8, kbps: Int) -> Data {
             let length = (options.mpeg2 ? 72 : 144) * kbps * 1000 / sampleRate
             // Third byte: bitrate index, then sample-rate index 0, no padding.
-            var frame = Data([0xFF, versionByte, bitrateIndex << 4, 0xC4])
+            var frame = Data([0xFF, versionByte, bitrateIndex << 4, modeByte])
             frame.append(Data(count: length - 4))
             return frame
         }
@@ -210,6 +237,7 @@ public enum MediaFixtures {
         }
 
         var headerFrame = Data()
+        var headerOffset: Int?
         if options.header != .none {
             headerFrame = full
             let total = headerFrame.count + audio.count
@@ -225,7 +253,12 @@ public enum MediaFixtures {
                 put(bytes, at: 46)
                 put(frames, at: 50)
             } else {
-                let at = options.mpeg2 ? 13 : 21 // after the side information of a mono frame
+                // After the side information: 17 bytes for one channel and 32 for two in
+                // MPEG-1, 9 and 17 in MPEG-2.
+                let mono = options.channels == .mono
+                let sideInformation = options.mpeg2 ? (mono ? 9 : 17) : (mono ? 17 : 32)
+                let at = 4 + sideInformation + (options.crcProtected && options.headerAfterCRC ? 2 : 0)
+                headerOffset = at
                 headerFrame.replaceSubrange(at..<at + 4, with: Data((options.header == .info ? "Info" : "Xing").utf8))
                 put(options.xingFlags, at: at + 4)
                 var field = at + 8
@@ -240,7 +273,7 @@ public enum MediaFixtures {
                 if options.lameExtension {
                     headerFrame.replaceSubrange(at + 120..<at + 129, with: Data("LAME3.100".utf8))
                     headerFrame[at + 129] = 0x04 // tag revision 0, VBR method 4
-                    put(bytes, at: at + 148) // music length
+                    put(options.lameMusicLength ?? bytes, at: at + 148) // music length
                     let crc = crc16(headerFrame.prefix(at + 154))
                     headerFrame[at + 154] = UInt8(crc >> 8)
                     headerFrame[at + 155] = UInt8(crc & 0xFF)
@@ -262,7 +295,7 @@ public enum MediaFixtures {
         return BuiltMP3(
             data: data, frameCount: frameCount, sampleRate: sampleRate, samplesPerFrame: samplesPerFrame,
             audioRange: start..<end, firstFrame: start..<start + (headerFrame.isEmpty ? full.count : headerFrame.count),
-            frameOffsets: relativeOffsets.map { start + headerFrame.count + $0 })
+            frameOffsets: relativeOffsets.map { start + headerFrame.count + $0 }, headerOffset: headerOffset)
     }
 
     /// CRC-16 as LAME computes it for its info tag (polynomial 0x8005 reflected, start value 0).

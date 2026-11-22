@@ -16,8 +16,9 @@ struct HeaderRepairState: Codable, Equatable {
 
 /// Rewrites the length header of an MP3 whose header states the wrong length: the frame
 /// count, the byte count and the seek table of the Xing/Info header in its first frame,
-/// and the checksum of a LAME extension that had a valid one. Nothing else in the file
-/// changes, and the file is never changed in place (`SafeFileUpdate`).
+/// and, in a LAME extension, a music length that repeated the wrong byte count and the
+/// checksum when it was valid. Nothing else in the file changes, and the file is never
+/// changed in place (`SafeFileUpdate`).
 struct MP3HeaderRepair {
     /// Why a file's header cannot be repaired, in words that follow "cannot be repaired: ".
     struct Refusal: Error, Equatable {
@@ -43,6 +44,10 @@ struct MP3HeaderRepair {
 
     /// Writes the plan's frame into the working copy.
     var change: (_ copy: URL, _ plan: Plan) throws -> Void = MP3HeaderRepair.write
+    /// Check 1: compares the original with the working copy, and returns the original's hash.
+    var compareBytes: (_ original: URL, _ copy: URL, _ plan: Plan) throws -> String = {
+        try MP3HeaderRepair.checkBytes(original: $0, copy: $1, plan: $2)
+    }
     var read: (URL) throws -> FileContents = { try AudioTagIO.read($0) }
     var measure: (URL) throws -> MP3FrameScan.Measurement = { try MP3FrameScan.measure($0, recordingOffsets: true) }
     /// How long the system's players say the file is; nil when they cannot say.
@@ -92,7 +97,7 @@ struct MP3HeaderRepair {
         try SafeFileUpdate.update(url) { copy in
             try change(copy, plan)
         } verify: { copy in
-            originalHash = try Self.checkBytes(original: url, copy: copy, plan: plan)
+            originalHash = try compareBytes(url, copy, plan)
             try checkTags(of: copy, before: before, trackBefore: trackBefore)
             try checkFrames(of: copy, before: measured)
             try checkPlayback(of: copy, seconds: measured.durationSeconds)
@@ -165,6 +170,18 @@ struct MP3HeaderRepair {
             // The quality follows the seek table: it moves along into bytes that were empty.
             out.replaceSubrange(at + 116..<at + 120, with: quality)
             changeable = [at + 4..<at + 120]
+        }
+        // The extension's "music length" is the encoder's own count of the stream's bytes.
+        // When it said what the header's byte count said, it was the same wrong count, and
+        // is put right with it. Any other value is left alone: it may count something
+        // else (the audio without the header frame, or without bytes that are not audio),
+        // and what it should be cannot be told from the frames.
+        if xing.lame != nil, let stated = xing.statedBytes, stated != bytes {
+            let was = out[(at + 148)..<(at + 152)].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            if was == stated {
+                put(bytes, at: at + 148)
+                changeable.append(at + 148..<at + 152)
+            }
         }
         // A checksum that was right is made right again; one that was not is left alone.
         if let lame = xing.lame, lame.crcIsValid {

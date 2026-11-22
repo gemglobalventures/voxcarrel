@@ -71,6 +71,9 @@ final class ScanCounter: @unchecked Sendable {
             Options(), Options(header: .info), Options(header: .vbri), Options(header: .none),
             Options(lameExtension: true), Options(mpeg2: true), Options(variableBitrate: true),
             Options(id3v1: true),
+            Options(channels: .stereo), Options(mpeg2: true, channels: .jointStereo),
+            Options(variableBitrate: true, channels: .stereo, crcProtected: true),
+            Options(channels: .jointStereo, crcProtected: true, headerAfterCRC: true),
             // A short file with a large cover in front: the picture is not audio.
             Options(seconds: 2, prefix: tag), Options(seconds: 2, header: .none, prefix: tag),
         ]
