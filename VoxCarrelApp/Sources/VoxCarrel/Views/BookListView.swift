@@ -20,7 +20,7 @@ struct BookListView: View {
             // no greatest width: it takes the room the rest leave.
             Table(model.rows, selection: selection, sortOrder: $model.tableSortOrder) {
                 TableColumn("Title", value: \.titleSortKey) { row in
-                    TitleCell(row: row)
+                    TitleCell(model: model, row: row)
                 }
                 .width(min: 136, ideal: 280)
                 TableColumn("Author", value: \.authorSortKey) { row in
@@ -84,6 +84,7 @@ struct BookListView: View {
 /// A small cover, the title, what kind of edition it is when that is worth saying, the
 /// pencil of a book with unsaved edits, and the warning triangle.
 private struct TitleCell: View {
+    let model: AppModel
     let row: BookRow
 
     var body: some View {
@@ -95,7 +96,7 @@ private struct TitleCell: View {
                 .help(row.book.title)
             // In words where the column has room for them, a symbol where it has not.
             EditionBadge(row: row)
-            EditedBadge(id: row.id)
+            EditedBadge(model: model, id: row.id)
             WarningBadge(row: row)
         }
         .accessibilityIdentifier("books.row.\(row.id)")

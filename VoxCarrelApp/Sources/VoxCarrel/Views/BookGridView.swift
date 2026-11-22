@@ -105,7 +105,7 @@ private struct BookGridItem: View {
 
     var body: some View {
         let isSelected = model.selection.contains(row.id)
-        BookGridCell(row: row, isSelected: isSelected)
+        BookGridCell(model: model, row: row, isSelected: isSelected)
             .overlay {
                 ClickCatcher(toolTip: row.summaryText) {
                     model.contextClick(row.id)
@@ -144,6 +144,7 @@ private struct BookGridItem: View {
 /// G1: one book in the grid: its cover in an upright box, its title, its first author
 /// and its badges.
 private struct BookGridCell: View {
+    let model: AppModel
     let row: BookRow
     let isSelected: Bool
 
@@ -166,7 +167,7 @@ private struct BookGridCell: View {
                     .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                EditedBadge(id: row.id)
+                EditedBadge(model: model, id: row.id)
                     .font(.callout)
             }
             Text(row.firstAuthorText)

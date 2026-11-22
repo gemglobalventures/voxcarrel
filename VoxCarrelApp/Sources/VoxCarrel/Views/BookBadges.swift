@@ -116,8 +116,12 @@ struct StatusMarker: View {
 }
 
 /// A pencil beside the title of a book that has edits not yet saved; nothing for any other.
+///
+/// The model is handed in, not read from the environment: a table draws each cell in a
+/// view of its own, and when the table is made again a cell of the old one can be drawn
+/// once more with no model in its environment, which stops the app.
 struct EditedBadge: View {
-    @Environment(AppModel.self) private var model
+    let model: AppModel
     let id: Int64
 
     var body: some View {
