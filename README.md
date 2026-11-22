@@ -67,4 +67,4 @@ Look Up sends the title, author, ISBN or Audible ID you search for to Open Libra
 
 VoxCarrel is free software, released under the [GNU Affero General Public License, version 3](LICENSE). You may use, study, change and share it; anything built from it must be shared under the same licence, including when it is offered to others over a network.
 
-Copyright © 2026 the VoxCarrel authors.
+Copyright © 2026 Gem Global Ventures.
