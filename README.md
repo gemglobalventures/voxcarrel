@@ -4,7 +4,7 @@ A native Mac app for managing a personal library of audiobooks and ebooks: a mod
 
 VoxCarrel files your books into a tidy folder layout, writes details and covers into the files themselves, and looks books up online. It manages files you already own; it is not a store or a downloader.
 
-**Status:** early. It has been tested on generated sample books, not yet widely on real collections. Try it on copies first.
+**Status:** early. It is tested mostly on generated sample books and has had only light use on real collections. Import by copy until you trust it with yours.
 
 ![The library as a cover grid, with one book open in the inspector](Screenshots/library-grid.jpg)
 
@@ -22,9 +22,16 @@ The books in these pictures are generated samples from the demo library.
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
 - Keeps an audiobook, its ebook and companion files together as one book, in `Author/Series/Title` folders.
 - Edits details and covers for one book or many, written into the files and checked before they replace the originals.
-- Looks books up on Open Library and the Audible catalogue; you choose which fields to take.
+- Looks books up on Open Library and the Audible catalogue; you choose which fields to take, and applying them saves in one step.
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
+- Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
 - Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
+
+## What it does not do
+
+- It does not play or read books; opening one hands it to your usual player or reader.
+- It does not handle protected files such as Audible downloads (`.aax`, `.aaxc`). Books you own on Audible can be listed alongside your files instead.
+- It does not sign in to any account or download books.
 
 ## Requirements
 
@@ -59,7 +66,9 @@ open build/VoxCarrel.app --args -libraryPath ~/VoxCarrelDemo/Library
 
 ## First run on real books
 
-Create a new, empty folder for the library. Import a handful of books with "Copy files, leave originals in place" ticked, and check the result before importing more.
+Create a new, empty folder for the library, outside any synced folder such as iCloud Drive: the catalogue database lives in the library folder and should not be synced while in use. Import a handful of books with "Copy files, leave originals in place" ticked, and check the result before importing more.
+
+Editing a book changes nothing until you press Save. Edit ▸ Undo (⌥⌘Z) reverses the last import, save or repair.
 
 ## Tests
 
