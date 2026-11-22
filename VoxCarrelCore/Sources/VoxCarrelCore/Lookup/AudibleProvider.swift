@@ -133,7 +133,7 @@ public struct AudibleProvider: LookupProvider {
     }
 
     /// Ten letters or digits, upper-cased; nil for anything else, which must not reach a URL path.
-    static func asin(_ raw: String) -> String? {
+    public static func asin(_ raw: String) -> String? {
         let tidy = raw.lookupTrimmed.uppercased()
         guard tidy.count == 10, tidy.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else { return nil }
         return tidy

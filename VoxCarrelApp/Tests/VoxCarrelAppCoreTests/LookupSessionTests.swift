@@ -627,25 +627,53 @@ import VoxCarrelCore
         #expect(!session.detailLines.contains { $0.label == "Length" })
     }
 
-    /// N5: adding by hand is offered once the catalogue has been tried, for a title.
-    @Test func N5_addingByHandNeedsASearchThatFinishedAndATitle() {
+    /// N5: adding by hand is offered once the catalogue has been tried, and can be done
+    /// for a title and an author.
+    @Test func N5_addingByHandNeedsASearchThatFinishedATitleAndAnAuthor() {
         var session = adding(title: "Rare Book")
+        session.query.author = "Ann Author"
         #expect(!session.hasSearched)
+        #expect(!session.offersAddByHand)
         #expect(!session.canAddByHand)
         session.beginSearch()
+        #expect(!session.offersAddByHand)
         #expect(!session.canAddByHand)
         session.finishSearch(LookupResults(searched: [.audible], found: [.audible: 0]), for: session.query)
         #expect(session.phase == .noResults)
         #expect(session.hasSearched)
+        #expect(session.offersAddByHand)
         #expect(session.canAddByHand)
         #expect(!session.canAdd)
+        #expect(session.addByHandTitle == "Add Without a Match")
+        #expect(session.addByHandHelp == "Add a book with the title and author typed above, and nothing from Audible.")
 
-        // The title box is what is added: it may be changed, but not emptied.
+        // The boxes are what is added: they may be changed, but neither emptied.
         session.query.title = "Rarer Book"
         #expect(session.canAddByHand)
         session.query.title = "   "
+        #expect(session.offersAddByHand)
         #expect(!session.canAddByHand)
+        #expect(session.addByHandHelp == "Type the book’s title above to add it without a match.")
+        session.query.author = ""
+        #expect(session.addByHandHelp == "Type the book’s title and author above to add it without a match.")
         session.query.title = "Rare Book"
+        #expect(!session.canAddByHand)
+        #expect(session.addByHandHelp == "Type the book’s author above to add it without a match.")
+        session.beginAdding()
+        #expect(session.phase != .applying)
+        session.query.author = "Ann Author"
+        #expect(session.canAddByHand)
+
+        // An Audible ID in its box goes with the book when it is a well-formed one.
+        #expect(session.typedAudibleID == nil)
+        session.query.asin = "b0rarebook"
+        #expect(session.typedAudibleID == "B0RAREBOOK")
+        #expect(
+            session.addByHandHelp
+                == "Add a book with the title, author and Audible ID typed above, and nothing else from Audible.")
+        session.query.asin = "B0 / nope"
+        #expect(session.typedAudibleID == nil)
+        session.query.asin = nil
 
         // While another search runs, no; when it could not reach Audible, yes; with results, yes too.
         session.beginSearch()

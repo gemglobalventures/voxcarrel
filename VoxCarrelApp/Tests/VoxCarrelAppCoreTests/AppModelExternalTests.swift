@@ -50,6 +50,35 @@ private let glassASIN = "B0GLASSTID"
         try #require(h.model.rows.first { $0.id == id })
     }
 
+    // MARK: The demo library as it is made for trying the app
+
+    /// The library the demo tool makes, Audible books and all: it opens, every list
+    /// counts what it should, and the launch check has nothing to say.
+    @Test func theWholeDemoLibraryOpensCleanly() async throws {
+        let root = try makeTempDir()
+        try DemoContent.makeLibrary(at: root)
+        let h = try Harness(root: root)
+        await h.model.start()
+
+        #expect(h.model.isLibraryOpen)
+        #expect(h.model.alert == nil)
+        #expect(h.model.libraryCheck == nil)
+        #expect(h.model.rows.count == 14)
+        #expect(h.model.sidebar.counts[.allBooks] == 14)
+        #expect(h.model.sidebar.counts[.onAudible] == 3)
+        #expect(h.model.sidebar.counts[.audiobooks] == 11)
+        #expect(h.model.sidebar.counts[.needsAttention] == 1)
+        #expect(h.model.rows.filter { !$0.hasFiles }.map(\.book.title).sorted()
+            == ["Letters from the Ice Shelf", "The Glass Tide"])
+        #expect(h.model.rows.filter { !$0.hasFiles }.allSatisfy { $0.isOnAudible && !$0.book.needsAttention })
+        for item in SidebarItem.fixed {
+            h.model.sidebarSelection = item
+            await h.model.settle()
+            #expect(h.model.rows.count == h.model.sidebar.counts[item])
+        }
+        #expect(h.model.alert == nil)
+    }
+
     // MARK: R1 Lists
 
     /// R1
@@ -230,6 +259,24 @@ private let glassASIN = "B0GLASSTID"
                 == [try #require(URL(string: "https://www.audible.com.au/pd/B0GLASSTID"))])
     }
 
+    /// R4: the page that opens follows the ASIN: saving another one for a book with no
+    /// files changes its Audible copy, so the right page opens.
+    @Test func R4_savingAnotherASINOpensThatPage() async throws {
+        let (h, glass) = try await demoWithGlassTide { $0.asin = glassASIN }
+        h.model.sidebarSelection = .onAudible
+        await h.model.settle()
+        h.model.click(glass, modifiers: [])
+        await h.model.settle()
+        h.model.updateDraft { $0.asin = "B0RIGHTONE" }
+        await h.model.save()
+        #expect(h.model.alert == nil)
+        #expect(try h.book(glass).asin == "B0RIGHTONE")
+        #expect(try h.book(glass).externalCopies.map(\.itemId) == ["B0RIGHTONE"])
+        h.model.open(glass)
+        await h.model.settle()
+        #expect(h.opener.openedWeb == [try #require(URL(string: "https://www.audible.co.uk/pd/B0RIGHTONE"))])
+    }
+
     /// R4: with no ASIN at all, a search of the store for the title and author.
     @Test func R4_withNoASINItSearchesTheStore() async throws {
         let (h, glass) = try await demoWithGlassTide(copy: ExternalCopy(kind: .audible, form: .audio, store: "fr"))
@@ -254,18 +301,27 @@ private let glassASIN = "B0GLASSTID"
         #expect(h.opener.openedWeb.isEmpty)
     }
 
-    /// R4: an ebook that is also on Audible opens on Audible, as the audiobook comes first (A14).
-    @Test func R4_anEbookThatIsOnAudibleOpensOnAudibleAndReadsItsFile() async throws {
+    /// R4: a file here comes first. An ebook that is also on Audible opens its ebook
+    /// file (double-click, Return, Open); Listen goes to Audible; Read reads the file.
+    @Test func R4_anEbookThatIsOnAudibleOpensItsFileAndListensOnAudible() async throws {
         let h = try await Harness.demo(start: false)
         let rivers = try mark(h, "Quiet Rivers", itemId: "B0QUIETRIV")
         await h.model.start()
         h.model.open(rivers)
         await h.model.settle()
+        #expect(h.opener.openedWeb.isEmpty)
+        #expect(h.opener.opened.map(\.pathExtension) == ["epub"])
+        h.model.listen(rivers)
+        await h.model.settle()
         #expect(h.opener.openedWeb == [try #require(URL(string: "https://www.audible.co.uk/pd/B0QUIETRIV"))])
-        #expect(h.opener.opened.isEmpty)
+        #expect(h.opener.opened.count == 1)
         h.model.read(rivers)
         await h.model.settle()
-        #expect(h.opener.opened.map(\.pathExtension) == ["epub"])
+        #expect(h.opener.opened.map(\.pathExtension) == ["epub", "epub"])
+        #expect(h.opener.openedWeb.count == 1)
+        #expect(h.model.alert == nil)
+        // The Listen button says where it goes.
+        #expect(try row(h, rivers).listenTitle == "Open on Audible")
     }
 
     /// R4: reading is as it was: there is no ebook.
@@ -358,7 +414,7 @@ private let glassASIN = "B0GLASSTID"
         h.model.requestRemove([glass])
         let prompt = try #require(h.model.prompt)
         #expect(prompt == .removeBooks(ids: [glass], titles: ["The Glass Tide"], outsideFiles: [], withoutFiles: 1))
-        #expect(prompt.title == "Remove \"The Glass Tide\" from the library?")
+        #expect(prompt.title == "Remove “The Glass Tide” from the library?")
         #expect(prompt.message == "This book has no files on this Mac, so nothing goes to the Trash.")
         #expect(prompt.removeTrashTitle == nil)
         #expect(prompt.removeOnlyTitle == "Remove from Library")
@@ -678,7 +734,7 @@ private let glassASIN = "B0GLASSTID"
         let entry = try #require(review.entries.first)
         #expect(entry.existingMatch?.id == keeper)
         #expect(entry.isAddedToExisting)
-        #expect(entry.existingMatchText == "Add to \"The Lighthouse Keeper\", which is on Audible")
+        #expect(entry.existingMatchText == "Add to “The Lighthouse Keeper”, which is on Audible")
         // The folder the book will be filed in, from the book's own details (its series), not the file's.
         let planned = try #require(service.plannedFolder(for: try h.book(keeper).metadata))
         #expect(planned.contains("Rocks"))
@@ -710,6 +766,52 @@ private let glassASIN = "B0GLASSTID"
         #expect(row.whereaboutsText == "Also on Audible")
     }
 
+    /// R9: a book typed by hand, with no author, takes what it lacks from its files: the
+    /// review says where it will go and that nothing the files say is lost, and the
+    /// import does as it says.
+    @Test func R9_aBookTypedByHandIsFilledInFromItsFiles() async throws {
+        let h = try Harness(root: try makeTempDir())
+        let service = LibraryService(store: try h.store())
+        let added = try service.addExternalBook(
+            metadata: BookMetadata(title: "The Lighthouse Keeper", authors: ["Eleanor Marsh"]), cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "uk"))
+        guard case .added(let keeper) = added else { return }
+        await h.model.start()
+        let inbox = try Harness.inbox()
+        let file = inbox.appendingPathComponent("The Lighthouse Keeper.m4b")
+        var inFile = try FileMetadataIO().readMetadata(at: file)
+        inFile.durationSeconds = nil
+        #expect(!inFile.narrators.isEmpty)
+
+        await h.model.beginImport([file])
+        await h.model.settle()
+        let review = try #require(h.model.review)
+        let entry = try #require(review.entries.first)
+        #expect(entry.existingMatch?.id == keeper)
+        #expect(entry.existingMatchText == "Add to “The Lighthouse Keeper”, which is on Audible")
+        #expect(
+            review.keptDetailsNote(of: entry.id)
+                == "These files join “The Lighthouse Keeper”, which keeps its own details. "
+                + "What it lacks is filled in from the files, and nothing in them is lost.")
+        // Where it will go is worked out with what the files add.
+        let planned = try #require(
+            service.plannedFolder(for: try h.book(keeper).metadata, firstFiles: entry.candidate.files))
+        #expect(entry.destination == planned)
+        #expect(review.destinationText(of: entry.id) == "Will be filed in: \(planned)")
+
+        await h.model.confirmImport()
+        #expect(h.model.result == nil)
+        #expect(h.model.alert == nil)
+        let book = try h.book(keeper)
+        #expect(book.folderPath == planned)
+        #expect(book.narrators == inFile.narrators)
+        #expect(book.isOwned(on: .audible))
+        // The file says all it said before.
+        var after = try FileMetadataIO().readMetadata(at: try #require(try h.fileURLs(keeper).first))
+        after.durationSeconds = nil
+        #expect(after == inFile)
+    }
+
     /// R9: an entry whose details are changed is matched again: by title and first
     /// author, or by the Audible ID alone, whatever its title.
     @Test func R9_changedDetailsFindTheBookOnAudible() async throws {
@@ -730,7 +832,7 @@ private let glassASIN = "B0GLASSTID"
         await h.model.settle()
         let changed = try #require(h.model.review?.entry(entry.id))
         #expect(changed.existingMatch?.id == glass)
-        #expect(changed.existingMatchText == "Add to \"The Glass Tide\", which is on Audible")
+        #expect(changed.existingMatchText == "Add to “The Glass Tide”, which is on Audible")
         let planned = LibraryService(store: try h.store()).plannedFolder(for: try h.book(glass).metadata)
         #expect(planned != nil)
         #expect(changed.destination == planned)

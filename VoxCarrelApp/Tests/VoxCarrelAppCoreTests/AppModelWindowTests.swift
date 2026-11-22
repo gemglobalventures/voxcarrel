@@ -263,7 +263,7 @@ import VoxCarrelFixtures
 
     @Test func removingNamesOneBookAndCountsSeveral() {
         let one = PendingPrompt.removeBooks(ids: [1], titles: ["Quiet Rivers"])
-        #expect(one.title == "Remove \"Quiet Rivers\" from the library?")
+        #expect(one.title == "Remove “Quiet Rivers” from the library?")
         let untitled = PendingPrompt.removeBooks(ids: [1], titles: ["  "])
         #expect(untitled.title == "Remove this book from the library?")
         let several = PendingPrompt.removeBooks(ids: [1, 2, 3], titles: ["A", "B", "C"])

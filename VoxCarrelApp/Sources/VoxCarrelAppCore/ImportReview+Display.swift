@@ -61,9 +61,16 @@ extension ImportReview {
     }
 
     /// What to say under the details of an entry that joins a book already in the
-    /// library; nil for any other entry.
+    /// library; nil for any other entry. R9: for a book that has no files yet, that its
+    /// details are kept and what it lacks is filled in from the files.
     public func keptDetailsNote(of id: UUID) -> String? {
         guard let entry = entry(id), entry.isAddedToExisting, let match = entry.existingMatch else { return nil }
+        if entry.matchHasNoFiles {
+            // R9: the book has no files yet, so what these say is not thrown away.
+            let title = match.title.trimmedOrNil.map { "“\($0)”" } ?? "the book in the library"
+            return "These files join \(title), which keeps its own details. "
+                + "What it lacks is filled in from the files, and nothing in them is lost."
+        }
         let title = match.title.trimmedOrNil.map { "\"\($0)\"" } ?? "the existing book"
         return "These files join \(title), which keeps its own details. "
             + "Change the title or author to import them as a different book."
@@ -141,8 +148,8 @@ extension ImportReview {
                 // R9: the book is filed now, from its own details, as a new book would be.
                 if let folder = entry.destination { return "Will be filed in: \(folder)" }
                 guard entry.matchDestinationFor != nil else { return "Working out where it will be filed…" }
-                let title = entry.existingMatch?.title.trimmedOrNil.map { "\"\($0)\"" } ?? "The book"
-                return "Cannot be added yet: \(title) needs an author in the library before it can have files"
+                let title = entry.existingMatch?.title.trimmedOrNil.map { "“\($0)”" } ?? "The book"
+                return "Cannot be added yet: \(title) has no author in the library, and neither have these files"
             }
             if entry.isAddedToExisting {
                 return entry.destination.map { "Will be added to: \($0)" } ?? "Will be added to the existing book"
@@ -295,7 +302,7 @@ extension ImportReview.Entry {
         guard let match = existingMatch, match.id != nil else { return nil }
         // R9
         if matchHasNoFiles, match.isOwned(on: .audible) {
-            return "Add to \"\(match.title)\", which is on Audible"
+            return "Add to “\(match.title)”, which is on Audible"
         }
         return "Add to the existing book \"\(match.title)\""
     }

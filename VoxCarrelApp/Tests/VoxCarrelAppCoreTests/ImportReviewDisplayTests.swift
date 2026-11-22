@@ -366,7 +366,7 @@ import VoxCarrelCore
         ])
         #expect(
             review.entries.map(\.existingMatchText)
-                == ["Add to \"Atlas\", which is on Audible", "Add to the existing book \"Rivers\""])
+                == ["Add to “Atlas”, which is on Audible", "Add to the existing book \"Rivers\""])
         #expect(review.entries.map(\.matchHasNoFiles) == [true, false])
     }
 
@@ -410,7 +410,22 @@ import VoxCarrelCore
         #expect(review.entriesNeedingMatchDestination.isEmpty)
     }
 
-    /// R9: a book with no author cannot be filed, and the import of its files will fail: said beforehand.
+    /// R9: the note under the details says the truth about a book that has no files yet:
+    /// its own details are kept, and what it lacks comes from the files.
+    @Test func aMatchWithNoFilesSaysItsGapsAreFilledFromTheFiles() {
+        let match = audibleOnly("Atlas", author: "Ann Author")
+        var review = review([seed("Atlas", author: "Ann Author", files: [file("atlas.m4b")], match: match)])
+        let id = review.entries[0].id
+        #expect(
+            review.keptDetailsNote(of: id)
+                == "These files join “Atlas”, which keeps its own details. "
+                + "What it lacks is filled in from the files, and nothing in them is lost.")
+        review.update(id) { $0.addToExisting = false }
+        #expect(review.keptDetailsNote(of: id) == nil)
+    }
+
+    /// R9: a book with no author, given files that name none, cannot be filed, and the
+    /// import will fail: said beforehand.
     @Test func aMatchWithNoFilesThatCannotBeFiledSaysWhy() {
         let match = audibleOnly("Atlas", author: nil)
         var review = review([seed("Atlas", author: nil, files: [file("atlas.m4b")], match: match)])
@@ -420,7 +435,7 @@ import VoxCarrelCore
         #expect(review.entries[0].destination == nil)
         #expect(
             review.destinationText(of: id)
-                == "Cannot be added yet: \"Atlas\" needs an author in the library before it can have files")
+                == "Cannot be added yet: “Atlas” has no author in the library, and neither have these files")
     }
 
     // MARK: Q9 Skipped

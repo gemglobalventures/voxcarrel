@@ -387,6 +387,9 @@ import VoxCarrelFixtures
         var expected = before
         expected.externalCopies = [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0SALTROAD")]
         expected.asin = "B0SALTROAD"
+        // No file was opened: the ASIN is in the app only until the tags are written.
+        expected.appOnlyFields = MetadataField.allCases.filter { (before.appOnlyFields + [.asin]).contains($0) }
+        #expect(expected.appOnlyFields.contains(.asin))
         // Its own details, cover and files are as they were.
         #expect(try h.book(salt) == expected)
         #expect(try h.book(salt).narrators == ["Marcus Lindqvist"])
@@ -396,6 +399,34 @@ import VoxCarrelFixtures
         #expect(h.model.sidebarSelection == .onAudible)
         #expect(h.model.selection == [salt])
         #expect(h.detail?.row.whereaboutsText == "Also on Audible")
+    }
+
+    /// N4: a book with files that is marked already is told so, and gets no second copy;
+    /// the ASIN marking gave it shows in the inspector as in the app only.
+    @Test func N4_aBookThatIsAlreadyMarkedIsToldSo() async throws {
+        let h = try await searched([saltRoad()], title: "Salt Road")
+        h.lookup.cover(png)
+        let salt = try h.id("Salt Road")
+        h.model.cancelLookup()
+        await h.model.setOnAudible(true, for: [salt])
+        let marked = try h.book(salt)
+        #expect(marked.externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "uk")])
+
+        h.model.beginAddAudibleBook()
+        h.model.updateLookupQuery { $0.title = "Salt Road" }
+        await h.model.searchLookup()
+        await h.model.addLookupSelection()
+        #expect(h.model.alert == "“Salt Road” is already in your library and marked as on Audible.")
+        #expect(try h.store().books().count == 12)
+        // The copy it had is filled in; there is still one.
+        #expect(
+            try h.book(salt).externalCopies
+                == [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0SALTROAD")])
+        #expect(try h.book(salt).asin == "B0SALTROAD")
+        #expect(h.model.selection == [salt])
+        // The files do not hold that ASIN yet, and the inspector says so.
+        #expect(h.model.appOnlyMarkers.contains(.asin))
+        #expect(h.model.selectionCommands.rewriteTags)
     }
 
     /// N4: adding the same book a second time says so too, and adds nothing.
@@ -413,8 +444,7 @@ import VoxCarrelFixtures
         h.model.updateLookupQuery { $0.title = "Glass Tide" }
         await h.model.searchLookup()
         await h.model.addLookupSelection()
-        #expect(
-            h.model.alert == "“The Glass Tide” was already in your library. It is now marked as also on Audible.")
+        #expect(h.model.alert == "“The Glass Tide” is already in your library and marked as on Audible.")
         #expect(try h.store().books().count == 13)
         #expect(try h.book(id).externalCopies.count == 1)
         #expect(h.model.selection == [id])
@@ -458,7 +488,7 @@ import VoxCarrelFixtures
         #expect(h.model.undoLabel == Harness.demoUndoLabel)
     }
 
-    /// N5: offered when Audible could not be reached; a title is needed, an author is not.
+    /// N5: offered when Audible could not be reached; a title and an author are needed.
     @Test func N5_byHandWhenAudibleCannotBeReached() async throws {
         let h = try await Harness.demo()
         h.lookup.fail(.audible, .notReachable)
@@ -466,9 +496,17 @@ import VoxCarrelFixtures
         h.model.updateLookupQuery { $0.title = "Unreachable" }
         await h.model.searchLookup()
         #expect(h.model.lookup?.failureText == "Audible could not be reached.")
-        #expect(h.model.lookup?.canAddByHand == true)
+        // Offered, but not to be had without an author; the model says what is missing.
+        #expect(h.model.lookup?.offersAddByHand == true)
+        #expect(h.model.lookup?.canAddByHand == false)
+        #expect(h.model.lookup?.addByHandHelp == "Type the book’s author above to add it without a match.")
+        await h.model.addAudibleBookByHand()
+        #expect(h.model.lookup != nil)
+        #expect(try h.store().books().count == 12)
 
-        // The title can be changed after the search, but not emptied.
+        // Both can be changed after the search, but neither emptied.
+        h.model.updateLookupQuery { $0.author = "Ines Calloway" }
+        #expect(h.model.lookup?.canAddByHand == true)
         h.model.updateLookupQuery { $0.title = " " }
         #expect(h.model.lookup?.canAddByHand == false)
         await h.model.addAudibleBookByHand()
@@ -477,10 +515,44 @@ import VoxCarrelFixtures
         #expect(h.model.lookup?.canAddByHand == true)
         await h.model.addAudibleBookByHand()
         let book = try added(h, "Still Unreachable")
-        #expect(book.authors.isEmpty)
+        #expect(book.authors == ["Ines Calloway"])
         #expect(book.isOwned(on: .audible))
         #expect(!book.needsAttention)
         #expect(h.model.selection == [try #require(book.id)])
+    }
+
+    /// N5: an Audible ID typed in its box goes with a book added by hand, when it is a
+    /// well-formed one: it is the book's ASIN and its copy's item ID.
+    @Test func N5_byHandTheTypedAudibleIDGoesWithTheBook() async throws {
+        let h = try await Harness.demo()
+        h.model.audibleStore = .uk
+        h.lookup.fail(.audible, .notReachable)
+        h.model.beginAddAudibleBook()
+        h.model.updateLookupQuery {
+            $0.title = "Pasted"
+            $0.author = "Ines Calloway"
+            $0.asin = " b0pasted01 "
+        }
+        await h.model.searchLookup()
+        #expect(h.model.lookup?.typedAudibleID == "B0PASTED01")
+        await h.model.addAudibleBookByHand()
+        let book = try added(h, "Pasted")
+        #expect(book.asin == "B0PASTED01")
+        #expect(book.externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0PASTED01")])
+
+        // Anything that is not an Audible ID is left out.
+        h.model.beginAddAudibleBook()
+        h.model.updateLookupQuery {
+            $0.title = "Mistyped"
+            $0.author = "Ines Calloway"
+            $0.asin = "not/an id"
+        }
+        await h.model.searchLookup()
+        #expect(h.model.lookup?.typedAudibleID == nil)
+        await h.model.addAudibleBookByHand()
+        let other = try added(h, "Mistyped")
+        #expect(other.asin == nil)
+        #expect(other.externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "uk")])
     }
 
     /// N5, N4: typed by hand, a book the library has is marked, not added twice.
@@ -679,26 +751,44 @@ import VoxCarrelFixtures
         h.model.beforeOperation = nil
     }
 
-    /// N7: closing the sheet while the cover is on its way adds nothing.
+    /// N7: closing the sheet while the cover is on its way adds nothing, cancels the
+    /// download, and ends the operation there and then: nothing is busy while a
+    /// download nobody wants runs out.
     @Test func N7_closingWhileAddingAddsNothing() async throws {
         let h = try await searched([glassTide()])
         let gate = Gate()
+        let cancelled = Gate()
         let png = png
         h.lookup.cover { _ in
             await gate.wait()
+            if Task.isCancelled { await cancelled.release() }
             return (png, 200)
         }
         let adding = Task { await h.model.addLookupSelection() }
         await gate.arrival()
+        #expect(h.model.busyLabel == "Adding book…")
         h.model.cancelLookup()
+        // At once, with the download still on its way.
+        #expect(h.model.lookup == nil)
+        #expect(h.model.busyLabel == nil)
+        #expect(h.model.progressSheetLabel == nil)
+        #expect(h.model.canAddAudibleBook)
+
+        // Something else can be done meanwhile, and the late cover does not disturb it.
+        let salt = try h.id("Salt Road")
+        await h.model.setOnAudible(true, for: [salt])
+        #expect(try h.book(salt).isOwned(on: .audible))
+        h.model.beginAddAudibleBook()
+        #expect(h.model.addAudibleLookup?.phase == .idle)
+
         await gate.release()
         await adding.value
-        #expect(h.model.lookup == nil)
+        await cancelled.wait()
+        #expect(h.model.addAudibleLookup?.phase == .idle)
         #expect(h.model.busyLabel == nil)
         #expect(h.model.alert == nil)
         #expect(try h.store().books().count == 12)
-        #expect(h.model.sidebar.counts[.onAudible] == 0)
-        #expect(h.model.canAddAudibleBook)
+        #expect(h.model.sidebar.counts[.onAudible] == 1)
     }
 
     /// N7: unsaved edits made while the sheet was open are not taken out of the inspector.

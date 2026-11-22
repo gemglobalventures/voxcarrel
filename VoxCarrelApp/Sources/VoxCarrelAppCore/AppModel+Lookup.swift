@@ -309,6 +309,13 @@ extension AppModel {
         lookupSearch = nil
         lookupDetailLoads.values.forEach { $0.cancel() }
         lookupDetailLoads = [:]
+        if let fetch = addCoverFetch {
+            // An Audible book was being added and its cover is still on its way: the
+            // add is called off here, and nothing is busy any more.
+            fetch.cancel()
+            addCoverFetch = nil
+            busyLabel = nil
+        }
         guard lookup != nil else { return }
         lookupGeneration += 1
         forgetLookupThumbnails()

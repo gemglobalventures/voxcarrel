@@ -125,6 +125,12 @@ public actor LibraryWorker {
         service.plannedFolder(for: metadata)
     }
 
+    /// The folder a book that has no files yet would be filed in if these were its
+    /// first files: from its details, with what they lack read from the files.
+    public func plannedFolder(for metadata: BookMetadata, firstFiles: [CandidateFile]) -> String? {
+        service.plannedFolder(for: metadata, firstFiles: firstFiles)
+    }
+
     private func books(for item: SidebarItem) throws -> [Book] {
         switch item {
         case .allBooks: try store.books()

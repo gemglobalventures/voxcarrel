@@ -313,8 +313,10 @@ extension AppModel {
 
     /// A14: opens the audiobook if the book has one, otherwise the ebook.
     ///
-    /// R4: a book with no audio file that is on Audible as an audiobook has its page on
-    /// the Audible website opened in the browser, here and for `listen`.
+    /// R4: a file here always comes first: the audiobook, else the ebook. Only a book
+    /// with neither, that is on Audible as an audiobook, has its page on the Audible
+    /// website opened in the browser. `listen` goes there whenever there is no audio
+    /// file here.
     public func open(_ id: Int64) {
         spawn { await self.openFile(of: id, role: nil) }
     }
@@ -332,8 +334,10 @@ extension AppModel {
         do {
             guard let detail = try await worker.detail(bookId: id) else { throw LibraryError.bookNotFound(id) }
             let audio = detail.files.first { $0.file.role == .audio }
-            // R4: the audiobook is on Audible and not here.
-            if role != .ebook, audio == nil, let copy = detail.row.audibleAudioCopy {
+            let ebook = detail.files.first { $0.file.role == .ebook }
+            // R4: the audiobook is on Audible and not here. Listening goes there; plain
+            // opening does only when there is no file here to open instead.
+            if role != .ebook, audio == nil, role == .audio || ebook == nil, let copy = detail.row.audibleAudioCopy {
                 opener.openWeb(audibleAddress(of: detail.row.book, copy: copy))
                 return
             }
@@ -344,10 +348,10 @@ extension AppModel {
                 file = audio
                 none = "This book has no audiobook file."
             case .ebook?:
-                file = detail.files.first { $0.file.role == .ebook }
+                file = ebook
                 none = "This book has no ebook file."
             default:
-                file = audio ?? detail.files.first { $0.file.role == .ebook }
+                file = audio ?? ebook
                 none = "This book has no audiobook or ebook file to open."
             }
             // Owned elsewhere, and not as something that can be opened from here.

@@ -842,6 +842,9 @@ public final class AppModel {
     @ObservationIgnored var lookupThumbnailLoads: [URL: Task<Data?, Never>] = [:]
     /// The requests for more about a result that are on their way, by the result's id.
     @ObservationIgnored var lookupDetailLoads: [String: Task<Void, Never>] = [:]
+    /// The cover on its way for an Audible book that is being added; nil when none is.
+    /// Closing the lookup cancels it and ends the add there and then.
+    @ObservationIgnored var addCoverFetch: Task<CoverImage?, Never>?
 
     // MARK: Work in the background
 

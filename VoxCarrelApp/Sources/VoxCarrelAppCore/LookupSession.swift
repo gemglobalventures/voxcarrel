@@ -136,11 +136,24 @@ public struct LookupSession: Equatable, Sendable {
         isAddMode && phase == .results && selected != nil
     }
 
-    /// Whether the book can be added from what is typed, with no result chosen: adding,
-    /// once the catalogue has been tried (a search has finished, whatever it found or
-    /// failed to reach), with a title in the search box and nothing in progress.
+    /// Whether adding the book from what is typed, with no result chosen, is on offer:
+    /// adding, once the catalogue has been tried (a search has finished, whatever it
+    /// found or failed to reach), and nothing in progress.
+    public var offersAddByHand: Bool {
+        isAddMode && hasSearched && phase != .searching && phase != .applying
+    }
+
+    /// Whether the book can be added from what is typed: it is on offer, and both a
+    /// title and an author are in the search boxes. (A book with no author could not
+    /// be told from another of the same title, nor be filed when its files arrive.)
     public var canAddByHand: Bool {
-        isAddMode && hasSearched && phase != .searching && phase != .applying && query.title.trimmedOrNil != nil
+        offersAddByHand && query.title.trimmedOrNil != nil && query.author.trimmedOrNil != nil
+    }
+
+    /// The Audible ID typed in its box, tidied, when it is a well-formed one; nil for
+    /// anything else. It goes with a book that is added by hand.
+    public var typedAudibleID: String? {
+        query.asin.flatMap(AudibleProvider.asin)
     }
 
     /// The book is being added; until the session closes nothing can be changed and it

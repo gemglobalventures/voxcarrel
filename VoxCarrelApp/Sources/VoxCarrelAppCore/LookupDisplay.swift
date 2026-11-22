@@ -30,6 +30,23 @@ extension LookupSession {
         isAddMode ? "Add Audible Book" : nil
     }
 
+    /// What the button that adds the book from what is typed says.
+    public var addByHandTitle: String { "Add Without a Match" }
+
+    /// What that button's tooltip says: what it would add, or, while it cannot be
+    /// used, what is still needed.
+    public var addByHandHelp: String {
+        switch (query.title.trimmedOrNil, query.author.trimmedOrNil) {
+        case (nil, nil): "Type the book’s title and author above to add it without a match."
+        case (nil, _): "Type the book’s title above to add it without a match."
+        case (_, nil): "Type the book’s author above to add it without a match."
+        default:
+            typedAudibleID == nil
+                ? "Add a book with the title and author typed above, and nothing from Audible."
+                : "Add a book with the title, author and Audible ID typed above, and nothing else from Audible."
+        }
+    }
+
     /// What stands in place of the results before anything has been searched for.
     public var idleText: String {
         isAddMode ? "Search the Audible catalogue for the book you own." : "Press Search to look for this book."

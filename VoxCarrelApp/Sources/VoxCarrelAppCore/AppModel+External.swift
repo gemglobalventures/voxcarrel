@@ -172,19 +172,23 @@ extension AppModel {
     ///
     /// A cover that cannot be downloaded does not stop the book being added; `alert`
     /// says it has none. Does nothing unless `lookup.canAdd`. While the book is being
-    /// added `lookup.phase` is `.applying`; if the sheet closes meanwhile nothing is added.
+    /// added `lookup.phase` is `.applying`; if the sheet closes meanwhile nothing is
+    /// added, the cover's download is cancelled, and nothing is busy from that moment.
     public func addLookupSelection() async {
         guard let session = lookup, session.canAdd, let candidate = session.selected else { return }
         await addAudibleBook(candidate.metadata, coverOf: candidate)
     }
 
     /// N5: adds an Audible book from what is typed in the search boxes, with no result
-    /// chosen: that title and author, no ASIN and no cover. Otherwise as
+    /// chosen: that title and author, the Audible ID when a well-formed one is typed
+    /// (it is the book's ASIN and its copy's item ID), and no cover. Otherwise as
     /// `addLookupSelection`. Does nothing unless `lookup.canAddByHand`.
     public func addAudibleBookByHand() async {
         guard let session = lookup, session.canAddByHand else { return }
-        let metadata = BookMetadata(
+        var metadata = BookMetadata(
             title: session.query.title.trimmed, authors: session.query.author.trimmedOrNil.map { [$0] } ?? [])
+        // An Audible ID typed in its box goes with the book when it is a well-formed one.
+        metadata.asin = session.typedAudibleID
         await addAudibleBook(metadata, coverOf: nil)
     }
 
@@ -208,15 +212,17 @@ extension AppModel {
             if let url = candidate.coverURL, let data = lookupThumbnails[url] {
                 cover = Self.coverImage(data)
             } else {
-                cover = try? await worker.lookupCover(for: candidate)
+                // N7: fetched in a task of its own, which closing the sheet cancels.
+                let fetch = Task { try? await worker.lookupCover(for: candidate) }
+                addCoverFetch = fetch
+                cover = await fetch.value
+                // N7: the sheet closed meanwhile, whatever is open or running now:
+                // nothing is added, and closing it has already ended the operation.
+                guard lookupGeneration == generation, lookup != nil, addCoverFetch == fetch else { return }
+                addCoverFetch = nil
                 // The cover could not be had: the smaller picture of it is better than none.
                 if cover == nil, let data = cachedLookupThumbnail(for: candidate) { cover = Self.coverImage(data) }
             }
-        }
-        // N7: the sheet closed meanwhile, whatever is open now: nothing is added.
-        guard lookupGeneration == generation, lookup != nil else {
-            busyLabel = nil
-            return
         }
 
         let asin = metadata.asin?.trimmedOrNil
@@ -231,21 +237,21 @@ extension AppModel {
         await reloadAll()
         if let outcome {
             let id: Int64
-            var marked = false
+            var said: String?
             switch outcome {
             case .added(let bookId): id = bookId
-            case .markedExisting(let bookId): (id, marked) = (bookId, true)
+            case .markedExisting(let bookId): (id, said) = (bookId, "was already in your library. It is now marked as also on Audible.")
+            case .alreadyMarked(let bookId): (id, said) = (bookId, "is already in your library and marked as on Audible.")
             }
             // The book becomes the selection, unless that would take the inspector away
             // from unsaved edits.
             if !hasUnsavedChanges {
                 await show(book: id)
             }
-            if marked {
+            if let said {
                 // N4
                 let title = try? await worker.detail(bookId: id)?.row.book.title.trimmedOrNil
-                alert = "\(title.map { "“\($0)”" } ?? "That book") was already in your library. "
-                    + "It is now marked as also on Audible."
+                alert = "\(title.map { "“\($0)”" } ?? "That book") \(said)"
             } else if hasCover, cover == nil {
                 alert = Self.addedWithoutCover
             }

@@ -102,8 +102,9 @@ extension BookRow {
         formats.contains { $0.defaultRole == .audio }
     }
 
-    /// Whether opening or listening to the book opens its page on the Audible website:
-    /// it is on Audible as an audiobook and has no audio file here.
+    /// Whether listening to the book opens its page on the Audible website: it is on
+    /// Audible as an audiobook and has no audio file here. (Plain opening goes there
+    /// only when the book has no ebook file here either.)
     public var opensOnAudible: Bool {
         audibleAudioCopy != nil && !hasAudioFile
     }

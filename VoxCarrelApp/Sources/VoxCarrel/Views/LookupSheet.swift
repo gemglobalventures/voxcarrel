@@ -398,7 +398,7 @@ private struct DetailsPane: View {
 // MARK: - The bottom
 
 /// V4: where the results are from, what applying leaves to do, Cancel and Apply. For a
-/// book that is being added (plan 6, V5): Cancel, Add Without a Match… and Add.
+/// book that is being added (plan 6, V5): Cancel, Add Without a Match and Add.
 private struct BottomBar: View {
     @Environment(AppModel.self) private var model
     let lookup: LookupSession
@@ -432,11 +432,12 @@ private struct BottomBar: View {
             .accessibilityIdentifier("lookup.cancel")
             if lookup.isAddMode {
                 // Offered once the catalogue has been tried.
-                if lookup.canAddByHand {
-                    Button("Add Without a Match…") {
+                if lookup.offersAddByHand {
+                    Button(lookup.addByHandTitle) {
                         Task { await model.addAudibleBookByHand() }
                     }
-                    .help("Add a book with the title and author typed above, and nothing from Audible")
+                    .disabled(!lookup.canAddByHand)
+                    .help(lookup.addByHandHelp)
                     .accessibilityIdentifier("lookup.addByHand")
                 }
                 // Not the default button, as Apply is not: ⌘Return adds.

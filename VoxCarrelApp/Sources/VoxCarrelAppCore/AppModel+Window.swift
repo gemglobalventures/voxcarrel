@@ -254,7 +254,7 @@ extension PendingPrompt {
         case .removeBooks(_, let titles, _, _):
             guard titles.count == 1 else { return "Remove \(titles.count) books from the library?" }
             guard let title = titles[0].trimmedOrNil else { return "Remove this book from the library?" }
-            return "Remove \"\(title)\" from the library?"
+            return "Remove “\(title)” from the library?"
         case .chooseFolderWithFiles(let folder, _, _):
             return "Use \"\(folder.lastPathComponent)\" as your library?"
         }

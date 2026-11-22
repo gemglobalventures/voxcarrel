@@ -13,6 +13,19 @@ extension LibraryService {
         filingPlan(for: [], metadata: metadata).map { store.storedPath(for: $0.folder) }
     }
 
+    /// The folder a book that has no files yet would be filed in if it were given these
+    /// as its first files (`importItems` into such a book): planned from its details
+    /// with what they lack taken from the files, exactly as the import does. Nil when
+    /// it could not be filed: neither the book nor the files name an author, say.
+    ///
+    /// The audio and ebook files are opened to read their tags. Nothing is changed.
+    public func plannedFolder(for metadata: BookMetadata, firstFiles: [CandidateFile]) -> String? {
+        let files = firstFiles.compactMap { file in
+            FileFormat(url: file.url).map { workingFile(at: file.url, format: $0, role: file.role) }
+        }
+        return plannedFolder(for: Self.filledIn(metadata, from: files))
+    }
+
     // MARK: Putting a missing file back
 
     /// Puts a missing file back: `chosen` is moved (or, for a file kept outside the

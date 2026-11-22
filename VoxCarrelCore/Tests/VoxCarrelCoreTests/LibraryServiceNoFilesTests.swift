@@ -577,6 +577,28 @@ import VoxCarrelFixtures
         #expect(f.service.covers.image(for: id)?.data == F.jpeg.data)
     }
 
+    // X9: the folder can be asked for beforehand, and is the one the import then uses.
+    @Test func X9_theFolderIsKnownBeforehand() throws {
+        let f = try F()
+        let typed = BookMetadata(title: "Typed Title")
+        let id = try addAudible(f, typed, cover: nil, copy: Self.byHand)
+        let rich = Self.rich("Something Else", "File Author")
+        let audio = try f.makeM4B("typed.m4b", tags: rich)
+        let bytes = try f.bytes(audio)
+        let candidate = f.candidate([audio], rich)
+
+        #expect(f.service.plannedFolder(for: typed) == nil)
+        let planned = f.service.plannedFolder(for: typed, firstFiles: candidate.files)
+        #expect(planned == "File Author/The Series/2 - Typed Title")
+        #expect(f.service.plannedFolder(for: typed, firstFiles: []) == nil)
+        // Asking changes nothing.
+        #expect(try f.bytes(audio) == bytes)
+        #expect(f.libraryTree().isEmpty)
+
+        #expect(try f.importedId(try importInto(f, id, [audio], tags: rich)) == id)
+        #expect(try f.store.book(id: id)?.folderPath == planned)
+    }
+
     // X9: a series number is only taken from a file that names the book's own series.
     @Test func X9_aSeriesNumberComesOnlyWithItsSeries() throws {
         let f = try F()
