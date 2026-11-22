@@ -74,6 +74,10 @@ public enum UserMessage {
             joined([
                 "That file could not be used in place of the missing one, so nothing was changed.", sentence(reason),
             ])
+        case .wouldLeaveNothing:
+            "That book has no files, so it must stay marked as owned somewhere. Remove it instead."
+        case .invalidDetails(let reason):
+            sentence(reason)
         }
     }
 

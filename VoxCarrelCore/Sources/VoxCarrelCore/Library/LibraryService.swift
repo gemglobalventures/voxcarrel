@@ -59,21 +59,15 @@ public final class LibraryService {
         BookScanner(reader: metadataIO).scan(urls)
     }
 
-    /// The library book a candidate most likely belongs to: same title and first
-    /// author, ignoring case and surrounding spaces. Nil when either is missing.
+    /// The library book a candidate most likely belongs to: `existingMatch(for:)` for the
+    /// candidate's details. So a candidate without an ASIN is matched by title and first
+    /// author, ignoring case and surrounding spaces; one whose tags carry an ASIN finds
+    /// the book with that Audible ID even if its title differs.
     ///
     /// Of several matches the earliest added is returned. Books flagged as needing
     /// attention are never matched.
     public func existingMatch(for candidate: CandidateBook) throws -> Book? {
-        func key(_ text: String?) -> String {
-            (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        }
-        let title = key(candidate.metadata.title)
-        let author = key(candidate.metadata.authors.first)
-        guard !title.isEmpty, !author.isEmpty else { return nil }
-        return try store.books(needsAttention: false)
-            .filter { key($0.title) == title && key($0.authors.first) == author }
-            .min { ($0.dateAdded, $0.id ?? .max) < ($1.dateAdded, $1.id ?? .max) }
+        try existingMatch(for: candidate.metadata)
     }
 
     // MARK: Files of a book during an operation
@@ -493,6 +487,9 @@ public final class LibraryService {
                 return "The change could not be saved (\(cause)), and some files could not be put back: "
                     + stranded.joined(separator: "; ")
             case .cannotLocate(let reason): return "The file could not be put back: \(reason)"
+            case .wouldLeaveNothing:
+                return "That book has no files, so it must stay marked as owned somewhere"
+            case .invalidDetails(let reason): return reason
             }
         default:
             return error.localizedDescription

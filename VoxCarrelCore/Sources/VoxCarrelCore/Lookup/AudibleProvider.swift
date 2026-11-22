@@ -36,6 +36,40 @@ public enum AudibleStore: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// The store's website, as against `host`, which answers catalogue requests.
+    public var webHost: String {
+        switch self {
+        case .us: "www.audible.com"
+        case .uk: "www.audible.co.uk"
+        case .au: "www.audible.com.au"
+        case .ca: "www.audible.ca"
+        case .de: "www.audible.de"
+        case .fr: "www.audible.fr"
+        case .it: "www.audible.it"
+        case .es: "www.audible.es"
+        case .jp: "www.audible.co.jp"
+        case .in: "www.audible.in"
+        case .br: "www.audible.com.br"
+        }
+    }
+
+    /// The book's page on this store's website, or a search there for its title and
+    /// author when there is no usable ASIN. Always `https`, always this store's own host:
+    /// only a well-formed ASIN reaches the path, and the search words are percent-encoded
+    /// by the lookup's encoder, so nothing in them can change the address's shape.
+    /// With nothing to search for, the store's front page.
+    public func webAddress(asin: String?, title: String, author: String) -> URL {
+        let home = URL(string: "https://\(webHost)/")!
+        if let asin = asin.flatMap(AudibleProvider.asin) {
+            return LookupRequest.url(host: webHost, path: "/pd/\(asin)", query: []) ?? home
+        }
+        let words = [title, author]
+            .compactMap { LookupText.cleaned($0, limit: LookupText.nameLimit) }
+            .joined(separator: " ")
+        guard !words.isEmpty else { return home }
+        return LookupRequest.url(host: webHost, path: "/search", query: [("keywords", words)]) ?? home
+    }
+
     /// The store for a region code such as "GB" or "AU"; `.us` when there is none.
     public static func forRegion(_ code: String?) -> AudibleStore {
         switch code?.lookupTrimmed.uppercased() {

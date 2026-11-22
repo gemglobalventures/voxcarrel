@@ -108,6 +108,13 @@ public struct ReconcileReport: Equatable, Sendable {
     }
 }
 
+/// What became of a book added as owned elsewhere (`LibraryService.addExternalBook`).
+public enum ExternalBookOutcome: Equatable, Sendable {
+    case added(bookId: Int64)
+    /// The library already had this book; it now carries the copy too.
+    case markedExisting(bookId: Int64)
+}
+
 public enum LibraryError: Error, Equatable {
     case bookNotFound(Int64)
     case fileNotFound(Int64)
@@ -125,4 +132,10 @@ public enum LibraryError: Error, Equatable {
     /// A missing file could not be replaced by the chosen one. The text says why.
     /// Nothing was changed.
     case cannotLocate(String)
+    /// A book with no files must be owned somewhere: the change would leave an empty entry.
+    /// Nothing was changed.
+    case wouldLeaveNothing
+    /// The details given for a book cannot be used. The text says why, in plain words.
+    /// Nothing was changed.
+    case invalidDetails(String)
 }

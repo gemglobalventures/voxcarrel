@@ -178,6 +178,20 @@ public final class LibraryStore: Sendable {
         try dbQueue.read { db in try Book.fetchOne(db, key: id) }
     }
 
+    /// Changes one book in a single transaction: `change` is given the book as it is and
+    /// how many files it has, and what it leaves is saved. If it throws, nothing is changed.
+    /// - Throws: `LibraryError.bookNotFound` when no book has the id.
+    @discardableResult
+    func modifyBook(id: Int64, _ change: (inout Book, _ fileCount: Int) throws -> Void) throws -> Book {
+        try dbQueue.write { db in
+            guard var book = try Book.fetchOne(db, key: id) else { throw LibraryError.bookNotFound(id) }
+            let fileCount = try BookFile.filter(Column("bookId") == id).fetchCount(db)
+            try change(&book, fileCount)
+            try book.update(db)
+            return book
+        }
+    }
+
     /// Sets the read status of several books in one transaction, keeping each book's
     /// dates consistent (`Book.setReadStatus`). Ids that are not in the database are ignored.
     public func setReadStatus(_ status: ReadStatus, for bookIds: [Int64], on date: Date = Date()) throws {

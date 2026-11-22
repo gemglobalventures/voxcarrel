@@ -45,6 +45,78 @@ import Testing
         #expect(AudibleStore.forRegion("") == .us)
         #expect(AudibleStore.forRegion("ZA") == .us)
     }
+
+    // X14
+    @Test func X14_webHosts() {
+        let expected: [(AudibleStore, String)] = [
+            (.us, "www.audible.com"), (.uk, "www.audible.co.uk"), (.au, "www.audible.com.au"),
+            (.ca, "www.audible.ca"), (.de, "www.audible.de"), (.fr, "www.audible.fr"),
+            (.it, "www.audible.it"), (.es, "www.audible.es"), (.jp, "www.audible.co.jp"),
+            (.in, "www.audible.in"), (.br, "www.audible.com.br"),
+        ]
+        #expect(expected.map(\.0) == AudibleStore.allCases)
+        for (store, host) in expected {
+            #expect(store.webHost == host)
+        }
+    }
+
+    // X14: a well-formed ASIN gives the book's own page.
+    @Test func X14_aBooksPage() {
+        #expect(AudibleStore.uk.webAddress(asin: "B08G9PRS1K", title: "Project Hail Mary", author: "Andy Weir")
+            .absoluteString == "https://www.audible.co.uk/pd/B08G9PRS1K")
+        // Tidied as the lookup tidies it: trimmed and upper-cased.
+        #expect(AudibleStore.us.webAddress(asin: " b08g9prs1k ", title: "", author: "")
+            .absoluteString == "https://www.audible.com/pd/B08G9PRS1K")
+        #expect(AudibleStore.de.webAddress(asin: "1234567890", title: "x", author: "y")
+            .absoluteString == "https://www.audible.de/pd/1234567890")
+    }
+
+    // X14: anything else is searched for by title and author, and never reaches the path.
+    @Test func X14_aSearchWhenThereIsNoUsableASIN() {
+        #expect(AudibleStore.uk.webAddress(asin: nil, title: "Project Hail Mary", author: "Andy Weir")
+            .absoluteString == "https://www.audible.co.uk/search?keywords=Project%20Hail%20Mary%20Andy%20Weir")
+        for bad in ["", "   ", "B08G9PRS1", "B08G9PRS1K1", "B08G9/RS1K", "../../etc/x", "B08G9PRS1é", "B08G9 RS1K"] {
+            let url = AudibleStore.au.webAddress(asin: bad, title: "Dune", author: "Frank Herbert")
+            #expect(url.absoluteString == "https://www.audible.com.au/search?keywords=Dune%20Frank%20Herbert")
+        }
+        // Either part alone, trimmed.
+        #expect(AudibleStore.us.webAddress(asin: nil, title: "  Dune ", author: " ")
+            .absoluteString == "https://www.audible.com/search?keywords=Dune")
+        #expect(AudibleStore.us.webAddress(asin: nil, title: "", author: "Frank Herbert")
+            .absoluteString == "https://www.audible.com/search?keywords=Frank%20Herbert")
+    }
+
+    // X14: whatever the title holds, the address keeps its shape, its scheme and its host.
+    @Test func X14_theAddressCannotBeBentByTheText() throws {
+        let title = "Tom & Jerry: 100% #1 + more? /a=b@evil.example.com/ “Größe”"
+        let url = AudibleStore.fr.webAddress(asin: nil, title: title, author: "A&B=C")
+        #expect(url.scheme == "https")
+        #expect(url.host == "www.audible.fr")
+        #expect(url.path == "/search")
+        #expect(url.fragment == nil)
+        #expect(url.user == nil)
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(items == [URLQueryItem(name: "keywords", value: "\(title) A&B=C")])
+        // Encoded by the lookup's encoder: nothing but unreserved characters and escapes.
+        let query = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+        #expect(query.dropFirst("keywords=".count).allSatisfy {
+            $0.isASCII && ($0.isLetter || $0.isNumber || "-._~,%".contains($0))
+        })
+
+        for store in AudibleStore.allCases {
+            for asin in [nil, "B08G9PRS1K", "nonsense"] as [String?] {
+                let address = store.webAddress(asin: asin, title: title, author: "x")
+                #expect(address.scheme == "https")
+                #expect(address.host == store.webHost)
+            }
+        }
+    }
+
+    // X14: with nothing to look for, the store's own front page.
+    @Test func X14_nothingToSearchFor() {
+        #expect(AudibleStore.uk.webAddress(asin: nil, title: " ", author: "").absoluteString
+            == "https://www.audible.co.uk/")
+    }
 }
 
 @Suite struct AudibleProviderTests {
