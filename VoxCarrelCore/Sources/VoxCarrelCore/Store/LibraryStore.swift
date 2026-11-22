@@ -141,6 +141,29 @@ public final class LibraryStore: Sendable {
                 t.add(column: "partsAppearMissing", .boolean).notNull().defaults(to: false)
             }
         }
+        migrator.registerMigration("v8") { db in
+            // Folders watched for books that arrive. Paths are this Mac's.
+            try db.create(table: "watchFolder") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("path", .text).notNull().unique()
+                t.column("mode", .text).notNull()
+                t.column("isEnabled", .boolean).notNull()
+                t.column("includesPDFs", .boolean).notNull()
+                t.column("addedAt", .double).notNull()
+            }
+            // The ledger: files under a watch folder that are not to be offered.
+            try db.create(table: "inboxEntry") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("folderId", .integer).notNull()
+                    .references("watchFolder", onDelete: .cascade)
+                t.column("path", .text).notNull()
+                t.column("size", .integer).notNull()
+                t.column("modifiedAt", .double).notNull()
+                t.column("state", .text).notNull()
+                    .check { ["baseline", "dismissed", "imported"].contains($0) }
+                t.uniqueKey(["folderId", "path"])
+            }
+        }
         return migrator
     }
 
@@ -567,6 +590,86 @@ extension LibraryStore {
     public func deleteBatch(id: Int64) throws {
         try dbQueue.write { db in
             try db.execute(sql: "DELETE FROM operationBatch WHERE id = ?", arguments: [id])
+        }
+    }
+}
+
+// MARK: Watch folders and the inbox ledger
+
+extension LibraryStore {
+    /// Every watch folder, oldest first.
+    func watchFolders() throws -> [WatchFolder] {
+        try dbQueue.read { db in try Self.watchFolders(db) }
+    }
+
+    static func watchFolders(_ db: Database) throws -> [WatchFolder] {
+        try WatchFolderRecord.order(Column("addedAt"), Column("id")).fetchAll(db).compactMap(\.folder)
+    }
+
+    /// Stores a new watch folder and its baseline in one transaction. `check` is given
+    /// the folders already stored, inside that transaction; if it throws, nothing is stored.
+    func insertWatchFolder(
+        path: String, addedAt: Date, baseline: [ListedFile], check: ([WatchFolder]) throws -> Void
+    ) throws -> WatchFolder {
+        try dbQueue.write { db in
+            try check(try Self.watchFolders(db))
+            var record = WatchFolderRecord(
+                id: nil, path: path, mode: .move, isEnabled: true, includesPDFs: false, addedAt: addedAt)
+            try record.insert(db)
+            guard let folder = record.folder else { throw WatchFolderError.notFound(0) }
+            try Self.insertInboxEntries(db, baseline, state: .baseline, folderId: folder.id)
+            return folder
+        }
+    }
+
+    /// Changes a watch folder's mode, whether it is enabled and whether PDFs count.
+    /// - Throws: `WatchFolderError.notFound` when no folder has the id.
+    func updateWatchFolderSettings(_ folder: WatchFolder) throws {
+        try dbQueue.write { db in
+            guard var record = try WatchFolderRecord.fetchOne(db, key: folder.id) else {
+                throw WatchFolderError.notFound(folder.id)
+            }
+            record.mode = folder.mode
+            record.isEnabled = folder.isEnabled
+            record.includesPDFs = folder.includesPDFs
+            try record.update(db)
+        }
+    }
+
+    /// Deletes a watch folder; its ledger entries go with it by cascade.
+    func deleteWatchFolder(id: Int64) throws {
+        _ = try dbQueue.write { db in try WatchFolderRecord.deleteOne(db, key: id) }
+    }
+
+    /// A watch folder's ledger entries, in the order they were recorded.
+    func inboxEntries(folderId: Int64) throws -> [InboxEntryRecord] {
+        try dbQueue.read { db in
+            try InboxEntryRecord.filter(Column("folderId") == folderId).order(Column("id")).fetchAll(db)
+        }
+    }
+
+    /// Records files of a watch folder in the ledger, as they are now.
+    func recordInboxEntries(_ files: [ListedFile], state: InboxEntryState, folderId: Int64) throws {
+        try dbQueue.write { db in try Self.insertInboxEntries(db, files, state: state, folderId: folderId) }
+    }
+
+    static func insertInboxEntries(
+        _ db: Database, _ files: [ListedFile], state: InboxEntryState, folderId: Int64
+    ) throws {
+        for file in files {
+            var entry = InboxEntryRecord(
+                id: nil, folderId: folderId, path: file.url.path, size: file.size,
+                modifiedAt: file.modifiedAt, state: state)
+            try entry.insert(db)
+        }
+    }
+
+    /// Deletes a watch folder's ledger entries of one state.
+    func deleteInboxEntries(folderId: Int64, state: InboxEntryState) throws {
+        try dbQueue.write { db in
+            _ = try InboxEntryRecord
+                .filter(Column("folderId") == folderId && Column("state") == state.rawValue)
+                .deleteAll(db)
         }
     }
 }

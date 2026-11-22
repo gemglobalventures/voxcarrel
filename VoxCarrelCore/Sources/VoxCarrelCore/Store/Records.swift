@@ -424,3 +424,67 @@ public enum BrowseField: String, Sendable, CaseIterable {
         self == .authors || self == .narrators
     }
 }
+
+/// A watch folder as it is stored. Dates in this table and in the ledger are kept as
+/// numbers, so that they come back exactly as they went in.
+struct WatchFolderRecord: Codable, Equatable, Sendable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "watchFolder"
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+
+    var id: Int64?
+    var path: String
+    var mode: WatchFolderMode
+    var isEnabled: Bool
+    var includesPDFs: Bool
+    var addedAt: Date
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+
+    /// The folder this row describes; nil for a row not yet stored.
+    var folder: WatchFolder? {
+        guard let id else { return nil }
+        return WatchFolder(
+            id: id, path: path, mode: mode, isEnabled: isEnabled, includesPDFs: includesPDFs, addedAt: addedAt)
+    }
+}
+
+/// Why a file under a watch folder is not offered in the inbox.
+enum InboxEntryState: String, Codable, Sendable {
+    /// It was there when the folder was added.
+    case baseline
+    /// The owner dismissed it.
+    case dismissed
+    /// It was imported and left where it was.
+    case imported
+}
+
+/// One line of the inbox ledger: a file not to offer, as it was when that was decided.
+/// A file whose size or modification date has changed since is a different file.
+struct InboxEntryRecord: Codable, Equatable, Sendable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "inboxEntry"
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+
+    var id: Int64?
+    var folderId: Int64
+    /// Absolute, as the folder's listing spelled it.
+    var path: String
+    var size: Int64
+    var modifiedAt: Date
+    var state: InboxEntryState
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
