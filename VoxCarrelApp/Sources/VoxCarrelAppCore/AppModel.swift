@@ -696,7 +696,12 @@ public final class AppModel {
     /// The import being reviewed; not nil shows the sheet. Changed through
     /// `updateReview`, closed by `confirmImport` or `cancelImport`.
     public internal(set) var review: ImportReview? {
-        didSet { closeLookupIfItsTargetHasGone() }
+        didSet {
+            // An import to review takes the window: a lookup for the inspected book
+            // closes, with nothing applied, so that the import's books can be looked up.
+            if oldValue == nil, review != nil, case .book = lookup?.target { closeLookup() }
+            closeLookupIfItsTargetHasGone()
+        }
     }
     /// Whether the review began as a copy, to tell a choice the user made from the setting it began with.
     @ObservationIgnored var reviewBeganCopying = false
@@ -808,6 +813,8 @@ public final class AppModel {
             storedAudibleStore = newValue
             defaults.set(newValue.rawValue, forKey: Keys.audibleStore)
             worker?.setLookupService(makeLookupService(newValue))
+            // What an open lookup shows came from the store as it was.
+            lookup?.sourcesChanged()
         }
     }
 
@@ -824,6 +831,8 @@ public final class AppModel {
     /// V6: the covers of the open lookup's results, by address, and those on their way.
     @ObservationIgnored var lookupThumbnails: [URL: Data] = [:]
     @ObservationIgnored var lookupThumbnailLoads: [URL: Task<Data?, Never>] = [:]
+    /// The requests for more about a result that are on their way, by the result's id.
+    @ObservationIgnored var lookupDetailLoads: [String: Task<Void, Never>] = [:]
 
     // MARK: Work in the background
 

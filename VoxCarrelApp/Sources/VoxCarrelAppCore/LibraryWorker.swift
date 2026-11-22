@@ -56,6 +56,11 @@ public actor LibraryWorker {
         try await lookup.withLock { $0 }.cover(for: candidate)
     }
 
+    /// The smaller picture of the candidate's cover, for its row in the results.
+    public nonisolated func lookupThumbnail(for candidate: LookupCandidate) async throws -> CoverImage {
+        try await lookup.withLock { $0 }.thumbnail(for: candidate)
+    }
+
     // MARK: Reading
 
     /// The item's books in the store's order (by title), narrowed to those that match

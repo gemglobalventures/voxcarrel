@@ -37,9 +37,21 @@ public struct LookupSession: Equatable, Sendable {
         public var ticked: Bool
     }
 
+    /// What one source made of the last search: how many it found, or why it gave no answer.
+    public struct SourceOutcome: Equatable, Sendable {
+        public var source: LookupSource
+        /// How many of the results are this source's; 0 when it failed.
+        public var found: Int
+        /// Nil when the source answered.
+        public var failure: LookupError?
+    }
+
     public let target: Target
     /// The book's details when the lookup began: what found values are compared with.
     public let current: BookMetadata
+    /// Text in the book's fields that `current` could not hold when the lookup began (a
+    /// year that is not a year): it is what is there, and is not written over unasked.
+    public let typed: [MetadataField: String]
     public let hasCover: Bool
     public let hasAudio: Bool
 
@@ -59,11 +71,20 @@ public struct LookupSession: Equatable, Sendable {
     public private(set) var selectedId: String?
     /// For the selected candidate.
     public private(set) var offers: [Offer] = []
+    /// What each source that was asked made of the last finished search, in the order
+    /// they were asked; empty until a search has finished, and while another runs.
+    public private(set) var outcomes: [SourceOutcome] = []
+    /// The query the results shown are the answer to; nil when there are none, or when
+    /// they are no longer what a search now would find.
+    public private(set) var answeredQuery: LookupQuery?
 
     /// K1
-    public init(target: Target, current: BookMetadata, hasCover: Bool, hasAudio: Bool) {
+    public init(
+        target: Target, current: BookMetadata, hasCover: Bool, hasAudio: Bool, typed: [MetadataField: String] = [:]
+    ) {
         self.target = target
         self.current = current
+        self.typed = typed.compactMapValues(\.trimmedOrNil)
         self.hasCover = hasCover
         self.hasAudio = hasAudio
         query = LookupQuery(
@@ -96,6 +117,21 @@ public struct LookupSession: Equatable, Sendable {
         failureText = nil
         selectedId = nil
         offers = []
+        outcomes = []
+        answeredQuery = nil
+    }
+
+    /// True when the results shown are every source's answer to the query as it is now:
+    /// searching again would only ask the same thing, and lose the ticks.
+    public var isAnswered: Bool {
+        phase == .results && answeredQuery == query && failureText == nil
+    }
+
+    /// The sources are not the ones the results came from (another Audible store):
+    /// the same query may be searched for again.
+    public mutating func sourcesChanged() {
+        answeredQuery = nil
+        outcomes = []
     }
 
     /// K2: the answer to a search for `query`. Ignored when the query has changed since.
@@ -109,6 +145,10 @@ public struct LookupSession: Equatable, Sendable {
             results.failures[source].map { UserMessage.text(for: $0, source: source) }
         }
         failureText = sentences.isEmpty ? nil : sentences.joined(separator: " ")
+        outcomes = results.searched.map {
+            SourceOutcome(source: $0, found: results.found[$0] ?? 0, failure: results.failures[$0])
+        }
+        answeredQuery = query
         selectedId = candidates.first?.id
         offers = defaultOffers()
     }
@@ -240,7 +280,8 @@ public struct LookupSession: Equatable, Sendable {
         let found = candidate.metadata
         func text(_ theirs: String?, _ ours: String?) -> Offer? {
             guard let theirs = theirs?.trimmedOrNil else { return nil }
-            let ours = ours?.trimmed ?? ""
+            // What is typed in the field, when that is not what the details could hold.
+            let ours = typed[field] ?? ours?.trimmed ?? ""
             guard theirs != ours else { return nil }
             return Offer(id: field, label: Self.label(field), current: ours, found: theirs, ticked: ours.isEmpty)
         }

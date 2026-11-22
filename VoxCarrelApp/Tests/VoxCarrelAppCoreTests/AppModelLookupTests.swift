@@ -438,6 +438,7 @@ import VoxCarrelFixtures
         #expect(h.model.lookup?.candidates.map(\.id) == [english.id, french.id, saltRoadOnOpenLibrary().id])
 
         h.model.lookupLanguage = "fr"
+        h.model.updateLookupQuery { $0.author = "Calloway" }
         await h.model.searchLookup()
         #expect(h.model.lookup?.candidates.map(\.id) == [french.id, english.id, saltRoadOnOpenLibrary().id])
 
@@ -720,6 +721,9 @@ import VoxCarrelFixtures
         #expect(before.existingMatch?.title == "Quiet Rivers")
         #expect(before.isAddedToExisting)
         h.lookup.find(.openLibrary, [foundBook(.openLibrary, "/works/OL9W", title: "Loud Rivers", authors: ["Amara Okafor"])])
+        // To be a book of its own: only then can it be looked up.
+        h.model.updateReview { $0.update(before.id) { $0.addToExisting = false } }
+        await h.model.settle()
 
         h.model.beginLookup(forEntry: before.id)
         await h.model.settle()
@@ -1078,6 +1082,8 @@ import VoxCarrelFixtures
         let id = try entry(h, "Quiet Rivers").id
         let source = try #require(try entry(h, "Quiet Rivers").candidate.files.first?.url)
         let sourceData = try Data(contentsOf: source)
+        h.model.updateReview { $0.update(id) { $0.addToExisting = false } }
+        await h.model.settle()
 
         h.model.beginLookup(forEntry: id)
         await h.model.settle()
@@ -1090,6 +1096,307 @@ import VoxCarrelFixtures
         #expect(try Data(contentsOf: source) == sourceData)
         #expect(h.model.undoLabel == Harness.demoUndoLabel)
         #expect(h.model.rows.count == 12)
+    }
+
+    // MARK: Return, and searching again
+
+    /// A3: searching again for what has just been answered asks nothing and keeps the
+    /// selection and the ticks; a changed query, or another store, is searched.
+    @Test func A3_searchingAgainForTheSameThingDoesNothing() async throws {
+        let other = foundBook(.audible, "us:B0OTHER000", title: "Salt Road", authors: ["Ines Calloway"])
+        let (h, _) = try await lookedUp([saltRoadOnAudible(), other])
+        await h.model.selectLookupCandidate(other.id)
+        await h.model.selectLookupCandidate(saltRoadOnAudible().id)
+        h.model.setLookupTicked(true, for: .narrators)
+        h.model.setLookupTicked(false, for: .publisher)
+        let before = try #require(h.model.lookup)
+        let asked = h.lookup.asked.count
+        #expect(!before.canSearch)
+
+        await h.model.searchLookup()
+        #expect(h.model.lookup == before)
+        #expect(h.lookup.asked.count == asked)
+
+        // Typing something and taking it back is still the same query.
+        h.model.updateLookupQuery { $0.author = "x" }
+        h.model.updateLookupQuery { $0.author = before.query.author }
+        await h.model.searchLookup()
+        #expect(h.model.lookup == before)
+        #expect(h.lookup.asked.count == asked)
+
+        h.model.updateLookupQuery { $0.author = "" }
+        #expect(h.model.lookup?.canSearch == true)
+        await h.model.searchLookup()
+        #expect(h.lookup.asked.count == asked + 2)
+        #expect(h.model.lookup?.query.author == "")
+
+        // Another store's catalogue is another answer.
+        #expect(h.model.lookup?.canSearch == false)
+        h.model.audibleStore = h.model.audibleStore == .de ? .fr : .de
+        #expect(h.model.lookup?.canSearch == true)
+        await h.model.searchLookup()
+        #expect(h.lookup.asked.count == asked + 4)
+    }
+
+    /// A3: a search that found nothing, or that a source did not answer, can be made again as it is.
+    @Test func A3_aSearchThatFellShortCanBeMadeAgain() async throws {
+        let h = try await Harness.demo()
+        try await h.select("Salt Road")
+        h.model.beginLookup()
+        await h.model.settle()
+        #expect(h.model.lookup?.phase == .noResults)
+        #expect(h.lookup.asked.count == 2)
+        await h.model.searchLookup()
+        #expect(h.lookup.asked.count == 4)
+
+        h.lookup.find(.audible, [saltRoadOnAudible()])
+        h.lookup.fail(.openLibrary, .notReachable)
+        await h.model.searchLookup()
+        #expect(h.model.lookup?.phase == .results)
+        #expect(h.lookup.asked.count == 6)
+        await h.model.searchLookup()
+        #expect(h.lookup.asked.count == 8)
+    }
+
+    // MARK: What each source found, in words
+
+    /// What each source made of the search is said once it has finished.
+    @Test func theSourcesSayWhatTheyFound() async throws {
+        let other = foundBook(.audible, "us:B0OTHER000", title: "Salt Road", authors: ["Ines Calloway"])
+        let h = try await Harness.demo()
+        h.model.audibleStore = .us
+        let gate = Gate()
+        h.lookup.hold(.audible, at: gate, then: [saltRoadOnAudible(), other])
+        try await h.select("Salt Road")
+        h.model.beginLookup()
+        await gate.arrival()
+        // Still searching: only where from.
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United States)")
+        await gate.release()
+        await h.model.settle()
+        #expect(h.model.lookupSourcesText == "Open Library: no matches · Audible (United States): 2 matches")
+
+        h.lookup.find(.audible, [saltRoadOnAudible()])
+        h.lookup.fail(.openLibrary, .notReachable)
+        h.model.updateLookupQuery { $0.author = "" }
+        await h.model.searchLookup()
+        #expect(h.model.lookupSourcesText == "Open Library: could not be reached · Audible (United States): 1 match")
+
+        h.lookup.fail(.openLibrary, .refused(status: 500))
+        h.lookup.fail(.audible, .unreadable)
+        await h.model.searchLookup()
+        #expect(h.model.lookupSourcesText
+            == "Open Library: answered with an error · Audible (United States): sent an answer VoxCarrel could not read")
+
+        // Another store: what was found is no longer that store's.
+        h.model.audibleStore = .uk
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United Kingdom)")
+        h.model.cancelLookup()
+        #expect(h.model.lookupSourcesText == "Results from Open Library and Audible (United Kingdom)")
+    }
+
+    // MARK: An import arriving, and entries that join a book
+
+    /// An import to review closes a lookup for the inspected book, with nothing applied,
+    /// and its entries can then be looked up.
+    @Test func anImportToReviewClosesTheInspectorsLookup() async throws {
+        let (h, _) = try await lookedUp([saltRoadOnAudible()])
+        #expect(h.model.lookup != nil)
+        let inbox = try Harness.inbox()
+        await h.model.openFiles([inbox.appendingPathComponent("Tidewater Chronicles")])
+        await h.model.settle()
+        let review = try #require(h.model.review)
+        #expect(h.model.lookup == nil)
+        #expect(!h.model.hasUnsavedChanges)
+        // The demo library has these books already: one is made a book of its own.
+        let free = try #require(review.entries.first)
+        h.model.updateReview { $0.update(free.id) { $0.addToExisting = false } }
+        #expect(h.model.canLookUpEntry(free.id))
+        h.model.beginLookup(forEntry: free.id)
+        #expect(h.model.importLookup != nil)
+        // A change to the review does not close the entry's own lookup.
+        h.model.updateReview { $0.copyInsteadOfMove.toggle() }
+        #expect(h.model.importLookup != nil)
+    }
+
+    /// An entry whose files join a book already in the library keeps that book's
+    /// details: it is not looked up until it is to be a book of its own.
+    @Test func anEntryThatJoinsABookIsNotLookedUp() async throws {
+        let h = try await reviewing(["Quiet Rivers.epub"], demo: true)
+        let joined = try entry(h, "Quiet Rivers")
+        #expect(joined.isAddedToExisting)
+        #expect(!h.model.canLookUpEntry(joined.id))
+        #expect(h.model.lookUpHelp(forEntry: joined.id).contains("Switch off “Add to the existing book”"))
+        h.model.beginLookup(forEntry: joined.id)
+        #expect(h.model.lookup == nil)
+        #expect(h.lookup.asked.isEmpty)
+
+        h.model.updateReview { $0.update(joined.id) { $0.addToExisting = false } }
+        #expect(h.model.canLookUpEntry(joined.id))
+        #expect(h.model.lookUpHelp(forEntry: joined.id) == h.model.lookUpHelp)
+        h.model.beginLookup(forEntry: joined.id)
+        #expect(h.model.importLookup != nil)
+    }
+
+    // MARK: More about a result
+
+    /// Changing the query while more about the selected result is on its way does not lose it.
+    @Test func A3_editingTheQueryDoesNotLoseTheDetails() async throws {
+        let h = try await Harness.demo()
+        let gate = Gate()
+        h.lookup.find(.openLibrary, [saltRoadOnOpenLibrary()])
+        h.lookup.details { candidate in
+            await gate.wait()
+            // What a real request does when its task is cancelled.
+            try Task.checkCancellation()
+            var detailed = candidate
+            detailed.metadata.summary = "From Open Library."
+            detailed.hasMoreDetails = false
+            return detailed
+        }
+        try await h.select("Salt Road")
+        h.model.beginLookup()
+        await gate.arrival()
+        #expect(h.model.lookup?.phase == .results)
+
+        h.model.updateLookupQuery { $0.author = "" }
+        await gate.release()
+        await h.model.settle()
+        #expect(h.model.lookup?.selected?.metadata.summary == "From Open Library.")
+        #expect(h.model.lookup?.offers.contains { $0.id == .summary } == true)
+        #expect(h.lookup.detailsAsked.count == 1)
+    }
+
+    /// More that could not be fetched is asked for again when the result is next selected,
+    /// and is asked for once however often it is selected meanwhile.
+    @Test func A3_detailsThatFailedAreAskedForAgain() async throws {
+        let h = try await Harness.demo()
+        let other = foundBook(.openLibrary, "/works/OL2W", title: "Salt Road", authors: ["Ines Calloway"])
+        h.lookup.find(.openLibrary, [saltRoadOnOpenLibrary(), other])
+        h.lookup.details { _ in throw LookupError.notReachable }
+        try await h.select("Salt Road")
+        h.model.beginLookup()
+        await h.model.settle()
+        #expect(h.lookup.detailsAsked == [saltRoadOnOpenLibrary().id])
+        #expect(h.model.lookup?.offers.contains { $0.id == .summary } == false)
+
+        let gate = Gate()
+        h.lookup.details { candidate in
+            await gate.wait()
+            var detailed = candidate
+            detailed.metadata.summary = "From Open Library."
+            detailed.hasMoreDetails = false
+            return detailed
+        }
+        await h.model.selectLookupCandidate(other.id)
+        async let first: Void = h.model.selectLookupCandidate(saltRoadOnOpenLibrary().id)
+        await gate.arrival()
+        async let second: Void = h.model.selectLookupCandidate(saltRoadOnOpenLibrary().id)
+        await gate.release()
+        _ = await (first, second)
+        await h.model.settle()
+        #expect(h.lookup.detailsAsked == [saltRoadOnOpenLibrary().id, saltRoadOnOpenLibrary().id])
+        #expect(h.model.lookup?.offers.contains { $0.id == .summary } == true)
+
+        // Closing takes what is on its way with it.
+        h.model.cancelLookup()
+        #expect(h.model.lookupDetailLoads.isEmpty)
+    }
+
+    // MARK: The row's picture and the cover
+
+    private func withBothPictures() -> LookupCandidate {
+        foundBook(.audible, "us:B0SALTROAD", title: "Salt Road", authors: ["Ines Calloway"], cover: true, thumbnail: true)
+    }
+
+    /// The row shows the smaller picture; Apply fetches the cover itself.
+    @Test func V6_theRowsPictureIsTheSmallerOne() async throws {
+        let jpeg = MediaFixtures.makeImage(.jpeg)
+        let candidate = withBothPictures()
+        let (h, id) = try await lookedUp([candidate])
+        let png = png
+        h.lookup.cover { url in (url == candidate.thumbnailURL ? jpeg : png, 200) }
+        #expect(await h.model.lookupThumbnail(for: candidate) == jpeg)
+        #expect(h.lookup.coverURLs == [try #require(candidate.thumbnailURL)])
+        #expect(h.model.cachedLookupThumbnail(for: candidate) == jpeg)
+
+        h.model.setLookupTicked(true, for: .cover)
+        await h.model.applyLookup()
+        #expect(h.lookup.coverURLs == [try #require(candidate.thumbnailURL), try #require(candidate.coverURL)])
+        #expect(h.model.draftCover == .chosen(png))
+        #expect(h.model.alert == nil)
+        _ = id
+    }
+
+    /// When the row's picture is the cover itself it is not fetched a second time.
+    @Test func A4_aCoverAlreadyFetchedForItsRowIsNotFetchedAgain() async throws {
+        let candidate = saltRoadOnAudible()
+        #expect(candidate.thumbnailURL == nil)
+        let (h, _) = try await lookedUp([candidate])
+        h.lookup.cover(png)
+        #expect(await h.model.lookupThumbnail(for: candidate) == png)
+        h.model.setLookupTicked(true, for: .cover)
+        await h.model.applyLookup()
+        #expect(h.lookup.coverURLs.count == 1)
+        #expect(h.model.lookup == nil)
+        #expect(h.model.draftCover == .chosen(png))
+        #expect(h.model.alert == nil)
+    }
+
+    /// A cover that cannot be downloaded: the smaller picture already fetched is used, and nothing is said.
+    @Test func A4_aCoverThatFailsFallsBackToTheRowsPicture() async throws {
+        let jpeg = MediaFixtures.makeImage(.jpeg)
+        let candidate = withBothPictures()
+        let (h, _) = try await lookedUp([candidate])
+        h.lookup.cover { url in
+            guard url == candidate.thumbnailURL else { throw LookupError.notReachable }
+            return (jpeg, 200)
+        }
+        #expect(await h.model.lookupThumbnail(for: candidate) == jpeg)
+        h.model.setLookupTicked(true, for: .cover)
+        await h.model.applyLookup()
+        #expect(h.lookup.coverURLs.count == 2)
+        #expect(h.model.draftCover == .chosen(jpeg))
+        #expect(h.model.alert == nil)
+        #expect(h.model.lookup == nil)
+    }
+
+    /// With no picture fetched for the row either, the alert says so as before.
+    @Test func A4_aCoverThatFailsWithNoRowPictureIsReported() async throws {
+        let (h, _) = try await lookedUp([withBothPictures()])
+        h.model.setLookupTicked(true, for: .cover)
+        for field in h.model.lookup?.tickedFields ?? [] where field != .cover { h.model.setLookupTicked(false, for: field) }
+        await h.model.applyLookup()
+        #expect(h.model.draftCover != .chosen(png))
+        #expect(h.model.alert == "The cover could not be downloaded.")
+    }
+
+    // MARK: What is typed but is no year
+
+    /// A1, K4: a year box holding something that is no year is not written over unasked.
+    @Test func A1_aYearThatIsNotAYearIsNotWrittenOverUnasked() async throws {
+        let h = try await Harness.demo()
+        h.lookup.find(.audible, [saltRoadOnAudible()])
+        try await h.select("Salt Road")
+        h.model.updateDraft { $0.year = "19x4" }
+        h.model.beginLookup()
+        await h.model.settle()
+        let year = try #require(h.model.lookup?.offers.first { $0.id == .year })
+        #expect(year.current == "19x4")
+        #expect(year.currentText == "Now: 19x4")
+        #expect(!year.ticked)
+        await h.model.applyLookup()
+        guard case .one(_, let draft) = h.model.inspecting else {
+            Issue.record("no book inspected")
+            return
+        }
+        #expect(draft.year == "19x4")
+
+        // An empty box is a gap, filled by default.
+        h.model.updateDraft { $0.year = "" }
+        h.model.beginLookup()
+        await h.model.settle()
+        #expect(h.model.lookup?.offers.first { $0.id == .year }?.ticked == true)
     }
 
     // MARK: The worker

@@ -22,7 +22,7 @@ struct BookListView: View {
                 TableColumn("Title", value: \.titleSortKey) { row in
                     TitleCell(row: row)
                 }
-                .width(min: 152, ideal: 280)
+                .width(min: 136, ideal: 280)
                 TableColumn("Author", value: \.authorSortKey) { row in
                     TextCell(text: row.authorsText)
                 }

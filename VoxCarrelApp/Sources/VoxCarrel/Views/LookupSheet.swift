@@ -46,7 +46,7 @@ struct LookupSheet: View {
 // MARK: - What to search for
 
 /// V2: the title and the author, the book's numbers when it has them, and Search.
-/// Return in any box searches.
+/// Return in any box searches, when the model has something new to search for.
 private struct SearchBar: View {
     @Environment(AppModel.self) private var model
     let lookup: LookupSession
@@ -336,8 +336,10 @@ private struct BottomBar: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
+                // Once a search has finished this says what each source found: two lines at most.
                 Text(model.lookupSourcesText)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("lookup.sources")
                 Text(lookup.reminderText)
                     .lineLimit(1)

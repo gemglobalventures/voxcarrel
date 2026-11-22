@@ -115,7 +115,9 @@ final class FakeLookup: @unchecked Sendable {
     private struct HTTP: HTTPFetching {
         let fake: FakeLookup
 
-        func get(_ url: URL, headers: [String: String]) async throws -> (data: Data, status: Int) {
+        func get(_ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>) async throws
+            -> (data: Data, status: Int)
+        {
             let cover = fake.lock.withLock {
                 fake.recordedCovers.append(url)
                 return fake.covering
@@ -128,7 +130,7 @@ final class FakeLookup: @unchecked Sendable {
 /// A found book, for the lookup tests.
 func foundBook(
     _ source: LookupSource, _ key: String, title: String, authors: [String] = [], cover: Bool = false,
-    moreDetails: Bool = false, _ change: (inout BookMetadata) -> Void = { _ in }
+    thumbnail: Bool = false, moreDetails: Bool = false, _ change: (inout BookMetadata) -> Void = { _ in }
 ) -> LookupCandidate {
     var metadata = BookMetadata(title: title, authors: authors)
     change(&metadata)
@@ -136,5 +138,6 @@ func foundBook(
     return LookupCandidate(
         id: "\(source.rawValue):\(key)", source: source, metadata: metadata,
         coverURL: cover ? URL(string: "https://\(host)/\(key).jpg") : nil,
+        thumbnailURL: thumbnail ? URL(string: "https://\(host)/\(key)-small.jpg") : nil,
         note: source.title, hasMoreDetails: moreDetails)
 }

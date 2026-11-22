@@ -473,4 +473,63 @@ import VoxCarrelCore
         nothing.beginApplying()
         #expect(nothing.phase == .noResults)
     }
+
+    // MARK: What is typed but is not a value
+
+    /// K4: a year box holding text that is no year is not empty: the found year is offered
+    /// against what is typed, and is not ticked unasked.
+    @Test func K4_textThatIsNoValueIsNotAnEmptyField() {
+        var book = fullBook().metadata
+        book.year = nil
+        var typed = LookupSession(
+            target: .book(7), current: book, hasCover: true, hasAudio: true, typed: [.year: " 19x4 "])
+        typed.beginSearch()
+        typed.finishSearch(LookupResults(candidates: [audible()], searched: [.audible]), for: typed.query)
+        let year = typed.offers.first { $0.id == .year }
+        #expect(year?.current == "19x4")
+        #expect(year?.found == "2021")
+        #expect(year?.ticked == false)
+        #expect(!typed.tickedFields.contains(.year))
+
+        // With nothing typed it is a gap, and is filled by default.
+        let empty = session(current: book, finding: [audible()])
+        #expect(empty.offers.first { $0.id == .year }?.current == "")
+        #expect(empty.offers.first { $0.id == .year }?.ticked == true)
+        // Only space typed is nothing typed.
+        let blank = LookupSession(target: .book(7), current: book, hasCover: true, hasAudio: true, typed: [.year: "  "])
+        #expect(blank.typed.isEmpty)
+    }
+
+    // MARK: What each source made of the search
+
+    @Test func K2_outcomesSayWhatEachSourceFound() {
+        var session = LookupSession(target: .book(7), current: fullBook().metadata, hasCover: true, hasAudio: true)
+        #expect(session.outcomes.isEmpty)
+        #expect(session.answeredQuery == nil)
+        session.beginSearch()
+        session.finishSearch(
+            LookupResults(
+                candidates: [audible(), audible("B000000002")], failures: [.openLibrary: .refused(status: 500)],
+                searched: [.openLibrary, .audible], found: [.audible: 2]),
+            for: session.query)
+        #expect(session.outcomes == [
+            LookupSession.SourceOutcome(source: .openLibrary, found: 0, failure: .refused(status: 500)),
+            LookupSession.SourceOutcome(source: .audible, found: 2, failure: nil),
+        ])
+        #expect(session.answeredQuery == session.query)
+        // A source failed: not every source's answer.
+        #expect(!session.isAnswered)
+
+        session.beginSearch()
+        #expect(session.outcomes.isEmpty)
+        #expect(session.answeredQuery == nil)
+        session.finishSearch(
+            LookupResults(candidates: [audible()], searched: [.openLibrary, .audible], found: [.openLibrary: 0, .audible: 1]),
+            for: session.query)
+        #expect(session.isAnswered)
+        session.sourcesChanged()
+        #expect(!session.isAnswered)
+        #expect(session.outcomes.isEmpty)
+        #expect(session.candidates.count == 1)
+    }
 }

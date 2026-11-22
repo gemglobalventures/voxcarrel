@@ -42,6 +42,15 @@ import VoxCarrelFixtures
     /// V2: Search needs something to search for, and nothing being applied.
     @Test func V2_searchNeedsAQuery() {
         var session = session(BookMetadata(title: "Salt Road"), finding: [found { $0.publisher = "Tidewater" }])
+        // Answered: searching again would ask the same and lose the ticks.
+        #expect(session.isAnswered)
+        #expect(!session.canSearch)
+        session.query.author = "Calloway"
+        #expect(!session.isAnswered)
+        #expect(session.canSearch)
+        session.query.author = ""
+        #expect(!session.canSearch)
+        session.sourcesChanged()
         #expect(session.canSearch)
         session.beginApplying()
         #expect(session.phase == .applying)
@@ -51,6 +60,36 @@ import VoxCarrelFixtures
         #expect(!empty.canSearch)
         empty.query.author = "Calloway"
         #expect(empty.canSearch)
+    }
+
+    /// V2: a search that found nothing, or that a source failed to answer, can be made again.
+    @Test func V2_aSearchThatFellShortCanBeRepeated() {
+        var nothing = LookupSession(target: .book(7), current: BookMetadata(title: "Salt Road"), hasCover: false, hasAudio: true)
+        #expect(nothing.canSearch)
+        nothing.beginSearch()
+        #expect(nothing.canSearch)
+        nothing.finishSearch(LookupResults(searched: [.openLibrary, .audible], found: [.openLibrary: 0, .audible: 0]), for: nothing.query)
+        #expect(nothing.phase == .noResults)
+        #expect(nothing.canSearch)
+
+        var partly = nothing
+        partly.beginSearch()
+        partly.finishSearch(
+            LookupResults(
+                candidates: [found()], failures: [.openLibrary: .notReachable], searched: [.openLibrary, .audible],
+                found: [.audible: 1]),
+            for: partly.query)
+        #expect(partly.phase == .results)
+        #expect(!partly.isAnswered)
+        #expect(partly.canSearch)
+    }
+
+    /// V1: what the buttons say when the pointer rests on them; V7: what the settings say.
+    @Test func V1_V7_theWords() async throws {
+        let h = try Harness(root: try makeTempDir())
+        #expect(h.model.lookUpHelp == "Look this book up online and choose which details to take")
+        #expect(h.model.lookUpHelp(forEntry: UUID()) == h.model.lookUpHelp)
+        #expect(h.model.lookupPrivacyText == "Look Up sends the title, author, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from them (Open Library’s come from the Internet Archive, Audible’s from Amazon). Nothing is sent until you press Look Up.")
     }
 
     /// V2: the ISBN and Audible ID boxes are there for a book that has the number, and

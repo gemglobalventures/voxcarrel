@@ -45,7 +45,7 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.audibleStore")
                 Text(
-                    "Look Up sends the title and author you search for to Open Library and Audible. Nothing is sent until you press Look Up."
+                    model.lookupPrivacyText
                 )
                 .font(.callout)
                 .foregroundStyle(.secondary)

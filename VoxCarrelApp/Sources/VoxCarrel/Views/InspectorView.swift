@@ -427,7 +427,7 @@ struct InspectorActions: View {
                 }
                 .fixedSize()
                 .disabled(!model.canLookUp)
-                .help("Look this book up online and choose which details to take")
+                .help(model.lookUpHelp)
                 .accessibilityLabel(Self.lookUpTitle)
                 .accessibilityIdentifier("inspector.lookup")
             }

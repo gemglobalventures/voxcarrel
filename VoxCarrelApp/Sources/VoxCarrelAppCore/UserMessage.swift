@@ -126,6 +126,15 @@ public enum UserMessage {
         text(for: error, source: Optional(source))
     }
 
+    /// The same in a few words, to follow a source's name: "could not be reached".
+    public static func shortText(for error: LookupError) -> String {
+        switch error {
+        case .notReachable: "could not be reached"
+        case .refused: "answered with an error"
+        case .unreadable: "sent an answer VoxCarrel could not read"
+        }
+    }
+
     private static func text(for error: LookupError, source: LookupSource?) -> String {
         let name = source?.title ?? "The lookup service"
         switch error {

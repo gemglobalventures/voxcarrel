@@ -240,7 +240,7 @@ private struct EntryDetail: View {
                             model.beginLookup(forEntry: entry.id)
                         }
                         .disabled(!model.canLookUpEntry(entry.id))
-                        .help("Look this book up online and choose which details to take")
+                        .help(model.lookUpHelp(forEntry: entry.id))
                         .accessibilityIdentifier("review.lookup")
                     }
                 }

@@ -26,8 +26,12 @@ extension AppModel {
     }
 
     /// A2: whether this entry of the import being reviewed can be looked up.
+    ///
+    /// Not an entry whose files are to join a book already in the library: that book
+    /// keeps its own details, and anything found for the entry would be thrown away.
     public func canLookUpEntry(_ id: UUID) -> Bool {
-        isQuietForLookup && review?.entry(id) != nil
+        guard isQuietForLookup, let entry = review?.entry(id) else { return false }
+        return !entry.isAddedToExisting
     }
 
     private var isQuietForLookup: Bool {
@@ -48,10 +52,41 @@ extension AppModel {
 
     // MARK: The sources, in words
 
-    /// "Results from Open Library and Audible (United Kingdom)"
+    /// Where results come from, "Results from Open Library and Audible (United Kingdom)",
+    /// and once a search has finished what each source made of it:
+    /// "Open Library: no matches · Audible (United Kingdom): 2 matches".
     public var lookupSourcesText: String {
-        "Results from \(LookupSource.openLibrary.title) and \(LookupSource.audible.title) (\(audibleStore.title))"
+        guard let outcomes = lookup?.outcomes, !outcomes.isEmpty else {
+            return "Results from \(sourceName(.openLibrary)) and \(sourceName(.audible))"
+        }
+        return outcomes.map { outcome in
+            let said: String
+            if let failure = outcome.failure {
+                said = UserMessage.shortText(for: failure)
+            } else {
+                switch outcome.found {
+                case 0: said = "no matches"
+                case 1: said = "1 match"
+                default: said = "\(outcome.found) matches"
+                }
+            }
+            return "\(sourceName(outcome.source)): \(said)"
+        }.joined(separator: " · ")
     }
+
+    /// "Open Library", "Audible (United Kingdom)"
+    private func sourceName(_ source: LookupSource) -> String {
+        switch source {
+        case .openLibrary: source.title
+        case .audible: "\(source.title) (\(audibleStore.title))"
+        }
+    }
+
+    /// V7: what the settings say a lookup sends, and where from it fetches.
+    public static let lookupPrivacyText =
+        "Look Up sends the title, author, ISBN or Audible ID you search for to Open Library and Audible, and downloads cover images from them (Open Library’s come from the Internet Archive, Audible’s from Amazon). Nothing is sent until you press Look Up."
+
+    public var lookupPrivacyText: String { Self.lookupPrivacyText }
 
     /// The Audible stores for the settings, by country name.
     public static let audibleStoreChoices: [AudibleStoreChoice] = AudibleStore.allCases
@@ -65,10 +100,13 @@ extension AppModel {
     /// to search for. Does nothing unless `canLookUp`.
     public func beginLookup() {
         guard canLookUp, case .one(let detail, let draft) = inspecting else { return }
+        // A year that is not a year is no year in the details, but it is in the field.
+        var typed: [MetadataField: String] = [:]
+        if YearText(draft.year) == .invalid { typed[.year] = draft.year }
         open(
             LookupSession(
                 target: .book(detail.row.id), current: draft.typedMetadata, hasCover: draftCover != .none,
-                hasAudio: detail.row.hasAudio))
+                hasAudio: detail.row.hasAudio, typed: typed))
     }
 
     /// A2: the same for an entry of the import being reviewed, with its details and cover.
@@ -90,7 +128,8 @@ extension AppModel {
     // MARK: Searching
 
     /// Changes what will be searched for. A search that is running is for the query as
-    /// it was: it is cancelled, and the sheet waits for Search.
+    /// it was: it is cancelled, and the sheet waits for Search. More that is on its way
+    /// about a result still shown is not cancelled.
     public func updateLookupQuery(_ change: (inout LookupQuery) -> Void) {
         guard var session = lookup, session.phase != .applying else { return }
         let before = session.query
@@ -104,10 +143,15 @@ extension AppModel {
     /// answered. A search already running is superseded. With nothing to search for,
     /// nothing is asked.
     ///
+    /// Nothing is asked, either, when the results shown are already every source's
+    /// answer to this query (`lookup.canSearch`): Return in a search box must not throw
+    /// away what has been selected and ticked. A search that found nothing, or that a
+    /// source failed to answer, can be made again.
+    ///
     /// The sheet shows its own progress (`lookup.phase`): `busyLabel` is not set, and
     /// the library goes on answering meanwhile.
     public func searchLookup() async {
-        guard let search = startLookupSearch() else { return }
+        guard lookup?.canSearch == true, let search = startLookupSearch() else { return }
         await search.value
     }
 
@@ -147,18 +191,33 @@ extension AppModel {
         await fetchLookupDetails()
     }
 
-    /// More about the selected candidate, when its source has more. What cannot be
-    /// fetched is simply not offered.
+    /// More about the selected candidate, when its source has more; returns when it has
+    /// arrived. What cannot be fetched is simply not offered, and is asked for again
+    /// when the candidate is next selected.
+    ///
+    /// Each request is a task of its own, one for a candidate at a time: a search that
+    /// is cancelled or superseded does not take it down.
     private func fetchLookupDetails() async {
         guard let worker, let session = lookup, session.phase == .results, let candidate = session.selected,
               candidate.hasMoreDetails
         else { return }
+        let id = candidate.id
+        if let running = lookupDetailLoads[id] {
+            await running.value
+            return
+        }
         let generation = lookupGeneration
-        guard let detailed = try? await worker.lookupDetails(for: candidate) else { return }
-        guard lookupGeneration == generation, var session = lookup else { return }
-        // Ignored by the session when another candidate has been selected meanwhile.
-        session.replaceSelected(with: detailed)
-        lookup = session
+        let load = spawn {
+            let detailed = try? await worker.lookupDetails(for: candidate)
+            guard self.lookupGeneration == generation else { return }
+            self.lookupDetailLoads[id] = nil
+            guard let detailed, var session = self.lookup else { return }
+            // Ignored by the session when another candidate has been selected meanwhile.
+            session.replaceSelected(with: detailed)
+            self.lookup = session
+        }
+        lookupDetailLoads[id] = load
+        await load.value
     }
 
     public func setLookupTicked(_ ticked: Bool, for field: MetadataField) {
@@ -187,14 +246,21 @@ extension AppModel {
 
         var cover: CoverImage?
         if wantsCover {
-            guard let worker else { return }
-            lookupSearch?.cancel()
-            session.beginApplying()
-            lookup = session
-            let generation = lookupGeneration
-            cover = try? await worker.lookupCover(for: candidate)
-            // A5: closed meanwhile, whatever is open now.
-            guard lookupGeneration == generation, lookup != nil else { return }
+            // The row's picture, when it is the cover itself, has been fetched already.
+            if let url = candidate.coverURL, let data = lookupThumbnails[url] {
+                cover = Self.coverImage(data)
+            } else {
+                guard let worker else { return }
+                lookupSearch?.cancel()
+                session.beginApplying()
+                lookup = session
+                let generation = lookupGeneration
+                cover = try? await worker.lookupCover(for: candidate)
+                // A5: closed meanwhile, whatever is open now.
+                guard lookupGeneration == generation, lookup != nil else { return }
+                // The cover could not be had: the smaller picture of it is better than none.
+                if cover == nil, let data = cachedLookupThumbnail(for: candidate) { cover = Self.coverImage(data) }
+            }
         }
 
         switch target {
@@ -225,9 +291,17 @@ extension AppModel {
         closeLookup()
     }
 
+    /// Bytes that were fetched as a picture, as a cover; nil if they are not a JPEG or PNG.
+    private static func coverImage(_ data: Data) -> CoverImage? {
+        guard let mime = CoverImage.sniffedMIME(data), mime == "image/jpeg" || mime == "image/png" else { return nil }
+        return CoverImage(data: data, mime: mime)
+    }
+
     func closeLookup() {
         lookupSearch?.cancel()
         lookupSearch = nil
+        lookupDetailLoads.values.forEach { $0.cancel() }
+        lookupDetailLoads = [:]
         guard lookup != nil else { return }
         lookupGeneration += 1
         forgetLookupThumbnails()
