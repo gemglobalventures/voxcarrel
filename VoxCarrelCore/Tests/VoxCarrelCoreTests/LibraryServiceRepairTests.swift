@@ -328,6 +328,59 @@ import VoxCarrelFixtures
         #expect(noWorkingCopies(f))
     }
 
+    /// A copy of the fixture's library folder, database and journal included, opened as
+    /// a library of its own.
+    func copyOfLibrary(_ f: F) throws -> (root: URL, store: LibraryStore, service: LibraryService) {
+        let root = try makeTempDir().appendingPathComponent("Library", isDirectory: true)
+        try FileManager.default.copyItem(at: f.root, to: root)
+        let store = try LibraryStore(libraryRoot: root)
+        return (root, store, LibraryService(store: store, metadataIO: FileMetadataIO(), organiser: Organiser()))
+    }
+
+    // The journal names the repaired files in full: in a copy of the library folder they
+    // are the files of the folder it was copied from, and must not be written to.
+    @Test func aRepairMadeInTheLibraryThisOneWasCopiedFromIsNotUndoable() throws {
+        let f = try F()
+        let id = try f.importWrongHeaderBook(parts: 2)
+        _ = try f.service.repairLengthHeaders(for: [id])
+        let repaired = try contents(f, id)
+        let copy = try copyOfLibrary(f)
+        let copied = try copy.store.files(bookId: id).map { copy.store.url(for: $0) }
+        let rows = try copy.store.files(bookId: id)
+
+        #expect(try copy.service.undoLabel() == nil)
+        #expect(throws: LibraryError.nothingToUndo) { try copy.service.undoLast() }
+
+        // Nothing was written in either folder, and the record is forgotten.
+        #expect(try contents(f, id) == repaired)
+        #expect(try copied.map { try Data(contentsOf: $0) } == repaired)
+        #expect(try copy.store.files(bookId: id) == rows)
+        #expect(try copy.store.lastBatch() == nil)
+        // The library it was made in can still undo it.
+        #expect(try f.service.undoLabel() == "Repair length headers in 2 files")
+    }
+
+    @Test func tagsWrittenInTheLibraryThisOneWasCopiedFromAreNotPutBack() throws {
+        let f = try F()
+        let tags = F.meta("Dune", "Frank Herbert")
+        let id = try f.importNew([try f.makeM4B("in.m4b", tags: tags)], tags)
+        var edit = BookEdit(book: try #require(try f.store.book(id: id)), cover: .keep)
+        edit.metadata.genre = "SF"
+        _ = try f.service.save([edit])
+        #expect(try #require(try f.store.lastBatch()).moves.isEmpty)
+        let written = try contents(f, id)
+        let copy = try copyOfLibrary(f)
+        let copied = try copy.store.files(bookId: id).map { copy.store.url(for: $0) }
+
+        #expect(try copy.service.undoLabel() == nil)
+        #expect(throws: LibraryError.nothingToUndo) { try copy.service.undoLast() }
+
+        #expect(try contents(f, id) == written)
+        #expect(try copied.map { try Data(contentsOf: $0) } == written)
+        #expect(try copy.store.book(id: id)?.genre == "SF")
+        #expect(try f.service.undoLabel() == "Edit Dune")
+    }
+
     @Test func aSnapshotSavedBeforeRepairsExistedStillDecodes() throws {
         let old = """
             {"version":1,"token":"T","books":[{"bookId":4,"filesBefore":[],"fileStates":[]}]}

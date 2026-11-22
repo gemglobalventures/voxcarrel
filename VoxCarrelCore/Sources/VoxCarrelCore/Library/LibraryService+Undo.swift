@@ -25,7 +25,28 @@ extension LibraryService {
         // and undoing it would move files there, not here.
         guard batch.moves.allSatisfy({ layout.relativeComponents(of: URL(fileURLWithPath: $0.to)) != nil })
         else { return .unusable(batch) }
+        // The same goes for the files undo would write into, which an operation that
+        // moved nothing (an edit of the tags, a repair of length headers) also names in full.
+        if let snapshot, try !writesOnlyToThisLibrary(snapshot) { return .unusable(batch) }
         return .undoable(batch, snapshot)
+    }
+
+    /// Whether every file that undoing `snapshot` would write into (to put tags back, or
+    /// a length header) belongs to this library: it is inside the library folder, or it
+    /// is a file of the same book that this library records where it was found.
+    private func writesOnlyToThisLibrary(_ snapshot: OperationSnapshot) throws -> Bool {
+        for book in snapshot.books {
+            let paths = book.fileStates.map(\.pathAfter) + book.headerRepairs.map(\.pathAfter)
+            let outside = paths.filter { layout.relativeComponents(of: URL(fileURLWithPath: $0)) == nil }
+            guard !outside.isEmpty else { continue }
+            // Files left where they were found are recorded by their whole path.
+            let known = Set(
+                (try store.files(bookId: book.bookId) + book.filesBefore).filter { $0.path.hasPrefix("/") }
+                    .map { Self.comparablePath(store.url(for: $0)) })
+            guard outside.allSatisfy({ known.contains(Self.comparablePath(URL(fileURLWithPath: $0))) })
+            else { return false }
+        }
+        return true
     }
 
     /// The label of the operation that `undoLast` would reverse, or nil.
