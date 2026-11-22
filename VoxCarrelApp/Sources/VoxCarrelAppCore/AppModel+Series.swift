@@ -184,6 +184,16 @@ extension AppModel {
         return (entry, link)
     }
 
+    /// The missing row these ids are, with the series it is missing from; nil unless
+    /// they are exactly one row that is shown now and stands for a book the library
+    /// does not have.
+    private func shownMissing(_ ids: Set<Int64>) -> (entry: MissingEntry, link: SeriesLink)? {
+        guard ids.count == 1, let id = ids.first, let entry = rows.first(where: { $0.id == id })?.missing,
+              let link = shownSeries?.completeness?.link
+        else { return nil }
+        return (entry, link)
+    }
+
     /// SV8: the one selected missing book in the words the inspector shows; nil when
     /// anything else is selected. While it is not nil the three actions are for it:
     /// `showMissingOnAudible` at any time, the other two while its `canChange` is true.
@@ -196,13 +206,15 @@ extension AppModel {
     /// commands; nil when none of them is a row for a book the library does not have,
     /// and the book commands are the ones to show.
     ///
-    /// The actions are for the one selected missing book: all are off unless these
-    /// rows are exactly that one, selected.
+    /// The actions are for the one missing row the menu was opened on, whether or not
+    /// it is selected (`addMissingAsAudibleBook(for:)` and the others that take the
+    /// rows): all are off unless these are exactly one missing row that is shown.
     public func missingActions(for ids: Set<Int64>) -> MissingActions? {
         guard holdsMissing(ids) else { return nil }
-        guard ids == selection, let info = missingBook else {
+        guard let (entry, link) = shownMissing(ids) else {
             return MissingActions(canAdd: false, canShow: false, canSetHidden: false, hideTitle: "Hide", isHidden: false)
         }
+        let info = SeriesRows.info(for: entry, link: link, canChange: isQuietForSeries)
         return MissingActions(
             canAdd: info.canChange, canShow: true, canSetHidden: info.canChange, hideTitle: info.hideTitle,
             isHidden: info.isHidden)
@@ -218,8 +230,19 @@ extension AppModel {
     /// When the library has the book already, that book is marked as also on Audible
     /// and `alert` says so.
     public func addMissingAsAudibleBook() async {
-        guard let (entry, link) = selectedMissing, isQuietForSeries, let worker = await begin("Adding book…")
-        else { return }
+        guard let (entry, link) = selectedMissing else { return }
+        await addAsAudibleBook(entry, link: link)
+    }
+
+    /// The same for the row a context menu was opened on, selected or not. Does
+    /// nothing unless `ids` is exactly one missing row that is shown.
+    public func addMissingAsAudibleBook(for ids: Set<Int64>) async {
+        guard let (entry, link) = shownMissing(ids) else { return }
+        await addAsAudibleBook(entry, link: link)
+    }
+
+    private func addAsAudibleBook(_ entry: MissingEntry, link: SeriesLink) async {
+        guard isQuietForSeries, let worker = await begin("Adding book…") else { return }
         let metadata = SeriesRows.metadata(for: entry.entry, link: link)
         let copy = ExternalCopy(kind: .audible, form: .audio, store: link.store.rawValue, itemId: metadata.asin)
         var outcome: ExternalBookOutcome?
@@ -237,6 +260,17 @@ extension AppModel {
     /// from, in the browser.
     public func showMissingOnAudible() {
         guard let (entry, link) = selectedMissing else { return }
+        showOnAudible(entry, link: link)
+    }
+
+    /// The same for the row a context menu was opened on, selected or not. Does
+    /// nothing unless `ids` is exactly one missing row that is shown.
+    public func showMissingOnAudible(for ids: Set<Int64>) {
+        guard let (entry, link) = shownMissing(ids) else { return }
+        showOnAudible(entry, link: link)
+    }
+
+    private func showOnAudible(_ entry: MissingEntry, link: SeriesLink) {
         let book = entry.entry.preferred
         opener.openWeb(
             link.store.webAddress(
@@ -246,7 +280,19 @@ extension AppModel {
     /// SV8: hides the one selected missing book, or shows it again: a hidden entry is
     /// not counted and has no row, unless hidden entries are shown.
     public func setSelectedMissingHidden(_ hidden: Bool) async {
-        guard let (entry, _) = selectedMissing, entry.isHidden != hidden, isQuietForSeries else { return }
+        guard let (entry, _) = selectedMissing else { return }
+        await setHidden(hidden, entry)
+    }
+
+    /// The same for the row a context menu was opened on, selected or not. Does
+    /// nothing unless `ids` is exactly one missing row that is shown.
+    public func setMissingHidden(_ hidden: Bool, for ids: Set<Int64>) async {
+        guard let (entry, _) = shownMissing(ids) else { return }
+        await setHidden(hidden, entry)
+    }
+
+    private func setHidden(_ hidden: Bool, _ entry: MissingEntry) async {
+        guard entry.isHidden != hidden, isQuietForSeries else { return }
         await perform("Updating…") { worker in
             try await worker.setMissingEntry(id: entry.id, hidden: hidden)
         }

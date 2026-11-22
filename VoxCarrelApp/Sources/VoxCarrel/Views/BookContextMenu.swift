@@ -10,7 +10,7 @@ struct BookContextMenu: View {
 
     var body: some View {
         if let actions = model.missingActions(for: ids) {
-            MissingBookMenuItems(model: model, actions: actions)
+            MissingBookMenuItems(model: model, actions: actions, ids: ids)
         } else {
             BookCommandItems(model: model, ids: ids, showsShortcuts: false)
         }

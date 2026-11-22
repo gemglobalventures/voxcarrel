@@ -267,24 +267,27 @@ private struct MissingBookField: View {
 }
 
 /// A context menu's items for a book the library does not have: the three actions, in
-/// place of the book commands. They act on the one selected missing book.
+/// place of the book commands. They act on the row the menu was opened on, whether or
+/// not it is selected.
 struct MissingBookMenuItems: View {
     let model: AppModel
     let actions: MissingActions
+    /// The rows the menu is for.
+    let ids: Set<Int64>
 
     var body: some View {
         Button("Add as Audible Book") {
-            Task { await model.addMissingAsAudibleBook() }
+            Task { await model.addMissingAsAudibleBook(for: ids) }
         }
         .disabled(!actions.canAdd)
         .accessibilityIdentifier("contextMenu.missing.add")
         Button("Show on Audible") {
-            model.showMissingOnAudible()
+            model.showMissingOnAudible(for: ids)
         }
         .disabled(!actions.canShow)
         .accessibilityIdentifier("contextMenu.missing.showOnAudible")
         Button(actions.hideTitle) {
-            Task { await model.setSelectedMissingHidden(!actions.isHidden) }
+            Task { await model.setMissingHidden(!actions.isHidden, for: ids) }
         }
         .disabled(!actions.canSetHidden)
         .accessibilityIdentifier("contextMenu.missing.hide")

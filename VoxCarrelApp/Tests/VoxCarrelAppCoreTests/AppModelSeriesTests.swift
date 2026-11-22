@@ -991,7 +991,8 @@ private let notChecked = "Not checked against Audible"
     }
 
     /// SV8: a context menu on missing rows offers the three actions in place of the
-    /// book commands, and they work only for the one missing row that is selected.
+    /// book commands, and they are for the one missing row it was opened on, selected
+    /// or not.
     @Test func aContextMenuOnAMissingRowOffersItsActions() async throws {
         let h = try await checked()
         let glass = try missingRow(h, "The Glass Tide").id
@@ -1002,15 +1003,18 @@ private let notChecked = "Not checked against Audible"
         // A book's menu is the book commands.
         #expect(h.model.missingActions(for: [salt]) == nil)
         #expect(h.model.missingActions(for: []) == nil)
-        // Not selected: offered, and off.
-        #expect(h.model.missingActions(for: [glass]) == off)
+        let on = MissingActions(canAdd: true, canShow: true, canSetHidden: true, hideTitle: "Hide", isHidden: false)
+        // Not selected: offered all the same.
+        #expect(h.model.missingActions(for: [glass]) == on)
+        // An id that is no row's: nothing can be done with it.
+        #expect(h.model.missingActions(for: [-999]) == off)
 
         try await selectMissing(h, "The Glass Tide")
         #expect(
             h.model.missingActions(for: [glass])
                 == MissingActions(canAdd: true, canShow: true, canSetHidden: true, hideTitle: "Hide", isHidden: false))
-        // Another row than the selected one, and more than one.
-        #expect(h.model.missingActions(for: [lantern]) == off)
+        // Another row than the selected one is that row's menu; more than one is nobody's.
+        #expect(h.model.missingActions(for: [lantern]) == on)
         #expect(h.model.missingActions(for: [glass, lantern]) == off)
         #expect(h.model.missingActions(for: [glass, salt]) == off)
 
@@ -1033,6 +1037,78 @@ private let notChecked = "Not checked against Audible"
         h.model.select([glass, lantern])
         await h.model.settle()
         #expect(h.model.missingActions(for: [glass, lantern]) == off)
+    }
+
+    /// SV8: the context menu's actions act on the row the menu was opened on, whatever
+    /// is selected: a row in the list is not selected by opening its menu.
+    @Test func theContextMenusActionsActOnTheRowClicked() async throws {
+        let h = try await checked()
+        let glass = try missingRow(h, "The Glass Tide").id
+        let lantern = try missingRow(h, "Lantern Reef").id
+        let salt = try await h.select("Salt Road")
+        let sent = h.lookup.catalogue.requests.count
+
+        h.model.showMissingOnAudible(for: [lantern])
+        #expect(h.opener.openedWeb == [try #require(URL(string: "https://www.audible.com/pd/B0LANTERNR"))])
+        #expect(h.model.selection == [salt])
+
+        await h.model.setMissingHidden(true, for: [lantern])
+        #expect(h.model.seriesHeader?.summary == "3 of 4 on Audible's list")
+        #expect(h.model.rows.filter(\.isMissing).map(\.id) == [glass])
+        #expect(h.model.selection == [salt])
+        // It is no row now: nothing more is done with it.
+        await h.model.setMissingHidden(false, for: [lantern])
+        #expect(h.model.seriesHeader?.summary == "3 of 4 on Audible's list")
+        h.model.showsHiddenMissing = true
+        #expect(h.model.missingActions(for: [lantern])?.hideTitle == "Show")
+        await h.model.setMissingHidden(false, for: [lantern])
+        #expect(h.model.seriesHeader?.summary == "3 of 5 on Audible's list")
+
+        await h.model.addMissingAsAudibleBook(for: [glass])
+        let added = try h.id("The Glass Tide")
+        #expect(try h.book(added).series == seriesName)
+        #expect(try h.book(added).seriesNumber == "4")
+        #expect(h.model.selection == [added])
+        #expect(h.model.seriesHeader?.summary == "4 of 5 on Audible's list")
+        #expect(h.model.alert == nil)
+        #expect(h.lookup.catalogue.requests.count == sent)
+        #expect(strays(h).isEmpty)
+    }
+
+    /// SV8: the row-based actions do nothing for anything but one missing row that is
+    /// shown: not for a book, several rows, or an id that is no row's.
+    @Test func theContextMenusActionsNeedOneShownMissingRow() async throws {
+        let h = try await checked()
+        let glass = try missingRow(h, "The Glass Tide").id
+        let lantern = try missingRow(h, "Lantern Reef").id
+        let salt = try h.id("Salt Road")
+        h.recordBusyLabels()
+        for ids in [[], [glass, lantern], [salt], [glass, salt], [-999], [-glass]] as [Set<Int64>] {
+            await h.model.addMissingAsAudibleBook(for: ids)
+            h.model.showMissingOnAudible(for: ids)
+            await h.model.setMissingHidden(true, for: ids)
+        }
+        // Nor while something else runs, but for showing it on Audible.
+        h.model.busyLabel = "Working…"
+        await h.model.addMissingAsAudibleBook(for: [glass])
+        await h.model.setMissingHidden(true, for: [glass])
+        h.model.busyLabel = nil
+        // Nor in another list of books, where the row is not shown.
+        h.model.sidebarSelection = .allBooks
+        await h.model.settle()
+        #expect(h.model.missingActions(for: [glass])?.canAdd == false)
+        await h.model.addMissingAsAudibleBook(for: [glass])
+        h.model.showMissingOnAudible(for: [glass])
+        await h.model.setMissingHidden(true, for: [glass])
+
+        #expect(h.busyLabels == [])
+        #expect(h.opener.openedWeb.isEmpty)
+        #expect(try h.store().books().count == 12)
+        h.model.sidebarSelection = seriesItem
+        await h.model.settle()
+        #expect(h.model.seriesHeader?.summary == "3 of 5 on Audible's list")
+        #expect(h.model.seriesHeader?.notes == [])
+        #expect(strays(h).isEmpty)
     }
 
     // MARK: The picker as a sheet
