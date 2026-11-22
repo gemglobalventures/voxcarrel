@@ -57,20 +57,7 @@ public struct LookupService: Sendable {
         var results = LookupResults(searched: providers.map(\.source))
         guard !Task.isCancelled else { return results }
 
-        let answers = await withTaskGroup(of: (Int, Result<[LookupCandidate], any Error>).self) { group in
-            for (index, provider) in providers.enumerated() {
-                group.addTask {
-                    do {
-                        return (index, .success(try await provider.search(query)))
-                    } catch {
-                        return (index, .failure(error))
-                    }
-                }
-            }
-            var answers = [Result<[LookupCandidate], any Error>?](repeating: nil, count: providers.count)
-            for await (index, answer) in group { answers[index] = answer }
-            return answers
-        }
+        let answers = await Self.askAll(providers, query)
 
         var found: [LookupCandidate] = []
         var seen: Set<String> = []
@@ -93,6 +80,34 @@ public struct LookupService: Sendable {
         }
         results.candidates = Self.ranked(found, query: query, preferAudio: preferAudio, language: language)
         return results
+    }
+
+    /// One answer per provider, in provider order; nil for one that gave none.
+    private struct Answer: Sendable {
+        var index: Int
+        var result: Result<[LookupCandidate], any Error>
+    }
+
+    /// Asks every provider at once and waits for all of them.
+    private static func askAll(
+        _ providers: [any LookupProvider], _ query: LookupQuery
+    ) async -> [Result<[LookupCandidate], any Error>?] {
+        var byIndex: [Int: Result<[LookupCandidate], any Error>] = [:]
+        await withTaskGroup(of: Answer.self) { group in
+            for index in providers.indices {
+                let provider = providers[index]
+                let position = index
+                group.addTask {
+                    do {
+                        return Answer(index: position, result: .success(try await provider.search(query)))
+                    } catch {
+                        return Answer(index: position, result: .failure(error))
+                    }
+                }
+            }
+            for await answer in group { byIndex[answer.index] = answer.result }
+        }
+        return providers.indices.map { byIndex[$0] }
     }
 
     /// Best first. The query's own ASIN or ISBN leads; then by match score; among scores
