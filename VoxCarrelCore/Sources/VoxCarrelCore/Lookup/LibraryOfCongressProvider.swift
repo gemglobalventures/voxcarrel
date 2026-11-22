@@ -10,10 +10,10 @@ public struct LibraryOfCongressProvider: LookupProvider {
     private let http: any HTTPFetching
     private let limit: Int
 
-    static let host = "lx2.loc.gov"
+    /// The catalogue's search service answers only here, without encryption: the one
+    /// address in the app that is not `https`. What is searched for can be read on the way.
+    static let origin = InsecureOrigin.libraryOfCongress
     static let path = "/lcdb"
-    /// Where a redirect may lead: the library's own hosts.
-    static let redirectHosts: Set<String> = ["loc.gov"]
     /// The most an answer may be.
     static let byteLimit = 5 * 1024 * 1024
     static let headers = ["User-Agent": LookupRequest.userAgent, "Accept": "application/xml"]
@@ -27,12 +27,14 @@ public struct LibraryOfCongressProvider: LookupProvider {
 
     public func search(_ query: LookupQuery) async throws -> [LookupCandidate] {
         guard let text = Self.searchText(for: query),
-              let url = LookupRequest.url(host: Self.host, path: Self.path, query: [
+              let url = LookupRequest.url(insecure: Self.origin, path: Self.path, query: [
                   ("version", "1.1"), ("operation", "searchRetrieve"), ("maximumRecords", String(limit)),
                   ("recordSchema", "mods"), ("query", text),
               ])
         else { return [] }
-        let answer = try await http.get(url, headers: Self.headers, maxBytes: Self.byteLimit, redirectHosts: Self.redirectHosts)
+        // No redirect is followed: one anywhere fails the search as refused.
+        let answer = try await http.get(
+            url, headers: Self.headers, maxBytes: Self.byteLimit, redirectHosts: [], insecure: [Self.origin])
         guard answer.status == 200 else { throw LookupError.refused(status: answer.status) }
         guard answer.data.count <= Self.byteLimit else { throw LookupError.unreadable }
         let records = try MODSReader.records(in: answer.data)
@@ -44,7 +46,8 @@ public struct LibraryOfCongressProvider: LookupProvider {
     /// What the catalogue is asked: the title and the first author's surname, or an ISBN
     /// when there is no title. Nil when there is neither.
     static func searchText(for query: LookupQuery) -> String? {
-        if let title = value(withoutLeadingArticle(query.title)) {
+        // The title as it is, leading article and all: the catalogue finds it either way.
+        if let title = value(query.title) {
             var text = "bath.title=\"\(title)\""
             if let surname = surname(of: query.author) { text += " and bath.author=\"\(surname)\"" }
             return text
@@ -58,14 +61,6 @@ public struct LibraryOfCongressProvider: LookupProvider {
         LookupText.cleaned(
             raw.replacingOccurrences(of: "\"", with: "").replacingOccurrences(of: "\\", with: ""),
             limit: LookupText.nameLimit)
-    }
-
-    /// The catalogue files a title without its leading article, and is asked the same way.
-    private static func withoutLeadingArticle(_ title: String) -> String {
-        guard let tidy = value(title) else { return "" }
-        let words = tidy.split(separator: " ")
-        guard words.count > 1, ["a", "an", "the"].contains(words[0].lowercased()) else { return tidy }
-        return words.dropFirst().joined(separator: " ")
     }
 
     /// The last word of the name, in lower case and without accents: "John le Carré" ->

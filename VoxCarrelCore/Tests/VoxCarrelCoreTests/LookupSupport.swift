@@ -20,6 +20,8 @@ final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     struct Limits: Equatable {
         var maxBytes: Int
         var redirectHosts: Set<String>
+        /// The addresses the request was allowed to reach without encryption.
+        var insecure: Set<InsecureOrigin> = []
     }
 
     private let lock = NSLock()
@@ -46,12 +48,12 @@ final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     var limits: [Limits] { lock.withLock { recordedLimits } }
     var urls: [URL] { requests.map(\.url) }
 
-    func get(_ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>) async throws
-        -> (data: Data, status: Int)
-    {
+    func get(
+        _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>, insecure: Set<InsecureOrigin>
+    ) async throws -> (data: Data, status: Int) {
         lock.withLock {
             recorded.append(Request(url: url, headers: headers))
-            recordedLimits.append(Limits(maxBytes: maxBytes, redirectHosts: redirectHosts))
+            recordedLimits.append(Limits(maxBytes: maxBytes, redirectHosts: redirectHosts, insecure: insecure))
         }
         return try answer(url)
     }

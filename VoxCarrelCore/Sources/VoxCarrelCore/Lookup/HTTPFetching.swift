@@ -1,5 +1,25 @@
 import Foundation
 
+/// One address that may be asked without encryption: a scheme, a host and a port, each
+/// exactly. Everything else is asked over `https` or not at all.
+public struct InsecureOrigin: Hashable, Sendable {
+    public let scheme: String
+    public let host: String
+    public let port: Int
+
+    public init(scheme: String, host: String, port: Int) {
+        self.scheme = scheme.lowercased()
+        self.host = host.lowercased()
+        self.port = port
+    }
+
+    /// The Library of Congress catalogue's search service, which answers nowhere else.
+    public static let libraryOfCongress = InsecureOrigin(scheme: "http", host: "lx2.loc.gov", port: 210)
+
+    /// Every exception there is. One that is not listed here is not honoured, whoever asks.
+    static let allowed: Set<InsecureOrigin> = [.libraryOfCongress]
+}
+
 /// The one way the lookup code reaches the network, so tests can stand in for it.
 public protocol HTTPFetching: Sendable {
     /// The body and HTTP status of a GET. An error status is returned, not thrown.
@@ -10,10 +30,24 @@ public protocol HTTPFetching: Sendable {
     ///   - redirectHosts: Where a redirect may lead: to `https` on one of these hosts
     ///     or a subdomain of one. Any other redirect is not followed, and
     ///     `LookupError.refused` is thrown with the redirect's status.
+    ///   - insecure: The addresses this one request may be made to without encryption.
+    ///     An address that is not `https` and is not exactly one of these is not asked:
+    ///     `LookupError.unreadable` is thrown and nothing is sent. No redirect of a
+    ///     request made without encryption is followed.
     ///
     /// Throws `LookupError.notReachable` when there was no answer.
+    func get(
+        _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>, insecure: Set<InsecureOrigin>
+    ) async throws -> (data: Data, status: Int)
+}
+
+public extension HTTPFetching {
+    /// As the full form, over `https` only.
     func get(_ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>) async throws
         -> (data: Data, status: Int)
+    {
+        try await get(url, headers: headers, maxBytes: maxBytes, redirectHosts: redirectHosts, insecure: [])
+    }
 }
 
 /// `HTTPFetching` over `URLSession`: no cookies, no stored credentials, nothing kept on disk.
@@ -42,6 +76,18 @@ public struct URLSessionFetcher: HTTPFetching {
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout * 4
         return configuration
+    }
+
+    /// Whether `url` may be asked at all: `https`, or exactly one of the listed exceptions
+    /// that this request names (scheme, host and a stated port, with no user or password).
+    static func mayRequest(_ url: URL, insecure: Set<InsecureOrigin>) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+              let scheme = components.scheme?.lowercased(), let host = components.host?.lowercased(), !host.isEmpty
+        else { return false }
+        if scheme == "https" { return true }
+        guard components.user == nil, components.password == nil, let port = components.port else { return false }
+        let asked = InsecureOrigin(scheme: scheme, host: host, port: port)
+        return InsecureOrigin.allowed.contains(asked) && insecure.contains(asked)
     }
 
     /// Whether a redirect to `url` may be followed: `https`, to one of `hosts` or a subdomain of one.
@@ -83,9 +129,13 @@ public struct URLSessionFetcher: HTTPFetching {
         }
     }
 
-    public func get(_ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>) async throws
-        -> (data: Data, status: Int)
-    {
+    public func get(
+        _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>, insecure: Set<InsecureOrigin>
+    ) async throws -> (data: Data, status: Int) {
+        // Not `https` and not a named exception: nothing is sent.
+        guard Self.mayRequest(url, insecure: insecure) else { throw LookupError.unreadable }
+        // What was asked without encryption is followed nowhere.
+        let redirectHosts = url.scheme?.lowercased() == "https" ? redirectHosts : []
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.httpShouldHandleCookies = false
@@ -147,9 +197,21 @@ enum LookupRequest {
 
     /// An `https` URL. `path` must already be safe to use as it is.
     static func url(host: String, path: String, query: [(name: String, value: String)]) -> URL? {
+        url(scheme: "https", host: host, port: nil, path: path, query: query)
+    }
+
+    /// The address of the one place that is asked without encryption.
+    static func url(insecure origin: InsecureOrigin, path: String, query: [(name: String, value: String)]) -> URL? {
+        url(scheme: origin.scheme, host: origin.host, port: origin.port, path: path, query: query)
+    }
+
+    private static func url(
+        scheme: String, host: String, port: Int?, path: String, query: [(name: String, value: String)]
+    ) -> URL? {
         var components = URLComponents()
-        components.scheme = "https"
+        components.scheme = scheme
         components.host = host
+        components.port = port
         components.percentEncodedPath = path
         if !query.isEmpty {
             components.percentEncodedQuery = query

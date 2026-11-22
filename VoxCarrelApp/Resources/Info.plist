@@ -12,6 +12,18 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<!-- The Library of Congress catalogue answers only without encryption. This one host, and nothing wider. -->
+<key>NSAppTransportSecurity</key>
+<dict>
+    <key>NSExceptionDomains</key>
+    <dict>
+        <key>lx2.loc.gov</key>
+        <dict>
+            <key>NSExceptionAllowsInsecureHTTPLoads</key><true/>
+            <key>NSIncludesSubdomains</key><false/>
+        </dict>
+    </dict>
+</dict>
 <!-- Opening these with VoxCarrel imports them. Alternate: never the default app for any of them. -->
 <key>CFBundleDocumentTypes</key>
 <array>

@@ -115,9 +115,10 @@ final class FakeLookup: @unchecked Sendable {
     private struct HTTP: HTTPFetching {
         let fake: FakeLookup
 
-        func get(_ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>) async throws
-            -> (data: Data, status: Int)
-        {
+        func get(
+            _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>,
+            insecure: Set<InsecureOrigin>
+        ) async throws -> (data: Data, status: Int) {
             let cover = fake.lock.withLock {
                 fake.recordedCovers.append(url)
                 return fake.covering

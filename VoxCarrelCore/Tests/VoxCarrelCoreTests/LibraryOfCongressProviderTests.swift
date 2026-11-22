@@ -53,15 +53,17 @@ import Testing
             title: " A Perfect Spy ", author: "John le Carré", isbn: "9780394551418", asin: "B004WPQ4BI", narrator: "Frank Muller"))
         #expect(http.urls.count == 1)
         let url = try #require(http.urls.first)
-        #expect(url.scheme == "https")
+        // The catalogue's one working address: plain http on port 210.
+        #expect(url.absoluteString.hasPrefix("http://lx2.loc.gov:210/lcdb?version=1.1&operation=searchRetrieve&maximumRecords=20&recordSchema=mods&query="))
+        #expect(url.scheme == "http")
         #expect(url.host == "lx2.loc.gov")
-        #expect(url.port == nil)
+        #expect(url.port == 210)
         #expect(url.path == "/lcdb")
         #expect(url.user == nil)
         #expect(url.fragment == nil)
         #expect(queryItems(url) == [
             "version": "1.1", "operation": "searchRetrieve", "maximumRecords": "20", "recordSchema": "mods",
-            "query": #"bath.title="Perfect Spy" and bath.author="carre""#,
+            "query": #"bath.title="A Perfect Spy" and bath.author="carre""#,
         ])
         #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.count == 5)
         // Nothing but what is searched for is sent: no narrator, no ASIN, no ISBN beside a title.
@@ -74,12 +76,44 @@ import Testing
         let http = FakeHTTP(data: fixture("loc-none", type: "xml"))
         _ = try await LibraryOfCongressProvider(http: http, limit: 7).search(Self.query)
         #expect(http.requests.map(\.headers) == [["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.app)", "Accept": "application/xml"]])
-        // C9: at most 5 MB; redirects only within loc.gov.
-        #expect(http.limits == [FakeHTTP.Limits(maxBytes: 5 * 1024 * 1024, redirectHosts: ["loc.gov"])])
+        // C9: at most 5 MB; no redirect is followed; the one address named as the exception.
+        #expect(http.limits == [
+            FakeHTTP.Limits(
+                maxBytes: 5 * 1024 * 1024, redirectHosts: [],
+                insecure: [InsecureOrigin(scheme: "http", host: "lx2.loc.gov", port: 210)]),
+        ])
         #expect(queryItems(try #require(http.urls.first))["maximumRecords"] == "7")
-        #expect(URLSessionFetcher.mayRedirect(to: URL(string: "https://www.loc.gov/x"), hosts: ["loc.gov"]))
-        #expect(!URLSessionFetcher.mayRedirect(to: URL(string: "http://lx2.loc.gov/lcdb"), hosts: ["loc.gov"]))
-        #expect(!URLSessionFetcher.mayRedirect(to: URL(string: "https://loc.gov.example.com/"), hosts: ["loc.gov"]))
+    }
+
+    /// C1: the address the provider asks is one the network layer lets through, and
+    /// only with the exception the provider names.
+    @Test func C1_theAddressAskedIsTheNamedException() async throws {
+        let http = FakeHTTP(data: fixture("loc-none", type: "xml"))
+        _ = try await LibraryOfCongressProvider(http: http).search(Self.query)
+        let url = try #require(http.urls.first)
+        let limits = try #require(http.limits.first)
+        #expect(URLSessionFetcher.mayRequest(url, insecure: limits.insecure))
+        #expect(!URLSessionFetcher.mayRequest(url, insecure: []))
+    }
+
+    /// C1: a redirect of the catalogue's answer, to anywhere, fails the search as refused
+    /// and is not followed.
+    @Test(arguments: [
+        ("/redirect-a", "https://www.loc.gov/final-a"), ("/redirect-b", "http://lx2.loc.gov:210/final-b"),
+        ("/redirect-c", "https://lx2.loc.gov/final-c"),
+    ])
+    func C1_aRedirectIsNeverFollowed(path: String, to address: String) async throws {
+        let target = try #require(URL(string: address))
+        StubURLProtocol.set(.redirect(to: target), forPath: path)
+        let fetcher = URLSessionFetcher(timeout: 60, protocolClasses: [StubURLProtocol.self])
+        let from = try #require(URL(string: "http://lx2.loc.gov:210\(path)"))
+        await #expect(throws: LookupError.refused(status: 302)) {
+            _ = try await fetcher.get(
+                from, headers: [:], maxBytes: 1000, redirectHosts: ["loc.gov", "lx2.loc.gov", "www.loc.gov"],
+                insecure: [.libraryOfCongress])
+        }
+        #expect(StubURLProtocol.requests(forPath: path).count == 1)
+        #expect(StubURLProtocol.requests(forPath: target.path).isEmpty)
     }
 
     @Test(arguments: [(0, "1"), (-3, "1"), (1, "1"), (100, "100"), (5000, "100")])
@@ -92,12 +126,13 @@ import Testing
     @Test(arguments: [
         ("Debt of Honor", "", #"bath.title="Debt of Honor""#),
         ("Debt of Honor", "  ", #"bath.title="Debt of Honor""#),
-        ("The Devil’s Alternative", "Frederick Forsyth", #"bath.title="Devil’s Alternative" and bath.author="forsyth""#),
-        ("An Instance of the Fingerpost", "Iain Pears", #"bath.title="Instance of the Fingerpost" and bath.author="pears""#),
-        // A title that is only an article keeps it.
+        // A leading article stays: the catalogue finds the title with it.
+        ("The Devil’s Alternative", "Frederick Forsyth", #"bath.title="The Devil’s Alternative" and bath.author="forsyth""#),
+        ("An Instance of the Fingerpost", "Iain Pears", #"bath.title="An Instance of the Fingerpost" and bath.author="pears""#),
+        ("A Perfect Spy", "John le Carré", #"bath.title="A Perfect Spy" and bath.author="carre""#),
         ("The", "x", #"bath.title="The" and bath.author="x""#),
         // Quotes and backslashes cannot end the value early.
-        (#"The "Perfect" \Spy\"#, #"John "le" Carr\é"#, #"bath.title="Perfect Spy" and bath.author="carre""#),
+        (#"The "Perfect" \Spy\"#, #"John "le" Carr\é"#, #"bath.title="The Perfect Spy" and bath.author="carre""#),
         (#"Spy" or bath.title="x"#, #"a" or dc.any="b"#, #"bath.title="Spy or bath.title=x" and bath.author="dc.any=b""#),
         ("Tom & Jerry: 100% #1 + more? /a=b", "A&B=C", #"bath.title="Tom & Jerry: 100% #1 + more? /a=b" and bath.author="a&b=c""#),
         ("Spy\nwith\u{0}  breaks\u{202E}", "", #"bath.title="Spy with breaks""#),

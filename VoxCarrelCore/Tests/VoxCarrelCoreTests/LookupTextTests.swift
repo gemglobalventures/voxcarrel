@@ -336,15 +336,26 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         lock.withLock { seen[host] ?? [] }
     }
 
+    /// For tests that must ask one real host name: answers keyed by the path asked for.
+    static func set(_ answer: Answer, forPath path: String) {
+        lock.withLock { answers["path:" + path] = answer }
+    }
+
+    static func requests(forPath path: String) -> [URLRequest] {
+        lock.withLock { seen["path:" + path] ?? [] }
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
 
     override func startLoading() {
         let host = request.url?.host ?? ""
+        let path = "path:" + (request.url?.path ?? "")
         let answer = Self.lock.withLock { () -> Answer? in
             Self.seen[host, default: []].append(request)
-            return Self.answers[host]
+            Self.seen[path, default: []].append(request)
+            return Self.answers[host] ?? Self.answers[path]
         }
         guard let url = request.url, let answer else {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
@@ -509,6 +520,94 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(!may("file:///etc/passwd"))
         #expect(!URLSessionFetcher.mayRedirect(to: nil, hosts: hosts))
         #expect(!URLSessionFetcher.mayRedirect(to: URL(string: "https://archive.org/"), hosts: []))
+    }
+
+    // MARK: The one address asked without encryption
+
+    private static let catalogue: Set<InsecureOrigin> = [.libraryOfCongress]
+
+    /// The Library of Congress catalogue's address is the only one there is.
+    @Test func T2_theOnlyExceptionIsTheLibraryOfCongressCatalogue() {
+        #expect(InsecureOrigin.allowed == [InsecureOrigin(scheme: "http", host: "lx2.loc.gov", port: 210)])
+        #expect(InsecureOrigin.libraryOfCongress == InsecureOrigin(scheme: "HTTP", host: "LX2.loc.gov", port: 210))
+    }
+
+    @Test func T2_theCatalogueIsAskedOverPlainHTTPWhenTheRequestNamesIt() async throws {
+        let path = "/t2-asked"
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("records".utf8)), forPath: path)
+        let url = try #require(URL(string: "http://lx2.loc.gov:210\(path)?query=x"))
+        let answer = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [], insecure: Self.catalogue)
+        #expect(answer.status == 200)
+        #expect(answer.data == Data("records".utf8))
+        #expect(StubURLProtocol.requests(forPath: path).map(\.url) == [url])
+    }
+
+    /// The exception is the request's to name: without it the same address is not asked.
+    @Test func T2_withoutTheExceptionNamedNothingIsSent() async throws {
+        let path = "/t2-unnamed"
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data()), forPath: path)
+        let url = try #require(URL(string: "http://lx2.loc.gov:210\(path)"))
+        await #expect(throws: LookupError.unreadable) {
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [], insecure: [])
+        }
+        await #expect(throws: LookupError.unreadable) {
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [])
+        }
+        #expect(StubURLProtocol.requests(forPath: path).isEmpty)
+    }
+
+    /// Plain http to any other host, to the catalogue's host on another port, or to a
+    /// host that only looks like it, is refused without a request, whatever the request names.
+    @Test(arguments: [
+        "http://plain.stub.test/t2-a", "http://plain.stub.test:210/t2-b", "http://openlibrary.org/t2-c",
+        "http://api.audible.com:210/t2-d",
+        "http://lx2.loc.gov/t2-e", "http://lx2.loc.gov:80/t2-f", "http://lx2.loc.gov:211/t2-g", "http://lx2.loc.gov:2100/t2-h",
+        "http://lx2.loc.gov:443/t2-i",
+        "http://lx2.loc.gov.example.com:210/t2-j", "http://evil-lx2.loc.gov:210/t2-k", "http://loc.gov:210/t2-l",
+        "http://www.lx2.loc.gov:210/t2-m", "http://lx2.loc.gov.:210/t2-n", "http://user@lx2.loc.gov:210/t2-o",
+        "http://user:word@lx2.loc.gov:210/t2-p", "http://lx2.loc.gov@plain.stub.test:210/t2-q",
+        "ftp://lx2.loc.gov:210/t2-r", "file:///t2-s",
+    ])
+    func T2_plainHTTPAnywhereElseIsRefusedWithoutARequest(address: String) async throws {
+        let url = try #require(URL(string: address))
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("arrived".utf8)), forPath: url.path)
+        // Named by the request or not, and named with an exception of the request's own making.
+        var own: Set<InsecureOrigin> = Self.catalogue
+        if let scheme = url.scheme, let host = url.host {
+            own.insert(InsecureOrigin(scheme: scheme, host: host, port: url.port ?? 80))
+        }
+        for insecure in [[], Self.catalogue, own] {
+            await #expect(throws: LookupError.unreadable) {
+                _ = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [], insecure: insecure)
+            }
+        }
+        #expect(StubURLProtocol.requests(forPath: url.path).isEmpty)
+    }
+
+    /// Every other host is still asked over https as before, exception named or not.
+    @Test func T2_httpsIsUntouchedByTheException() async throws {
+        let host = "secure-t2.stub.test"
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("ok".utf8)), forHost: host)
+        let url = try #require(URL(string: "https://\(host)/"))
+        let answer = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [], insecure: Self.catalogue)
+        #expect(answer.data == Data("ok".utf8))
+    }
+
+    @Test func T2_requestRules() throws {
+        func may(_ address: String, _ insecure: Set<InsecureOrigin> = Self.catalogue) throws -> Bool {
+            URLSessionFetcher.mayRequest(try #require(URL(string: address)), insecure: insecure)
+        }
+        #expect(try may("http://lx2.loc.gov:210/lcdb?version=1.1"))
+        #expect(try may("HTTP://LX2.LOC.GOV:210/lcdb"))
+        #expect(try may("https://lx2.loc.gov/lcdb", []))
+        #expect(try may("https://anything.example/", []))
+        #expect(try !may("http://lx2.loc.gov:210/lcdb", []))
+        #expect(try !may("http://lx2.loc.gov/lcdb"))
+        #expect(try !may("http://lx2.loc.gov:8210/lcdb"))
+        #expect(try !may("http://lx2.loc.gov.example.com:210/lcdb"))
+        #expect(try !may("http://evil-lx2.loc.gov:210/lcdb"))
+        #expect(try !may("http://example.com:210/lcdb", [InsecureOrigin(scheme: "http", host: "example.com", port: 210)]))
+        #expect(try !may("lcdb"))
     }
 
     /// A body that says it is longer than is wanted is not read.
