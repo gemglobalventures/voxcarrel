@@ -5,11 +5,21 @@ public struct ListedFile: Hashable, Sendable {
     public var url: URL
     public var size: Int64
     public var modifiedAt: Date
+    /// Whether something says the file is still being written: the Finder marks a file
+    /// it is copying. Such a file has not arrived, however long it stays the same.
+    public var isBeingWritten: Bool
+    /// Whether the file is on one of this Mac's own disks, not on a network disk or
+    /// another kind that is reached from elsewhere, where a copy may stand still for a while.
+    public var isOnLocalVolume: Bool
 
-    public init(url: URL, size: Int64, modifiedAt: Date) {
+    public init(
+        url: URL, size: Int64, modifiedAt: Date, isBeingWritten: Bool = false, isOnLocalVolume: Bool = true
+    ) {
         self.url = url
         self.size = size
         self.modifiedAt = modifiedAt
+        self.isBeingWritten = isBeingWritten
+        self.isOnLocalVolume = isOnLocalVolume
     }
 }
 
@@ -41,6 +51,9 @@ public struct FolderLister: Sendable {
     /// Whether a file's contents are on this Mac. A test seam: a placeholder for a
     /// file kept elsewhere cannot be made in a temporary folder.
     var isDownloaded: @Sendable (URL) -> Bool = { FolderLister.isDownloaded($0) }
+    /// Whether a folder is on one of this Mac's own disks. A test seam: a network disk
+    /// cannot be made in a temporary folder.
+    var isOnLocalVolume: @Sendable (URL) -> Bool = { FolderLister.isOnLocalVolume($0) }
 
     public init() {}
 
@@ -77,6 +90,7 @@ public struct FolderLister: Sendable {
 
         let keys: [URLResourceKey] = [
             .isDirectoryKey, .isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey,
+            .creationDateKey,
         ]
         func children(of directory: URL) throws -> [URL] {
             try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
@@ -94,6 +108,8 @@ public struct FolderLister: Sendable {
         }
 
         while let (found, path) = waiting.popLast() {
+            // Asked once for each folder: a folder below may be another disk.
+            let isLocal = found.isEmpty || isOnLocalVolume(path)
             for child in found {
                 let name = child.lastPathComponent
                 let format = FileFormat(url: child)
@@ -119,7 +135,10 @@ public struct FolderLister: Sendable {
                 else { continue }
                 files.append(ListedFile(
                     url: path.appendingPathComponent(name, isDirectory: false), size: Int64(size),
-                    modifiedAt: modifiedAt))
+                    modifiedAt: modifiedAt,
+                    isBeingWritten: Self.isBeingWritten(
+                        creationDate: values.creationDate, finderInfo: Self.finderInfo(of: child)),
+                    isOnLocalVolume: isLocal))
             }
         }
         files.sort { $0.url.path < $1.url.path }
@@ -135,6 +154,41 @@ public struct FolderLister: Sendable {
         let status = (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?
             .ubiquitousItemDownloadingStatus
         return isDownloaded(status: status, flags: info.st_flags)
+    }
+
+    /// Whether the folder is on one of this Mac's own disks, as its disk says of itself.
+    /// A folder that cannot be asked is taken not to be.
+    static func isOnLocalVolume(_ folder: URL) -> Bool {
+        let fresh = URL(fileURLWithPath: folder.path, isDirectory: true)
+        return (try? fresh.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal ?? false
+    }
+
+    /// The creation dates the Finder gives a file while it is copying it: 24 January
+    /// 1984, and on older systems 14 February 1946.
+    private static let busyCreationDates = [
+        Date(timeIntervalSince1970: 443_779_200), Date(timeIntervalSince1970: -753_549_904),
+    ]
+
+    /// Whether the Finder's marks of a copy in progress are on a file: one of its own
+    /// creation dates (within a day, whatever time zone it was written in), or the
+    /// type and creator "brok" and "MACS".
+    /// - Parameter finderInfo: The file's Finder information, when it has any.
+    static func isBeingWritten(creationDate: Date?, finderInfo: [UInt8]?) -> Bool {
+        if let creationDate,
+            busyCreationDates.contains(where: { abs(creationDate.timeIntervalSince($0)) <= 86_400 })
+        {
+            return true
+        }
+        guard let finderInfo, finderInfo.count >= 8 else { return false }
+        return Array(finderInfo.prefix(8)) == Array("brokMACS".utf8)
+    }
+
+    /// A file's Finder information, read from its attributes without opening it; nil
+    /// when it has none.
+    static func finderInfo(of url: URL) -> [UInt8]? {
+        var info = [UInt8](repeating: 0, count: 32)
+        let length = getxattr(url.path, "com.apple.FinderInfo", &info, info.count, 0, XATTR_NOFOLLOW)
+        return length > 0 ? Array(info.prefix(length)) : nil
     }
 
     /// - Parameters:

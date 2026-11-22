@@ -369,4 +369,62 @@ import VoxCarrelFixtures
             #expect(taken < .seconds(20))
         }
     }
+
+    // MARK: Signs that a file is still being written, and where it is kept
+
+    /// The Finder gives a file it is copying a creation date of its own (24 January 1984;
+    /// older systems, 14 February 1946) and the type "brok": such a file is listed as
+    /// being written. Read from the file's attributes; the file is not opened.
+    @Test func aFileTheFinderIsCopyingIsListedAsBeingWritten() throws {
+        try withFolder { folder in
+            let plain = try touch(folder.appendingPathComponent("a plain.m4b"))
+            let dated = try touch(folder.appendingPathComponent("b dated.m4b"))
+            let old = try touch(folder.appendingPathComponent("c old.m4b"))
+            let typed = try touch(folder.appendingPathComponent("d typed.m4b"))
+            try fm.setAttributes([.creationDate: Date(timeIntervalSince1970: 443_779_200)], ofItemAtPath: dated.path)
+            try fm.setAttributes([.creationDate: Date(timeIntervalSince1970: -753_549_904)], ofItemAtPath: old.path)
+            var info = [UInt8](repeating: 0, count: 32)
+            info.replaceSubrange(0..<8, with: Array("brokMACS".utf8))
+            #expect(setxattr(typed.path, "com.apple.FinderInfo", info, info.count, 0, 0) == 0)
+            _ = plain
+
+            let listing = FolderLister().list(folder, includePDFs: false)
+
+            #expect(listing.files.map(\.isBeingWritten) == [false, true, true, true])
+            #expect(listing.files.map(\.isOnLocalVolume) == [true, true, true, true])
+        }
+    }
+
+    @Test func onlyTheFindersOwnMarksCountAsBeingWritten() {
+        let busy = Date(timeIntervalSince1970: 443_779_200)
+        #expect(FolderLister.isBeingWritten(creationDate: busy, finderInfo: nil))
+        // Whatever time zone the date was written in.
+        #expect(FolderLister.isBeingWritten(creationDate: busy.addingTimeInterval(-8 * 3600), finderInfo: nil))
+        #expect(FolderLister.isBeingWritten(creationDate: Date(timeIntervalSince1970: -753_549_904), finderInfo: nil))
+        #expect(!FolderLister.isBeingWritten(creationDate: busy.addingTimeInterval(3 * 86_400), finderInfo: nil))
+        #expect(!FolderLister.isBeingWritten(creationDate: Date(timeIntervalSince1970: 1_700_000_000), finderInfo: nil))
+        #expect(!FolderLister.isBeingWritten(creationDate: nil, finderInfo: nil))
+        #expect(FolderLister.isBeingWritten(creationDate: nil, finderInfo: Array("brokMACS".utf8) + [0, 0]))
+        #expect(!FolderLister.isBeingWritten(creationDate: nil, finderInfo: Array("M4B hook".utf8)))
+        #expect(!FolderLister.isBeingWritten(creationDate: nil, finderInfo: Array("bro".utf8)))
+    }
+
+    /// Whether a file is on one of this Mac's own disks is asked of the folder it is in.
+    /// A network disk cannot be made in a temporary folder, so the question is replaced here.
+    @Test func filesAreListedWithWhetherTheirDiskIsThisMacs() throws {
+        try withFolder { folder in
+            try touch(folder.appendingPathComponent("near.m4b"))
+            try touch(folder.appendingPathComponent("Far/far.m4b"))
+            try touch(folder.appendingPathComponent("Far/Deeper/far too.m4b"))
+
+            var lister = FolderLister()
+            lister.isOnLocalVolume = { !$0.path.contains("/Far") }
+            let listing = lister.list(folder, includePDFs: false)
+
+            #expect(names(listing, under: folder) == ["Far/Deeper/far too.m4b", "Far/far.m4b", "near.m4b"])
+            #expect(listing.files.map(\.isOnLocalVolume) == [false, false, true])
+            #expect(FolderLister.isOnLocalVolume(folder))
+            #expect(!FolderLister.isOnLocalVolume(folder.appendingPathComponent("Nowhere")))
+        }
+    }
 }

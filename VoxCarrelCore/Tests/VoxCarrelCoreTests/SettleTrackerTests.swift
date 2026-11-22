@@ -355,4 +355,71 @@ import Testing
         #expect(tracker.observe([book, book], at: at(11)) == [book])
         #expect(!tracker.hasUnsettled)
     }
+
+    // MARK: Files still being written, and files on disks that are not this Mac's
+
+    private func marked(_ file: ListedFile, beingWritten: Bool = false, local: Bool = true) -> ListedFile {
+        var file = file
+        file.isBeingWritten = beingWritten
+        file.isOnLocalVolume = local
+        return file
+    }
+
+    @Test func theIntervalForAFileNotOnThisMacsDisksIsSixtySeconds() {
+        #expect(SettleTracker.remoteSettleInterval == 60)
+    }
+
+    /// IB20: a file on a network disk must stay the same for sixty seconds: a copy over
+    /// a network may stand still for longer than ten.
+    @Test func IB20_aFileOnANetworkDiskSettlesAfterSixtySeconds() {
+        var tracker = SettleTracker()
+        let book = marked(file("a.m4b"), local: false)
+
+        #expect(tracker.observe([book], at: start).isEmpty)
+        #expect(tracker.observe([book], at: at(11)).isEmpty)
+        #expect(tracker.hasUnsettled)
+        #expect(tracker.observe([book], at: at(59.9)).isEmpty)
+        #expect(tracker.observe([book], at: at(60)) == [book])
+        #expect(!tracker.hasUnsettled)
+    }
+
+    /// IB20, IB22: each file by its own disk; one that is not yet settled holds back its directory.
+    @Test func IB22_aNetworkFileHoldsBackItsDirectoryForItsOwnInterval() {
+        var tracker = SettleTracker()
+        let near = file("Book/1.mp3")
+        let far = marked(file("Book/2.mp3"), local: false)
+        let loose = file("loose.m4b")
+
+        _ = tracker.observe([near, far, loose], at: start)
+        #expect(tracker.observe([near, far, loose], at: at(11)) == [loose])
+        #expect(tracker.observe([near, far, loose], at: at(60)) == [near, far, loose])
+    }
+
+    /// IB20: a file that is marked as still being written is never settled, however
+    /// long it keeps its size and date; when the mark goes it starts from then.
+    @Test func IB20_aFileMarkedAsBeingWrittenIsNeverSettled() {
+        var tracker = SettleTracker()
+        let copying = marked(file("a.m4b"), beingWritten: true)
+        let done = marked(copying, beingWritten: false)
+
+        #expect(tracker.observe([copying], at: start).isEmpty)
+        #expect(tracker.observe([copying], at: at(11)).isEmpty)
+        #expect(tracker.observe([copying], at: at(3_600)).isEmpty)
+        #expect(tracker.hasUnsettled)
+
+        #expect(tracker.observe([done], at: at(3_605)).isEmpty)
+        #expect(tracker.observe([done], at: at(3_609)).isEmpty)
+        #expect(tracker.observe([done], at: at(3_610)) == [done])
+    }
+
+    /// IB22: and it holds back the other files of its directory.
+    @Test func IB22_aFileMarkedAsBeingWrittenHoldsBackItsDirectory() {
+        var tracker = SettleTracker()
+        let one = file("Book/1.mp3")
+        let two = marked(file("Book/2.mp3"), beingWritten: true)
+
+        _ = tracker.observe([one, two], at: start)
+        #expect(tracker.observe([one, two], at: at(60)).isEmpty)
+        #expect(tracker.hasUnsettled)
+    }
 }

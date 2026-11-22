@@ -272,4 +272,40 @@ import VoxCarrelFixtures
         _ = try f.store.insertWatchFolder(path: root.path, addedAt: clock.now, baseline: []) { _ in }
         #expect(try settled(f, clock).arrivals.isEmpty)
     }
+
+    // MARK: IB30: slow disks and files still being copied
+
+    /// IB20, IB30: a book on a network disk arrives after sixty seconds unchanged, not
+    /// ten; and one the Finder is still copying does not arrive at all.
+    @Test func IB30_aBookOnANetworkDiskOrStillBeingCopiedWaits() throws {
+        let f = try F()
+        let clock = Clock()
+        let added = try f.service.addWatchFolder(f.inbox, now: clock.now)
+        try touch(f.inbox.appendingPathComponent("far.m4b"))
+        try touch(f.inbox.appendingPathComponent("Copying/part.m4b"))
+        var copying = true
+        f.service.listWatchFolder = { folder, includePDFs in
+            var listing = FolderLister().list(folder, includePDFs: includePDFs)
+            for index in listing.files.indices {
+                if listing.files[index].url.lastPathComponent == "far.m4b" {
+                    listing.files[index].isOnLocalVolume = false
+                } else {
+                    listing.files[index].isBeingWritten = copying
+                }
+            }
+            return listing
+        }
+
+        let early = try settled(f, clock)
+        #expect(early.arrivals.isEmpty)
+        #expect(early.hasUnsettled)
+
+        _ = try f.service.checkInbox(now: clock.later(30))
+        let late = try f.service.checkInbox(now: clock.later(30))
+        #expect(late.arrivals.map(\.id) == [added.path + "/far.m4b"])
+        #expect(late.hasUnsettled)
+
+        copying = false
+        #expect(try settled(f, clock).arrivals.count == 2)
+    }
 }

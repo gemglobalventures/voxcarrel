@@ -287,6 +287,32 @@ import VoxCarrelFixtures
         #expect(pending(h, 60) == 1)
     }
 
+    /// WF11: a file that has still not settled at the later check (it is still being written, or is
+    /// on a disk where it must stay the same for longer) brings another check 11 seconds on, and
+    /// so on until it has: one at a time, never several.
+    @Test func filesStillUnsettledAtTheLaterCheckBringAnother() async throws {
+        let (h, folder) = try await watching()
+        let book = try drop(Self.ebook, into: folder)
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(pending(h, 11) == 1)
+
+        for round in 1...5 {
+            // Still being written.
+            let handle = try FileHandle(forWritingTo: book)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data("more \(round)".utf8))
+            try handle.close()
+            await later(h)
+            #expect(h.model.inboxCount == 0)
+            #expect(pending(h, 11) == 1)
+        }
+
+        await later(h)
+        #expect(h.model.inboxCount == 1)
+        #expect(pending(h, 11) == 0)
+    }
+
     /// WF11: requests that come while a check runs make one more check when it ends, not one each.
     @Test func checksNeverOverlapAndRequestsDuringOneRunOnceMore() async throws {
         let (h, _) = try await watching()
