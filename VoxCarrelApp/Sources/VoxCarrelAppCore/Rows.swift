@@ -8,6 +8,10 @@ public enum SidebarItem: Hashable, Sendable {
     case onAudible
     case browse(BrowseField, String)
     case collection(Int64)
+    /// The books that have arrived in the watch folders and wait to be reviewed. Shown
+    /// only while there is a watch folder (`AppModel.showsInbox`), and not one of `fixed`:
+    /// it lists arrivals, not books of the library.
+    case inbox
 
     /// The eight items every library has, in sidebar order.
     public static let fixed: [SidebarItem] = [

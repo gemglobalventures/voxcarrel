@@ -39,11 +39,18 @@ public enum UserMessage {
         case let error as MetadataIOError: text(for: error)
         case let error as OrganiserError: text(for: error)
         case let error as LookupError: text(for: error, source: nil)
+        case let error as WatchFolderError: text(for: error)
         default:
             // The database's own errors are written for programmers.
             LibraryStore.isDatabaseError(error)
                 ? "The library's database could not be read. It may be damaged, or not a VoxCarrel library."
                 : error.localizedDescription
+        }
+    }
+
+    private static func text(for error: WatchFolderError) -> String {
+        switch error {
+        case .notFound: "That watch folder is no longer in the list."
         }
     }
 

@@ -150,6 +150,8 @@ public actor LibraryWorker {
         case .needsAttention: try store.books(needsAttention: true)
         case .browse(let field, let value): try store.books(where: field, equals: value)
         case .collection(let id): try store.books(inCollection: id)
+        // The inbox lists arrivals, which are not yet books.
+        case .inbox: []
         }
     }
 
@@ -211,16 +213,19 @@ public actor LibraryWorker {
     public func prepareImport(_ urls: [URL]) throws -> (seeds: [ImportSeed], skipped: [URL]) {
         let scan = service.scan(urls)
         let reader = FileMetadataIO()
-        let seeds = try scan.candidates.map { candidate in
-            let cover = candidate.files.lazy
-                .filter { $0.role != .extra }
-                .compactMap { (try? reader.read($0.url))?.cover }
-                .first
-            return ImportSeed(
-                candidate: candidate, cover: cover, existingMatch: try service.existingMatch(for: candidate),
-                measuredAudio: Self.measuredAudio(of: candidate, reader: reader))
-        }
+        let seeds = try scan.candidates.map { try seed(for: $0, reader: reader) }
         return (seeds, scan.skipped)
+    }
+
+    /// The candidate with what the review shows beside it.
+    private func seed(for candidate: CandidateBook, reader: FileMetadataIO) throws -> ImportSeed {
+        let cover = candidate.files.lazy
+            .filter { $0.role != .extra }
+            .compactMap { (try? reader.read($0.url))?.cover }
+            .first
+        return ImportSeed(
+            candidate: candidate, cover: cover, existingMatch: try service.existingMatch(for: candidate),
+            measuredAudio: Self.measuredAudio(of: candidate, reader: reader))
     }
 
     /// The length of the candidate's audio when it is one file whose length could be
@@ -364,6 +369,67 @@ public actor LibraryWorker {
 
     public func reconcile() throws -> ReconcileReport {
         try service.reconcile()
+    }
+
+    // MARK: Watch folders and the inbox
+
+    public func watchFolders() throws -> [WatchFolder] {
+        try service.watchFolders()
+    }
+
+    /// Starts watching a folder; returns every watch folder as they are then.
+    public func addWatchFolder(_ url: URL, now: Date) throws -> [WatchFolder] {
+        try service.addWatchFolder(url, now: now)
+        return try service.watchFolders()
+    }
+
+    /// Changes the settings of the watch folder as it is stored at this moment, so
+    /// that two changes made one straight after the other both hold. Returns every
+    /// watch folder as they are then.
+    public func updateWatchFolder(
+        id: Int64, _ change: @Sendable (inout WatchFolder) -> Void
+    ) throws -> [WatchFolder] {
+        guard var folder = try service.watchFolders().first(where: { $0.id == id }) else {
+            throw WatchFolderError.notFound(id)
+        }
+        change(&folder)
+        try service.updateWatchFolder(folder)
+        return try service.watchFolders()
+    }
+
+    /// Stops watching a folder; returns the watch folders that are left.
+    public func removeWatchFolder(id: Int64) throws -> [WatchFolder] {
+        try service.removeWatchFolder(id: id)
+        return try service.watchFolders()
+    }
+
+    public func scanExisting(inWatchFolder id: Int64) throws {
+        try service.scanExisting(inWatchFolder: id)
+    }
+
+    /// Looks into the watch folders. The engine remembers, from check to check, what
+    /// it saw and the tags it read: every check of a library is made here.
+    public func checkInbox(now: Date) throws -> InboxReport {
+        try service.checkInbox(now: now)
+    }
+
+    public func dismissArrivals(ids: [String]) throws {
+        try service.dismissArrivals(ids: ids)
+    }
+
+    public func recordImported(_ files: [URL]) throws {
+        try service.recordImported(files)
+    }
+
+    /// As `prepareImport(_:)` for books that arrived in a watch folder, each already
+    /// grouped as the Inbox shows it: the candidates are taken as they are, not
+    /// scanned again, so that a folder of parts stays one book. A candidate with a
+    /// file that is no longer there is left out.
+    public func prepareImport(candidates: [CandidateBook]) throws -> [ImportSeed] {
+        let reader = FileMetadataIO()
+        return try candidates
+            .filter { $0.files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) } }
+            .map { try seed(for: $0, reader: reader) }
     }
 
     // MARK: Collections

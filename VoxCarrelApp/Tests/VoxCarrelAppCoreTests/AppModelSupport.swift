@@ -103,6 +103,12 @@ final class FakeTicker: Ticking {
     }
 }
 
+/// The time as a model's inbox is told it: it moves only when a test moves it.
+@MainActor
+final class FakeClock {
+    var now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+}
+
 /// Holds whoever calls `wait()` until `release()`, and lets a test wait for them to arrive.
 actor Gate {
     private var isOpen = false
@@ -140,6 +146,12 @@ final class Harness {
     let opener = RecordingOpener()
     /// What the model looks books up in, in place of the network.
     let lookup: FakeLookup
+    /// What the model watches its watch folders with: nothing is reported until a test fires it.
+    let watcher = FakeFolderWatcher()
+    /// What the model schedules its later inbox checks with: none runs until a test runs it.
+    let ticker = FakeTicker()
+    /// The time the model's inbox checks are told it is.
+    let clock = FakeClock()
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -153,7 +165,10 @@ final class Harness {
         if choose { location.url = root }
         let lookup = FakeLookup()
         self.lookup = lookup
-        model = AppModel(location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:))
+        let clock = clock
+        model = AppModel(
+            location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
+            watcher: watcher, ticker: ticker, inboxNow: { clock.now })
         model.lookupLanguage = "en"
     }
 
@@ -208,10 +223,14 @@ final class Harness {
     }
 
     /// A second model over the same preferences, as after quitting and reopening the app.
-    func relaunched() -> AppModel {
-        AppModel(
+    /// It watches nothing for real, and its later checks never run, unless a test gives
+    /// it a watcher and a ticker to drive.
+    func relaunched(watcher: FakeFolderWatcher? = nil, ticker: FakeTicker? = nil) -> AppModel {
+        let clock = clock
+        return AppModel(
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
-            lookupService: lookup.service(for:))
+            lookupService: lookup.service(for:),
+            watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now })
     }
 
     // MARK: Looking at the library directly

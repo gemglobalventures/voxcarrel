@@ -53,16 +53,26 @@ public final class AppModel {
         didSet { isLibraryOpen = worker != nil }
     }
 
-    /// - Parameter lookupService: Makes what books are looked up with, from the lookup
-    ///   sources that are on and the Audible stores to search; nil for the real sources
-    ///   over the network. Tests give fakes.
+    /// - Parameters:
+    ///   - lookupService: Makes what books are looked up with, from the lookup
+    ///     sources that are on and the Audible stores to search; nil for the real sources
+    ///     over the network. Tests give fakes.
+    ///   - watcher: Says when something changes in a watch folder. Tests give one they
+    ///     fire by hand.
+    ///   - ticker: Runs the inbox's later checks. Tests give one that never waits.
+    ///   - inboxNow: The time, as the inbox checks are told it. Tests move it by hand.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
-        lookupService: ((LookupConfiguration) -> LookupService)? = nil
+        lookupService: ((LookupConfiguration) -> LookupService)? = nil,
+        watcher: FolderWatching = FSEventsFolderWatcher(), ticker: Ticking = TimerTicker(),
+        inboxNow: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.location = location
         self.opener = opener
         self.defaults = defaults
+        self.watcher = watcher
+        self.ticker = ticker
+        self.inboxNow = inboxNow
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
             ?? AudibleStore.forRegion(Locale.current.region?.identifier)
@@ -183,6 +193,8 @@ public final class AppModel {
             importHeldFiles()
         }
         worker = nil
+        // WF10: the inbox was the inbox of the library shown before.
+        closeInbox()
         openFailure = nil
         sidebar = SidebarData(counts: [:], browse: [:], collections: [])
         rows = []
@@ -257,6 +269,8 @@ public final class AppModel {
         } catch {
             show(error)
         }
+        // WF10: the launch check is over.
+        await openInbox()
     }
 
     // MARK: Browsing
@@ -408,7 +422,8 @@ public final class AppModel {
         rowsGeneration += 1
         let generation = rowsGeneration
         do {
-            let fetched = try await worker.rows(for: item, search: search)
+            // WF24: the inbox has no book rows, and the library is not asked for any.
+            let fetched = item == .inbox ? [] : try await worker.rows(for: item, search: search)
             await beforeApplyingRows?(search)
             // A5: a newer reload has started (or finished) since; its answer is the one wanted.
             guard generation == rowsGeneration else { return }
@@ -447,9 +462,12 @@ public final class AppModel {
             if generation == rowsGeneration {
                 // A browse value or a collection that no longer exists has no books to show.
                 if !sidebar.contains(storedSidebarSelection) { storedSidebarSelection = .allBooks }
+                // WF13
+                if storedSidebarSelection == .inbox, !showsInbox { storedSidebarSelection = .allBooks }
                 let item = storedSidebarSelection
                 let search = storedSearchText
-                let fetched = try await worker.rows(for: item, search: search)
+                // WF24
+                let fetched = item == .inbox ? [] : try await worker.rows(for: item, search: search)
                 if generation == rowsGeneration {
                     rows = storedSort.sorted(fetched, showing: item)
                     rowsLoaded = true
@@ -579,7 +597,11 @@ public final class AppModel {
     public internal(set) var busyLabel: String? {
         didSet {
             // A26
-            if busyLabel == nil { importHeldFiles() }
+            if busyLabel == nil {
+                importHeldFiles()
+                // WF12: a check of the inbox that was put off while the operation ran.
+                resumeInboxCheck()
+            }
         }
     }
     /// A plain sentence, dismissed by the view.
@@ -732,6 +754,36 @@ public final class AppModel {
     /// A26: files the app was asked to open that are waiting for the library to open, or
     /// for an operation to end.
     @ObservationIgnored var heldFiles: [URL] = []
+
+    // MARK: Inbox
+
+    @ObservationIgnored let watcher: FolderWatching
+    @ObservationIgnored let ticker: Ticking
+    /// The time an inbox check is told it is.
+    @ObservationIgnored var inboxNow: @MainActor () -> Date
+    /// The books waiting in the watch folders, as the last good check found them.
+    var inboxArrivals: [InboxArrival] = []
+    /// The watch folders, oldest first.
+    var watchFolders: [WatchFolder] = []
+    /// Whether each watch folder could be looked into at the last check, by its id.
+    var watchFolderAvailability: [Int64: FolderAvailability] = [:]
+    /// WF23: said on the Inbox when the last check failed; nil after a good one.
+    public internal(set) var inboxProblem: String?
+    /// The arrivals selected in the Inbox, by id. Ids that are no longer arrivals are
+    /// dropped at each check.
+    public var inboxSelection: Set<String> = []
+    /// WF11: true from when a check is started until no further one is wanted.
+    @ObservationIgnored var inboxCheckRunning = false
+    /// WF11, WF12: a check was asked for while one ran or an operation held the library.
+    @ObservationIgnored var inboxCheckWanted = false
+    /// The regular check, and the one a settle interval after unsettled files were
+    /// seen, are each waiting with the ticker.
+    @ObservationIgnored var inboxTickScheduled = false
+    @ObservationIgnored var inboxRecheckScheduled = false
+    /// The folders the watcher was last started on; nil when it is stopped.
+    @ObservationIgnored var watchedPaths: [String]?
+    /// How many checks of the inbox have been made. For tests.
+    @ObservationIgnored var inboxCheckCount = 0
 
     // MARK: Inspector
 
@@ -971,6 +1023,9 @@ public final class AppModel {
     @ObservationIgnored var beforeApplyingRows: (@Sendable (String) async -> Void)?
     /// Awaited when a cover's file has been read, before the cover is given to the draft.
     @ObservationIgnored var beforeUsingCover: (@Sendable () async -> Void)?
+    /// Awaited by every check of the inbox before the library is asked. An error it
+    /// throws is taken as the check failing.
+    @ObservationIgnored var beforeInboxCheck: (@Sendable () async throws -> Void)?
 }
 
 extension SidebarData {

@@ -54,6 +54,7 @@ extension AppModel {
         case .needsAttention: "Needs Attention"
         case .browse(_, let value): value
         case .collection(let id): sidebar.collections.first { $0.id == id }?.name ?? "Collection"
+        case .inbox: "Inbox"
         }
     }
 
@@ -64,10 +65,11 @@ extension AppModel {
 
     /// How many books are shown: "128 books".
     public var windowSubtitle: String {
+        if sidebarSelection == .inbox { return inboxSubtitle }
         switch rows.count {
-        case 0: "No books"
-        case 1: "1 book"
-        default: "\(rows.count) books"
+        case 0: return "No books"
+        case 1: return "1 book"
+        default: return "\(rows.count) books"
         }
     }
 
@@ -167,6 +169,8 @@ extension AppModel {
     /// Why there are no books to show; nil when there are some, or it is not known yet.
     public var emptyState: EmptyState? {
         guard isLibraryOpen, rowsLoaded, rows.isEmpty, let all = sidebar.counts[.allBooks] else { return nil }
+        // WF24: the Inbox has its own words for when nothing is waiting.
+        guard sidebarSelection != .inbox else { return nil }
         // R10
         if sidebarSelection == .onAudible, sidebar.counts[.onAudible] == 0 { return .noAudibleBooks }
         return all == 0 ? .emptyLibrary : .noMatches
@@ -176,6 +180,8 @@ extension AppModel {
     /// been read, then the books, or why there are none.
     public var booksContent: BooksContent {
         guard isLibraryOpen, rowsLoaded else { return .notLoaded }
+        // WF24
+        if sidebarSelection == .inbox { return .inbox }
         return emptyState.map(BooksContent.empty) ?? .books
     }
 
@@ -205,6 +211,8 @@ public enum BooksContent: Equatable, Sendable {
     case empty(EmptyState)
     /// The grid or the list, by `AppModel.viewMode`.
     case books
+    /// The Inbox is what the sidebar shows: the arrivals (`AppModel.inboxRows`), no books.
+    case inbox
 }
 
 /// Why the grid or the list has nothing in it.

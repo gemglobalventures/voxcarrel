@@ -67,12 +67,11 @@ extension AppModel {
                 // would leave the originals behind to be found again at the next launch.
                 let files = scan.seeds.flatMap(\.candidate.files).map(\.url)
                 let moveOnly = await worker.areInsideLibrary(files)
-                let opened = ImportReview(
-                    seeds: scan.seeds, skipped: scan.skipped, copyInsteadOfMove: copyOnImport, moveOnly: moveOnly)
-                review = opened
-                reviewBeganCopying = opened.copyInsteadOfMove
                 reviewIsOfUntracked = untracked
-                await fillDestinations()
+                await openReview(
+                    ImportReview(
+                        seeds: scan.seeds, skipped: scan.skipped, copyInsteadOfMove: copyOnImport,
+                        moveOnly: moveOnly))
             }
             // Reading changes nothing in the library, so there is nothing to reload.
             busyLabel = nil
@@ -80,6 +79,13 @@ extension AppModel {
             show(error)
             await finish()
         }
+    }
+
+    /// Shows a review that has just been made, and works out where its books would be filed.
+    func openReview(_ opened: ImportReview) async {
+        review = opened
+        reviewBeganCopying = opened.copyInsteadOfMove
+        await fillDestinations()
     }
 
     private static func nothingFound(skipped: Int) -> String {
@@ -143,8 +149,9 @@ extension AppModel {
         self.review = nil
         reviewIsOfUntracked = false
         // Remembered when it is the user's choice, not merely what the review began
-        // with; a review that could only move says nothing about that choice.
-        if review.offersCopy, review.copyInsteadOfMove != reviewBeganCopying {
+        // with; a review that could only move says nothing about that choice. Nor does
+        // one from the Inbox (WF19): its tick began as its watch folder's setting.
+        if review.offersCopy, !review.isFromInbox, review.copyInsteadOfMove != reviewBeganCopying {
             copyOnImport = review.copyInsteadOfMove
         }
 
@@ -165,6 +172,15 @@ extension AppModel {
                     taken.formUnion(item.candidate.files.map(\.url.standardizedFileURL.path))
                 }
                 forgetUntracked { taken.contains($0.standardizedFileURL.path) }
+            }
+            if review.isFromInbox {
+                // WF20: not the files of a book that failed: it is still waiting.
+                var taken: [URL] = []
+                for (item, result) in zip(items, outcome.outcomes) {
+                    if case .failed = result { continue }
+                    taken += item.candidate.files.map(\.url)
+                }
+                await recordInboxImport(of: taken, with: worker)
             }
         } catch {
             show(error)

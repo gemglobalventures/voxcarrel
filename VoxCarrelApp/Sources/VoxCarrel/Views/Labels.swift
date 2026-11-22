@@ -17,6 +17,7 @@ extension SidebarItem {
         case .needsAttention: "exclamationmark.triangle"
         case .browse(let field, _): field.symbol
         case .collection: "rectangle.stack"
+        case .inbox: "tray"
         }
     }
 }

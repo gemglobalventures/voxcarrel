@@ -116,8 +116,22 @@ public struct ImportReview: Equatable, Sendable {
     /// always moved into place: a copy would leave the original loose in the library,
     /// to be found again and imported twice.
     public let moveOnly: Bool
+    /// True when the books are ones that arrived in the watch folders and were sent
+    /// for review from the Inbox.
+    public let isFromInbox: Bool
+    /// WF19: said beside the Copy tick when it was preset for a reason worth telling;
+    /// nil otherwise.
+    public let inboxNote: String?
 
-    public init(seeds: [ImportSeed], skipped: [URL], copyInsteadOfMove: Bool, moveOnly: Bool = false) {
+    /// Said when the books come from watch folders that do not agree on Move or Copy.
+    public static let mixedModesNote = "These books come from folders set to Move and to Copy, so Copy is ticked."
+
+    public init(
+        seeds: [ImportSeed], skipped: [URL], copyInsteadOfMove: Bool, moveOnly: Bool = false,
+        isFromInbox: Bool = false, inboxNote: String? = nil
+    ) {
+        self.isFromInbox = isFromInbox
+        self.inboxNote = inboxNote
         entries = seeds.map { seed in
             Entry(
                 id: UUID(), candidate: seed.candidate, included: true, cover: seed.cover, coverChanged: false,

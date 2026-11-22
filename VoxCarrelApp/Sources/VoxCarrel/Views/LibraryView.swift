@@ -111,6 +111,9 @@ private struct BooksView: View {
             case .grid: BookGridView()
             case .list: BookListView()
             }
+        case .inbox:
+            // The arrivals are listed here.
+            Color.clear
         }
     }
 }
