@@ -3,6 +3,8 @@ import VoxCarrelCore
 
 public enum BookSortKey: String, CaseIterable, Sendable {
     case title, author, series, formats, length, dateAdded, status
+    /// Unabridged, abridged, dramatised; books whose edition is not known last.
+    case edition
 }
 
 /// How the grid and the list order their books.
@@ -80,6 +82,16 @@ public struct BookSort: Equatable, Sendable {
         }
     }
 
+    /// Unabridged, abridged, dramatised.
+    private static func editionRank(_ row: BookRow) -> Int? {
+        switch row.book.editionKind?.kind {
+        case .unabridged: 0
+        case .abridged: 1
+        case .dramatised: 2
+        case nil: nil
+        }
+    }
+
     private func hasValue(_ row: BookRow) -> Bool {
         if bySeriesNumber { return Self.text(row.book.seriesNumber) != nil }
         return switch key {
@@ -88,6 +100,7 @@ public struct BookSort: Equatable, Sendable {
         case .series: Self.text(row.book.series) != nil
         case .formats: Self.formatRank(row) != nil
         case .length: row.book.durationSeconds != nil
+        case .edition: Self.editionRank(row) != nil
         }
     }
 
@@ -136,6 +149,8 @@ public struct BookSort: Equatable, Sendable {
             result = Self.compareValues(a.book.dateAdded, b.book.dateAdded)
         case .status:
             result = Self.compareValues(Self.statusRank(a), Self.statusRank(b))
+        case .edition:
+            result = Self.compareValues(Self.editionRank(a) ?? .max, Self.editionRank(b) ?? .max)
         }
         if result == .orderedSame { result = Self.compareText(a.book.title, b.book.title) }
         if result == .orderedSame { result = Self.compareValues(a.id, b.id) }
@@ -156,6 +171,7 @@ extension BookRow {
     public var lengthSortKey: Double { book.durationSeconds ?? 0 }
     public var dateAddedSortKey: Date { book.dateAdded }
     public var statusSortKey: String { book.readStatus.rawValue }
+    public var editionSortKey: String { book.editionKind?.kind.rawValue ?? "" }
 }
 
 extension BookSortKey {
@@ -175,6 +191,7 @@ extension BookSortKey {
         case .length: KeyPathComparator(\.lengthSortKey, order: order)
         case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
         case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
+        case .edition: KeyPathComparator(\.editionSortKey, comparator: text, order: order)
         }
     }
 }

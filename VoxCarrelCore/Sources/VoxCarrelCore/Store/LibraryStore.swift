@@ -135,6 +135,12 @@ public final class LibraryStore: Sendable {
                 t.column("value", .text).notNull()
             }
         }
+        migrator.registerMigration("v7") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "editionKind", .text)
+                t.add(column: "partsAppearMissing", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 

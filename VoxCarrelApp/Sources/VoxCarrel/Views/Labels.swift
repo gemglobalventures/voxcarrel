@@ -42,6 +42,7 @@ extension BookSortKey {
         case .length: "Length"
         case .dateAdded: "Date Added"
         case .status: "Status"
+        case .edition: "Edition"
         }
     }
 }

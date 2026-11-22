@@ -144,6 +144,21 @@ private func verdict(
             == .differentEdition(reasons: ["read by Rory Kinnear, not Frank Muller", "3h 0m; yours is 18h 0m", "abridged; yours is unabridged"]))
     }
 
+    /// A reader or a length in common does not make another book the user's edition.
+    @Test func M4_anotherBookIsNeverTheSameEdition() {
+        let muller = ["Frank Muller"]
+        #expect(verdict(result(title: "Moby-Dick", authors: ["Herman Melville"], narrators: muller, hours: 18), narrators: muller, hours: 18) == .unknown)
+        #expect(verdict(result(title: "Smiley’s People", narrators: muller), narrators: muller) == .unknown)
+        #expect(verdict(result(authors: ["Someone Else"], hours: 18), hours: 18) == .unknown)
+        // A fuller or shorter form of the title, and a name written another way, are the same book.
+        #expect(verdict(result(title: "A Perfect Spy: A Novel", narrators: muller), narrators: muller) == .sameEdition)
+        #expect(verdict(result(title: "Perfect Spy", authors: ["Le Carré, John, 1931-2020"], hours: 18), hours: 18) == .sameEdition)
+        #expect(verdict(result(authors: [], hours: 18), hours: 18) == .sameEdition)
+        #expect(verdict(result(authors: ["A Translator", "John Le Carre"], hours: 18), hours: 18) == .sameEdition)
+        // A contradiction is still a contradiction.
+        #expect(verdict(result(title: "Moby-Dick", narrators: ["Rory Kinnear"]), narrators: muller).isDifferent)
+    }
+
     @Test func M4_theVerdictForABookContextIsTheSame() {
         let candidate = result(narrators: ["Rory Kinnear"], hours: 20, abridged: true)
         let context = LookupBookContext(metadata: book(narrators: ["Frank Muller"]), audioSeconds: 18 * 3600, isAbridged: false)

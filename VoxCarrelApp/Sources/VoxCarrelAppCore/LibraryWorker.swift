@@ -266,6 +266,26 @@ public actor LibraryWorker {
         try service.setReadStatus(status, for: bookIds)
     }
 
+    // MARK: Editions
+
+    /// What the book's own files say that bears on which edition it is. Reads the
+    /// catalogue only.
+    public func editionEvidence(for bookId: Int64) throws -> EditionEvidence {
+        try service.editionEvidence(for: bookId)
+    }
+
+    /// What a check of the book's edition would come to, given what a lookup found.
+    /// Changes nothing.
+    public func assessEdition(of bookId: Int64, results: [LookupCandidate]) throws -> EditionKindAssessment {
+        try service.assessEdition(of: bookId, results: results)
+    }
+
+    /// Records each book's edition kind, worked out from its files and from what a
+    /// lookup found for it, as one undoable operation (`LibraryService.checkEditions`).
+    public func checkEditions(_ checks: [EditionCheck]) throws -> [EditionCheckOutcome] {
+        try service.checkEditions(checks)
+    }
+
     /// Adds a book that is owned elsewhere and has no files here, or, when the library
     /// has the book already, gives that book the copy (`LibraryService.addExternalBook`).
     public func addExternalBook(

@@ -80,7 +80,22 @@ public enum EditionMatch {
 
         // M4
         if !reasons.isEmpty { return .differentEdition(reasons: reasons) }
-        return matches ? .sameEdition : .unknown
+        // The same reader or the same length makes it the book's edition only when it
+        // is the book at all.
+        return matches && mayBeSameWork(candidate.metadata, book) ? .sameEdition : .unknown
+    }
+
+    /// False when the two are plainly different books: neither title begins with the
+    /// other, or both name authors and share none. Whatever is missing rules nothing out.
+    static func mayBeSameWork(_ found: BookMetadata, _ book: BookMetadata) -> Bool {
+        let theirs = LookupText.comparable(found.title), ours = LookupText.comparable(book.title)
+        if !theirs.isEmpty, !ours.isEmpty, !theirs.starts(with: ours), !ours.starts(with: theirs) { return false }
+        let their = found.authors.compactMap(\.nonBlank), our = book.authors.compactMap(\.nonBlank)
+        if !their.isEmpty, !our.isEmpty,
+           !their.contains(where: { name in our.contains { LookupText.samePerson(name, $0) } }) {
+            return false
+        }
+        return true
     }
 
     public static func verdict(candidate: LookupCandidate, book: LookupBookContext) -> EditionVerdict {

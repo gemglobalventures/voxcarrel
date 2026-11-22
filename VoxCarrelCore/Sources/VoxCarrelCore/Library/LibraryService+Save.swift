@@ -114,6 +114,7 @@ extension LibraryService {
         }
 
         if !writesTags, moves.isEmpty, edit.tags == book.tags, edit.rating == book.rating,
+           edit.editionKind == book.editionKind,
            needsAttention == book.needsAttention, folderPath == book.folderPath {
             return .unchanged(Set(book.appOnlyFields))
         }
@@ -166,6 +167,8 @@ extension LibraryService {
         Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)
         updated.tags = edit.tags
         updated.rating = edit.rating
+        // In the catalogue only: no file is opened for it.
+        updated.editionKind = edit.editionKind
         updated.folderPath = folderPath
         updated.needsAttention = needsAttention
 
@@ -193,7 +196,8 @@ extension LibraryService {
         var metadata = edit.metadata
         metadata.durationSeconds = book.durationSeconds
         metadata.pageCount = book.pageCount
-        if metadata == book.metadata, edit.cover == .keep, edit.tags == book.tags, edit.rating == book.rating {
+        if metadata == book.metadata, edit.cover == .keep, edit.tags == book.tags, edit.rating == book.rating,
+           edit.editionKind == book.editionKind {
             return .unchanged([])
         }
 
@@ -210,6 +214,7 @@ extension LibraryService {
         Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)
         updated.tags = edit.tags
         updated.rating = edit.rating
+        updated.editionKind = edit.editionKind
         updated.appOnlyFields = []
         operation.add(
             .init(book: updated, files: []),

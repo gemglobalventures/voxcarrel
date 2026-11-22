@@ -65,8 +65,59 @@ extension ReadStatus {
     }
 }
 
+// K10: what kind of edition a book is, in words.
+extension EditionKindNote {
+    /// "Abridged", "Probably unabridged": the kind, said as probable when it is only
+    /// an estimate.
+    public var title: String {
+        isProbable ? "Probably \(kind.title.lowercased())" : kind.title
+    }
+
+    /// The small label a book carries: "Abridged", "Probably abridged", "Dramatised".
+    /// Nil for an unabridged book, which is what a book is taken to be, unless its
+    /// files say so or the user did.
+    public var label: String? {
+        switch (kind, basis) {
+        case (.unabridged, .stated), (.unabridged, .setByHand): title
+        case (.unabridged, _): nil
+        default: title
+        }
+    }
+
+    /// How it is known: "The file’s tags say so."
+    public var basisText: String {
+        switch basis {
+        case .stated(let source):
+            source == EditionKindGuess.namesSource ? "The file’s name says so." : "The file’s tags say so."
+        case .matched(let source): "Matched with a result from \(source)."
+        case .inferred: "Worked out from its running time."
+        case .estimated: "Estimated from the length of the printed book."
+        case .setByHand: "Set by you."
+        }
+    }
+
+    /// For the label's tooltip: the reason when there is one, and how it is known.
+    public var helpText: String {
+        guard let reason = reason?.trimmedOrNil else { return basisText }
+        // What the files say is its own account of how it is known.
+        if case .stated = basis { return reason }
+        return "\(reason) \(basisText)"
+    }
+}
+
 // What the grid and the list write about a book.
 extension BookRow {
+    /// K10: the book's edition label, "Abridged", "Probably abridged" or "Dramatised";
+    /// nil when there is nothing to show.
+    public var editionLabel: String? {
+        book.editionKind?.label
+    }
+
+    /// K10: the label's tooltip; nil when there is no label.
+    public var editionHelpText: String? {
+        book.editionKind.flatMap { $0.label == nil ? nil : $0.helpText }
+    }
+
     /// Empty when the book has no length.
     public var lengthText: String {
         LengthText.text(seconds: book.durationSeconds) ?? ""
@@ -178,6 +229,7 @@ extension BookRow {
         // A book with no files is said to be on Audible, which says it is an audiobook too.
         if hasFiles || whereaboutsText == nil, let formsText { badges.append(formsText) }
         if let whereaboutsText { badges.append(whereaboutsText) }
+        if let editionLabel { badges.append(editionLabel) }
         if book.readStatus != .unread { badges.append(book.readStatus.title) }
         if let warningText { badges.append(warningText) }
         return [book.title, authorsText, badges.joined(separator: " · ")]

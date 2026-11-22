@@ -28,6 +28,9 @@ public struct BookDraft: Equatable, Sendable {
     public var rating: Int
     /// `.keep` until the user changes it.
     public var cover: CoverChange
+    /// Whether the audiobook is unabridged, abridged or a dramatisation, with how that
+    /// is known; nil for not known. Changed by hand with `chooseEditionKind`.
+    public var editionKind: EditionKindNote?
 
     public init(book: Book) {
         original = book
@@ -47,10 +50,37 @@ public struct BookDraft: Equatable, Sendable {
         tags = NameListText.text(from: book.tags)
         rating = book.rating
         cover = .keep
+        editionKind = book.editionKind
     }
 
+    /// K9: the user's own choice of what kind of edition the book is; nil for "Not
+    /// known". Choosing the kind the book is already taken to be makes it the user's
+    /// word, which nothing worked out later replaces. Choosing what was already chosen
+    /// by hand changes nothing.
+    public mutating func chooseEditionKind(_ kind: EditionKind?) {
+        guard let kind else {
+            editionKind = nil
+            return
+        }
+        if let now = editionKind, now.kind == kind, now.isSetByHand { return }
+        // Back to the book's own value, when that is the same choice.
+        if let own = original.editionKind, own.kind == kind, own.isSetByHand {
+            editionKind = own
+            return
+        }
+        editionKind = EditionKindNote(kind: kind, basis: .setByHand)
+    }
+
+    /// K9: whether the edition kind is to be marked "saved in app only": only a kind
+    /// set by hand is.
+    public var editionKindIsAppOnly: Bool {
+        editionKind?.isSetByHand ?? false
+    }
+
+    var editionKindChanged: Bool { editionKind != original.editionKind }
+
     public var isDirty: Bool {
-        cover != .keep || ratingChanged || yearChanged || titleChanged
+        cover != .keep || ratingChanged || yearChanged || titleChanged || editionKindChanged
             || textChanged(subtitle, original.subtitle) || namesChanged(authors, original.authors)
             || namesChanged(narrators, original.narrators) || textChanged(series, original.series)
             || textChanged(seriesNumber, original.seriesNumber) || textChanged(genre, original.genre)
@@ -92,6 +122,7 @@ public struct BookDraft: Equatable, Sendable {
         if textChanged(asin, original.asin) { edit.metadata.asin = asin.trimmedOrNil }
         if namesChanged(tags, original.tags) { edit.tags = NameListText.names(from: tags) }
         if ratingChanged { edit.rating = clampedRating }
+        if editionKindChanged { edit.editionKind = editionKind }
         return edit
     }
 
@@ -140,6 +171,7 @@ public struct BookDraft: Equatable, Sendable {
         if textChanged(asin, original.asin) { fresh.asin = asin }
         if namesChanged(tags, original.tags) { fresh.tags = tags }
         if ratingChanged { fresh.rating = rating }
+        if editionKindChanged { fresh.editionKind = editionKind }
         fresh.cover = cover
         return fresh
     }
@@ -158,6 +190,7 @@ public struct BookDraft: Equatable, Sendable {
             fresh[keyPath: text] = self[keyPath: text]
         }
         if rating != sent.rating { fresh.rating = rating }
+        if editionKind != sent.editionKind { fresh.editionKind = editionKind }
         if cover != sent.cover { fresh.cover = cover }
         return fresh
     }

@@ -852,6 +852,15 @@ public final class AppModel {
     /// Closing the lookup cancels it and ends the add there and then.
     @ObservationIgnored var addCoverFetch: Task<CoverImage?, Never>?
 
+    // MARK: Checking editions
+
+    /// K8: true while Check Edition is looking books up: it can be cancelled.
+    public internal(set) var isCheckingEdition = false
+    /// The lookups of a Check Edition that is running.
+    @ObservationIgnored var editionCheck: Task<[EditionCheck]?, Never>?
+    /// Whether there is any lookup source to ask.
+    var canAskLookupSources: Bool { true }
+
     // MARK: Work in the background
 
     @ObservationIgnored private var background: [UUID: Task<Void, Never>] = [:]

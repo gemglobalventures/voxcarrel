@@ -178,11 +178,21 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     /// The copies as stored, with those this code cannot read.
     var storedCopies = StoredCopies()
 
+    /// Whether the audiobook is unabridged, abridged or a dramatisation, with how that
+    /// is known; nil when it is not known. Kept in the catalogue only: never written
+    /// into a file's tags.
+    public var editionKind: EditionKindNote? = nil
+    /// True when the audio files the book was imported from were numbered with gaps
+    /// (1, 2, 4): it may be incomplete, and its length is no sign of an abridgement.
+    /// Recorded at import, because filing gives the parts new names.
+    public var partsAppearMissing = false
+
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, authors, narrators, series, seriesNumber, genre, year, publisher, summary
         case language, isbn, asin, durationSeconds, pageCount, tags, rating, folderPath, needsAttention
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
+        case editionKind, partsAppearMissing
     }
 
     /// True when the book is owned somewhere other than as files in the library.
@@ -275,6 +285,11 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         // counts as no copies: what a book is owned on must never make the book itself
         // unreadable.
         storedCopies = (try? c.decodeIfPresent(StoredCopies.self, forKey: .storedCopies)) ?? StoredCopies()
+        // A value this code cannot read (a kind or a basis added by a newer version)
+        // counts as not known: it must never make the book, or an undo snapshot holding
+        // it, unreadable.
+        editionKind = (try? c.decodeIfPresent(EditionKindNote.self, forKey: .editionKind)) ?? nil
+        partsAppearMissing = (try? c.decodeIfPresent(Bool.self, forKey: .partsAppearMissing)) ?? false
     }
 
     /// The descriptive fields as one value.

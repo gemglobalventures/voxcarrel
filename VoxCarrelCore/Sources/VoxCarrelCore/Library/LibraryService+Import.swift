@@ -164,6 +164,8 @@ extension LibraryService {
                 for index in files.indices { files[index].holdsCover = false }
             }
             var book = Book(metadata: metadata, folderPath: nil, needsAttention: true)
+            book.editionKind = Self.statedEditionKind(of: candidate)
+            book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
             book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)
             operation.add(
                 .init(book: book, files: bookFiles(files)),
@@ -202,6 +204,8 @@ extension LibraryService {
         }
 
         var book = Book(metadata: metadata, folderPath: store.storedPath(for: plan.folder))
+        book.editionKind = Self.statedEditionKind(of: candidate)
+        book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
         book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)  // I9
         operation.add(
             .init(book: book, files: bookFiles(files)),  // I10

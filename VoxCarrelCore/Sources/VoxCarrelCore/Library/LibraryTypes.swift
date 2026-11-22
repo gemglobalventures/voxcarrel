@@ -65,6 +65,9 @@ public struct BookEdit: Sendable {
     public var cover: CoverChange
     public var tags: [String]
     public var rating: Int
+    /// Whether the audiobook is unabridged, abridged or a dramatisation; nil for not
+    /// known. Saved in the catalogue only: it is never written into a file.
+    public var editionKind: EditionKindNote?
 
     /// Starts from the book's current values, so a caller changes only what it means to.
     public init(book: Book, cover: CoverChange = .keep) {
@@ -74,6 +77,54 @@ public struct BookEdit: Sendable {
         self.cover = cover
         self.tags = book.tags
         self.rating = book.rating
+        self.editionKind = book.editionKind
+    }
+}
+
+/// What lookups found for one book, for working out what kind of edition it is.
+public struct EditionCheck: Sendable {
+    public var bookId: Int64
+    /// What a lookup for the book found, best first; empty when nothing was looked up.
+    public var results: [LookupCandidate]
+
+    public init(bookId: Int64, results: [LookupCandidate]) {
+        self.bookId = bookId
+        self.results = results
+    }
+}
+
+/// What a check of one book's edition came to.
+public struct EditionCheckOutcome: Equatable, Sendable {
+    public var bookId: Int64
+    /// What the book has now, changed or not.
+    public var kind: EditionKindNote?
+    /// Whether the check changed it.
+    public var changed: Bool
+    /// Said when the check reached no verdict of its own and there is a reason worth giving.
+    public var remark: String?
+
+    public init(bookId: Int64, kind: EditionKindNote?, changed: Bool, remark: String? = nil) {
+        self.bookId = bookId
+        self.kind = kind
+        self.changed = changed
+        self.remark = remark
+    }
+}
+
+/// What a book's own files say that bears on which edition it is.
+public struct EditionEvidence: Equatable, Sendable {
+    /// The measured length of the audio files; nil when the book has none, or when the
+    /// length of any of them could not be measured and so cannot be relied on.
+    public var audioSeconds: Double?
+    /// Whether the audio files' names are numbered with gaps.
+    public var partsAppearMissing: Bool
+    /// What the files' tags and names say; nil when they say nothing.
+    public var stated: EditionKindNote?
+
+    public init(audioSeconds: Double? = nil, partsAppearMissing: Bool = false, stated: EditionKindNote? = nil) {
+        self.audioSeconds = audioSeconds
+        self.partsAppearMissing = partsAppearMissing
+        self.stated = stated
     }
 }
 
