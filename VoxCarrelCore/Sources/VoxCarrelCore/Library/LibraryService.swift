@@ -38,9 +38,25 @@ public final class LibraryService {
 
     /// How the files under a watch folder are listed: given the folder and whether PDFs
     /// count. A test seam.
-    var listWatchFolder: (_ folder: URL, _ includePDFs: Bool) -> [ListedFile] = {
-        FolderLister().list($0, includePDFs: $1).files
+    var listWatchFolder: (_ folder: URL, _ includePDFs: Bool) -> FolderListing = {
+        FolderLister().list($0, includePDFs: $1)
     }
+
+    /// Test seam: how the inbox check reads a file's tags, in place of `metadataIO`.
+    var readInboxTags: ((URL) throws -> BookMetadata)?
+
+    /// What the inbox checks so far have seen of each file, to tell when it has settled.
+    var inboxTracker = SettleTracker()
+
+    /// The tags the inbox check has read, by path, each for one state of its file.
+    var inboxTags: [String: InboxTags] = [:]
+
+    /// The files the scanner passed over, by path, each as it was then: not looked at
+    /// again until it changes.
+    var inboxSkipped: [String: ListedFile] = [:]
+
+    /// The arrivals of the last inbox check, by id.
+    var inboxArrivals: [String: InboxArrival] = [:]
 
     /// Moves a file to the user's Trash; returns where it now is, when the system says.
     @discardableResult

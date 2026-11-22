@@ -622,9 +622,11 @@ extension LibraryStore {
         }
     }
 
-    /// Changes a watch folder's mode, whether it is enabled and whether PDFs count.
+    /// Changes a watch folder's mode, whether it is enabled and whether PDFs count, and
+    /// in the same transaction adds `baseline` to its ledger. A file of `baseline` that
+    /// has an entry already keeps it.
     /// - Throws: `WatchFolderError.notFound` when no folder has the id.
-    func updateWatchFolderSettings(_ folder: WatchFolder) throws {
+    func updateWatchFolderSettings(_ folder: WatchFolder, baseline: [ListedFile] = []) throws {
         try dbQueue.write { db in
             guard var record = try WatchFolderRecord.fetchOne(db, key: folder.id) else {
                 throw WatchFolderError.notFound(folder.id)
@@ -633,6 +635,12 @@ extension LibraryStore {
             record.isEnabled = folder.isEnabled
             record.includesPDFs = folder.includesPDFs
             try record.update(db)
+            for file in baseline {
+                var entry = InboxEntryRecord(
+                    id: nil, folderId: folder.id, path: file.url.path, size: file.size,
+                    modifiedAt: file.modifiedAt, state: .baseline)
+                try entry.insert(db, onConflict: .ignore)
+            }
         }
     }
 
@@ -662,6 +670,26 @@ extension LibraryStore {
                 modifiedAt: file.modifiedAt, state: state)
             try entry.insert(db)
         }
+    }
+
+    /// Records files in the ledger as they are now, each under its own watch folder
+    /// and in place of any entry the file had. One transaction.
+    func replaceInboxEntries(_ files: [(file: ListedFile, folderId: Int64)], state: InboxEntryState) throws {
+        guard !files.isEmpty else { return }
+        try dbQueue.write { db in
+            for (file, folderId) in files {
+                try InboxEntryRecord
+                    .filter(Column("folderId") == folderId && Column("path") == file.url.path)
+                    .deleteAll(db)
+                try Self.insertInboxEntries(db, [file], state: state, folderId: folderId)
+            }
+        }
+    }
+
+    /// Deletes the ledger entries with these ids.
+    func deleteInboxEntries(ids: [Int64]) throws {
+        guard !ids.isEmpty else { return }
+        try dbQueue.write { db in _ = try InboxEntryRecord.deleteAll(db, keys: ids) }
     }
 
     /// Deletes a watch folder's ledger entries of one state.

@@ -45,9 +45,9 @@ import VoxCarrelFixtures
     /// Gives a folder one ledger entry of each state; returns the folder.
     private func folderWithEveryState(_ f: F, _ name: String = "Watched") throws -> WatchFolder {
         let url = try folder(f, name)
-        f.service.listWatchFolder = { [self] _, _ in [listed(url, "old1.m4b"), listed(url, "old2.m4b")] }
+        f.service.listWatchFolder = { [self] _, _ in .found([listed(url, "old1.m4b"), listed(url, "old2.m4b")]) }
         let added = try f.service.addWatchFolder(url, now: now)
-        f.service.listWatchFolder = { _, _ in [] }
+        f.service.listWatchFolder = { _, _ in .found([]) }
         try f.store.recordInboxEntries([listed(url, "no.m4b")], state: .dismissed, folderId: added.id)
         try f.store.recordInboxEntries([listed(url, "done.m4b")], state: .imported, folderId: added.id)
         return added
@@ -99,7 +99,7 @@ import VoxCarrelFixtures
     ) throws {
         let before = try f.service.watchFolders()
         let entriesBefore = try entryCount(f)
-        f.service.listWatchFolder = { [self] folder, _ in [listed(folder, "x.m4b")] }
+        f.service.listWatchFolder = { [self] folder, _ in .found([listed(folder, "x.m4b")]) }
         #expect(throws: problem, sourceLocation: sourceLocation) {
             try f.service.addWatchFolder(url, now: now)
         }
@@ -219,7 +219,7 @@ import VoxCarrelFixtures
         var asked: [(URL, Bool)] = []
         f.service.listWatchFolder = { folder, includePDFs in
             asked.append((folder, includePDFs))
-            return files
+            return .found(files)
         }
 
         let added = try f.service.addWatchFolder(url, now: now)
@@ -269,7 +269,7 @@ import VoxCarrelFixtures
         let f = try F()
         let url = try folder(f, "Watched")
         try touch(url.appendingPathComponent("a.m4b"))
-        f.service.listWatchFolder = { _, _ in [] }
+        f.service.listWatchFolder = { _, _ in .found([]) }
 
         let added = try f.service.addWatchFolder(url, now: now)
 
@@ -282,7 +282,7 @@ import VoxCarrelFixtures
         let f = try F()
         let url = try folder(f, "Watched")
         // The same path twice breaks the ledger's rule of one entry per file.
-        f.service.listWatchFolder = { [self] _, _ in [listed(url, "a.m4b"), listed(url, "a.m4b")] }
+        f.service.listWatchFolder = { [self] _, _ in .found([listed(url, "a.m4b"), listed(url, "a.m4b")]) }
 
         #expect(throws: (any Error).self) { try f.service.addWatchFolder(url, now: now) }
 
@@ -294,7 +294,7 @@ import VoxCarrelFixtures
         let f = try F()
         let one = try folder(f, "One")
         let two = try folder(f, "Two")
-        f.service.listWatchFolder = { [self] folder, _ in [listed(folder, "a.m4b")] }
+        f.service.listWatchFolder = { [self] folder, _ in .found([listed(folder, "a.m4b")]) }
 
         let first = try f.service.addWatchFolder(one, now: now)
         let second = try f.service.addWatchFolder(two, now: now)

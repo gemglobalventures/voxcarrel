@@ -207,3 +207,10 @@ func isFailed(_ outcome: ImportOutcome) -> String? {
     if case .failed(let reason) = outcome { return reason }
     return nil
 }
+
+extension FolderListing {
+    /// What listing an available folder holding `files` gives.
+    static func found(_ files: [ListedFile]) -> FolderListing {
+        FolderListing(availability: .available, files: files)
+    }
+}

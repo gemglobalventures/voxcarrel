@@ -65,7 +65,7 @@ public struct BookScanner {
         for url in roots {
             switch kind(of: url) {
             case .folder:
-                _ = scanFolder(url, into: &result)
+                _ = scanFolder(url, from: disk, into: &result)
             case .file:
                 let parent = url.standardizedFileURL.deletingLastPathComponent().path
                 if looseFiles[parent] == nil { looseFolders.append(parent) }
@@ -79,6 +79,60 @@ public struct BookScanner {
                      subfoldersHaveBooks: false, into: &result)
         }
 
+        finish(&result)
+        return result
+    }
+
+    /// Scans `files`, all of them somewhere under `root`, as if they were everything
+    /// `root` holds and its contents had been dropped together: files directly in
+    /// `root` are loose files, and each folder below it is scanned as a folder that
+    /// holds only those of `files` that lie in it. Files of `root` that are not in
+    /// `files` play no part.
+    ///
+    /// Each file is still looked at where it is: one that is no longer a plain file is
+    /// listed as skipped, as is one that does not lie under `root`.
+    func scan(files: [URL], under root: URL) -> ScanResult {
+        var result = ScanResult()
+        let rootParts = root.pathComponents
+        // What each folder holds, by the folder's path.
+        var holds: [String: [URL]] = [root.path: []]
+        for file in files {
+            let parts = file.pathComponents
+            guard parts.count > rootParts.count, Array(parts.prefix(rootParts.count)) == rootParts else {
+                result.skipped.append(file)
+                continue
+            }
+            var folder = root
+            for name in parts[rootParts.count..<(parts.count - 1)] {
+                let below = folder.appendingPathComponent(name, isDirectory: true)
+                if holds[below.path] == nil {
+                    holds[below.path] = []
+                    holds[folder.path, default: []].append(below)
+                }
+                folder = below
+            }
+            holds[folder.path, default: []].append(file)
+        }
+        let source = Source(
+            kind: { holds[$0.path] != nil ? .folder : kind(of: $0) },
+            children: { holds[$0.path] })
+
+        var loose: [URL] = []
+        for child in Self.inNameOrder(holds[root.path] ?? []) {
+            switch source.kind(child) {
+            case .folder: _ = scanFolder(child, from: source, into: &result)
+            case .file: loose.append(child)
+            case .opaqueFolder, .unusable: result.skipped.append(child)
+            }
+        }
+        addFiles(loose, folder: nil, subfoldersHaveAudio: false, subfoldersHaveBooks: false, into: &result)
+
+        finish(&result)
+        return result
+    }
+
+    /// Merges candidates that are one book, and puts each one's files in order.
+    private func finish(_ result: inout ScanResult) {
         result.candidates = mergeMatching(result.candidates).map { candidate in
             var sorted = candidate
             sorted.files = [FileRole.audio, .ebook, .extra].flatMap { role in
@@ -86,7 +140,6 @@ public struct BookScanner {
             }
             return sorted
         }
-        return result
     }
 
     // MARK: Folders
@@ -120,25 +173,42 @@ public struct BookScanner {
         var hasBooks = false
     }
 
+    /// Where the scanner learns what a folder holds and what each thing in it is.
+    private struct Source {
+        var kind: (URL) -> Kind
+        /// Nil for a folder that cannot be read.
+        var children: (URL) -> [URL]?
+    }
+
+    /// The folders and files as they are on disk.
+    private var disk: Source {
+        Source(kind: kind(of:), children: { folder in
+            try? FileManager.default.contentsOfDirectory(
+                at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles])
+        })
+    }
+
+    private static func inNameOrder(_ urls: [URL]) -> [URL] {
+        urls.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
+    }
+
     /// Scans one folder and its subfolders; reports what the subtree contains.
-    private func scanFolder(_ folder: URL, into result: inout ScanResult) -> Contents {
-        guard let unsorted = try? FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles])
-        else {
+    private func scanFolder(_ folder: URL, from source: Source, into result: inout ScanResult) -> Contents {
+        guard let unsorted = source.children(folder) else {
             result.skipped.append(folder)
             return Contents()
         }
-        let children = unsorted.sorted {
-            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
-        }
+        let children = Self.inNameOrder(unsorted)
 
         var files: [URL] = []
         var below = Contents()
         for child in children {
-            switch kind(of: child) {
+            switch source.kind(child) {
             case .folder:
-                let sub = scanFolder(child, into: &result)
+                let sub = scanFolder(child, from: source, into: &result)
                 below.hasAudio = below.hasAudio || sub.hasAudio
                 below.hasBooks = below.hasBooks || sub.hasBooks
             case .file:

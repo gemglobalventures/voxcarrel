@@ -46,3 +46,54 @@ public enum WatchFolderError: Error, Equatable, Sendable {
     /// No watch folder has this id.
     case notFound(Int64)
 }
+
+/// A book that has arrived in a watch folder and waits to be reviewed.
+public struct InboxArrival: Identifiable, Equatable, Sendable {
+    /// The path of its first file: the same from check to check while that file stays
+    /// where it is.
+    public var id: String
+    public var folderId: Int64
+    /// The book as the scanner groups and names it.
+    public var candidate: CandidateBook
+    /// The candidate's files, all under the one watch folder.
+    public var files: [URL]
+    /// The latest modification date among its files.
+    public var arrivedAt: Date
+
+    public init(id: String, folderId: Int64, candidate: CandidateBook, files: [URL], arrivedAt: Date) {
+        self.id = id
+        self.folderId = folderId
+        self.candidate = candidate
+        self.files = files
+        self.arrivedAt = arrivedAt
+    }
+}
+
+/// A watch folder and whether it could be looked into at the last check.
+public struct WatchFolderStatus: Equatable, Sendable {
+    public var folder: WatchFolder
+    /// A folder that is not enabled is not looked at, and is given as available.
+    public var availability: FolderAvailability
+
+    public init(folder: WatchFolder, availability: FolderAvailability) {
+        self.folder = folder
+        self.availability = availability
+    }
+}
+
+/// What a check of the inbox found.
+public struct InboxReport: Equatable, Sendable {
+    /// Newest first, then by id.
+    public var arrivals: [InboxArrival]
+    /// Every watch folder, enabled or not, oldest first.
+    public var folders: [WatchFolderStatus]
+    /// Whether some file was seen that has not yet settled: another check, a settle
+    /// interval on, may find more.
+    public var hasUnsettled: Bool
+
+    public init(arrivals: [InboxArrival], folders: [WatchFolderStatus], hasUnsettled: Bool) {
+        self.arrivals = arrivals
+        self.folders = folders
+        self.hasUnsettled = hasUnsettled
+    }
+}

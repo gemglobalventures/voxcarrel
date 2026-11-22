@@ -31,7 +31,7 @@ extension LibraryService {
         case .around: throw WatchFolderProblem.containsLibrary
         case .apart: break
         }
-        let baseline = listWatchFolder(folder, false)
+        let baseline = listWatchFolder(folder, false).files
         // Checked against the folders as they are when this one is stored.
         return try store.insertWatchFolder(path: folder.path, addedAt: now, baseline: baseline) { existing in
             for other in existing where Self.relation(of: parts, to: other.url.pathComponents) != .apart {
@@ -44,8 +44,18 @@ extension LibraryService {
     /// Nothing else about it can be changed: a different path or date is ignored.
     ///
     /// - Throws: `WatchFolderError.notFound` when no folder has the id.
+    ///
+    /// When PDFs are turned on, the PDFs in the folder at that moment are added to its
+    /// baseline: they were not listed while PDFs were off, and what was already there
+    /// is not an arrival.
     public func updateWatchFolder(_ folder: WatchFolder) throws {
-        try store.updateWatchFolderSettings(folder)
+        var baseline: [ListedFile] = []
+        if folder.includesPDFs,
+            let stored = try store.watchFolders().first(where: { $0.id == folder.id }), !stored.includesPDFs
+        {
+            baseline = listWatchFolder(stored.url, true).files.filter { FileFormat(url: $0.url) == .pdf }
+        }
+        try store.updateWatchFolderSettings(folder, baseline: baseline)
     }
 
     /// Stops watching a folder and forgets everything recorded about its files. No file
@@ -60,6 +70,165 @@ extension LibraryService {
         try store.deleteInboxEntries(folderId: id, state: .baseline)
     }
 
+    // MARK: Checking
+
+    /// Looks into every enabled watch folder and returns the books that have arrived:
+    /// files that have settled, that the ledger does not hide, grouped as the scanner
+    /// groups a drop of the folder's contents. Call it again whenever something may
+    /// have changed, and a settle interval after any check that reports `hasUnsettled`.
+    ///
+    /// The ledger is tidied on the way: an entry for a file that has gone from a
+    /// folder that could be listed, or that has changed since, is deleted. A folder
+    /// that is missing or may not be read keeps every entry. A folder that is not
+    /// enabled is not looked at.
+    ///
+    /// A file's tags are read once for each state of it (path, size, modification
+    /// date) and remembered while it stays listed. No file is moved or changed, and
+    /// nothing is journaled.
+    public func checkInbox(now: Date) throws -> InboxReport {
+        var statuses: [WatchFolderStatus] = []
+        var listed: [(folder: WatchFolder, files: [ListedFile])] = []
+        for folder in try store.watchFolders() {
+            guard folder.isEnabled else {
+                statuses.append(WatchFolderStatus(folder: folder, availability: .available))
+                continue
+            }
+            let listing = listWatchFolder(folder.url, folder.includesPDFs)
+            statuses.append(WatchFolderStatus(folder: folder, availability: listing.availability))
+            if listing.availability == .available { listed.append((folder, listing.files)) }
+        }
+
+        let everything = listed.flatMap(\.files)
+        let identities = Dictionary(everything.map { ($0.url.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let ready = Set(inboxTracker.observe(everything, at: now).map(\.url.path))
+        inboxTags = inboxTags.filter { path, tags in
+            identities[path].map { $0.size == tags.size && $0.modifiedAt == tags.modifiedAt } ?? false
+        }
+        inboxSkipped = inboxSkipped.filter { identities[$0.key] == $0.value }
+
+        let scanner = BookScanner(reader: InboxTagReader { [self] url in
+            try cachedInboxTags(of: url, as: identities[url.path])
+        })
+        var arrivals: [InboxArrival] = []
+        var outdated: [Int64] = []
+        for (folder, files) in listed {
+            // The ledger hides a file only as it was when the entry was made.
+            var hidden: Set<String> = []
+            for entry in try store.inboxEntries(folderId: folder.id) {
+                if let file = identities[entry.path], file.size == entry.size, file.modifiedAt == entry.modifiedAt {
+                    hidden.insert(entry.path)
+                } else if let id = entry.id {
+                    outdated.append(id)
+                }
+            }
+            let waiting = files.filter { file in
+                let path = file.url.path
+                return ready.contains(path) && !hidden.contains(path) && inboxSkipped[path] == nil
+            }
+            guard !waiting.isEmpty else { continue }
+
+            // Folder by folder, so that no book is made of files from two of them.
+            let result = scanner.scan(files: waiting.map(\.url), under: folder.url)
+            for url in result.skipped {
+                if let file = identities[url.path] { inboxSkipped[url.path] = file }
+            }
+            for candidate in result.candidates {
+                guard let first = candidate.files.first else { continue }
+                let dates = candidate.files.compactMap { identities[$0.url.path]?.modifiedAt }
+                arrivals.append(InboxArrival(
+                    id: first.url.path, folderId: folder.id, candidate: candidate,
+                    files: candidate.files.map(\.url), arrivedAt: dates.max() ?? now))
+            }
+        }
+        try store.deleteInboxEntries(ids: outdated)
+
+        arrivals.sort { ($0.arrivedAt, $1.id) > ($1.arrivedAt, $0.id) }
+        inboxArrivals = Dictionary(arrivals.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return InboxReport(arrivals: arrivals, folders: statuses, hasUnsettled: inboxTracker.hasUnsettled)
+    }
+
+    /// The tags of a file the check has listed as `file`, read only if they have not
+    /// been read for that state of it. A failed read is remembered too.
+    private func cachedInboxTags(of url: URL, as file: ListedFile?) throws -> BookMetadata {
+        let path = url.path
+        if let known = inboxTags[path], let file, known.size == file.size, known.modifiedAt == file.modifiedAt {
+            guard let metadata = known.metadata else { throw InboxTagsUnreadable() }
+            return metadata
+        }
+        let read = Result { try readInboxTags.map { try $0(url) } ?? metadataIO.readMetadata(at: url) }
+        if let file {
+            inboxTags[path] = InboxTags(size: file.size, modifiedAt: file.modifiedAt, metadata: try? read.get())
+        }
+        return try read.get()
+    }
+
+    // MARK: Dismissing and remembering
+
+    /// Takes arrivals of the last check out of the inbox for good: each of their files
+    /// is recorded as dismissed, as it is now, and is not offered again unless it
+    /// changes. An id that was not among the last check's arrivals is ignored, as is a
+    /// file that has gone. No file is touched.
+    public func dismissArrivals(ids: [String]) throws {
+        var files: [(file: ListedFile, folderId: Int64)] = []
+        for id in Set(ids) {
+            guard let arrival = inboxArrivals[id] else { continue }
+            for url in arrival.files {
+                if let file = Self.fileAsItIs(url) { files.append((file, arrival.folderId)) }
+            }
+        }
+        try store.replaceInboxEntries(files, state: .dismissed)
+    }
+
+    /// Remembers files that were imported and are still where they were (imported by
+    /// copying), so that they do not arrive again. A file that no longer exists, or
+    /// that is not under a watch folder, is ignored.
+    public func recordImported(_ files: [URL]) throws {
+        guard !files.isEmpty else { return }
+        let folders = try store.watchFolders()
+        var found: [(file: ListedFile, folderId: Int64)] = []
+        var seen: Set<String> = []
+        for url in files {
+            // Under the folder as its listing spells the path; failing that, wherever
+            // the file really is (reached through a link, say).
+            for spelling in [url.standardizedFileURL, LibraryLayout.canonicalFolder(url)] {
+                guard let (folder, listedAs) = Self.place(of: spelling, among: folders) else { continue }
+                if seen.insert(listedAs.path).inserted, let file = Self.fileAsItIs(listedAs) {
+                    found.append((file, folder.id))
+                }
+                break
+            }
+        }
+        try store.replaceInboxEntries(found, state: .imported)
+    }
+
+    /// The watch folder a file lies in, and the file's path as that folder's listing
+    /// spells it: the folder's own path with the names below it added.
+    private static func place(of file: URL, among folders: [WatchFolder]) -> (WatchFolder, URL)? {
+        let parts = file.pathComponents
+        for folder in folders {
+            let root = folder.url.pathComponents
+            guard relation(of: parts, to: root) == .inside else { continue }
+            let listedAs = parts[root.count...].dropLast().reduce(folder.url) {
+                $0.appendingPathComponent($1, isDirectory: true)
+            }.appendingPathComponent(parts[parts.count - 1], isDirectory: false)
+            return (folder, listedAs)
+        }
+        return nil
+    }
+
+    /// A file's size and modification date as they are at this moment, read as the
+    /// lister reads them so that the two compare equal. Nil unless it is a plain file.
+    private static func fileAsItIs(_ url: URL) -> ListedFile? {
+        // A new URL: one that has been asked before may answer from memory.
+        let fresh = URL(fileURLWithPath: url.path, isDirectory: false)
+        guard let values = try? fresh.resourceValues(
+                forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]),
+            values.isRegularFile == true, let size = values.fileSize,
+            let modifiedAt = values.contentModificationDate
+        else { return nil }
+        return ListedFile(url: url, size: Int64(size), modifiedAt: modifiedAt)
+    }
+
     /// How one folder lies to another.
     enum FolderRelation: Equatable { case same, inside, around, apart }
 
@@ -72,5 +241,30 @@ extension LibraryService {
         guard shared else { return .apart }
         if a.count == b.count { return .same }
         return a.count > b.count ? .inside : .around
+    }
+}
+
+/// The tags read from one state of a file.
+struct InboxTags {
+    var size: Int64
+    var modifiedAt: Date
+    /// Nil when the file could not be read.
+    var metadata: BookMetadata?
+}
+
+/// Thrown in place of the first failure when a file is known not to be readable.
+struct InboxTagsUnreadable: Error {}
+
+/// Gives the scanner its tags by way of the inbox check, which remembers them. Used
+/// within one check, on the thread that makes it.
+private final class InboxTagReader: MetadataReader, @unchecked Sendable {
+    private let read: (URL) throws -> BookMetadata
+
+    init(_ read: @escaping (URL) throws -> BookMetadata) {
+        self.read = read
+    }
+
+    func readMetadata(at url: URL) throws -> BookMetadata {
+        try read(url)
     }
 }
