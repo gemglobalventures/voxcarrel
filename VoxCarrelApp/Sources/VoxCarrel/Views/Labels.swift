@@ -82,3 +82,43 @@ extension FileRole {
         }
     }
 }
+
+extension LookupSource {
+    /// For a lookup result's row: where it was found.
+    var symbol: String {
+        switch self {
+        case .openLibrary: "books.vertical"
+        case .audible: "headphones"
+        case .libraryOfCongress: "building.columns"
+        }
+    }
+}
+
+extension EditionVerdict {
+    /// The colour of a lookup result's badge: green for the book's own edition, orange
+    /// for another.
+    var badgeTint: Color {
+        switch self {
+        case .sameEdition: .green
+        case .differentEdition, .unknown: .orange
+        }
+    }
+
+    var badgeSymbol: String {
+        switch self {
+        case .sameEdition: "checkmark.circle.fill"
+        case .differentEdition, .unknown: "exclamationmark.circle.fill"
+        }
+    }
+}
+
+extension EditionKind {
+    /// For a book's edition label where there is no room for its words.
+    var symbol: String {
+        switch self {
+        case .unabridged: "text.book.closed"
+        case .abridged: "scissors"
+        case .dramatised: "theatermasks"
+        }
+    }
+}

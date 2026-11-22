@@ -226,7 +226,9 @@ private struct Questions: ViewModifier {
 }
 
 /// V5: a spinner and what is being done. It goes when the work is done, not before.
+/// Work that can be stopped (the model says which) has a Cancel button.
 private struct ProgressSheet: View {
+    @Environment(AppModel.self) private var model
     let label: String
 
     var body: some View {
@@ -235,8 +237,16 @@ private struct ProgressSheet: View {
                 .controlSize(.small)
                 .accessibilityIdentifier("progress.spinner")
             Text(label)
+                .monospacedDigit()
                 .accessibilityIdentifier("progress.label")
             Spacer(minLength: 0)
+            if let title = model.progressCancelTitle {
+                Button(title) {
+                    model.cancelProgress()
+                }
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier("progress.cancel")
+            }
         }
         .padding(20)
         .frame(width: 320)

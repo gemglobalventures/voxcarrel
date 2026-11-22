@@ -87,6 +87,9 @@ private struct BookInspector: View {
                     field("Language", \.language, .language, id: "language")
                 }
                 field("Publisher", \.publisher, .publisher, id: "publisher")
+                if model.showsEditionKind {
+                    EditionControl()
+                }
                 field("ISBN", \.isbn, .isbn, id: "isbn")
                 field("ASIN", \.asin, .asin, id: "asin")
             }
@@ -363,6 +366,57 @@ private struct RatingControl: View {
         }
         .font(.title3)
         .help("Click a star to rate the book. Click the same star again to clear the rating.")
+    }
+}
+
+/// Plan 7, K9, K10: what kind of edition an audiobook is: chosen by hand here and saved
+/// with the book, or as it was worked out. Under the choice, the label the book carries
+/// in the list, and how the kind is known.
+private struct EditionControl: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let help = model.inspectorEditionHelp
+
+        InspectorField("Edition", isAppOnly: model.editionKindIsAppOnly) {
+            Picker("Edition", selection: kind) {
+                ForEach(AppModel.editionKindChoices) { choice in
+                    Text(choice.title).tag(choice.kind)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Edition")
+            .accessibilityIdentifier("inspector.edition")
+            if let label = model.inspectorEditionLabel {
+                Text(label)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                    .help(help ?? label)
+                    .accessibilityIdentifier("inspector.edition.label")
+            }
+            if let help {
+                Text(help)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("inspector.edition.help")
+            }
+        }
+    }
+
+    /// The kind as the draft has it now, changed through the model: nothing is written
+    /// until Save.
+    private var kind: Binding<EditionKind?> {
+        let model = model
+        return Binding(
+            get: { model.inspectorEditionKind },
+            set: { model.setEditionKind($0) })
     }
 }
 

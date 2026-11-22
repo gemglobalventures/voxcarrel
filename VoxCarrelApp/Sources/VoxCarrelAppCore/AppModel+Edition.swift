@@ -162,6 +162,20 @@ extension AppModel {
         editionCheck?.cancel()
     }
 
+    // MARK: The progress sheet's Cancel
+
+    /// What the progress sheet's button that stops the work says; nil while the work
+    /// shown cannot be stopped, which is all of it but the lookups of Check Edition.
+    public var progressCancelTitle: String? {
+        isCheckingEdition && progressSheetLabel != nil ? "Cancel" : nil
+    }
+
+    /// Stops the work the progress sheet shows, when it can be stopped.
+    public func cancelProgress() {
+        guard progressCancelTitle != nil else { return }
+        cancelEditionCheck()
+    }
+
     /// "Checking 2 of 5…"
     static func checkingLabel(_ number: Int, of total: Int) -> String {
         "Checking \(number) of \(total)…"

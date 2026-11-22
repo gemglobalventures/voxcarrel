@@ -176,7 +176,7 @@ private struct ResultsPane: View {
         case .results, .applying:
             List(selection: selection) {
                 ForEach(Array(lookup.candidates.enumerated()), id: \.element.id) { index, candidate in
-                    ResultRow(candidate: candidate, index: index)
+                    ResultRow(lookup: lookup, candidate: candidate, index: index)
                 }
             }
             .listStyle(.inset)
@@ -205,12 +205,19 @@ private struct ResultsPane: View {
     }
 }
 
-/// V2: one result: its cover, what it is, and where it was found.
+/// V2: one result: its cover, what it is, and where it was found. Plan 7, V1: a symbol
+/// for its source, whether it is the book's own edition, and for an Audible result the
+/// stores that list it when that is more than the user's own.
 private struct ResultRow: View {
+    @Environment(AppModel.self) private var model
+    let lookup: LookupSession
     let candidate: LookupCandidate
     let index: Int
 
     var body: some View {
+        let badge = lookup.badgeText(for: candidate.id)
+        let stores = model.lookupStoresText(for: candidate)
+
         HStack(spacing: 10) {
             ResultCover(candidate: candidate)
             VStack(alignment: .leading, spacing: 2) {
@@ -221,16 +228,84 @@ private struct ResultRow: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(candidate.note)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Image(systemName: candidate.source.symbol)
+                        .help(candidate.source.title)
+                        .accessibilityHidden(true)
+                    Text(candidate.note)
+                        .lineLimit(1)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if badge != nil || stores != nil {
+                    // Side by side where both fit whole; one under the other in a narrow pane.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) { marks(badge: badge, stores: stores) }
+                        VStack(alignment: .leading, spacing: 2) { marks(badge: badge, stores: stores) }
+                    }
+                    .padding(.top, 1)
+                }
             }
         }
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        // Its parts are told apart: the badge and the stores have identifiers of their own.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lookup.result.\(index)")
+    }
+
+    @ViewBuilder
+    private func marks(badge: String?, stores: String?) -> some View {
+        if let badge {
+            VerdictBadge(
+                text: badge, verdict: lookup.verdict(for: candidate.id), help: lookup.badgeHelp(for: candidate.id)
+            )
+            .accessibilityIdentifier("lookup.result.\(index).badge")
+        }
+        if let stores {
+            Label(stores, systemImage: "globe")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .help("The Audible stores that list this edition")
+                .accessibilityIdentifier("lookup.result.\(index).stores")
+        }
+    }
+}
+
+/// Plan 7, V1: "Your edition" or "Different edition", in a small capsule: a symbol in
+/// the verdict's colour and the words in the text's own, so that they read in light and
+/// dark. On a selected row, whose background is the accent colour, the colour is left out.
+private struct VerdictBadge: View {
+    @Environment(\.backgroundProminence) private var prominence
+    let text: String
+    let verdict: EditionVerdict
+    /// Why, for a different edition.
+    let help: String?
+
+    var body: some View {
+        let onSelection = prominence == .increased
+        let tint = verdict.badgeTint
+
+        HStack(spacing: 3) {
+            Image(systemName: verdict.badgeSymbol)
+                .foregroundStyle(onSelection ? AnyShapeStyle(.primary) : AnyShapeStyle(tint))
+                .accessibilityHidden(true)
+            Text(text)
+                .lineLimit(1)
+        }
+        .font(.caption2.weight(.semibold))
+        .fixedSize()
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+            onSelection ? AnyShapeStyle(.primary.opacity(0.18)) : AnyShapeStyle(tint.opacity(0.18)), in: Capsule()
+        )
+        .help(help ?? text)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+        .accessibilityHint(help ?? "")
     }
 }
 
@@ -265,26 +340,32 @@ private struct ResultCover: View {
 // MARK: - What to take
 
 /// V2: the selected result's values that differ from the book's, each with its tick.
+/// Plan 7, V2: under them, what the results say of the book's edition, which is offered
+/// whichever result is selected.
 private struct OffersPane: View {
     let lookup: LookupSession
 
     var body: some View {
+        let edition = lookup.editionOffer
+        let remark = lookup.editionRemark
+
         if lookup.selected == nil {
             if !lookup.candidates.isEmpty {
-                message(lookup.noSelectionText)
-                    .accessibilityIdentifier("lookup.offers.none")
+                placeholder(lookup.noSelectionText, id: "lookup.offers.none", edition: edition, remark: remark)
             } else {
                 Color.clear
             }
         } else if lookup.offers.isEmpty {
-            message("This match has nothing new for this book.")
-                .accessibilityIdentifier("lookup.offers.empty")
+            placeholder(
+                "This match has nothing new for this book.", id: "lookup.offers.empty", edition: edition,
+                remark: remark)
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(lookup.offers) { offer in
                         OfferRow(offer: offer)
                     }
+                    EditionPart(offer: edition, remark: remark)
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -293,44 +374,40 @@ private struct OffersPane: View {
         }
     }
 
-    private func message(_ text: String) -> some View {
-        Text(text)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    /// A few words in place of the offers, and at the foot what there is to say of the
+    /// book's edition.
+    private func placeholder(
+        _ text: String, id: String, edition: LookupSession.EditionOffer?, remark: String?
+    ) -> some View {
+        VStack(spacing: 0) {
+            Text(text)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier(id)
+            if edition != nil || remark != nil {
+                Divider()
+                EditionPart(offer: edition, remark: remark)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 }
 
 /// V2: one value: its tick and name, what was found, and under it what the book has now.
+/// Plan 7, V2: and why it may not be the book's, for a value of a different edition.
 private struct OfferRow: View {
-    private static let labelWidth: CGFloat = 128
-
     @Environment(AppModel.self) private var model
     let offer: LookupSession.Offer
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Toggle(offer.label, isOn: ticked)
-                .toggleStyle(.checkbox)
-                .frame(width: Self.labelWidth, alignment: .leading)
-                .accessibilityIdentifier("lookup.offer.\(offer.id.rawValue)")
-            VStack(alignment: .leading, spacing: 2) {
-                Text(offer.found)
-                    .lineLimit(3)
-                    .help(offer.found)
-                    .accessibilityIdentifier("lookup.offer.\(offer.id.rawValue).found")
-                Text(offer.currentText)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .help(offer.currentText)
-                    .accessibilityIdentifier("lookup.offer.\(offer.id.rawValue).current")
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        OfferLayout(
+            label: offer.label, ticked: ticked, found: offer.found, current: offer.currentText,
+            reason: offer.reason, reasonIsWarning: true, id: offer.id.rawValue)
     }
 
     private var ticked: Binding<Bool> {
@@ -341,6 +418,84 @@ private struct OfferRow: View {
             set: { ticked in
                 model.setLookupTicked(ticked, for: field)
             })
+    }
+}
+
+/// Plan 7, V2: what kind of edition the results show the book to be, offered like any
+/// other value; or, when they show no more than something about its length, that.
+private struct EditionPart: View {
+    @Environment(AppModel.self) private var model
+    let offer: LookupSession.EditionOffer?
+    let remark: String?
+
+    var body: some View {
+        if let offer {
+            OfferLayout(
+                label: offer.label, ticked: ticked(offer), found: offer.found, current: offer.currentText,
+                reason: offer.reason, reasonIsWarning: false, id: "edition")
+        } else if let remark {
+            Label(remark, systemImage: "info.circle")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("lookup.editionRemark")
+        }
+    }
+
+    private func ticked(_ offer: LookupSession.EditionOffer) -> Binding<Bool> {
+        let model = model
+        return Binding(
+            get: { offer.ticked },
+            set: { ticked in
+                model.setLookupEditionTicked(ticked)
+            })
+    }
+}
+
+/// How an offer is laid out: its tick and name, and beside them what was found, what
+/// the book has now, and a line of explanation when there is one.
+private struct OfferLayout: View {
+    private static let labelWidth: CGFloat = 128
+
+    let label: String
+    let ticked: Binding<Bool>
+    let found: String
+    let current: String
+    let reason: String?
+    /// Orange for a reason to think twice; quiet for one that only explains.
+    let reasonIsWarning: Bool
+    /// The end of the row's accessibility identifiers.
+    let id: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Toggle(label, isOn: ticked)
+                .toggleStyle(.checkbox)
+                .frame(width: Self.labelWidth, alignment: .leading)
+                .accessibilityIdentifier("lookup.offer.\(id)")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(found)
+                    .lineLimit(3)
+                    .help(found)
+                    .accessibilityIdentifier("lookup.offer.\(id).found")
+                Text(current)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .help(current)
+                    .accessibilityIdentifier("lookup.offer.\(id).current")
+                if let reason {
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(reasonIsWarning ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        .lineLimit(3)
+                        .help(reason)
+                        .accessibilityIdentifier("lookup.offer.\(id).reason")
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
@@ -397,7 +552,7 @@ private struct DetailsPane: View {
 
 // MARK: - The bottom
 
-/// V4: where the results are from, what applying does, Cancel and Apply. For a
+/// V4: what Apply will take, where the results are from, what applying does, Cancel and Apply. For a
 /// book that is being added (plan 6, V5): Cancel, Add Without a Match and Add.
 private struct BottomBar: View {
     @Environment(AppModel.self) private var model
@@ -406,10 +561,23 @@ private struct BottomBar: View {
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                // Once a search has finished this says what each source found: two lines at most.
+                // Plan 7, V2: what Apply will take, and from which results: it changes
+                // with every tick, so it stands first and in the text's own colour.
+                if let summary = lookup.applySummary {
+                    Text(summary)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .help(summary)
+                        .accessibilityIdentifier("lookup.applySummary")
+                }
+                // Once a search has finished this says what each source found (and, plan 7
+                // A7, that nothing was read by the book's narrator): two lines at most,
+                // and all of it in the tooltip.
                 Text(model.lookupSourcesText)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .help(model.lookupSourcesText)
                     .accessibilityIdentifier("lookup.sources")
                 Text(lookup.reminderText)
                     .lineLimit(1)

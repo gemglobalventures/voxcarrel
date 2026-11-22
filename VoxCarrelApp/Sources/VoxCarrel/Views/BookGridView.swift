@@ -176,7 +176,13 @@ private struct BookGridCell: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 5) {
                 FormatBadges(row: row)
-                Spacer(minLength: 0)
+                // The room between the symbols is the edition label's, when there is one.
+                if row.editionLabel != nil {
+                    EditionBadge(row: row)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
                 StatusMarker(status: row.book.readStatus)
                 WarningBadge(row: row)
             }

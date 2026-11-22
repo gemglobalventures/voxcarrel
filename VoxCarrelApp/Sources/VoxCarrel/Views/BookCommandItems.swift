@@ -21,6 +21,7 @@ struct BookCommandItems: View {
             Button("Add Audible Book…") { model.beginAddAudibleBook() }
                 .keyboardShortcut(shortcut("a", [.command, .shift]))
                 .disabled(!model.canAddAudibleBook)
+                .help(model.addAudibleBookHelp)
                 .accessibilityIdentifier("\(prefix).addAudible")
 
             Divider()
@@ -45,6 +46,7 @@ struct BookCommandItems: View {
             Button("Look Up…") { model.beginLookup() }
                 .keyboardShortcut(shortcut("l", .command))
                 .disabled(!model.canLookUp)
+                .help(model.lookUpHelp)
                 .accessibilityIdentifier("\(prefix).lookup")
         }
 
@@ -99,6 +101,13 @@ struct BookCommandItems: View {
         }
         .disabled(!applies.repairLengthHeaders)
         .accessibilityIdentifier("\(prefix).repairLength")
+        // Plan 7, K8: one lookup for each audiobook; only its edition is changed.
+        Button(model.checkEditionTitle) {
+            Task { await model.checkEdition(for: books) }
+        }
+        .disabled(!model.canCheckEdition(for: books))
+        .help(model.checkEditionHelp)
+        .accessibilityIdentifier("\(prefix).checkEdition")
 
         Divider()
 

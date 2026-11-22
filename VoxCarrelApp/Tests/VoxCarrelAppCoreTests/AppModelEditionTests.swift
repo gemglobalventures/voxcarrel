@@ -172,6 +172,8 @@ private func edition(
         let row = BookRow(id: 1, book: book, hasAudio: true, hasEbook: false, formats: [.m4b], coverURL: nil, hasWriteProblem: false)
         #expect(row.editionLabel == label)
         #expect(row.editionHelpText == help)
+        // Where only a symbol stands for the label, the tooltip says the label too.
+        #expect(row.editionBadgeHelpText == "\(label). \(help)")
         #expect(row.summaryText.contains(label))
     }
 
@@ -188,6 +190,7 @@ private func edition(
         let row = BookRow(id: 1, book: book, hasAudio: true, hasEbook: false, formats: [.m4b], coverURL: nil, hasWriteProblem: false)
         #expect(row.editionLabel == nil)
         #expect(row.editionHelpText == nil)
+        #expect(row.editionBadgeHelpText == nil)
         #expect(note.title == (note.isProbable ? "Probably unabridged" : "Unabridged"))
     }
 
@@ -364,6 +367,45 @@ private func edition(
         // Cancelling when nothing runs does nothing.
         h.model.cancelEditionCheck()
         #expect(h.model.canCheckEdition)
+    }
+
+    /// K8: the progress sheet offers Cancel while books are being looked up, and at no
+    /// other time; its Cancel stops the check.
+    @Test func K8_theProgressSheetCancelsACheck() async throws {
+        let h = try await Harness.demo()
+        let salt = try h.id("Salt Road")
+        let seconds = try #require(try h.book(salt).durationSeconds)
+        let gate = Gate()
+        h.lookup.hold(.audible, at: gate, then: [
+            edition("Salt Road", author: "Ines Calloway", key: "uk:B0SALTROAD", narrators: ["Marcus Lindqvist"], seconds: seconds, abridged: true),
+        ])
+        try await h.select(["Salt Road", "The Lighthouse Keeper"])
+        #expect(h.model.progressCancelTitle == nil)
+        // Nothing is running: there is nothing to cancel.
+        h.model.cancelProgress()
+
+        let check = Task { await h.model.checkEdition() }
+        await gate.arrival()
+        #expect(h.model.progressSheetLabel == "Checking 1 of 2…")
+        #expect(h.model.progressCancelTitle == "Cancel")
+
+        h.model.cancelProgress()
+        await gate.release()
+        await check.value
+
+        #expect(h.model.progressCancelTitle == nil)
+        #expect(h.model.busyLabel == nil)
+        #expect(try h.book(salt).editionKind == nil)
+        #expect(Set(h.lookup.asked.map(\.query.title)).count == 1)
+    }
+
+    /// Work that cannot be stopped offers no Cancel.
+    @Test func K8_otherWorkOffersNoCancel() async throws {
+        let h = try await Harness.demo()
+        h.model.busyLabel = "Updating…"
+        #expect(h.model.progressSheetLabel == "Updating…")
+        #expect(h.model.progressCancelTitle == nil)
+        h.model.busyLabel = nil
     }
 
     @Test func K8_whatIsSaidWhenAnEditionIsStillNotKnown() async throws {

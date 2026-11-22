@@ -64,6 +64,35 @@ struct AudibleCoverLabel: View {
     }
 }
 
+/// Plan 7, K10: what kind of edition a book is, when that is worth saying ("Abridged",
+/// "Probably abridged", "Dramatised"): the words in a small capsule where there is room
+/// for them, a symbol where there is not. Why it is said is in the tooltip.
+struct EditionBadge: View {
+    let row: BookRow
+
+    var body: some View {
+        if let label = row.editionLabel {
+            ViewThatFits(in: .horizontal) {
+                Text(label)
+                    .font(.caption2.weight(.medium))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.quaternary, in: Capsule())
+                if let kind = row.book.editionKind?.kind {
+                    Image(systemName: kind.symbol)
+                }
+            }
+            .foregroundStyle(.secondary)
+            .help(row.editionBadgeHelpText ?? label)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier("books.badge.edition")
+        }
+    }
+}
+
 /// A half-filled circle for in progress, a tick for finished, nothing for unread.
 struct StatusMarker: View {
     let status: ReadStatus

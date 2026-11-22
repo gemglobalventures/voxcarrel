@@ -118,6 +118,13 @@ extension BookRow {
         book.editionKind.flatMap { $0.label == nil ? nil : $0.helpText }
     }
 
+    /// K10: the tooltip where the label may be shown as a symbol alone: the label, and
+    /// how it is known: "Abridged. Set by you." Nil when there is no label.
+    public var editionBadgeHelpText: String? {
+        guard let editionLabel, let editionHelpText else { return nil }
+        return "\(editionLabel). \(editionHelpText)"
+    }
+
     /// Empty when the book has no length.
     public var lengthText: String {
         LengthText.text(seconds: book.durationSeconds) ?? ""
