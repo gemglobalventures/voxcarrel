@@ -36,7 +36,6 @@ private struct InboxHeader: View {
                 Button(model.reviewInboxTitle) {
                     Task { await model.reviewInbox() }
                 }
-                .keyboardShortcut(.defaultAction)
                 .disabled(!model.canReviewInbox)
                 .help("Review the selected books, or all of them, before they are imported")
                 .accessibilityIdentifier("inbox.review")
