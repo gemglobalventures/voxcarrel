@@ -80,7 +80,10 @@ enum AudioTagIO {
 
     /// - Throws: `MetadataIOError.unreadable` when the file cannot be parsed or has no audio
     ///   with a duration, so a mis-named or non-audio file is never reported as an empty book.
-    static func read(_ url: URL) throws -> FileContents {
+    ///
+    /// An MP3's length is the one its header states unless that cannot be right for the
+    /// file's size (`MP3Length`); then, and only then, the frames are counted with `scan`.
+    static func read(_ url: URL, scan: MP3Length.Scan = MP3Length.standardScan) throws -> FileContents {
         let raw = try RawTags(url)
         let snap = raw.snapshot
         var t = BookMetadata()
@@ -124,9 +127,16 @@ enum AudioTagIO {
             (t.series, t.seriesNumber) = parseGrouping(grouping)
         }
         t.durationSeconds = snap.durationSeconds
+        var lengthProblem: LengthProblem?
+        if raw.kind == .mp3 {
+            let length = MP3Length.resolve(url, statedSeconds: snap.durationSeconds, scan: scan)
+            t.durationSeconds = length.seconds
+            lengthProblem = length.problem
+        }
         return FileContents(
             metadata: t, cover: snap.coverData.map(CoverImage.stored),
-            chapters: snap.chapters.map { Chapter(start: $0.startSeconds, title: $0.title) })
+            chapters: snap.chapters.map { Chapter(start: $0.startSeconds, title: $0.title) },
+            lengthProblem: lengthProblem)
     }
 
     /// The file's own track title and track number, exactly as its tags give them.

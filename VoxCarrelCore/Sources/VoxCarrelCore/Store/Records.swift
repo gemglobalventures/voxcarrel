@@ -340,6 +340,10 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     /// through role changes, so a file that becomes an extra again gets its name back.
     /// Nil for a file that has never been an extra.
     public var originalName: String? = nil
+    /// Set for an MP3 whose length header states a length the audio does not have, as
+    /// found when the file was last read. Nil for a file with nothing wrong, and for one
+    /// that has not been measured.
+    public var lengthProblem: LengthProblem? = nil
 
     public init(path: String, format: FileFormat, role: FileRole, position: Int) {
         self.id = nil
@@ -362,6 +366,9 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
         position = try c.decodeIfPresent(Int.self, forKey: .position) ?? 0
         writeProblem = try c.decodeIfPresent(String.self, forKey: .writeProblem)
         originalName = try c.decodeIfPresent(String.self, forKey: .originalName)
+        // A value this code cannot read counts as none: it must never make the file's
+        // row, or an undo snapshot holding it, unreadable.
+        lengthProblem = (try? c.decodeIfPresent(LengthProblem.self, forKey: .lengthProblem)) ?? nil
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

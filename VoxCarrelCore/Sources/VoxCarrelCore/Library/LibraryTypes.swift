@@ -95,11 +95,15 @@ public struct ReconcileReport: Equatable, Sendable {
     public var removedWorkingCopies: Int
     /// Files left under a temporary name by an interrupted move. Never deleted.
     public var strandedFiles: [URL]
+    /// Books whose recorded length was wrong because an MP3 of theirs states the wrong
+    /// length, now corrected to the measured one.
+    public var correctedLengths: Int
 
     public init(
         booksWithMissingFiles: [Int64] = [], booksRecovered: [Int64] = [], untrackedFiles: [URL] = [],
-        removedWorkingCopies: Int = 0, strandedFiles: [URL] = []
+        removedWorkingCopies: Int = 0, strandedFiles: [URL] = [], correctedLengths: Int = 0
     ) {
+        self.correctedLengths = correctedLengths
         self.booksWithMissingFiles = booksWithMissingFiles
         self.booksRecovered = booksRecovered
         self.untrackedFiles = untrackedFiles

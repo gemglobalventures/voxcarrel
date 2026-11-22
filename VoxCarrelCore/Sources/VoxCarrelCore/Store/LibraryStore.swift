@@ -120,6 +120,11 @@ public final class LibraryStore: Sendable {
                 t.add(column: "externalCopies", .text).notNull().defaults(to: "[]")
             }
         }
+        migrator.registerMigration("v5") { db in
+            try db.alter(table: "bookFile") { t in
+                t.add(column: "lengthProblem", .text)
+            }
+        }
         return migrator
     }
 
@@ -209,6 +214,22 @@ public final class LibraryStore: Sendable {
         try dbQueue.write { db in
             try Book.filter(keys: flagging).updateAll(db, Column("needsAttention").set(to: true))
             try Book.filter(keys: clearing).updateAll(db, Column("needsAttention").set(to: false))
+        }
+    }
+
+    /// Records what measuring a book's audio files found: the book's length, and for
+    /// each file row named what is wrong with its length header (nil for nothing). One
+    /// transaction; no other column is touched, and the rows keep their ids.
+    public func setMeasuredLength(
+        bookId: Int64, durationSeconds: Double, lengthProblems: [Int64: LengthProblem?]
+    ) throws {
+        try dbQueue.write { db in
+            try Book.filter(key: bookId).updateAll(db, Column("durationSeconds").set(to: durationSeconds))
+            for (fileId, problem) in lengthProblems {
+                guard var file = try BookFile.fetchOne(db, key: fileId), file.bookId == bookId else { continue }
+                file.lengthProblem = problem
+                try file.update(db)
+            }
         }
     }
 

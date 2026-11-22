@@ -57,17 +57,42 @@ public enum MetadataField: String, CaseIterable, Codable, Sendable {
     case publisher, summary, language, isbn, asin, cover
 }
 
+/// An MP3 whose length header (the Xing, Info or VBRI header in its first frame) states a
+/// length the audio does not have. The audio itself is whole; players that trust the
+/// header show the wrong length and may stop early.
+public struct LengthProblem: Codable, Equatable, Sendable {
+    /// The length the file states, as the tag library reads it.
+    public var statedSeconds: Double
+    /// The length of the audio, measured frame by frame.
+    public var trueSeconds: Double
+    /// Whether the header is one VoxCarrel can rewrite (`LibraryService.repairLengthHeaders`).
+    public var repairable: Bool
+
+    public init(statedSeconds: Double, trueSeconds: Double, repairable: Bool) {
+        self.statedSeconds = statedSeconds
+        self.trueSeconds = trueSeconds
+        self.repairable = repairable
+    }
+}
+
 /// Everything read from one file.
 public struct FileContents: Equatable, Sendable {
-    /// `durationSeconds` is set for audio and `pageCount` for PDFs.
+    /// `durationSeconds` is set for audio and `pageCount` for PDFs. For an MP3 whose
+    /// length header is wrong it is the measured length, not the stated one.
     public var metadata: BookMetadata
     public var cover: CoverImage?
     public var chapters: [Chapter]
+    /// Set for an MP3 that states a length it does not have.
+    public var lengthProblem: LengthProblem?
 
-    public init(metadata: BookMetadata = BookMetadata(), cover: CoverImage? = nil, chapters: [Chapter] = []) {
+    public init(
+        metadata: BookMetadata = BookMetadata(), cover: CoverImage? = nil, chapters: [Chapter] = [],
+        lengthProblem: LengthProblem? = nil
+    ) {
         self.metadata = metadata
         self.cover = cover
         self.chapters = chapters
+        self.lengthProblem = lengthProblem
     }
 }
 

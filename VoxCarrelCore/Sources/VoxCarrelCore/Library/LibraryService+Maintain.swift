@@ -260,10 +260,11 @@ extension LibraryService {
 
     /// Checks the library folder against the database. Run at launch.
     ///
-    /// Looks only at names and whether files exist: no file is opened. Records nothing in
-    /// the journal, and changes no file other than deleting working copies left by an
-    /// interrupted tag write. Symbolic links are not followed, and packages and hidden
-    /// folders are not looked inside.
+    /// Looks only at names, sizes and whether files exist. No file is opened, except the
+    /// audio files of a book whose recorded length cannot be right for their size
+    /// (`correctLengths`). Records nothing in the journal, and changes no file other than
+    /// deleting working copies left by an interrupted tag write. Symbolic links are not
+    /// followed, and packages and hidden folders are not looked inside.
     public func reconcile() throws -> ReconcileReport {
         var report = ReconcileReport()
         let fm = FileManager.default
@@ -291,6 +292,12 @@ extension LibraryService {
         report.booksRecovered = recovered
         if !newlyFlagged.isEmpty || !recovered.isEmpty {  // R6: otherwise nothing is written
             try store.setNeedsAttention(flagging: newlyFlagged, clearing: recovered)
+        }
+
+        // R7: lengths recorded from MP3 headers that state the wrong length.
+        for book in books {
+            guard let id = book.id, !report.booksWithMissingFiles.contains(id) else { continue }
+            if try correctLength(of: book, files: rowsByBook[id] ?? []) { report.correctedLengths += 1 }
         }
 
         // R3, R4: one pass over the folder, by name only.
@@ -328,6 +335,51 @@ extension LibraryService {
         report.untrackedFiles.sort { $0.path < $1.path }
         report.strandedFiles.sort { $0.path < $1.path }
         return report
+    }
+
+    /// R7 for one book: when the length recorded for it cannot be right for the size of
+    /// its audio files, and it has MP3s, measures them and records the true length and
+    /// what is wrong with each file's length header.
+    ///
+    /// The length is changed only when one of the files does state a wrong length.
+    /// The candidates are picked from sizes alone, so a book with nothing wrong costs one
+    /// `stat` a file. A book that was picked and has nothing wrong after all (a short
+    /// file with a large picture in it) is read again at the next launch; its frames are
+    /// not counted. Nothing is recorded in the journal and the book is not flagged.
+    /// - Returns: Whether the book's recorded length was changed.
+    func correctLength(of book: Book, files rows: [BookFile]) throws -> Bool {
+        let audio = rows.filter { $0.role == .audio }
+        guard let id = book.id, let recorded = book.durationSeconds, recorded > 0,
+              audio.contains(where: { $0.format == .mp3 })
+        else { return false }
+        var bytes: UInt64 = 0
+        for row in audio {
+            let size = try? FileManager.default.attributesOfItem(atPath: store.url(for: row).path)[.size] as? UInt64
+            guard let size else { return false }
+            bytes += size
+        }
+        guard !MP3Length.isPlausible(seconds: recorded, audioBytes: bytes) else { return false }
+
+        // As when files are added (A5): a sum over some of the parts would be wrong.
+        var total = 0.0
+        var anyWrong = false
+        var problems: [Int64: LengthProblem?] = [:]
+        for row in audio {
+            willMeasure?(store.url(for: row))
+            guard let fileId = row.id, let contents = try? metadataIO.read(store.url(for: row)),
+                  let seconds = contents.metadata.durationSeconds
+            else { return false }
+            total += seconds
+            if contents.lengthProblem != nil { anyWrong = true }
+            if contents.lengthProblem != row.lengthProblem { problems[fileId] = contents.lengthProblem }
+        }
+        // Only a length that a wrong header explains is corrected: one that was recorded
+        // by hand, or for files since replaced, is not this check's to change.
+        let corrected = anyWrong && abs(total - recorded) > 0.5
+        guard corrected || !problems.isEmpty else { return false }
+        try store.setMeasuredLength(
+            bookId: id, durationSeconds: corrected ? total : recorded, lengthProblems: problems)
+        return corrected
     }
 
     /// What the launch check finds for one book.

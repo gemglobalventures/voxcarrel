@@ -22,6 +22,9 @@ public final class LibraryService {
     /// in for a failed commit.
     var beforeCommit: (() throws -> Void)?
 
+    /// Test seam: called with each file the launch check opens to measure its length.
+    var willMeasure: ((URL) -> Void)?
+
     /// Test seam: how `removeBook` sends one file to the Trash.
     var trashItem: (URL) throws -> Void = { _ = try LibraryService.moveToSystemTrash($0) }
 
@@ -97,6 +100,9 @@ public final class LibraryService {
         var wasWritten = false
         /// The name the file had when it was first filed as an extra (`BookFile.originalName`).
         var originalName: String?
+        /// What is wrong with an MP3's length header: as just read, or, for a file the
+        /// operation did not read, as recorded.
+        var lengthProblem: LengthProblem?
     }
 
     /// A working file for something on disk, read once unless it is an extra.
@@ -113,6 +119,7 @@ public final class LibraryService {
         file.writeProblem = existing?.writeProblem
         file.originalName = existing?.originalName ?? (role == .extra ? url.lastPathComponent : nil)
         file.holdsCover = before?.cover != nil
+        file.lengthProblem = before.map(\.lengthProblem) ?? existing?.lengthProblem
         // Until it is written, a file is taken to hold what its format can, unless the
         // last write to it failed.
         if role != .extra, existing != nil, existing?.writeProblem == nil {
@@ -207,6 +214,7 @@ public final class LibraryService {
                 position: index)
             row.writeProblem = file.writeProblem
             row.originalName = file.originalName
+            row.lengthProblem = file.role == .audio ? file.lengthProblem : nil
             return row
         }
     }

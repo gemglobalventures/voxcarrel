@@ -110,6 +110,171 @@ public enum MediaFixtures {
         return body
     }
 
+    // MARK: MP3 with a length header
+
+    /// How `makeMP3(_:)` builds its file.
+    public struct MP3Options: Sendable {
+        public enum LengthHeader: Sendable { case none, xing, info, vbri }
+
+        /// Length of the audio itself, not counting the header frame.
+        public var seconds: Double
+        public var header: LengthHeader
+        /// The frame count the header states; nil states the true one.
+        public var statedFrames: UInt32?
+        /// The byte count the header states; nil states the true one.
+        public var statedBytes: UInt32?
+        /// Xing/Info only: which fields the header has (1 frames, 2 bytes, 4 seek table, 8 quality).
+        public var xingFlags: UInt32
+        /// Xing/Info only: a LAME extension with a valid info-tag CRC after the header.
+        public var lameExtension: Bool
+        /// MPEG-2 at 22.05 kHz and 64 kbit/s instead of MPEG-1 at 44.1 kHz and 128 kbit/s.
+        public var mpeg2: Bool
+        /// The second half of the audio at a quarter of the bitrate, so that time and
+        /// bytes do not run in step.
+        public var variableBitrate: Bool
+        /// Bytes that are not audio, put after this many audio frames.
+        public var junk: (afterFrame: Int, bytes: Data)?
+        /// Put in front of the audio as it is: an ID3v2 tag.
+        public var prefix: Data
+        /// A 128-byte ID3v1 tag after the audio.
+        public var id3v1: Bool
+
+        public init(
+            seconds: Double = 60, header: LengthHeader = .xing, statedFrames: UInt32? = nil,
+            statedBytes: UInt32? = nil, xingFlags: UInt32 = 0x0F, lameExtension: Bool = false,
+            mpeg2: Bool = false, variableBitrate: Bool = false, junk: (afterFrame: Int, bytes: Data)? = nil,
+            prefix: Data = Data(), id3v1: Bool = false
+        ) {
+            self.seconds = seconds
+            self.header = header
+            self.statedFrames = statedFrames
+            self.statedBytes = statedBytes
+            self.xingFlags = xingFlags
+            self.lameExtension = lameExtension
+            self.mpeg2 = mpeg2
+            self.variableBitrate = variableBitrate
+            self.junk = junk
+            self.prefix = prefix
+            self.id3v1 = id3v1
+        }
+
+        /// A header that states 100 frames (under three seconds) and 41,700 bytes, whatever the file holds.
+        public static func wrongHeader(seconds: Double = 60) -> MP3Options {
+            MP3Options(seconds: seconds, statedFrames: 100, statedBytes: 41_700)
+        }
+    }
+
+    /// What `makeMP3(_:)` built, for tests to compare a measurement with.
+    public struct BuiltMP3: Sendable {
+        public var data: Data
+        /// Audio frames, not counting the header frame.
+        public var frameCount: Int
+        public var sampleRate: Int
+        public var samplesPerFrame: Int
+        /// From the first byte of the first frame (the header frame when there is one) to
+        /// the end of the last frame.
+        public var audioRange: Range<Int>
+        /// The first frame of the stream.
+        public var firstFrame: Range<Int>
+        /// Where each audio frame begins.
+        public var frameOffsets: [Int]
+
+        public var seconds: Double { Double(frameCount * samplesPerFrame) / Double(sampleRate) }
+    }
+
+    /// A silent, mono Layer III stream of many frames, with the length header asked for
+    /// in a first frame of its own. See `makeSilentMP3` for why all-zero frames are valid.
+    public static func makeMP3(_ options: MP3Options = MP3Options()) -> BuiltMP3 {
+        // MPEG-1: FF FB, 128 kbit/s at 44.1 kHz (417 bytes), 1152 samples a frame, header at 21.
+        // MPEG-2: FF F3, 64 kbit/s at 22.05 kHz (208 bytes), 576 samples a frame, header at 13.
+        let sampleRate = options.mpeg2 ? 22_050 : 44_100
+        let samplesPerFrame = options.mpeg2 ? 576 : 1152
+        let versionByte: UInt8 = options.mpeg2 ? 0xF3 : 0xFB
+        func frame(bitrateIndex: UInt8, kbps: Int) -> Data {
+            let length = (options.mpeg2 ? 72 : 144) * kbps * 1000 / sampleRate
+            // Third byte: bitrate index, then sample-rate index 0, no padding.
+            var frame = Data([0xFF, versionByte, bitrateIndex << 4, 0xC4])
+            frame.append(Data(count: length - 4))
+            return frame
+        }
+        let full = options.mpeg2 ? frame(bitrateIndex: 8, kbps: 64) : frame(bitrateIndex: 9, kbps: 128)
+        let quarter = options.mpeg2 ? frame(bitrateIndex: 2, kbps: 16) : frame(bitrateIndex: 1, kbps: 32)
+        let frameCount = Int((options.seconds * Double(sampleRate) / Double(samplesPerFrame)).rounded(.up))
+
+        var audio = Data()
+        var relativeOffsets: [Int] = []
+        for index in 0..<frameCount {
+            if let junk = options.junk, junk.afterFrame == index { audio.append(junk.bytes) }
+            relativeOffsets.append(audio.count)
+            audio.append(options.variableBitrate && index >= frameCount / 2 ? quarter : full)
+        }
+
+        var headerFrame = Data()
+        if options.header != .none {
+            headerFrame = full
+            let total = headerFrame.count + audio.count
+            let frames = options.statedFrames ?? UInt32(frameCount)
+            let bytes = options.statedBytes ?? UInt32(total)
+            func put(_ value: UInt32, at offset: Int) {
+                withUnsafeBytes(of: value.bigEndian) { headerFrame.replaceSubrange(offset..<offset + 4, with: $0) }
+            }
+            if options.header == .vbri {
+                // Always 32 bytes after the frame header.
+                headerFrame.replaceSubrange(36..<40, with: Data("VBRI".utf8))
+                headerFrame[41] = 1 // version
+                put(bytes, at: 46)
+                put(frames, at: 50)
+            } else {
+                let at = options.mpeg2 ? 13 : 21 // after the side information of a mono frame
+                headerFrame.replaceSubrange(at..<at + 4, with: Data((options.header == .info ? "Info" : "Xing").utf8))
+                put(options.xingFlags, at: at + 4)
+                var field = at + 8
+                if options.xingFlags & 1 != 0 { put(frames, at: field); field += 4 }
+                if options.xingFlags & 2 != 0 { put(bytes, at: field); field += 4 }
+                if options.xingFlags & 4 != 0 {
+                    // A straight-line seek table: right only for a constant bitrate.
+                    for entry in 0..<100 { headerFrame[field + entry] = UInt8(entry * 256 / 100) }
+                    field += 100
+                }
+                if options.xingFlags & 8 != 0 { put(57, at: field); field += 4 }
+                if options.lameExtension {
+                    headerFrame.replaceSubrange(at + 120..<at + 129, with: Data("LAME3.100".utf8))
+                    headerFrame[at + 129] = 0x04 // tag revision 0, VBR method 4
+                    put(bytes, at: at + 148) // music length
+                    let crc = crc16(headerFrame.prefix(at + 154))
+                    headerFrame[at + 154] = UInt8(crc >> 8)
+                    headerFrame[at + 155] = UInt8(crc & 0xFF)
+                }
+            }
+        }
+
+        var data = options.prefix
+        let start = data.count
+        data.append(headerFrame)
+        data.append(audio)
+        let end = data.count
+        if options.id3v1 {
+            var tag = Data("TAG".utf8)
+            tag.append(Data("Old Title".utf8))
+            tag.append(Data(count: 128 - tag.count))
+            data.append(tag)
+        }
+        return BuiltMP3(
+            data: data, frameCount: frameCount, sampleRate: sampleRate, samplesPerFrame: samplesPerFrame,
+            audioRange: start..<end, firstFrame: start..<start + (headerFrame.isEmpty ? full.count : headerFrame.count),
+            frameOffsets: relativeOffsets.map { start + headerFrame.count + $0 })
+    }
+
+    /// CRC-16 as LAME computes it for its info tag (polynomial 0x8005 reflected, start value 0).
+    public static func crc16(_ data: Data) -> UInt16 {
+        var crc: UInt16 = 0
+        for byte in data {
+            crc ^= UInt16(byte)
+            for _ in 0..<8 { crc = crc & 1 != 0 ? (crc >> 1) ^ 0xA001 : crc >> 1 }
+        }
+        return crc
+    }
+
     // MARK: Images
 
     public static func makeImage(_ type: UTType, size: Int = 64, red: CGFloat = 0.8) -> Data {
