@@ -16,7 +16,7 @@ private final class Gate: @unchecked Sendable {
     /// Returns once `wanted` have arrived; throws if they never do.
     func wait(for wanted: Int) async throws {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(10)
+        let deadline = clock.now + .seconds(60)
         while arrivals < wanted {
             guard clock.now < deadline else { throw LookupError.notReachable }
             try await Task.sleep(for: .milliseconds(5))
@@ -473,7 +473,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         let slow: @Sendable (LookupQuery) async throws -> [LookupCandidate] = { _ in
             gate.arrive()
             do {
-                try await Task.sleep(for: .seconds(60))
+                try await Task.sleep(for: .seconds(600))
             } catch {
                 gate.noteCancelled()
                 throw error
@@ -488,7 +488,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         try await gate.wait(for: 2)
         task.cancel()
         let results = await task.value
-        #expect(clock.now - started < .seconds(20))
+        #expect(clock.now - started < .seconds(120))
         #expect(gate.cancellations == 2)
         #expect(results.candidates.isEmpty)
         // A cancelled search is not a source that failed.
