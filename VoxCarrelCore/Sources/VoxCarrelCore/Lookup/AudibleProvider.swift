@@ -77,8 +77,10 @@ public struct AudibleProvider: LookupProvider {
             guard let url = LookupRequest.url(host: store.host, path: "/1.0/catalog/products/\(asin)", query: shared) else { return [] }
             let answer = try await LookupRequest.object(at: url, http: http)
             guard let product = answer["product"] as? [String: Any] else { throw LookupError.unreadable }
-            // An unknown ASIN is answered with a product that has no title.
-            return candidate(from: product).map { [$0] } ?? []
+            // An unknown ASIN (one from another country's store, say) is answered with a
+            // product that has no title: the title and author are searched for instead.
+            // A request that failed has thrown by now, and is not searched around.
+            if let found = candidate(from: product) { return [found] }
         }
 
         var items: [(name: String, value: String)] = []

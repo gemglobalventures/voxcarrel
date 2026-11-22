@@ -117,6 +117,55 @@ import Testing
         #expect(http.urls.map(\.path) == ["/1.0/catalog/products/B000000000"])
     }
 
+    /// An ASIN from another country's store finds nothing here: the title and author are searched.
+    @Test func U1_anUnknownASINFallsBackToTitleAndAuthor() async throws {
+        let http = FakeHTTP { url in
+            (fixture(url.path.hasSuffix("/products") ? "au-search" : "au-badasin"), 200)
+        }
+        let found = try await AudibleProvider(http: http, store: .uk)
+            .search(LookupQuery(title: "Project Hail Mary", author: "Andy Weir", asin: "B000000000"))
+        #expect(http.urls.map(\.path) == ["/1.0/catalog/products/B000000000", "/1.0/catalog/products"])
+        #expect(http.urls.allSatisfy { $0.host == "api.audible.co.uk" })
+        let second = try #require(http.urls.last)
+        #expect(queryItems(second)["title"] == "Project Hail Mary")
+        #expect(queryItems(second)["author"] == "Andy Weir")
+        #expect(!found.isEmpty)
+        #expect(found.first?.metadata.title == "Project Hail Mary")
+
+        // With only an author to fall back on, the author is searched.
+        let authorOnly = FakeHTTP { url in
+            (fixture(url.path.hasSuffix("/products") ? "au-search" : "au-badasin"), 200)
+        }
+        _ = try await AudibleProvider(http: authorOnly, store: .us).search(LookupQuery(author: "Andy Weir", asin: "B000000000"))
+        #expect(authorOnly.urls.map(\.path) == ["/1.0/catalog/products/B000000000", "/1.0/catalog/products"])
+        #expect(queryItems(try #require(authorOnly.urls.last))["title"] == nil)
+    }
+
+    /// A known ASIN is the answer: nothing else is asked.
+    @Test func U1_aKnownASINDoesNotFallBack() async throws {
+        let http = FakeHTTP(data: fixture("au-asin"))
+        _ = try await AudibleProvider(http: http, store: .us)
+            .search(LookupQuery(title: "Project Hail Mary", author: "Andy Weir", asin: "B08G9PRS1K"))
+        #expect(http.urls.map(\.path) == ["/1.0/catalog/products/B08G9PRS1K"])
+    }
+
+    /// Only "found nothing" falls back: an ASIN request that fails is a failure.
+    @Test func U1_aFailedASINRequestDoesNotFallBack() async throws {
+        let http = FakeHTTP(data: Data(), status: 503)
+        let provider = AudibleProvider(http: http, store: .us)
+        await #expect(throws: LookupError.refused(status: 503)) {
+            _ = try await provider.search(LookupQuery(title: "Project Hail Mary", author: "Andy Weir", asin: "B000000000"))
+        }
+        #expect(http.urls.map(\.path) == ["/1.0/catalog/products/B000000000"])
+
+        let unreadable = FakeHTTP(data: Data("{}".utf8))
+        await #expect(throws: LookupError.unreadable) {
+            _ = try await AudibleProvider(http: unreadable, store: .us)
+                .search(LookupQuery(title: "Project Hail Mary", asin: "B000000000"))
+        }
+        #expect(unreadable.urls.count == 1)
+    }
+
     @Test func U1_anASINThatIsNotOneNeverReachesThePath() async throws {
         let http = FakeHTTP(data: fixture("au-none"))
         let provider = AudibleProvider(http: http, store: .us)
