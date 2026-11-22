@@ -21,6 +21,9 @@ enum MP3FrameScan {
     /// Bytes that are not audio frames, in the whole file, that a measurement tolerates
     /// (before the first frame, between frames, and after the last).
     static let junkTolerance = 64 * 1024
+    /// The most whole tags, one straight after another, that are stepped over between
+    /// frames. Files joined end to end have one or two; more are not tags.
+    static let embeddedTagLimit = 64
 
     /// The encoder's own record after a Xing/Info header, as LAME and FFmpeg write it.
     struct LAMEExtension: Equatable {
@@ -147,6 +150,9 @@ enum MP3FrameScan {
         var audioEnd = opening.firstFrame.upperBound
         /// Up to here every byte is a frame, a tag, or junk already counted.
         var accounted = audioEnd
+        /// Where runs of tags that led nowhere passed through: a run that reaches one of
+        /// these places leads nowhere either, and is not walked again.
+        var deadEnds = Set<UInt64>()
 
         /// The length of the frame of this stream that begins at `offset`, or nil.
         /// - Parameter expected: The frame before ended here, so a header that gives no
@@ -173,15 +179,23 @@ enum MP3FrameScan {
             // Whole tags between frames (the file was joined from several) are stepped
             // over, when a frame or the end of the audio follows them.
             var afterTags = position
+            var steps: [UInt64] = []
+            var leadsNowhere = false
             while let length = try embeddedTagLength(at: afterTags, in: file), afterTags + length <= end {
                 afterTags += length
+                if steps.count == embeddedTagLimit || deadEnds.contains(afterTags) {
+                    leadsNowhere = true
+                    break
+                }
+                steps.append(afterTags)
             }
-            if afterTags > position, try afterTags == end || frame(at: afterTags) != nil {
+            if !leadsNowhere, afterTags > position, try afterTags == end || frame(at: afterTags) != nil {
                 tagBytes += Int(afterTags - position)
                 position = afterTags
                 accounted = position
                 continue
             }
+            deadEnds.formUnion(steps)
             // Sync is lost: look for the next frame that is followed by another, or that
             // ends where the audio does.
             var candidate = position + 1
@@ -214,13 +228,18 @@ enum MP3FrameScan {
     /// The length of the ID3v2 tag (header, body and footer) or ID3v1 tag that begins at
     /// `offset`; nil when none does.
     private static func embeddedTagLength(at offset: UInt64, in file: ChunkedFile) throws -> UInt64? {
-        if let tag = try file.bytes(at: offset, count: 10), tag[0] == 0x49, tag[1] == 0x44, tag[2] == 0x33,
-           tag[3] < 0xFF, tag[4] < 0xFF, tag[6] < 0x80, tag[7] < 0x80, tag[8] < 0x80, tag[9] < 0x80 {
+        let id3v2 = try file.withBytes(at: offset, count: 10) { tag -> UInt64? in
+            guard tag[0] == 0x49, tag[1] == 0x44, tag[2] == 0x33, tag[3] < 0xFF, tag[4] < 0xFF,
+                  tag[6] < 0x80, tag[7] < 0x80, tag[8] < 0x80, tag[9] < 0x80
+            else { return nil }
             let size = Int(tag[6]) << 21 | Int(tag[7]) << 14 | Int(tag[8]) << 7 | Int(tag[9])
             return UInt64(10 + size + (tag[5] & 0x10 != 0 ? 10 : 0))
         }
-        if let tag = try file.bytes(at: offset, count: 3), tag == Array("TAG".utf8) { return 128 }
-        return nil
+        if let length = id3v2 ?? nil { return length }
+        let id3v1 = try file.withBytes(at: offset, count: 3) { tag in
+            tag[0] == 0x54 && tag[1] == 0x41 && tag[2] == 0x47  // "TAG"
+        }
+        return id3v1 == true ? 128 : nil
     }
 
     // MARK: The start and the end
@@ -230,10 +249,16 @@ enum MP3FrameScan {
 
         // ID3v2 tags at the start (nearly always one).
         var start: UInt64 = 0
-        while let tag = try file.bytes(at: start, count: 10), tag[0] == 0x49, tag[1] == 0x44, tag[2] == 0x33,
-              tag[6] < 0x80, tag[7] < 0x80, tag[8] < 0x80, tag[9] < 0x80 {
-            let size = Int(tag[6]) << 21 | Int(tag[7]) << 14 | Int(tag[8]) << 7 | Int(tag[9])
-            start += UInt64(10 + size + (tag[5] & 0x10 != 0 ? 10 : 0))
+        while true {
+            let length = try file.withBytes(at: start, count: 10) { tag -> UInt64? in
+                guard tag[0] == 0x49, tag[1] == 0x44, tag[2] == 0x33,
+                      tag[6] < 0x80, tag[7] < 0x80, tag[8] < 0x80, tag[9] < 0x80
+                else { return nil }
+                let size = Int(tag[6]) << 21 | Int(tag[7]) << 14 | Int(tag[8]) << 7 | Int(tag[9])
+                return UInt64(10 + size + (tag[5] & 0x10 != 0 ? 10 : 0))
+            }
+            guard let length = length ?? nil else { break }
+            start += length
         }
 
         // The first frame: one whose header is valid and that is followed by another of
@@ -491,6 +516,15 @@ final class ChunkedFile {
     @inline(__always) func header(at offset: UInt64) throws -> UInt32? {
         guard let p = try window(offset, 4) else { return nil }
         return UInt32(bigEndian: p.loadUnaligned(as: UInt32.self))
+    }
+
+    /// Gives `body` the `count` bytes at `offset` where they lie in the buffer, without
+    /// copying them; nil when they lie beyond the end. The bytes must not be kept.
+    @inline(__always) func withBytes<T>(
+        at offset: UInt64, count: Int, _ body: (UnsafeRawBufferPointer) -> T
+    ) throws -> T? {
+        guard let p = try window(offset, count) else { return nil }
+        return body(UnsafeRawBufferPointer(start: p, count: count))
     }
 
     func bytes(at offset: UInt64, count: Int) throws -> [UInt8]? {

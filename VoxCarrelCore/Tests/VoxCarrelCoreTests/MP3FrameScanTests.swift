@@ -15,6 +15,12 @@ import VoxCarrelFixtures
         return (url, built)
     }
 
+    func write(_ data: Data) throws -> URL {
+        let url = try makeTempDir().appendingPathComponent("book.mp3")
+        try data.write(to: url)
+        return url
+    }
+
     /// The measurement agrees with what the fixture was built from.
     func expectAccurate(
         _ options: Options, sourceLocation: SourceLocation = #_sourceLocation
@@ -182,6 +188,55 @@ import VoxCarrelFixtures
         #expect(measured.junkBytes == 0)
         #expect(measured.embeddedTagBytes == id3v2 + 128)
         #expect(measured.audioRange == UInt64(built.audioRange.lowerBound)..<UInt64(built.audioRange.upperBound))
+    }
+
+    /// Frames in pairs, each pair behind a tag header whose size reaches into one long
+    /// run of empty tags that ends in nothing: every pair sends the scan down the run.
+    static func tagMaze(groups: Int, emptyTags: Int) -> Data {
+        var frame = Data([0xFF, 0xFB, 0x90, 0xC4])
+        frame.append(Data(count: 413))
+        var data = frame + frame
+        let group = 10 + 2 * frame.count
+        let run = data.count + groups * group
+        for index in 0..<groups {
+            let size = run - (2 * frame.count + index * group + 10)
+            data.append(Data("ID3".utf8))
+            data.append(contentsOf: [3, 0, 0] + [21, 14, 7, 0].map { UInt8(size >> $0 & 0x7F) })
+            data.append(frame + frame)
+        }
+        let empty = Data("ID3".utf8) + Data([3, 0, 0, 0, 0, 0, 0])
+        data.reserveCapacity(data.count + emptyTags * empty.count + 16)
+        for _ in 0..<emptyTags { data.append(empty) }
+        data.append(Data(repeating: 0x55, count: 16))
+        return data
+    }
+
+    // Before runs of tags were limited and remembered this took a time that grew with
+    // groups times tags: a minute for this file.
+    @Test func aRunOfTagsThatLeadsNowhereIsWalkedOnce() throws {
+        let url = try write(Self.tagMaze(groups: 800, emptyTags: 400_000))
+        let started = Date()
+        #expect(throws: MP3FrameScan.Failure.syncLost) { try MP3FrameScan.measure(url) }
+        #expect(Date().timeIntervalSince(started) < 20)
+    }
+
+    @Test func tagsOneAfterAnotherAreSteppedOverUpToALimit() throws {
+        let built = MediaFixtures.makeMP3(Options(seconds: 4))
+        let empty = Data("ID3".utf8) + Data([3, 0, 0, 0, 0, 0, 0])
+        func file(tags: Int) -> Data {
+            var data = built.data
+            data.insert(contentsOf: Data((0..<tags).flatMap { _ in empty }), at: built.frameOffsets[50])
+            return data
+        }
+        let within = try MP3FrameScan.measure(try write(file(tags: MP3FrameScan.embeddedTagLimit)))
+        #expect(within.frameCount == built.frameCount)
+        #expect(within.embeddedTagBytes == MP3FrameScan.embeddedTagLimit * 10)
+        #expect(within.junkBytes == 0)
+        // One more, and they are bytes that are not audio like any others.
+        let beyond = try MP3FrameScan.measure(try write(file(tags: MP3FrameScan.embeddedTagLimit + 1)))
+        #expect(beyond.frameCount == built.frameCount)
+        #expect(beyond.embeddedTagBytes == 0)
+        #expect(beyond.junkBytes == (MP3FrameScan.embeddedTagLimit + 1) * 10)
     }
 
     @Test func somethingThatOnlyLooksLikeATagIsJunk() throws {
