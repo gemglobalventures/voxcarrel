@@ -200,6 +200,28 @@ enum SeriesRows {
             .map { row(for: $0, link: completeness.link) }
     }
 
+    // MARK: What a book's own row says
+
+    static let notOnList = "Not on Audible's list"
+
+    /// What a book of the series says on its own row of how it stands with Audible's
+    /// list: Audible's number for a book that Audible numbers differently, or that the
+    /// list does not have it. Nil for any other book, and for a missing row.
+    static func note(forBook id: Int64, in completeness: SeriesCompleteness?) -> String? {
+        guard let completeness, id > 0 else { return nil }
+        if let number = completeness.numberDifferences[id]?.trimmedOrNil { return "Audible: #\(number)" }
+        return completeness.notInList.contains(id) ? notOnList : nil
+    }
+
+    /// The rows, each book's with its note as the list stands now.
+    static func annotated(_ rows: [BookRow], with completeness: SeriesCompleteness?) -> [BookRow] {
+        rows.map { row in
+            var row = row
+            row.seriesNote = row.isMissing ? nil : note(forBook: row.id, in: completeness)
+            return row
+        }
+    }
+
     static let missingNote = "This book is on Audible's list for the series and is not in your library."
 
     /// SV8: a missing entry in the words the inspector shows.

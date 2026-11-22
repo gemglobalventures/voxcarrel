@@ -175,6 +175,8 @@ private struct BookGridCell: View {
                 EditedBadge(model: model, id: row.id)
                     .font(.callout)
             }
+            // Plan 9: under the title, for a book that differs from Audible's list.
+            SeriesNoteLabel(row: row)
             Text(row.firstAuthorText)
                 .font(.caption)
                 .foregroundStyle(.secondary)

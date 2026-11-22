@@ -96,6 +96,7 @@ private struct TitleCell: View {
                 .foregroundStyle(row.isMissing ? .secondary : .primary)
                 .help(row.book.title)
             MissingBadge(row: row)
+            SeriesNoteLabel(row: row)
             // In words where the column has room for them, a symbol where it has not.
             EditionBadge(row: row)
             EditedBadge(model: model, id: row.id)

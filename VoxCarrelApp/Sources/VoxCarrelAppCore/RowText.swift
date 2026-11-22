@@ -245,6 +245,14 @@ extension BookRow {
         isMissing ? nil : book.readStatus
     }
 
+    /// How much of the cover shows where the covers of books that are not on this Mac
+    /// are dimmed (the grid and the list): all of it for a book with files, less for a
+    /// book with none, and less again for a book the library does not have at all.
+    public var dimmedCoverOpacity: Double {
+        if isMissing { return 0.35 }
+        return hasFiles ? 1 : 0.6
+    }
+
     /// What there is to open, here or on Audible; nil when the book has neither.
     public var formsText: String? {
         switch (hasAudio, hasEbook) {
@@ -276,6 +284,7 @@ extension BookRow {
         if hasFiles || whereaboutsText == nil, let formsText { badges.append(formsText) }
         if let whereaboutsText { badges.append(whereaboutsText) }
         if let missingText { badges.append(missingText) }
+        if let seriesNote { badges.append(seriesNote) }
         if let editionLabel { badges.append(editionLabel) }
         if book.readStatus != .unread { badges.append(book.readStatus.title) }
         if let warningText { badges.append(warningText) }

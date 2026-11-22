@@ -120,6 +120,24 @@ struct MissingBadge: View {
     }
 }
 
+/// Plan 9: how a book of a series stands with Audible's list of it, when that is worth
+/// saying ("Audible: #7", "Not on Audible's list"), in small secondary text; nothing
+/// for any other row.
+struct SeriesNoteLabel: View {
+    let row: BookRow
+
+    var body: some View {
+        if let note = row.seriesNote {
+            Text(note)
+                .font(.caption2)
+                .lineLimit(1)
+                .foregroundStyle(.secondary)
+                .help(note)
+                .accessibilityIdentifier("books.note.series")
+        }
+    }
+}
+
 /// Plan 7, K10: what kind of edition a book is, when that is worth saying ("Abridged",
 /// "Probably abridged", "Dramatised"): the words in a small capsule where there is room
 /// for them, a symbol where there is not. Why it is said is in the tooltip.

@@ -167,6 +167,44 @@ import VoxCarrelCore
         #expect(unread.shownReadStatus == .unread)
     }
 
+    /// A book of the series says, on its own row, how it stands with Audible's list:
+    /// Audible's number where that differs from the owner's, or that the list does not
+    /// have it. Nothing for a book the list has under the same number, for a missing
+    /// row, or for a series that is not linked.
+    @Test func aBooksRowSaysHowItStandsWithTheList() {
+        func book(_ id: Int64) -> BookRow {
+            BookRow(
+                id: id, book: Book(metadata: BookMetadata(title: "Book \(id)")), hasAudio: true, hasEbook: false,
+                formats: [.m4b], coverURL: nil, hasWriteProblem: false)
+        }
+        let missing = SeriesRows.row(for: entry(12, "The Lost Book", number: "7"), link: link())
+        let status = completeness(differences: [2: "7", 4: " 2.5 "], notInList: [3])
+        let rows = SeriesRows.annotated([book(1), book(2), book(3), book(4), missing], with: status)
+        #expect(rows.map(\.seriesNote) == [nil, "Audible: #7", "Not on Audible's list", "Audible: #2.5", nil])
+        #expect(rows.map(\.id) == [1, 2, 3, 4, -12])
+        // It is said in the row's summary too, for the tooltip and for what is read out.
+        #expect(rows[1].summaryText.contains("Audible: #7"))
+        #expect(rows[2].summaryText.contains("Not on Audible's list"))
+        #expect(!rows[0].summaryText.contains("Audible"))
+        // Worked out afresh each time: a note that no longer holds goes.
+        #expect(SeriesRows.annotated(rows, with: completeness()).allSatisfy { $0.seriesNote == nil })
+        #expect(SeriesRows.annotated(rows, with: nil).allSatisfy { $0.seriesNote == nil })
+    }
+
+    /// In the grid and the list a cover is dimmed for a book with no files here, and
+    /// more for a book the library does not have at all.
+    @Test func aMissingBooksCoverIsFainterThanOneWithNoFiles() {
+        let missing = SeriesRows.row(for: entry(12, "The Lost Book", number: "7"), link: link())
+        let here = BookRow(
+            id: 5, book: Book(metadata: BookMetadata(title: "Mine")), hasAudio: true, hasEbook: false, formats: [.m4b],
+            coverURL: nil, hasWriteProblem: false)
+        var elsewhere = here
+        elsewhere.hasFiles = false
+        #expect(here.dimmedCoverOpacity == 1)
+        #expect(elsewhere.dimmedCoverOpacity == 0.6)
+        #expect(missing.dimmedCoverOpacity == 0.35)
+    }
+
     /// SV8: a missing entry in the words the inspector shows.
     @Test func aMissingEntryInWords() {
         let info = SeriesRows.info(for: entry(12, "The Lost Book", number: "7", minutes: 615), link: link(), canChange: true)

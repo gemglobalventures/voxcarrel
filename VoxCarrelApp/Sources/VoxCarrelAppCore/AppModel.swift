@@ -536,9 +536,13 @@ public final class AppModel {
     /// SV5, SV6: the library's books, and after them a row for each book of Audible's
     /// list of the series that the library does not have. Only for a series, and never
     /// among the results of a search.
+    ///
+    /// Each book of the series says on its row how it stands with the list
+    /// (`BookRow.seriesNote`), in a search too.
     private func withMissingRows(_ read: ShownBooks, search: String) -> [BookRow] {
-        guard search.trimmed.isEmpty else { return read.rows }
-        return read.rows + SeriesRows.rows(of: read.series?.completeness, showingHidden: storedShowsHiddenMissing)
+        let books = SeriesRows.annotated(read.rows, with: read.series?.completeness)
+        guard search.trimmed.isEmpty else { return books }
+        return books + SeriesRows.rows(of: read.series?.completeness, showingHidden: storedShowsHiddenMissing)
     }
 
     /// SV7, SV14: whether any of these is the id of a row that stands for a book the

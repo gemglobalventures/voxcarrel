@@ -52,6 +52,11 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     /// Audible's list of the series shown has and the library lacks. Such a row has a
     /// negative id, which is no book's, and no files, cover or copies.
     public var missing: MissingEntry?
+    /// For a book of a series that has been checked against Audible, how the book
+    /// stands with Audible's list when that is worth saying: "Audible: #7" when Audible
+    /// numbers it differently, "Not on Audible's list" when the list does not have it.
+    /// Nil otherwise, and wherever the rows are not those of such a series.
+    public var seriesNote: String?
 
     /// Whether the row stands for a book the library does not have.
     public var isMissing: Bool { missing != nil }

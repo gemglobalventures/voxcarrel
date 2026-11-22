@@ -951,6 +951,13 @@ private let notChecked = "Not checked against Audible"
         #expect(try h.store().books().count == 13)
         #expect(h.model.selection == [id])
         #expect(h.model.busyLabel == nil)
+
+        // It now holds the entry's Audible ID, so the entry is one the library has. The
+        // book is still no book of the series: it has no row there.
+        h.model.sidebarSelection = seriesItem
+        await h.model.settle()
+        #expect(h.model.seriesHeader?.summary == "4 of 5 on Audible's list")
+        #expect(h.titles == ["Salt Road", "The Drowned Bell", "Harbour of Glass", "Lantern Reef"])
         #expect(strays(h).isEmpty)
     }
 
@@ -1072,6 +1079,41 @@ private let notChecked = "Not checked against Audible"
                 members[4].number = "6"
             },
         ]
+    }
+
+    /// Each book of the series says on its own row how it stands with Audible's list,
+    /// and stops saying it when it no longer holds.
+    @Test func theRowsSayWhichBooksDifferFromTheList() async throws {
+        let h = try await shown(numberedDifferently(), prepare: { h in
+            try self.addBook(h, "A Stray Tale", number: "9")
+        })
+        #expect(h.model.rows.allSatisfy { $0.seriesNote == nil })
+        await h.model.checkSeries()
+        func notes() -> [String: String] {
+            Dictionary(uniqueKeysWithValues: h.model.rows.compactMap { row in row.seriesNote.map { (row.book.title, $0) } })
+        }
+        #expect(notes() == ["Harbour of Glass": "Audible: #4", "A Stray Tale": "Not on Audible's list"])
+        #expect(h.model.seriesHeader?.notes == ["1 book is numbered differently on Audible.", "1 book is not on Audible's list."])
+        // In a search of the series too, where no missing row is shown.
+        h.model.searchText = "harbour"
+        await h.model.settle()
+        #expect(h.model.rows.map(\.seriesNote) == ["Audible: #4"])
+        h.model.searchText = ""
+        await h.model.settle()
+        // With hidden rows shown or not.
+        h.model.showsHiddenMissing = true
+        #expect(notes().count == 2)
+        h.model.showsHiddenMissing = false
+
+        await h.model.useAudibleNumbers()
+        #expect(notes() == ["A Stray Tale": "Not on Audible's list"])
+        await h.model.unlinkSeries()
+        #expect(notes().isEmpty)
+        // And nowhere but in the series.
+        await h.model.checkSeries()
+        h.model.sidebarSelection = .allBooks
+        await h.model.settle()
+        #expect(h.model.rows.allSatisfy { $0.seriesNote == nil })
     }
 
     /// SV10: the books numbered differently are saved with Audible's numbers, as one
