@@ -57,11 +57,28 @@ extension LookupSession {
         isAddMode ? "Select a match to see its details." : "Select a match to see what it offers."
     }
 
-    /// V4: what is still to be done once values have been applied; for a book that is
-    /// being added, what adding does.
+    /// V4: what the button that applies the ticked values says. For a book in the
+    /// library applying saves too; an import entry is only filled in.
+    public var applyTitle: String {
+        switch target {
+        case .book: "Apply and Save"
+        case .importEntry, .newAudibleBook: "Apply"
+        }
+    }
+
+    /// V4: what that button's tooltip says.
+    public var applyHelp: String {
+        switch target {
+        case .book: "Save the ticked values into the book (⌘Return)"
+        case .importEntry, .newAudibleBook: "Put the ticked values into the book (⌘Return)"
+        }
+    }
+
+    /// V4: what applying does with the ticked values; for a book that is being added,
+    /// what adding does.
     public var reminderText: String {
         switch target {
-        case .book: "Applied values still need Save."
+        case .book: "Ticked values are saved into the book. Edit ▸ Undo reverses it."
         case .importEntry: "Applied values are imported with the book."
         case .newAudibleBook: "The book is added to your library without files."
         }

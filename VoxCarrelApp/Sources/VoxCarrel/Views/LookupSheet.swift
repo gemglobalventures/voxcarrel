@@ -397,7 +397,7 @@ private struct DetailsPane: View {
 
 // MARK: - The bottom
 
-/// V4: where the results are from, what applying leaves to do, Cancel and Apply. For a
+/// V4: where the results are from, what applying does, Cancel and Apply. For a
 /// book that is being added (plan 6, V5): Cancel, Add Without a Match and Add.
 private struct BottomBar: View {
     @Environment(AppModel.self) private var model
@@ -452,13 +452,13 @@ private struct BottomBar: View {
             } else {
                 // Not the default button: Return belongs to the search boxes, and must never
                 // apply while a query is being typed. ⌘Return applies.
-                Button("Apply") {
+                Button(lookup.applyTitle) {
                     Task { await model.applyLookup() }
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!lookup.canApply)
-                .help("Put the ticked values into the book (⌘Return)")
+                .help(lookup.applyHelp)
                 .accessibilityIdentifier("lookup.apply")
             }
         }

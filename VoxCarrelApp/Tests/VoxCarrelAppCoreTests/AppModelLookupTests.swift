@@ -73,6 +73,11 @@ import VoxCarrelFixtures
         return files
     }
 
+    /// The cover the library keeps for the book, as saved.
+    private func savedCover(_ h: Harness, _ id: Int64) throws -> Data? {
+        LibraryService(store: try h.store()).covers.image(for: id)?.data
+    }
+
     // MARK: A1 Beginning, for the inspected book
 
     /// A1: the draft's values, unsaved typing included, are what is searched with and compared against.
@@ -521,37 +526,221 @@ import VoxCarrelFixtures
 
     // MARK: A4 Applying
 
-    /// A4: ticked values go into the draft as if typed: unsaved, and nothing else changes.
-    @Test func A4_applyingFillsTheDraftAndSavesNothing() async throws {
+    /// A4: ticked values go into the book and are saved at once, as one operation that
+    /// Undo reverses; nothing else changes.
+    @Test func A4_applyingSavesTheTickedValues() async throws {
         let (h, id) = try await lookedUp([saltRoadOnAudible()])
         let before = try h.book(id)
+        h.recordBusyLabels()
         h.model.setLookupTicked(true, for: .narrators)
         #expect(h.model.lookup?.canApply == true)
 
         await h.model.applyLookup()
         #expect(h.model.lookup == nil)
         #expect(h.model.alert == nil)
-        let draft = try #require(h.draft)
-        #expect(draft.narrators == "Marcus Lindqvist; Someone Else")
-        #expect(draft.publisher == "Tidewater Audio")
-        #expect(draft.summary == "A road, and salt.")
-        #expect(draft.asin == "B0SALTROAD")
+        #expect(h.model.result == nil)
+        #expect(h.busyLabels == ["Saving…"])
+        #expect(h.model.busyLabel == nil)
+        let saved = try h.book(id)
+        #expect(saved.narrators == ["Marcus Lindqvist", "Someone Else"])
+        #expect(saved.publisher == "Tidewater Audio")
+        #expect(saved.summary == "A road, and salt.")
+        #expect(saved.asin == "B0SALTROAD")
         // Not ticked: the year, which the book has, and the cover. Not on offer: the title and the author, which are the same.
-        #expect(draft.year == "2014")
-        #expect(draft.cover == .keep)
-        #expect(draft.title == "Salt Road")
-        #expect(draft.authors == "Ines Calloway")
-        #expect(draft.series == "Tidewater Chronicles")
-        #expect(draft.isDirty)
-        #expect(h.model.hasUnsavedChanges)
-        #expect(h.model.canSave)
+        #expect(saved.year == 2014)
+        #expect(saved.title == "Salt Road")
+        #expect(saved.authors == ["Ines Calloway"])
+        #expect(saved.series == "Tidewater Chronicles")
         #expect(h.lookup.coverURLs.isEmpty)
-        // Nothing is saved.
-        #expect(try h.book(id) == before)
+        // Nothing is left to save: the draft is the book as it is now.
+        #expect(h.draft == BookDraft(book: saved))
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(!h.model.canSave)
+        #expect(h.model.rows.first { $0.id == id }?.book == saved)
+        // The tags are in the file.
+        let url = try #require(try h.fileURLs(id).first)
+        #expect(try FileMetadataIO().read(url).metadata.publisher == "Tidewater Audio")
 
-        // Discarding puts the book's own values back, as for anything typed.
-        h.model.discardChanges()
-        #expect(h.draft?.isDirty == false)
+        // One operation, and Undo takes all of it back.
+        #expect(h.model.undoLabel == "Edit Salt Road")
+        await h.model.undo()
+        #expect(try h.book(id) == before)
+        #expect(h.model.undoLabel == nil)
+        #expect(try FileMetadataIO().read(try #require(try h.fileURLs(id).first)).metadata.publisher == before.publisher)
+    }
+
+    /// Edits typed before the lookup are saved with what it applies: one save, one undo step.
+    @Test func A4_handEditsAreSavedWithWhatIsApplied() async throws {
+        let h = try await Harness.demo()
+        h.lookup.find(.audible, [saltRoadOnAudible()])
+        h.recordBusyLabels()
+        let id = try await h.select("Salt Road")
+        let before = try h.book(id)
+        h.model.updateDraft { $0.genre = "Sea Stories" }
+        h.model.beginLookup()
+        await h.model.settle()
+
+        await h.model.applyLookup()
+        #expect(h.busyLabels == ["Saving…"])
+        #expect(try h.book(id).genre == "Sea Stories")
+        #expect(try h.book(id).publisher == "Tidewater Audio")
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(h.model.undoLabel == "Edit Salt Road")
+
+        await h.model.undo()
+        #expect(try h.book(id) == before)
+        #expect(h.model.undoLabel == nil)
+    }
+
+    /// An applied title files the book again under its new name.
+    @Test func A4_anAppliedTitleRefilesTheBook() async throws {
+        let h = try await Harness.demo()
+        h.lookup.find(.audible, [foundBook(.audible, "us:B0SALT", title: "The Salt Road", authors: ["Ines Calloway"])])
+        let id = try await h.select("Salt Road")
+        let folderBefore = try #require(try h.book(id).folderPath)
+        let filesBefore = try h.fileURLs(id)
+        h.model.beginLookup()
+        await h.model.settle()
+        h.model.setLookupTicked(true, for: .title)
+
+        await h.model.applyLookup()
+        #expect(h.model.alert == nil)
+        #expect(h.model.result == nil)
+        let saved = try h.book(id)
+        #expect(saved.title == "The Salt Road")
+        #expect(saved.folderPath != folderBefore)
+        #expect(saved.folderPath?.contains("The Salt Road") == true)
+        let filesNow = try h.fileURLs(id)
+        #expect(filesNow != filesBefore)
+        #expect(filesNow.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+        #expect(h.detail?.files.map(\.url.path) == filesNow.map(\.path))
+
+        await h.model.undo()
+        #expect(try h.book(id).folderPath == folderBefore)
+        #expect(try h.fileURLs(id) == filesBefore)
+        #expect(filesBefore.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    /// A draft that cannot be saved: the applied values stay in it, unsaved, and the alert says why.
+    @Test func A4_aDraftWithAProblemKeepsWhatWasAppliedUnsaved() async throws {
+        let h = try await Harness.demo()
+        h.lookup.find(.audible, [saltRoadOnAudible()])
+        h.recordBusyLabels()
+        let id = try await h.select("Salt Road")
+        let before = try h.book(id)
+        // Searched for by its ASIN, so that the title can be blank.
+        h.model.updateDraft {
+            $0.title = " "
+            $0.asin = "B0SALTROAD"
+        }
+        let problem = try #require(h.draft?.problems.first)
+        h.model.beginLookup()
+        await h.model.settle()
+        h.model.setLookupTicked(false, for: .title)
+        #expect(h.model.lookup?.tickedFields.contains(.publisher) == true)
+
+        await h.model.applyLookup()
+        #expect(h.model.lookup == nil)
+        #expect(h.model.alert == problem)
+        #expect(h.busyLabels.isEmpty)
+        #expect(h.draft?.publisher == "Tidewater Audio")
+        #expect(h.draft?.title == " ")
+        #expect(h.model.hasUnsavedChanges)
+        #expect(try h.book(id) == before)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
+
+        // Put right, Save saves it all.
+        h.model.alert = nil
+        h.model.updateDraft { $0.title = "Salt Road" }
+        await h.model.save()
+        #expect(try h.book(id).publisher == "Tidewater Audio")
+        #expect(!h.model.hasUnsavedChanges)
+    }
+
+    /// Something else running: the values are applied and left unsaved, and the alert says so.
+    @Test func A4_whileSomethingRunsWhatIsAppliedIsLeftUnsaved() async throws {
+        let (h, id) = try await lookedUp([saltRoadOnAudible()])
+        let before = try h.book(id)
+        h.model.busyLabel = "Updating…"
+
+        await h.model.applyLookup()
+        #expect(h.model.lookup == nil)
+        #expect(h.model.alert == "The details were applied but not saved, because something else was running. Press Save to save them.")
+        #expect(h.model.busyLabel == "Updating…")
+        #expect(h.draft?.publisher == "Tidewater Audio")
+        #expect(h.model.hasUnsavedChanges)
+        #expect(try h.book(id) == before)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
+
+        h.model.busyLabel = nil
+        h.model.alert = nil
+        await h.model.save()
+        #expect(try h.book(id).publisher == "Tidewater Audio")
+    }
+
+    /// A save that fails for the book: the result says why, and what was applied stays unsaved.
+    @Test func A4_aSaveThatFailsKeepsWhatWasAppliedUnsaved() async throws {
+        let (h, id) = try await lookedUp([saltRoadOnAudible()])
+        let before = try h.book(id)
+        // Nothing can be kept for Undo, so nothing is changed.
+        let undo = h.root.appendingPathComponent(".voxcarrel/undo")
+        try FileManager.default.createDirectory(at: undo, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: undo.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: undo.path) }
+
+        await h.model.applyLookup()
+        #expect(h.model.lookup == nil)
+        #expect(h.model.busyLabel == nil)
+        let result = try #require(h.model.result)
+        #expect(!result.isClean)
+        #expect(result.headline == "1 book could not be saved")
+        #expect(h.draft?.publisher == "Tidewater Audio")
+        #expect(h.model.hasUnsavedChanges)
+        #expect(try h.book(id) == before)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
+    }
+
+    /// A file whose tags cannot be written: the book is saved, and the result names the file's problem.
+    @Test func A4_aFileProblemGoesToTheResult() async throws {
+        let h = try await Harness.demo()
+        h.lookup.find(.openLibrary, [foundBook(.openLibrary, "/works/OL5W", title: "Quiet Rivers") { $0.publisher = "Harbour Press" }])
+        let id = try await h.select("Quiet Rivers")
+        // No longer an EPUB, so its tags cannot be written.
+        try Data("not a book".utf8).write(to: try #require(try h.fileURLs(id).first))
+        h.model.beginLookup()
+        await h.model.settle()
+        h.model.setLookupTicked(true, for: .publisher)
+
+        await h.model.applyLookup()
+        #expect(h.model.lookup == nil)
+        let result = try #require(h.model.result)
+        #expect(result.problems.map(\.title) == ["Quiet Rivers"])
+        #expect(h.model.alert == nil)
+        #expect(try h.book(id).publisher == "Harbour Press")
+        #expect(!h.model.hasUnsavedChanges)
+    }
+
+    /// The sheet has closed before the save begins: one progress indicator at a time, and no second apply.
+    @Test func A4_theSheetClosesBeforeTheSaveRuns() async throws {
+        let (h, id) = try await lookedUp([saltRoadOnAudible()])
+        let gate = Gate()
+        h.model.beforeOperation = { await gate.wait() }
+        let applying = Task { await h.model.applyLookup() }
+        await gate.arrival()
+        #expect(h.model.busyLabel == "Saving…")
+        #expect(h.model.lookup == nil)
+        // Apply again, and Save, while it runs: nothing more happens.
+        await h.model.applyLookup()
+        await h.model.save()
+        #expect(!h.model.canLookUp)
+
+        await gate.release()
+        await applying.value
+        #expect(h.model.busyLabel == nil)
+        #expect(try h.book(id).publisher == "Tidewater Audio")
+        #expect(h.model.undoLabel == "Edit Salt Road")
+        await h.model.undo()
+        #expect(h.model.undoLabel == nil)
     }
 
     /// A4: with nothing ticked there is nothing to apply, and the sheet stays.
@@ -568,9 +757,9 @@ import VoxCarrelFixtures
         #expect(h.draft?.isDirty == false)
     }
 
-    /// A4: a ticked cover is downloaded when applied, and becomes the draft's cover as a chosen one does.
-    @Test func A4_aTickedCoverIsDownloadedAndSet() async throws {
-        let (h, _) = try await lookedUp([saltRoadOnAudible()])
+    /// A4: a ticked cover is downloaded when applied, and saved as the book's cover as a chosen one is.
+    @Test func A4_aTickedCoverIsDownloadedAndSaved() async throws {
+        let (h, id) = try await lookedUp([saltRoadOnAudible()])
         h.lookup.cover(png)
         #expect(h.lookup.coverURLs.isEmpty)
         for field in MetadataField.allCases { h.model.setLookupTicked(false, for: field) }
@@ -580,26 +769,33 @@ import VoxCarrelFixtures
         #expect(h.lookup.coverURLs == [try #require(saltRoadOnAudible().coverURL)])
         #expect(h.model.lookup == nil)
         #expect(h.model.alert == nil)
-        #expect(h.draft?.cover == .set(CoverImage(data: png, mime: "image/png")))
-        #expect(h.model.draftCover == .chosen(png))
-        #expect(h.draft?.publisher == "")
-        #expect(h.model.canSave)
+        #expect(try savedCover(h, id) == png)
+        #expect(h.draft?.cover == .keep)
+        #expect(h.model.draftCover == .stored)
+        #expect(try h.book(id).publisher == nil)
+        #expect(!h.model.hasUnsavedChanges)
     }
 
     /// A4: a cover that cannot be fetched does not stop the other values.
     @Test func A4_aCoverThatCannotBeFetchedLeavesTheRest() async throws {
-        let (h, _) = try await lookedUp([saltRoadOnAudible()])
+        let (h, id) = try await lookedUp([saltRoadOnAudible()])
+        let coverBefore = try savedCover(h, id)
         // Not reachable, which is what the fake answers until told otherwise.
         h.model.setLookupTicked(true, for: .cover)
         await h.model.applyLookup()
         #expect(h.model.lookup == nil)
         #expect(h.draft?.cover == .keep)
-        #expect(h.draft?.publisher == "Tidewater Audio")
         #expect(h.model.alert == "The cover could not be downloaded. The other details were applied.")
+        // The rest is saved all the same, and the cover is the one the book had.
+        #expect(try h.book(id).publisher == "Tidewater Audio")
+        #expect(try savedCover(h, id) == coverBefore)
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(h.model.undoLabel == "Edit Salt Road")
 
-        // Something that is not an image is no cover either; with nothing else ticked, only that is said.
+        // Something that is not an image is no cover either; with nothing else ticked,
+        // only that is said, and nothing is saved.
         h.model.alert = nil
-        h.model.discardChanges()
+        h.recordBusyLabels()
         h.lookup.cover(Data("<html>".utf8))
         h.model.beginLookup()
         await h.model.settle()
@@ -609,11 +805,29 @@ import VoxCarrelFixtures
         #expect(h.model.lookup == nil)
         #expect(h.draft?.isDirty == false)
         #expect(h.model.alert == "The cover could not be downloaded.")
+        #expect(h.busyLabels.isEmpty)
+    }
+
+    /// A cover that cannot be fetched and a draft that cannot be saved: both are said.
+    @Test func A4_aCoverThatFailsAndADraftWithAProblemAreBothSaid() async throws {
+        let h = try await Harness.demo()
+        h.lookup.find(.audible, [saltRoadOnAudible()])
+        try await h.select("Salt Road")
+        h.model.updateDraft { $0.year = "19x4" }
+        let problem = try #require(h.draft?.problems.first)
+        h.model.beginLookup()
+        await h.model.settle()
+        h.model.setLookupTicked(true, for: .cover)
+        await h.model.applyLookup()
+        #expect(h.model.alert == "The cover could not be downloaded. The other details were applied. \(problem)")
+        #expect(h.draft?.publisher == "Tidewater Audio")
+        #expect(h.model.hasUnsavedChanges)
     }
 
     /// A3, A4: while the cover is on its way the sheet says so, and Apply cannot be pressed again.
     @Test func A4_applyingTwiceIsImpossible() async throws {
-        let (h, _) = try await lookedUp([saltRoadOnAudible()])
+        let (h, id) = try await lookedUp([saltRoadOnAudible()])
+        h.recordBusyLabels()
         let gate = Gate()
         let png = png
         h.lookup.cover { _ in
@@ -642,8 +856,11 @@ import VoxCarrelFixtures
         await applying.value
         #expect(h.model.lookup == nil)
         #expect(h.lookup.coverURLs.count == 1)
-        #expect(h.draft?.cover == .set(CoverImage(data: png, mime: "image/png")))
-        #expect(h.draft?.publisher == "Tidewater Audio")
+        // Saved, once.
+        #expect(h.busyLabels == ["Saving…"])
+        #expect(try savedCover(h, id) == png)
+        #expect(try h.book(id).publisher == "Tidewater Audio")
+        #expect(!h.model.hasUnsavedChanges)
     }
 
     /// A4: for an import entry the ticked values go into the entry, and its cover is marked as chosen.
@@ -994,10 +1211,12 @@ import VoxCarrelFixtures
         #expect(choices.allSatisfy { $0.title == $0.store.title && $0.id == $0.store })
     }
 
-    // MARK: A8 Nothing is written
+    // MARK: A8 Nothing is written until Apply
 
-    /// A8: nothing on disk and nothing in the journal changes until Save; Save writes what was applied.
-    @Test func A8_aLookupWritesNothingUntilSave() async throws {
+    /// A8: nothing on disk and nothing in the journal changes while a lookup is begun,
+    /// searched, selected in, ticked or cancelled. Applying writes exactly what was ticked,
+    /// to the files and the catalogue, as one operation; Undo puts all of it back.
+    @Test func A8_aLookupWritesNothingUntilItIsApplied() async throws {
         let h = try await Harness.demo()
         h.lookup.find(.audible, [saltRoadOnAudible()])
         h.lookup.find(.openLibrary, [saltRoadOnOpenLibrary()])
@@ -1012,7 +1231,10 @@ import VoxCarrelFixtures
         let id = try await h.select("Salt Road")
         let files = try filesOnDisk(h)
         let book = try h.book(id)
+        let coverBefore = try savedCover(h, id)
+        let tagsBefore = try FileMetadataIO().read(try #require(try h.fileURLs(id).first)).metadata
         #expect(!files.isEmpty)
+        #expect(coverBefore != png)
         #expect(h.model.undoLabel == Harness.demoUndoLabel)
 
         func expectUntouched(_ step: Comment) throws {
@@ -1037,19 +1259,22 @@ import VoxCarrelFixtures
         h.model.setLookupTicked(true, for: .narrators)
         h.model.setLookupTicked(true, for: .year)
         try expectUntouched("after selecting and ticking")
-        await h.model.applyLookup()
-        #expect(h.model.lookup == nil)
-        #expect(h.model.hasUnsavedChanges)
-        try expectUntouched("after applying")
-        h.model.beginLookup()
-        await h.model.settle()
         h.model.cancelLookup()
-        try expectUntouched("after another lookup, cancelled")
+        #expect(!h.model.hasUnsavedChanges)
+        try expectUntouched("after cancelling")
         #expect(h.busyLabels.isEmpty)
 
-        // Save writes exactly what was applied.
-        await h.model.save()
+        // Applying writes exactly what was ticked.
+        h.model.beginLookup()
+        await h.model.settle()
+        h.model.setLookupTicked(true, for: .cover)
+        h.model.setLookupTicked(true, for: .narrators)
+        h.model.setLookupTicked(true, for: .year)
+        try expectUntouched("after another lookup, not yet applied")
+        await h.model.applyLookup()
+        #expect(h.model.lookup == nil)
         #expect(h.model.alert == nil)
+        #expect(h.model.result == nil)
         #expect(h.busyLabels == ["Saving…"])
         let saved = try h.book(id)
         #expect(saved.narrators == ["Marcus Lindqvist", "Someone Else"])
@@ -1062,15 +1287,27 @@ import VoxCarrelFixtures
         // What describes the files is the files' own.
         #expect(saved.durationSeconds == book.durationSeconds)
         #expect(saved.pageCount == book.pageCount)
-        #expect(LibraryService(store: try h.store()).covers.image(for: id)?.data == png)
-        #expect(h.model.undoLabel != Harness.demoUndoLabel)
+        #expect(try savedCover(h, id) == png)
         #expect(!h.model.hasUnsavedChanges)
         #expect(try filesOnDisk(h) != files)
+        let tags = try FileMetadataIO().read(try #require(try h.fileURLs(id).first)).metadata
+        #expect(tags.narrators == ["Marcus Lindqvist", "Someone Else"])
+        #expect(tags.publisher == "Tidewater Audio")
+        #expect(tags.year == 2019)
+        // One operation in the journal.
+        #expect(h.model.undoLabel == "Edit Salt Road")
+        #expect(try LibraryService(store: try h.store()).undoLabel() == "Edit Salt Road")
 
-        // And Undo takes it back.
+        // And one Undo takes all of it back: the catalogue, the cover and the file's tags.
         await h.model.undo()
-        #expect(try h.book(id).publisher == book.publisher)
-        #expect(try h.book(id).narrators == book.narrators)
+        #expect(try h.book(id) == book)
+        #expect(try savedCover(h, id) == coverBefore)
+        let tagsAfter = try FileMetadataIO().read(try #require(try h.fileURLs(id).first)).metadata
+        #expect(tagsAfter.narrators == tagsBefore.narrators)
+        #expect(tagsAfter.publisher == tagsBefore.publisher)
+        #expect(tagsAfter.year == tagsBefore.year)
+        #expect(h.model.undoLabel == nil)
+        #expect(h.busyLabels == ["Saving…", "Undoing…"])
     }
 
     /// A8: the same for an import entry: nothing is imported or written by a lookup.
@@ -1323,23 +1560,22 @@ import VoxCarrelFixtures
         h.model.setLookupTicked(true, for: .cover)
         await h.model.applyLookup()
         #expect(h.lookup.coverURLs == [try #require(candidate.thumbnailURL), try #require(candidate.coverURL)])
-        #expect(h.model.draftCover == .chosen(png))
+        #expect(try savedCover(h, id) == png)
         #expect(h.model.alert == nil)
-        _ = id
     }
 
     /// When the row's picture is the cover itself it is not fetched a second time.
     @Test func A4_aCoverAlreadyFetchedForItsRowIsNotFetchedAgain() async throws {
         let candidate = saltRoadOnAudible()
         #expect(candidate.thumbnailURL == nil)
-        let (h, _) = try await lookedUp([candidate])
+        let (h, id) = try await lookedUp([candidate])
         h.lookup.cover(png)
         #expect(await h.model.lookupThumbnail(for: candidate) == png)
         h.model.setLookupTicked(true, for: .cover)
         await h.model.applyLookup()
         #expect(h.lookup.coverURLs.count == 1)
         #expect(h.model.lookup == nil)
-        #expect(h.model.draftCover == .chosen(png))
+        #expect(try savedCover(h, id) == png)
         #expect(h.model.alert == nil)
     }
 
@@ -1347,7 +1583,7 @@ import VoxCarrelFixtures
     @Test func A4_aCoverThatFailsFallsBackToTheRowsPicture() async throws {
         let jpeg = MediaFixtures.makeImage(.jpeg)
         let candidate = withBothPictures()
-        let (h, _) = try await lookedUp([candidate])
+        let (h, id) = try await lookedUp([candidate])
         h.lookup.cover { url in
             guard url == candidate.thumbnailURL else { throw LookupError.notReachable }
             return (jpeg, 200)
@@ -1356,18 +1592,21 @@ import VoxCarrelFixtures
         h.model.setLookupTicked(true, for: .cover)
         await h.model.applyLookup()
         #expect(h.lookup.coverURLs.count == 2)
-        #expect(h.model.draftCover == .chosen(jpeg))
+        #expect(try savedCover(h, id) == jpeg)
         #expect(h.model.alert == nil)
         #expect(h.model.lookup == nil)
     }
 
     /// With no picture fetched for the row either, the alert says so as before.
     @Test func A4_aCoverThatFailsWithNoRowPictureIsReported() async throws {
-        let (h, _) = try await lookedUp([withBothPictures()])
+        let (h, id) = try await lookedUp([withBothPictures()])
+        let coverBefore = try savedCover(h, id)
         h.model.setLookupTicked(true, for: .cover)
         for field in h.model.lookup?.tickedFields ?? [] where field != .cover { h.model.setLookupTicked(false, for: field) }
         await h.model.applyLookup()
-        #expect(h.model.draftCover != .chosen(png))
+        #expect(h.model.draftCover == .stored)
+        #expect(try savedCover(h, id) == coverBefore)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
         #expect(h.model.alert == "The cover could not be downloaded.")
     }
 
@@ -1385,12 +1624,18 @@ import VoxCarrelFixtures
         #expect(year.current == "19x4")
         #expect(year.currentText == "Now: 19x4")
         #expect(!year.ticked)
+        let problem = try #require(h.draft?.problems.first)
         await h.model.applyLookup()
         guard case .one(_, let draft) = h.model.inspecting else {
             Issue.record("no book inspected")
             return
         }
         #expect(draft.year == "19x4")
+        // Nothing can be saved while the year is no year: what was applied waits in the draft.
+        #expect(h.model.alert == problem)
+        #expect(draft.publisher == "Tidewater Audio")
+        #expect(h.model.hasUnsavedChanges)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
 
         // An empty box is a gap, filled by default.
         h.model.updateDraft { $0.year = "" }

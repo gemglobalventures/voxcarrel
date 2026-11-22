@@ -3,8 +3,10 @@ import VoxCarrelCore
 
 // Looking a book up online (plan 5, Task 5). A1–A8.
 //
-// A lookup only ever reads from the network and changes an unsaved draft or an entry of
-// an import being reviewed: nothing here writes to the library, the files or the journal.
+// Beginning, searching, selecting, ticking and cancelling only ever read from the network:
+// nothing is written by them. Applying puts the ticked values into the inspected book's
+// draft and saves it, as Save does, or into an entry of an import being reviewed, which
+// is written when the import is.
 
 /// An Audible store as the settings list it.
 public struct AudibleStoreChoice: Identifiable, Equatable, Sendable {
@@ -233,15 +235,24 @@ extension AppModel {
     // MARK: Applying and closing
 
     static let coverNotDownloaded = "The cover could not be downloaded."
+    static let appliedNotSaved =
+        "The details were applied but not saved, because something else was running. Press Save to save them."
 
     /// A4: puts the ticked values where the lookup was begun: into the inspected book's
-    /// draft, as if they had been typed, or into the import entry. Nothing is saved or
-    /// imported by this. A ticked cover is downloaded first; if it cannot be, the other
-    /// values are still applied and `alert` says so. The lookup then closes.
+    /// draft, as if they had been typed, or into the import entry. A ticked cover is
+    /// downloaded first; if it cannot be, the other values are still applied and `alert`
+    /// says so. The lookup then closes.
+    ///
+    /// For a book in the library the draft is then saved, exactly as `save()` saves it:
+    /// anything typed before the lookup goes with it, as the one operation Undo reverses.
+    /// When it cannot be saved (the draft has a problem, something else is running) or
+    /// the save fails, what was applied stays in the draft as unsaved edits and `alert`
+    /// or `result` says why. Nothing is imported by applying to an import entry.
     ///
     /// Does nothing unless `lookup.canApply`. While the cover is on its way
     /// `lookup.phase` is `.applying`, and nothing about the lookup can be changed; if it
-    /// closes meanwhile, nothing is applied.
+    /// closes meanwhile, nothing is applied. The lookup has closed before the save
+    /// begins: from then on `busyLabel` is the progress shown.
     public func applyLookup() async {
         guard var session = lookup, session.canApply, let candidate = session.selected else { return }
         let (metadata, wantsCover) = session.applied()
@@ -267,11 +278,13 @@ extension AppModel {
             }
         }
 
+        var savesDraft = false
         switch target {
         case .book(let id):
             guard case .one(let detail, _) = inspecting, detail.row.id == id else { break }
             updateDraft { $0.take(fields, from: metadata) }
             if let cover { setCover(data: cover.data) }
+            savesDraft = true
         case .importEntry(let id):
             updateReview { review in
                 review.update(id) { entry in
@@ -287,9 +300,27 @@ extension AppModel {
             break
         }
         closeLookup()
+        var coverProblem: String?
         if wantsCover, cover == nil {
-            alert = fields == [.cover]
+            coverProblem = fields == [.cover]
                 ? Self.coverNotDownloaded : Self.coverNotDownloaded + " The other details were applied."
+            alert = coverProblem
+        }
+        if savesDraft { await saveAppliedLookup(after: coverProblem) }
+    }
+
+    /// Saves the draft a lookup has just been applied to. `coverProblem` is what `alert`
+    /// already says about the cover; whatever stops the save is said after it.
+    private func saveAppliedLookup(after coverProblem: String?) async {
+        // Nothing was changed: only a cover was ticked, and it could not be had.
+        guard hasUnsavedChanges else { return }
+        guard busyLabel == nil else {
+            alert = [coverProblem, Self.appliedNotSaved].compactMap { $0 }.joined(separator: " ")
+            return
+        }
+        await save()
+        if let coverProblem, let said = alert, said != coverProblem {
+            alert = "\(coverProblem) \(said)"
         }
     }
 

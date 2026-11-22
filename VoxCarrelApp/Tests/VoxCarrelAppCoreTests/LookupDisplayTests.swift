@@ -188,7 +188,9 @@ import VoxCarrelFixtures
     /// import itself for a book being imported.
     @Test func V4_theReminder() {
         let book = BookMetadata(title: "Salt Road")
-        #expect(session(book, target: .book(7)).reminderText == "Applied values still need Save.")
+        #expect(
+            session(book, target: .book(7)).reminderText
+                == "Ticked values are saved into the book. Edit ▸ Undo reverses it.")
         #expect(
             session(book, target: .importEntry(UUID())).reminderText
                 == "Applied values are imported with the book.")
@@ -196,6 +198,17 @@ import VoxCarrelFixtures
         #expect(
             LookupSession(target: .newAudibleBook, current: BookMetadata(), hasCover: false, hasAudio: true)
                 .reminderText == "The book is added to your library without files.")
+    }
+
+    /// V4: the button says what it does: for a book in the library it saves too.
+    @Test func V4_theApplyButton() {
+        let book = BookMetadata(title: "Salt Road")
+        let inLibrary = session(book, target: .book(7))
+        #expect(inLibrary.applyTitle == "Apply and Save")
+        #expect(inLibrary.applyHelp == "Save the ticked values into the book (⌘Return)")
+        let importing = session(book, target: .importEntry(UUID()))
+        #expect(importing.applyTitle == "Apply")
+        #expect(importing.applyHelp == "Put the ticked values into the book (⌘Return)")
     }
 
     // MARK: V6 Thumbnails

@@ -5,7 +5,8 @@ import VoxCarrelCore
 extension AppModel {
     // MARK: Drafts
 
-    /// Changes the draft of the one selected book. Nothing is written until `save()`.
+    /// Changes the draft of the one selected book. Nothing is written until `save()`
+    /// (or until a lookup is applied, which saves).
     public func updateDraft(_ change: (inout BookDraft) -> Void) {
         guard case .one(let detail, var draft) = inspecting else { return }
         change(&draft)
