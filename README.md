@@ -25,6 +25,7 @@ The books in these pictures are generated samples from the demo library.
 - Looks books up on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress, which knows many older cassette and CD editions. Results that are your exact edition are marked, as are different editions; you choose which fields to take, from one result or several, and applying them saves in one step.
 - Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
+- Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
 - Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
 
@@ -68,6 +69,8 @@ open build/VoxCarrel.app --args -libraryPath ~/VoxCarrelDemo/Library
 ## First run on real books
 
 Create a new, empty folder for the library, outside any synced folder such as iCloud Drive: the catalogue database lives in the library folder and should not be synced while in use. Import a handful of books with "Copy files, leave originals in place" ticked, and check the result before importing more.
+
+Watch folders are set in Settings ▸ Watch Folders. They are watched only while VoxCarrel is open; books that arrived while it was closed appear in the Inbox shortly after it opens.
 
 Editing a book changes nothing until you press Save. Edit ▸ Undo (⌥⌘Z) reverses the last import, save or repair.
 
