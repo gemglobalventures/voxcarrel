@@ -14,10 +14,12 @@ let package = Package(
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.20"),
     ],
     targets: [
-        // Objective-C++ shim: the only target that sees TagLib's C++ headers.
+        // Objective-C++ shim: the only target that sees TagLib's C++ headers. It also asks
+        // AVFoundation how long a file plays, through the calls that wait for the answer.
         .target(
             name: "CTagBridge",
-            dependencies: [.product(name: "taglib", package: "CXXTagLib")]
+            dependencies: [.product(name: "taglib", package: "CXXTagLib")],
+            linkerSettings: [.linkedFramework("AVFoundation"), .linkedFramework("CoreMedia")]
         ),
         .target(
             name: "VoxCarrelCore",

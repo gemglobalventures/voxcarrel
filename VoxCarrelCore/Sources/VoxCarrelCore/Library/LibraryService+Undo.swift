@@ -37,8 +37,9 @@ extension LibraryService {
     /// Reverses the most recent import or edit. Returns its label.
     ///
     /// Works in this order: the files are moved back, all or nothing; the tags inside
-    /// them are put back; the database is restored in one transaction; and last the
-    /// stored covers are put back and the undo data deleted.
+    /// them are put back, and the length headers a repair rewrote; the database is
+    /// restored in one transaction; and last the stored covers are put back and the undo
+    /// data deleted.
     ///
     /// A copy the operation made is deleted only while the original still exists;
     /// otherwise it is moved to where the original was.
@@ -82,6 +83,18 @@ extension LibraryService {
             throw LibraryError.undoBlocked(Self.describe(error))
         }
 
+        // Length headers a repair rewrote are put back, each file only when that makes it
+        // byte for byte what it was. Best effort, as for tags: a file that has changed
+        // since, or cannot be written, stays repaired, and is recorded as it is.
+        var stillRepaired = Set<String>()
+        for repair in snapshot?.books.flatMap(\.headerRepairs) ?? [] {
+            do {
+                try headerRepair.restore(repair, at: URL(fileURLWithPath: repair.pathAfter))
+            } catch {
+                stillRepaired.insert(repair.pathAfter)
+            }
+        }
+
         // U5
         var change = LibraryChange()
         change.clearsJournal = true
@@ -115,7 +128,13 @@ extension LibraryService {
                 }) {
                     before.needsAttention = true
                 }
-                var write = LibraryChange.BookWrite(book: before, files: book.filesBefore)
+                let files = book.filesBefore.map { row -> BookFile in
+                    guard stillRepaired.contains(store.url(for: row).path) else { return row }
+                    var row = row
+                    row.lengthProblem = nil
+                    return row
+                }
+                var write = LibraryChange.BookWrite(book: before, files: files)
                 write.restoresFileIds = true
                 change.writes.append(write)
             } else {

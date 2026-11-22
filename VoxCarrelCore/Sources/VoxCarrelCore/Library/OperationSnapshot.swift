@@ -48,11 +48,15 @@ struct BookSnapshot: Codable, Equatable {
     var fileStates: [FileState]
     /// The cover-store image before: a file name in the undo folder, or nil for "had none".
     var storedCoverBefore: String?
+    /// The first frame of each MP3 whose length header the operation rewrote, as it was.
+    /// Empty for every other operation, and absent from snapshots saved before it existed.
+    var headerRepairs: [HeaderRepairState]
 
     init(
         bookId: Int64, bookBefore: Book?, filesBefore: [BookFile], fileStates: [FileState],
-        storedCoverBefore: String?
+        storedCoverBefore: String?, headerRepairs: [HeaderRepairState] = []
     ) {
+        self.headerRepairs = headerRepairs
         self.bookId = bookId
         self.bookBefore = bookBefore
         self.filesBefore = filesBefore
@@ -67,6 +71,7 @@ struct BookSnapshot: Codable, Equatable {
         filesBefore = try c.decodeIfPresent([BookFile].self, forKey: .filesBefore) ?? []
         fileStates = try c.decodeIfPresent([FileState].self, forKey: .fileStates) ?? []
         storedCoverBefore = try c.decodeIfPresent(String.self, forKey: .storedCoverBefore)
+        headerRepairs = try c.decodeIfPresent([HeaderRepairState].self, forKey: .headerRepairs) ?? []
     }
 }
 

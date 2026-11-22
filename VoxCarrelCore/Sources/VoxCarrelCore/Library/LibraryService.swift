@@ -22,6 +22,10 @@ public final class LibraryService {
     /// in for a failed commit.
     var beforeCommit: (() throws -> Void)?
 
+    /// How a length header is rewritten and put back. A test seam: each of its steps
+    /// can be replaced.
+    var headerRepair = MP3HeaderRepair()
+
     /// Test seam: called with each file the launch check opens to measure its length.
     var willMeasure: ((URL) -> Void)?
 
@@ -435,6 +439,10 @@ public final class LibraryService {
         for index in operation.writes.indices.reversed() {
             let records = operation.itemRecords[index]
             let states = operation.snapshots[index].fileStates
+            // Length headers the operation rewrote go back first: no file was moved since.
+            for repair in operation.snapshots[index].headerRepairs {
+                try? headerRepair.restore(repair, at: URL(fileURLWithPath: repair.pathAfter))
+            }
             do {
                 try undoFiles(records, states: states, token: operation.token)
             } catch {

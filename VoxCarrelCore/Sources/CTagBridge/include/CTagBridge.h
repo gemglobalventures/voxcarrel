@@ -61,4 +61,13 @@ extern NSErrorDomain const CTBErrorDomain;
                 atPath:(NSString *)path error:(NSError **)error;
 @end
 
+/// What the system's own media framework (AVFoundation) makes of a file: the players
+/// that come with the Mac go by it. Independent of TagLib.
+@interface CTBMediaProbe : NSObject
+/// How long the file plays, in seconds, with precise timing asked for. A negative number
+/// when the file cannot be opened as media or its length is not known.
+/// Blocks while the file is examined: never call it on the main thread.
++ (double)preciseDurationAtPath:(NSString *)path;
+@end
+
 NS_ASSUME_NONNULL_END

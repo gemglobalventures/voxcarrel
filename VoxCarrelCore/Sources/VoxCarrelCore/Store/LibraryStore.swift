@@ -217,14 +217,17 @@ public final class LibraryStore: Sendable {
         }
     }
 
-    /// Records what measuring a book's audio files found: the book's length, and for
-    /// each file row named what is wrong with its length header (nil for nothing). One
-    /// transaction; no other column is touched, and the rows keep their ids.
+    /// Records what measuring a book's audio files found: the book's length (nil leaves
+    /// the recorded one), and for each file row named what is wrong with its length
+    /// header (nil for nothing). One transaction; no other column is touched, and the
+    /// rows keep their ids.
     public func setMeasuredLength(
-        bookId: Int64, durationSeconds: Double, lengthProblems: [Int64: LengthProblem?]
+        bookId: Int64, durationSeconds: Double?, lengthProblems: [Int64: LengthProblem?]
     ) throws {
         try dbQueue.write { db in
-            try Book.filter(key: bookId).updateAll(db, Column("durationSeconds").set(to: durationSeconds))
+            if let durationSeconds {
+                try Book.filter(key: bookId).updateAll(db, Column("durationSeconds").set(to: durationSeconds))
+            }
             for (fileId, problem) in lengthProblems {
                 guard var file = try BookFile.fetchOne(db, key: fileId), file.bookId == bookId else { continue }
                 file.lengthProblem = problem
