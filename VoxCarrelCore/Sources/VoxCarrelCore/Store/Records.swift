@@ -8,6 +8,51 @@ public enum ReadStatus: String, Codable, Sendable, CaseIterable {
     case finished
 }
 
+/// A place other than the library's own files where a book can be owned.
+public enum ExternalKind: String, Codable, Sendable, CaseIterable {
+    case audible
+
+    public var title: String {
+        switch self {
+        case .audible: "Audible"
+        }
+    }
+}
+
+/// One place a book is owned other than as files in the library.
+public struct ExternalCopy: Codable, Equatable, Hashable, Sendable {
+    public var kind: ExternalKind
+    /// What it is there: `.audio` or `.ebook`. Never `.extra`.
+    public var form: FileRole
+    /// Which store, for a kind that has several: an `AudibleStore` raw value.
+    public var store: String?
+    /// The item's ID there: an ASIN for Audible.
+    public var itemId: String?
+
+    public init(kind: ExternalKind, form: FileRole, store: String? = nil, itemId: String? = nil) {
+        self.kind = kind
+        self.form = form
+        self.store = store
+        self.itemId = itemId
+    }
+
+    /// The list without repeats: the first of each copy stays where it is.
+    static func withoutDuplicates(_ copies: [ExternalCopy]) -> [ExternalCopy] {
+        var seen = Set<ExternalCopy>()
+        return copies.filter { seen.insert($0).inserted }
+    }
+}
+
+/// Decodes to nil, instead of failing, when the value is not a `Value` this code can
+/// read: one unreadable element of a list then does not make the whole list unreadable.
+struct Tolerant<Value: Decodable>: Decodable {
+    var value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
 /// One catalogued book: a single entry for every form of it (audio, ebook, extras).
 /// Columns mirror `BookMetadata` plus library bookkeeping.
 public struct Book: Codable, Equatable, Identifiable, Sendable,
@@ -46,6 +91,22 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     public var dateFinished: Date?
     /// Fields that no file of this book holds; they live in the database only.
     public var appOnlyFields: [MetadataField] = []
+    /// Where the book is owned other than as files in the library. Never holds the same
+    /// copy twice (same kind, form, store and item ID); order is kept. A book with no
+    /// files is valid only while this is not empty.
+    public var externalCopies: [ExternalCopy] = [] {
+        didSet {
+            let unique = ExternalCopy.withoutDuplicates(externalCopies)
+            if unique.count != externalCopies.count { externalCopies = unique }
+        }
+    }
+
+    /// True when the book is owned somewhere other than as files in the library.
+    public var isOwnedElsewhere: Bool { !externalCopies.isEmpty }
+
+    public func isOwned(on kind: ExternalKind) -> Bool {
+        externalCopies.contains { $0.kind == kind }
+    }
 
     public init(
         metadata: BookMetadata, folderPath: String? = nil,
@@ -125,6 +186,12 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         dateStarted = try c.decodeIfPresent(Date.self, forKey: .dateStarted)
         dateFinished = try c.decodeIfPresent(Date.self, forKey: .dateFinished)
         appOnlyFields = try c.decodeIfPresent([MetadataField].self, forKey: .appOnlyFields) ?? []
+        // A copy this code cannot read (a kind added by a newer version, say) is left
+        // out, and so is anything else that is not a usable list of copies: what a book
+        // is owned on must never make the book itself unreadable.
+        let copies = (try? c.decodeIfPresent([Tolerant<ExternalCopy>].self, forKey: .externalCopies)) ?? []
+        externalCopies = ExternalCopy.withoutDuplicates(
+            copies.compactMap(\.value).filter { $0.form != .extra })
     }
 
     /// The descriptive fields as one value.

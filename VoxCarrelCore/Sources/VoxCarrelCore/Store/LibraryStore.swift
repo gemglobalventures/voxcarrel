@@ -115,6 +115,11 @@ public final class LibraryStore: Sendable {
                 t.add(column: "originalName", .text)
             }
         }
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "book") { t in
+                t.add(column: "externalCopies", .text).notNull().defaults(to: "[]")
+            }
+        }
         return migrator
     }
 
@@ -193,21 +198,47 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// The copies stored with each `book` row, one row per copy, for use in a query.
+    /// Text that is not JSON counts as no copies, as it does when a book is read.
+    private static let storedCopies = """
+        json_each(CASE WHEN json_valid(book.externalCopies) THEN book.externalCopies ELSE '[]' END)
+        """
+
+    /// One field of a stored copy; null for an entry that is not an object.
+    private static func copyField(_ name: String) -> String {
+        "CASE WHEN type = 'object' THEN json_extract(value, '$.\(name)') END"
+    }
+
+    /// The kinds this code can read, as an SQL list. Copies of any other kind are
+    /// skipped when a book is read, so the lists must not count them either.
+    private static let knownKinds = ExternalKind.allCases.map { "'\($0.rawValue)'" }.joined(separator: ", ")
+
     /// All books sorted by title, optionally filtered.
-    /// - Parameter role: Only books with at least one file of this role, so
-    ///   `.audio` is the Audiobooks list and `.ebook` the Ebooks list.
+    /// - Parameter role: Only books with at least one file of this role, or, for `.audio`
+    ///   and `.ebook`, an external copy in that form: so `.audio` is the Audiobooks list
+    ///   and `.ebook` the Ebooks list, each including books owned elsewhere.
     public func books(
         having role: FileRole? = nil, needsAttention: Bool? = nil, readStatus: ReadStatus? = nil
     ) throws -> [Book] {
         try dbQueue.read { db in
             var request = Book.order(Column("title").collating(.nocase))
             if let role {
-                request = request.filter(
-                    sql: """
-                        EXISTS (SELECT 1 FROM bookFile
-                                WHERE bookFile.bookId = book.id AND bookFile.role = ?)
-                        """,
-                    arguments: [role.rawValue])
+                let hasFile = """
+                    EXISTS (SELECT 1 FROM bookFile
+                            WHERE bookFile.bookId = book.id AND bookFile.role = ?)
+                    """
+                if role == .extra {
+                    request = request.filter(sql: hasFile, arguments: [role.rawValue])
+                } else {
+                    request = request.filter(
+                        sql: """
+                            (\(hasFile) OR EXISTS (
+                                SELECT 1 FROM \(Self.storedCopies)
+                                WHERE \(Self.copyField("form")) = ?
+                                  AND \(Self.copyField("kind")) IN (\(Self.knownKinds))))
+                            """,
+                        arguments: [role.rawValue, role.rawValue])
+                }
             }
             if let needsAttention {
                 request = request.filter(Column("needsAttention") == needsAttention)
@@ -216,6 +247,19 @@ public final class LibraryStore: Sendable {
                 request = request.filter(Column("readStatus") == readStatus.rawValue)
             }
             return try request.fetchAll(db)
+        }
+    }
+
+    /// Every book with an external copy of this kind, with or without files, sorted by title.
+    public func books(ownedOn kind: ExternalKind) throws -> [Book] {
+        try dbQueue.read { db in
+            try Book.fetchAll(db, sql: """
+                SELECT book.* FROM book
+                WHERE EXISTS (SELECT 1 FROM \(Self.storedCopies) WHERE \(Self.copyField("kind")) = ?)
+                ORDER BY book.title COLLATE NOCASE
+                """, arguments: [kind.rawValue])
+            // The query finds candidates; what counts is what the book reads as.
+            .filter { $0.isOwned(on: kind) }
         }
     }
 
