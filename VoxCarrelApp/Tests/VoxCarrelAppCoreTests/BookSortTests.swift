@@ -96,6 +96,30 @@ import VoxCarrelCore
         #expect(ids(BookSort(key: .formats, ascending: false), rows) == [1, 2, 3, 4, 5])
     }
 
+    /// R3 (plan 6): a book that is on Audible only sorts with the audiobooks, after
+    /// those that have audio files.
+    @Test func formatsPutsAudibleOnlyBooksAfterAudioFiles() {
+        func audibleOnly(_ id: Int64, _ title: String) -> BookRow {
+            var book = Book(metadata: BookMetadata(title: title, authors: ["Someone"]))
+            book.id = id
+            book.externalCopies = [ExternalCopy(kind: .audible, form: .audio)]
+            return BookRow(
+                id: id, book: book, hasAudio: true, hasEbook: false, formats: [], coverURL: nil,
+                hasWriteProblem: false, hasFiles: false)
+        }
+        let rows = [
+            row(1, "E", audio: false, ebook: true),
+            audibleOnly(6, "A0"),
+            row(2, "B", audio: true, ebook: true),
+            row(3, "A2", audio: true, ebook: false),
+            audibleOnly(7, "A00"),
+            row(4, "A1", audio: true, ebook: false),
+            row(5, "Neither", audio: false, ebook: false),
+        ]
+        #expect(ids(BookSort(key: .formats), rows) == [4, 3, 6, 7, 2, 1, 5])
+        #expect(ids(BookSort(key: .formats, ascending: false), rows) == [1, 2, 7, 6, 3, 4, 5])
+    }
+
     /// S1: `length` uses duration; books with none sort last.
     @Test func lengthPutsBooksWithNoDurationLast() {
         let rows = [

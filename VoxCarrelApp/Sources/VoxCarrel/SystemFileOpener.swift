@@ -10,4 +10,8 @@ struct SystemFileOpener: FileOpener {
     func reveal(_ urls: [URL]) {
         NSWorkspace.shared.activateFileViewerSelecting(urls)
     }
+
+    func openWeb(_ url: URL) {
+        NSWorkspace.shared.open(url)
+    }
 }

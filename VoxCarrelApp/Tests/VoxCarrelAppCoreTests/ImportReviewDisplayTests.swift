@@ -347,6 +347,82 @@ import VoxCarrelCore
         #expect(review.entries.map(\.existingMatchText) == ["Add to the existing book \"Atlas\"", nil, nil])
     }
 
+    // MARK: R9 (plan 6) A match that is on Audible and has no files
+
+    private func audibleOnly(_ title: String, author: String? = "Ann Author") -> Book {
+        var book = Book(metadata: BookMetadata(title: title, authors: author.map { [$0] } ?? []), folderPath: nil)
+        book.id = 9
+        book.externalCopies = [ExternalCopy(kind: .audible, form: .audio, store: "uk")]
+        return book
+    }
+
+    /// R9
+    @Test func aMatchThatIsOnlyOnAudibleSaysSo() {
+        var here = libraryBook("Rivers")
+        here.externalCopies = [ExternalCopy(kind: .audible, form: .audio)]
+        let review = review([
+            seed("Atlas", files: [file("atlas.m4b")], match: audibleOnly("Atlas")),
+            seed("Rivers", files: [file("rivers.m4b")], match: here),
+        ])
+        #expect(
+            review.entries.map(\.existingMatchText)
+                == ["Add to \"Atlas\", which is on Audible", "Add to the existing book \"Rivers\""])
+        #expect(review.entries.map(\.matchHasNoFiles) == [true, false])
+    }
+
+    /// R9: its files go where the book will be filed, which the library works out.
+    @Test func aMatchWithNoFilesIsFiledWhereItsOwnDetailsSay() {
+        let match = audibleOnly("Atlas")
+        var review = review([
+            seed("Atlas", files: [file("atlas.m4b")], match: match),
+            seed("Rivers", files: [file("rivers.m4b")], match: libraryBook("Rivers")),
+        ])
+        let id = review.entries[0].id
+        #expect(review.entriesNeedingMatchDestination == [id])
+        #expect(review.entriesNeedingDestination.isEmpty)
+        #expect(review.entries[0].destination == nil)
+        #expect(review.destinationText(of: id) == "Working out where it will be filed…")
+        #expect(review.readiness(of: id) == .ready)
+
+        // An answer for a book that is no longer the match is ignored.
+        var other = match
+        other.title = "Atlas of Somewhere"
+        review.setMatchDestination("Wrong/Place", for: id, matchedBook: other)
+        #expect(review.entries[0].destination == nil)
+        #expect(review.entriesNeedingMatchDestination == [id])
+
+        review.setMatchDestination("Ann Author/Atlas", for: id, matchedBook: match)
+        #expect(review.entries[0].destination == "Ann Author/Atlas")
+        #expect(review.destinationText(of: id) == "Will be filed in: Ann Author/Atlas")
+        #expect(review.entriesNeedingMatchDestination.isEmpty)
+        // Nothing is recorded for an entry whose match has files, or that is not there.
+        review.setMatchDestination("Wrong/Place", for: review.entries[1].id, matchedBook: libraryBook("Rivers"))
+        #expect(review.entries[1].destination == "Ann Author/Atlas")
+        review.setMatchDestination("Wrong/Place", for: UUID(), matchedBook: match)
+
+        // Switched off, the entry is a new book like any other; switched on again, the answer still holds.
+        review.update(id) { $0.addToExisting = false }
+        #expect(review.entriesNeedingMatchDestination.isEmpty)
+        #expect(review.entriesNeedingDestination == [id])
+        #expect(review.entries[0].destination == nil)
+        review.update(id) { $0.addToExisting = true }
+        #expect(review.entries[0].destination == "Ann Author/Atlas")
+        #expect(review.entriesNeedingMatchDestination.isEmpty)
+    }
+
+    /// R9: a book with no author cannot be filed, and the import of its files will fail: said beforehand.
+    @Test func aMatchWithNoFilesThatCannotBeFiledSaysWhy() {
+        let match = audibleOnly("Atlas", author: nil)
+        var review = review([seed("Atlas", author: nil, files: [file("atlas.m4b")], match: match)])
+        let id = review.entries[0].id
+        review.setMatchDestination(nil, for: id, matchedBook: match)
+        #expect(review.entriesNeedingMatchDestination.isEmpty)
+        #expect(review.entries[0].destination == nil)
+        #expect(
+            review.destinationText(of: id)
+                == "Cannot be added yet: \"Atlas\" needs an author in the library before it can have files")
+    }
+
     // MARK: Q9 Skipped
 
     /// Q9

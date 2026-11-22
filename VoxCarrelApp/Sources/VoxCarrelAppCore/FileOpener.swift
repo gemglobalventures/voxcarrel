@@ -7,4 +7,6 @@ public protocol FileOpener: Sendable {
     func open(_ url: URL)
     /// Shows the files or folders in the Finder.
     func reveal(_ urls: [URL])
+    /// Opens a web address in the browser.
+    func openWeb(_ url: URL)
 }

@@ -102,6 +102,9 @@ extension AppModel {
 
     /// A20, A23: first which library book each changed entry matches, since an entry
     /// that joins a book has that book's folder; then the folders of the rest.
+    ///
+    /// R9: a matched book that has no files yet (it is on Audible only) is in no folder:
+    /// the folder it will be filed in is worked out from its own details.
     private func fillDestinations() async {
         guard let worker else { return }
         for id in review?.entriesNeedingMatch ?? [] {
@@ -118,6 +121,12 @@ extension AppModel {
             let folder = await worker.plannedFolder(for: metadata)
             // Ignored by the review if the entry's details have changed again meanwhile.
             review?.setDestination(folder, for: id, matchingMetadata: metadata)
+        }
+        for id in review?.entriesNeedingMatchDestination ?? [] {
+            guard let match = review?.entries.first(where: { $0.id == id })?.existingMatch else { continue }
+            let folder = await worker.plannedFolder(for: match.metadata)
+            // Ignored by the review if the entry has another match by now.
+            review?.setMatchDestination(folder, for: id, matchedBook: match)
         }
     }
 

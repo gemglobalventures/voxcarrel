@@ -127,6 +127,7 @@ public actor LibraryWorker {
         case .allBooks: try store.books()
         case .audiobooks: try store.books(having: .audio)
         case .ebooks: try store.books(having: .ebook)
+        case .onAudible: try store.books(ownedOn: .audible)
         case .unread: try store.books(readStatus: .unread)
         case .inProgress: try store.books(readStatus: .inProgress)
         case .finished: try store.books(readStatus: .finished)
@@ -147,14 +148,16 @@ public actor LibraryWorker {
         }
         return BookRow(
             id: id, book: book,
-            hasAudio: files.contains { $0.role == .audio },
-            hasEbook: files.contains { $0.role == .ebook },
+            // As the store lists them: a book owned elsewhere as an audiobook is one.
+            hasAudio: files.contains { $0.role == .audio } || book.externalCopies.contains { $0.form == .audio },
+            hasEbook: files.contains { $0.role == .ebook } || book.externalCopies.contains { $0.form == .ebook },
             formats: formats,
             coverURL: cover,
             coverModified: coverModified,
             hasWriteProblem: files.contains { $0.writeProblem != nil },
             // A file left where it was found is recorded by its whole path.
-            outsideFiles: files.filter { $0.path.hasPrefix("/") }.map { store.url(for: $0).path })
+            outsideFiles: files.filter { $0.path.hasPrefix("/") }.map { store.url(for: $0).path },
+            hasFiles: !files.isEmpty)
     }
 
     /// For each half-moved file, the name of the file it very likely was: the one file
@@ -214,10 +217,10 @@ public actor LibraryWorker {
         files.allSatisfy { !store.storedPath(for: $0).hasPrefix("/") }
     }
 
-    /// The library book a candidate with these details would be added to; nil when
-    /// no book has that title and first author.
+    /// The library book a candidate with these details would be added to: the one with
+    /// the same Audible ID, else the same title and first author; nil when neither.
     public func existingMatch(for metadata: BookMetadata) throws -> Book? {
-        try service.existingMatch(for: CandidateBook(files: [], metadata: metadata))
+        try service.existingMatch(for: metadata)
     }
 
     public func importItems(_ items: [ImportItem], options: ImportOptions) throws -> ImportResult {
@@ -240,6 +243,36 @@ public actor LibraryWorker {
 
     public func setReadStatus(_ status: ReadStatus, for bookIds: [Int64]) throws {
         try service.setReadStatus(status, for: bookIds)
+    }
+
+    /// Marks each book as owned on Audible, or takes the mark away. Only the catalogue
+    /// changes, and it is not an operation Undo reverses.
+    ///
+    /// Marking gives a book that is not on Audible yet an Audible copy as an audiobook,
+    /// in `store`, with the book's own ASIN when it has one; a book that is marked
+    /// already is left exactly as it is. Unmarking takes away every Audible copy.
+    ///
+    /// - Returns: The books that were left marked because they have no files, and with
+    ///   no mark would be empty entries. Ids that are not in the library are passed over.
+    public func setOnAudible(_ on: Bool, for bookIds: [Int64], store audibleStore: AudibleStore) throws -> [Int64] {
+        var refused: [Int64] = []
+        for id in bookIds {
+            guard let book = try store.book(id: id), book.isOwned(on: .audible) != on else { continue }
+            var copies = book.externalCopies
+            if on {
+                copies.append(
+                    ExternalCopy(
+                        kind: .audible, form: .audio, store: audibleStore.rawValue, itemId: book.asin?.trimmedOrNil))
+            } else {
+                copies.removeAll { $0.kind == .audible }
+            }
+            do {
+                try service.setExternalCopies(copies, for: id)
+            } catch LibraryError.wouldLeaveNothing {
+                refused.append(id)
+            }
+        }
+        return refused
     }
 
     /// Removes each in turn; returns the ids that could not be removed, with why.

@@ -137,6 +137,13 @@ extension ImportReview {
                 }
             return "Will stay where it is until it has \(what)"
         case .ready:
+            if entry.isAddedToExisting, entry.matchHasNoFiles {
+                // R9: the book is filed now, from its own details, as a new book would be.
+                if let folder = entry.destination { return "Will be filed in: \(folder)" }
+                guard entry.matchDestinationFor != nil else { return "Working out where it will be filed…" }
+                let title = entry.existingMatch?.title.trimmedOrNil.map { "\"\($0)\"" } ?? "The book"
+                return "Cannot be added yet: \(title) needs an author in the library before it can have files"
+            }
             if entry.isAddedToExisting {
                 return entry.destination.map { "Will be added to: \($0)" } ?? "Will be added to the existing book"
             }
@@ -282,9 +289,14 @@ extension ImportReview.Entry {
     }
 
     /// Q8: the switch that adds the files to a book already in the library; nil when
-    /// no such book was found.
+    /// no such book was found. R9: a book that is there only as owned on Audible is
+    /// named as that.
     public var existingMatchText: String? {
         guard let match = existingMatch, match.id != nil else { return nil }
+        // R9
+        if matchHasNoFiles, match.isOwned(on: .audible) {
+            return "Add to \"\(match.title)\", which is on Audible"
+        }
         return "Add to the existing book \"\(match.title)\""
     }
 }

@@ -23,20 +23,42 @@ public struct ImportReview: Equatable, Sendable {
         var computedDestination: String?
         var computedFor: DestinationDetails?
 
-        /// The title and first author `existingMatch` was looked up for; nil when it has
-        /// yet to be looked up.
+        /// The title, first author and Audible ID `existingMatch` was looked up for; nil
+        /// when it has yet to be looked up.
         var matchedFor: MatchDetails?
+
+        /// For a match that has no files (`matchHasNoFiles`): the folder that book will
+        /// be filed in when it is given its first files, and the book it was worked out
+        /// for. `matchDestinationFor` is nil until there has been an answer.
+        var matchDestination: String?
+        var matchDestinationFor: Book?
 
         /// True when the files will go into `existingMatch` and not into a new book.
         public var isAddedToExisting: Bool {
             addToExisting && existingMatch?.id != nil
         }
 
+        /// R9: true when the matched book has no files yet: it is in the library only
+        /// as owned elsewhere (on Audible), and is in no folder. Its first files are
+        /// filed from its own details, as a new book's would be.
+        public var matchHasNoFiles: Bool {
+            guard let match = existingMatch, match.id != nil else { return false }
+            return match.folderPath == nil && match.isOwnedElsewhere && !match.needsAttention
+        }
+
         /// Relative folder it will be filed in; nil when it cannot be filed, or when
         /// that has not been worked out yet. For an entry added to an existing book it
-        /// is that book's folder.
+        /// is that book's folder; for a book that has no files yet, the folder it will
+        /// be filed in.
         public var destination: String? {
-            isAddedToExisting ? existingMatch?.folderPath : computedDestination
+            guard isAddedToExisting else { return computedDestination }
+            return matchHasNoFiles ? matchDestination : existingMatch?.folderPath
+        }
+
+        /// True when the folder a match with no files will be filed in has not been
+        /// worked out for that book as it is now.
+        var needsMatchDestination: Bool {
+            isAddedToExisting && matchHasNoFiles && matchDestinationFor != existingMatch
         }
 
         /// True when the folder of this new book has not been worked out for its
@@ -61,16 +83,18 @@ public struct ImportReview: Equatable, Sendable {
         }
     }
 
-    /// The details that decide which library book an entry matches: the title and the
-    /// first author, without the spaces around them and ignoring capitals, as the
-    /// library compares them.
+    /// The details that decide which library book an entry matches: the title, the
+    /// first author and the Audible ID, without the spaces around them and ignoring
+    /// capitals, as the library compares them.
     struct MatchDetails: Equatable, Sendable {
         var title: String
         var firstAuthor: String
+        var asin: String
 
         init(_ metadata: BookMetadata) {
             title = metadata.title.trimmed.lowercased()
             firstAuthor = (metadata.authors.first ?? "").trimmed.lowercased()
+            asin = (metadata.asin ?? "").trimmed.lowercased()
         }
     }
 
@@ -224,15 +248,33 @@ public struct ImportReview: Equatable, Sendable {
         entries[entry].computedFor = details
     }
 
+    /// R9: entries that join a book with no files, whose folder has not been worked out
+    /// for that book as it is now.
+    public var entriesNeedingMatchDestination: [UUID] {
+        entries.filter(\.needsMatchDestination).map(\.id)
+    }
+
+    /// R9: records where a matched book that has no files will be filed (nil when it
+    /// cannot be: it has no author). Ignored when `matchedBook` is no longer the entry's
+    /// match as it is now, and for a match that has files.
+    public mutating func setMatchDestination(_ folder: String?, for id: UUID, matchedBook: Book) {
+        guard let entry = entries.firstIndex(where: { $0.id == id }),
+              entries[entry].matchHasNoFiles, entries[entry].existingMatch == matchedBook
+        else { return }
+        entries[entry].matchDestination = folder
+        entries[entry].matchDestinationFor = matchedBook
+    }
+
     // MARK: The book already in the library
 
-    /// Entries whose title or first author changed since `existingMatch` was looked up.
+    /// Entries whose title, first author or Audible ID changed since `existingMatch`
+    /// was looked up.
     public var entriesNeedingMatch: [UUID] {
         entries.filter { $0.matchedFor != MatchDetails($0.candidate.metadata) }.map(\.id)
     }
 
-    /// Records which library book an entry's title and first author match, or that none
-    /// does. Ignored when they are no longer the ones the answer was looked up for.
+    /// Records which library book an entry's details (its Audible ID, else its title and
+    /// first author) match, or that none does. Ignored when they are no longer the ones the answer was looked up for.
     /// A book other than the one offered before is offered switched on; the same book
     /// leaves the switch as the user has it.
     public mutating func setExistingMatch(_ book: Book?, for id: UUID, matchingMetadata: BookMetadata) {

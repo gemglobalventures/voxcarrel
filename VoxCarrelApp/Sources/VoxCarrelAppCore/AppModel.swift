@@ -19,7 +19,9 @@ public enum PendingPrompt: Equatable {
     case unsavedChanges
     /// Answered with `AppModel.confirmRemove`, or dismissed by setting `prompt` to nil.
     /// `outsideFiles`: where those of the books' files are that are not in the library folder.
-    case removeBooks(ids: [Int64], titles: [String], outsideFiles: [String] = [])
+    /// `withoutFiles`: how many of the books have no files (they are owned elsewhere):
+    /// there is nothing of theirs to send to the Trash.
+    case removeBooks(ids: [Int64], titles: [String], outsideFiles: [String] = [], withoutFiles: Int = 0)
     /// Answered with `AppModel.confirmChooseLibrary`, or dismissed by setting `prompt` to nil.
     case chooseFolderWithFiles(URL, count: Int, bookFiles: Int)
 }

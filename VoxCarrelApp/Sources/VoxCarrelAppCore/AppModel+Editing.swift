@@ -271,7 +271,9 @@ extension AppModel {
         raise(
             .removeBooks(
                 ids: books.map(\.id), titles: books.map(\.book.title),
-                outsideFiles: books.flatMap(\.outsideFiles)))
+                outsideFiles: books.flatMap(\.outsideFiles),
+                // R6: a book that is only owned elsewhere has nothing to send to the Trash.
+                withoutFiles: books.filter { !$0.hasFiles }.count))
     }
 
     /// A15: asks whether to remove the selected books: for Delete in the grid or the list.
@@ -280,9 +282,14 @@ extension AppModel {
     }
 
     /// A15: the answer to `.removeBooks`. The files go to the Trash, or stay where they are.
+    ///
+    /// R6: a book with no files is only taken out of the library, whatever the answer:
+    /// the Trash is for the books that have files.
     public func confirmRemove(moveFilesToTrash: Bool) async {
-        guard busyLabel == nil, case .removeBooks(let ids, let titles, _) = storedPrompt else { return }
+        guard busyLabel == nil, case .removeBooks(let ids, let titles, _, let withoutFiles) = storedPrompt
+        else { return }
         storedPrompt = nil
+        let moveFilesToTrash = moveFilesToTrash && withoutFiles < ids.count
         await perform(ids.count == 1 ? "Removing book…" : "Removing \(ids.count) books…") { worker in
             let failures = await worker.removeBooks(ids: ids, moveFilesToTrash: moveFilesToTrash)
             guard !failures.isEmpty else { return }
@@ -305,6 +312,9 @@ extension AppModel {
     // MARK: Opening and revealing
 
     /// A14: opens the audiobook if the book has one, otherwise the ebook.
+    ///
+    /// R4: a book with no audio file that is on Audible as an audiobook has its page on
+    /// the Audible website opened in the browser, here and for `listen`.
     public func open(_ id: Int64) {
         spawn { await self.openFile(of: id, role: nil) }
     }
@@ -321,19 +331,27 @@ extension AppModel {
         guard let worker else { return }
         do {
             guard let detail = try await worker.detail(bookId: id) else { throw LibraryError.bookNotFound(id) }
+            let audio = detail.files.first { $0.file.role == .audio }
+            // R4: the audiobook is on Audible and not here.
+            if role != .ebook, audio == nil, let copy = detail.row.audibleAudioCopy {
+                opener.openWeb(audibleAddress(of: detail.row.book, copy: copy))
+                return
+            }
             let file: FileRow?
-            let none: String
+            var none: String
             switch role {
             case .audio?:
-                file = detail.files.first { $0.file.role == .audio }
+                file = audio
                 none = "This book has no audiobook file."
             case .ebook?:
                 file = detail.files.first { $0.file.role == .ebook }
                 none = "This book has no ebook file."
             default:
-                file = detail.files.first { $0.file.role == .audio } ?? detail.files.first { $0.file.role == .ebook }
+                file = audio ?? detail.files.first { $0.file.role == .ebook }
                 none = "This book has no audiobook or ebook file to open."
             }
+            // Owned elsewhere, and not as something that can be opened from here.
+            if role != .ebook, detail.files.isEmpty { none = "This book has no files on this Mac." }
             guard let file else {
                 alert = none
                 return
@@ -348,8 +366,19 @@ extension AppModel {
         }
     }
 
+    /// R4: the book's page on the Audible website, in the store its copy names; a copy
+    /// that names none (or one this version does not know) is looked for in the store of
+    /// the settings. The page is the one for the copy's own ID, else for the book's
+    /// ASIN; with neither it is a search of that store for the title and first author.
+    func audibleAddress(of book: Book, copy: ExternalCopy) -> URL {
+        let store = copy.store.flatMap(AudibleStore.init(rawValue:)) ?? audibleStore
+        return store.webAddress(
+            asin: copy.itemId?.trimmedOrNil ?? book.asin?.trimmedOrNil, title: book.title,
+            author: book.authors.lazy.compactMap(\.trimmedOrNil).first ?? "")
+    }
+
     /// A14: shows each book in the Finder: its folder, or for a book left where it was
-    /// found, its first file.
+    /// found, its first file. A book with no files has nothing to show.
     public func reveal(_ ids: Set<Int64>) {
         guard !ids.isEmpty else { return }
         spawn { await self.revealBooks(self.ordered(ids)) }

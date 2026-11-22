@@ -213,4 +213,77 @@ import VoxCarrelCore
         #expect(row(audio: false, formats: []).formatsHelpText == "")
         #expect(row(formats: []).formatsHelpText == "Audiobook")
     }
+
+    // MARK: Books on Audible (plan 6, R2)
+
+    private let onAudible = ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B000000001")
+
+    /// A book that is on Audible and has no files here.
+    private func audibleOnly(_ change: (inout Book) -> Void = { _ in }) -> BookRow {
+        var book = Book(metadata: BookMetadata(title: "The Glass Tide", authors: ["Ines Calloway"]))
+        book.id = 2
+        book.externalCopies = [onAudible]
+        change(&book)
+        return BookRow(
+            id: 2, book: book, hasAudio: true, hasEbook: false, formats: [], coverURL: nil, hasWriteProblem: false,
+            hasFiles: false)
+    }
+
+    /// R2: where the book is, in a few words.
+    @Test func whereaboutsSayWhetherTheBookIsHereToo() {
+        let only = audibleOnly()
+        #expect(only.externalCopies == [onAudible])
+        #expect(only.isOnAudible)
+        #expect(!only.hasFiles)
+        #expect(only.opensOnAudible)
+        #expect(only.whereaboutsText == "On Audible, not on this Mac")
+
+        let both = row { $0.externalCopies = [self.onAudible] }
+        #expect(both.isOnAudible)
+        #expect(both.hasFiles)
+        #expect(!both.opensOnAudible)
+        #expect(both.whereaboutsText == "Also on Audible")
+
+        let local = row()
+        #expect(local.externalCopies.isEmpty)
+        #expect(!local.isOnAudible)
+        #expect(local.hasFiles)
+        #expect(!local.opensOnAudible)
+        #expect(local.whereaboutsText == nil)
+
+        // An ebook file, and the audiobook on Audible: the audiobook is opened there.
+        let ebookHere = BookRow(
+            id: 3, book: both.book, hasAudio: true, hasEbook: true, formats: [.epub], coverURL: nil,
+            hasWriteProblem: false)
+        #expect(ebookHere.opensOnAudible)
+        #expect(ebookHere.whereaboutsText == "Also on Audible")
+    }
+
+    /// R2: what is written about a book with no files reads sensibly.
+    @Test func textsOfABookWithNoFiles() {
+        let only = audibleOnly { $0.durationSeconds = 36_000 }
+        #expect(only.formsText == "Audiobook")
+        #expect(only.formatsText == "")
+        #expect(only.formatsHelpText == "On Audible, not on this Mac")
+        #expect(only.lengthText == "10h 0m")
+        #expect(only.warningText == nil)
+        #expect(only.summaryText == "The Glass Tide\nInes Calloway\nOn Audible, not on this Mac")
+        let finished = audibleOnly {
+            $0.setReadStatus(.finished)
+            $0.needsAttention = true
+        }
+        #expect(finished.warningText == "Needs attention")
+        #expect(
+            finished.summaryText
+                == "The Glass Tide\nInes Calloway\nOn Audible, not on this Mac · Finished · Needs attention")
+    }
+
+    /// R2: a book with files that is also on Audible says both.
+    @Test func textsOfABookThatIsHereAndOnAudible() {
+        let both = row { $0.externalCopies = [self.onAudible] }
+        #expect(both.formsText == "Audiobook")
+        #expect(both.formatsText == "M4B")
+        #expect(both.formatsHelpText == "Audiobook: M4B. Also on Audible")
+        #expect(both.summaryText == "Salt Road\nInes Calloway\nAudiobook · Also on Audible")
+    }
 }

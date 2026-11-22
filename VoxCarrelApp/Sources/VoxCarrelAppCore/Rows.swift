@@ -4,12 +4,14 @@ import VoxCarrelCore
 /// One thing the sidebar can show the books of.
 public enum SidebarItem: Hashable, Sendable {
     case allBooks, audiobooks, ebooks, unread, inProgress, finished, needsAttention
+    /// Every book marked as owned on Audible, with or without files here.
+    case onAudible
     case browse(BrowseField, String)
     case collection(Int64)
 
-    /// The seven items every library has, in sidebar order.
+    /// The eight items every library has, in sidebar order.
     public static let fixed: [SidebarItem] = [
-        .allBooks, .audiobooks, .ebooks, .unread, .inProgress, .finished, .needsAttention,
+        .allBooks, .audiobooks, .ebooks, .onAudible, .unread, .inProgress, .finished, .needsAttention,
     ]
 }
 
@@ -17,10 +19,15 @@ public enum SidebarItem: Hashable, Sendable {
 public struct BookRow: Identifiable, Equatable, Sendable {
     public var id: Int64
     public var book: Book
+    /// The book has an audio file, or is owned somewhere else as an audiobook (on Audible).
     public var hasAudio: Bool
+    /// The book has an ebook file, or is owned somewhere else as an ebook.
     public var hasEbook: Bool
-    /// Distinct formats of the audio and ebook files, in file order. Extras not included.
+    /// Distinct formats of the audio and ebook files, in file order. Extras not included,
+    /// nor anything the book is only owned as elsewhere: these are real files.
     public var formats: [FileFormat]
+    /// Whether the book has any file at all. A book that has none is owned elsewhere.
+    public var hasFiles: Bool
     public var coverURL: URL?
     /// When the cover's file was last written; nil when there is no cover. A cover that
     /// is replaced keeps its place, so this is what tells the new one from the old.
@@ -33,9 +40,10 @@ public struct BookRow: Identifiable, Equatable, Sendable {
 
     public init(
         id: Int64, book: Book, hasAudio: Bool, hasEbook: Bool, formats: [FileFormat], coverURL: URL?,
-        coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = []
+        coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = [], hasFiles: Bool = true
     ) {
         self.outsideFiles = outsideFiles
+        self.hasFiles = hasFiles
         self.id = id
         self.book = book
         self.hasAudio = hasAudio
@@ -92,7 +100,7 @@ public struct BookDetail: Equatable, Sendable {
 
 /// What the sidebar shows.
 public struct SidebarData: Equatable, Sendable {
-    /// The seven fixed items, each with its number of books (zero included).
+    /// The eight fixed items, each with its number of books (zero included).
     public var counts: [SidebarItem: Int]
     /// Every browse field's values, sorted ignoring case; blank values left out.
     public var browse: [BrowseField: [String]]

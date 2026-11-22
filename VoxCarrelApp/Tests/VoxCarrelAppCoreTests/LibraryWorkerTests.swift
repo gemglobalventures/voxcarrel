@@ -89,6 +89,97 @@ import VoxCarrelFixtures
         #expect(flagged.map(\.book.title) == ["Voices from the Attic"])
     }
 
+    // MARK: Books on Audible (plan 6)
+
+    private func addGlassTide(_ library: Fixture, asin: String? = "B0GLASSTID") throws -> Int64 {
+        var metadata = BookMetadata(title: "The Glass Tide", authors: ["Ines Calloway"])
+        metadata.durationSeconds = 36_000
+        let outcome = try LibraryService(store: library.store).addExternalBook(
+            metadata: metadata, cover: nil,
+            copy: ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: asin))
+        guard case .added(let id) = outcome else { throw LibraryError.bookNotFound(-1) }
+        return id
+    }
+
+    /// R1, R2: On Audible lists the books marked so; a book with no files is an audiobook with no formats.
+    @Test func onAudibleListsMarkedBooksAndRowsSayWhatIsHere() async throws {
+        let library = try demoLibrary()
+        let worker = library.worker
+        #expect(try await worker.rows(for: .onAudible, search: "").isEmpty)
+        let glass = try addGlassTide(library)
+
+        let listed = try await worker.rows(for: .onAudible, search: "")
+        #expect(listed.map(\.id) == [glass])
+        #expect(listed.map(\.book) == (try library.store.books(ownedOn: .audible)))
+        let row = try #require(listed.first)
+        #expect(row.hasAudio)
+        #expect(!row.hasEbook)
+        #expect(!row.hasFiles)
+        #expect(row.formats.isEmpty)
+        #expect(row.isOnAudible)
+        // Searching narrows it like any list.
+        #expect(try await worker.rows(for: .onAudible, search: "glass").map(\.id) == [glass])
+        #expect(try await worker.rows(for: .onAudible, search: "lighthouse").isEmpty)
+
+        let audiobooks = try await worker.rows(for: .audiobooks, search: "")
+        #expect(audiobooks.count == 10)
+        #expect(audiobooks.allSatisfy { $0.hasAudio })
+        let all = try await worker.rows(for: .allBooks, search: "")
+        #expect(all.filter { !$0.hasFiles }.map(\.id) == [glass])
+        let sidebar = try await worker.sidebar()
+        #expect(sidebar.counts[.onAudible] == 1)
+        #expect(sidebar.counts[.audiobooks] == 10)
+        #expect(sidebar.counts.count == SidebarItem.fixed.count)
+
+        // An ebook-form copy makes a book an ebook in the lists, as the store has it.
+        let asEbook = try #require(
+            try LibraryService(store: library.store).addExternalBook(
+                metadata: BookMetadata(title: "Paper Tide", authors: ["Ines Calloway"]), cover: nil,
+                copy: ExternalCopy(kind: .audible, form: .ebook)) as ExternalBookOutcome?)
+        guard case .added(let paper) = asEbook else { return }
+        let ebooks = try await worker.rows(for: .ebooks, search: "")
+        #expect(ebooks.contains { $0.id == paper })
+        #expect(ebooks.allSatisfy { $0.hasEbook })
+    }
+
+    /// R8: marking and unmarking, and what is refused.
+    @Test func setOnAudibleAddsAndRemovesTheAudibleCopy() async throws {
+        let library = try demoLibrary()
+        let worker = library.worker
+        let glass = try addGlassTide(library)
+        let salt = try id(of: "Salt Road", in: library.store)
+
+        #expect(try await worker.setOnAudible(true, for: [salt, glass], store: .de).isEmpty)
+        #expect(
+            try library.store.book(id: salt)?.externalCopies == [ExternalCopy(kind: .audible, form: .audio, store: "de")])
+        // Marked already: left as it was.
+        #expect(
+            try library.store.book(id: glass)?.externalCopies
+                == [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0GLASSTID")])
+
+        // Unmarking: the one with no files would be left with nothing, and is returned.
+        #expect(try await worker.setOnAudible(false, for: [glass, salt, 9_999], store: .de) == [glass])
+        #expect(try library.store.book(id: salt)?.externalCopies.isEmpty == true)
+        #expect(try library.store.book(id: glass)?.isOwned(on: .audible) == true)
+        // Not marked: nothing to do.
+        #expect(try await worker.setOnAudible(false, for: [salt], store: .de).isEmpty)
+    }
+
+    /// R9: the library's own match, which knows a book by its Audible ID whatever its title.
+    @Test func existingMatchIsTheEnginesAndKnowsTheAudibleID() async throws {
+        let library = try demoLibrary()
+        let glass = try addGlassTide(library)
+        var details = BookMetadata(title: "Die Glasflut", authors: ["Somebody Else"])
+        #expect(try await library.worker.existingMatch(for: details) == nil)
+        details.asin = "b0glasstid"
+        #expect(try await library.worker.existingMatch(for: details)?.id == glass)
+        let byTitle = BookMetadata(title: "the glass tide", authors: ["ines calloway"])
+        #expect(try await library.worker.existingMatch(for: byTitle)?.id == glass)
+        #expect(
+            try await library.worker.existingMatch(for: byTitle)
+                == (try LibraryService(store: library.store).existingMatch(for: byTitle)))
+    }
+
     /// W1: the items that are not fixed.
     @Test func browseAndCollectionItemsListTheirBooks() async throws {
         let library = try demoLibrary()
@@ -190,9 +281,11 @@ import VoxCarrelFixtures
     // MARK: Sidebar
 
     /// W5
-    @Test func sidebarOfAnEmptyLibraryHasAllSevenCountsAtZero() async throws {
+    @Test func sidebarOfAnEmptyLibraryHasAllEightCountsAtZero() async throws {
         let sidebar = try await emptyLibrary().worker.sidebar()
-        let fixed: [SidebarItem] = [.allBooks, .audiobooks, .ebooks, .unread, .inProgress, .finished, .needsAttention]
+        let fixed: [SidebarItem] = [
+            .allBooks, .audiobooks, .ebooks, .onAudible, .unread, .inProgress, .finished, .needsAttention,
+        ]
         #expect(sidebar.counts == Dictionary(uniqueKeysWithValues: fixed.map { ($0, 0) }))
         #expect(sidebar.browse == [.authors: [], .narrators: [], .series: [], .genre: []])
         #expect(sidebar.collections.isEmpty)
@@ -203,7 +296,7 @@ import VoxCarrelFixtures
         let library = try demoLibrary()
         let sidebar = try await library.worker.sidebar()
         #expect(sidebar.counts == [
-            .allBooks: 12, .audiobooks: 9, .ebooks: 4, .unread: 6, .inProgress: 3, .finished: 3,
+            .allBooks: 12, .audiobooks: 9, .ebooks: 4, .onAudible: 0, .unread: 6, .inProgress: 3, .finished: 3,
             .needsAttention: 1,
         ])
         #expect(sidebar.browse[.series] == ["Tidewater Chronicles"])

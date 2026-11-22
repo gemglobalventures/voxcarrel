@@ -48,12 +48,13 @@ public struct BookSort: Equatable, Sendable {
 
     private static func firstAuthor(_ row: BookRow) -> String? { text(row.book.authors.first) }
 
-    /// 0 audio only, 1 audio and ebook, 2 ebook only; nil when the book has neither.
+    /// 0 audio only, 1 an audiobook that is only owned elsewhere (on Audible), 2 audio
+    /// and ebook, 3 ebook only; nil when the book has neither.
     private static func formatRank(_ row: BookRow) -> Int? {
         switch (row.hasAudio, row.hasEbook) {
-        case (true, false): 0
-        case (true, true): 1
-        case (false, true): 2
+        case (true, false): row.hasFiles ? 0 : 1
+        case (true, true): 2
+        case (false, true): 3
         case (false, false): nil
         }
     }

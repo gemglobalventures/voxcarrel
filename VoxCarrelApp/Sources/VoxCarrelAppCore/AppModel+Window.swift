@@ -20,7 +20,7 @@ extension BrowseField {
 public struct SelectionCommands: Equatable, Sendable {
     /// Exactly one book is selected, and it has an audiobook or an ebook to open.
     public var open = false
-    /// Exactly one book is selected, and it has audio.
+    /// Exactly one book is selected, and it has audio: a file, or the audiobook on Audible.
     public var listen = false
     /// Exactly one book is selected, and it has an ebook.
     public var read = false
@@ -45,6 +45,7 @@ extension AppModel {
         case .allBooks: "All Books"
         case .audiobooks: "Audiobooks"
         case .ebooks: "Ebooks"
+        case .onAudible: "On Audible"
         case .unread: "Unread"
         case .inProgress: "In Progress"
         case .finished: "Finished"
@@ -117,13 +118,17 @@ extension AppModel {
             commands.listen = book.hasAudio
             commands.read = book.hasEbook
         }
+        // R5: books that have no files have nothing to show in the Finder, and no tags
+        // to write. A book that is not shown is taken to have files.
+        let chosen = rows.filter { ids.contains($0.id) }
+        let someHaveFiles = chosen.count < ids.count || chosen.contains(where: \.hasFiles)
         // Showing a book in the Finder changes nothing, so it does not wait for an operation.
-        commands.reveal = true
+        commands.reveal = someHaveFiles
         guard busyLabel == nil else { return commands }
         commands.mark = true
         commands.addToCollection = !sidebar.collections.isEmpty
         commands.removeFromCollection = shownCollection != nil
-        commands.rewriteTags = true
+        commands.rewriteTags = someHaveFiles
         // Only books that are shown can be removed, and removing asks first: not while
         // another question is waiting (A24).
         commands.remove = shown != nil && prompt == nil
@@ -159,6 +164,8 @@ extension AppModel {
     /// Why there are no books to show; nil when there are some, or it is not known yet.
     public var emptyState: EmptyState? {
         guard isLibraryOpen, rowsLoaded, rows.isEmpty, let all = sidebar.counts[.allBooks] else { return nil }
+        // R10
+        if sidebarSelection == .onAudible, sidebar.counts[.onAudible] == 0 { return .noAudibleBooks }
         return all == 0 ? .emptyLibrary : .noMatches
     }
 
@@ -203,11 +210,14 @@ public enum EmptyState: Equatable, Sendable {
     case emptyLibrary
     /// The library has books, and none is in the chosen part of the sidebar or matches the search.
     case noMatches
+    /// On Audible is what the sidebar shows, and no book is marked as on Audible.
+    case noAudibleBooks
 
     public var title: String {
         switch self {
         case .emptyLibrary: "No books yet"
         case .noMatches: "No books match"
+        case .noAudibleBooks: "No Audible books yet"
         }
     }
 
@@ -215,17 +225,33 @@ public enum EmptyState: Equatable, Sendable {
         switch self {
         case .emptyLibrary: "Drag files or folders here, or choose Import."
         case .noMatches: "Try another search, or choose something else in the sidebar."
+        case .noAudibleBooks: "Choose Book ▸ Add Audible Book…"
         }
     }
 }
 
 extension PendingPrompt {
+    /// R6: what the button that removes the books and sends their files to the Trash
+    /// says; nil when that is not a choice: none of the books has a file, or this is
+    /// not the question about removing books.
+    public var removeTrashTitle: String? {
+        guard case .removeBooks(let ids, _, _, let withoutFiles) = self, withoutFiles < ids.count else { return nil }
+        return "Move Files to Trash"
+    }
+
+    /// R6: what the button that only takes the books out of the library says: the one
+    /// button there is when none of them has a file. Nil for any other question.
+    public var removeOnlyTitle: String? {
+        guard case .removeBooks(let ids, _, _, let withoutFiles) = self else { return nil }
+        return withoutFiles < ids.count ? "Remove from Library Only" : "Remove from Library"
+    }
+
     /// The question, as the dialog's heading.
     public var title: String {
         switch self {
         case .unsavedChanges:
             return "Do you want to save your changes?"
-        case .removeBooks(_, let titles, _):
+        case .removeBooks(_, let titles, _, _):
             guard titles.count == 1 else { return "Remove \(titles.count) books from the library?" }
             guard let title = titles[0].trimmedOrNil else { return "Remove this book from the library?" }
             return "Remove \"\(title)\" from the library?"
@@ -239,8 +265,19 @@ extension PendingPrompt {
         switch self {
         case .unsavedChanges:
             return "Your changes will be lost if you do not save them."
-        case .removeBooks(_, _, let outside):
-            let choice = "You can move the files to the Trash as well, or leave them where they are."
+        case .removeBooks(let ids, _, let outside, let withoutFiles):
+            // R6: nothing to choose when none of the books has a file.
+            guard withoutFiles < ids.count else {
+                return ids.count == 1
+                    ? "This book has no files on this Mac, so nothing goes to the Trash."
+                    : "These books have no files on this Mac, so nothing goes to the Trash."
+            }
+            var choice = "You can move the files to the Trash as well, or leave them where they are."
+            if withoutFiles > 0 {
+                choice += " \(withoutFiles) of the \(ids.count) books "
+                    + (withoutFiles == 1 ? "has no files on this Mac and is" : "have no files on this Mac and are")
+                    + " only removed from the library."
+            }
             guard !outside.isEmpty else { return choice }
             // A long list is cut short: the question has to fit on the screen.
             var lines = Array(outside.prefix(5))

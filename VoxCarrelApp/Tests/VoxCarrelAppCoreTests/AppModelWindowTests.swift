@@ -16,7 +16,10 @@ import VoxCarrelFixtures
         let h = try await Harness.demo()
         let names = SidebarItem.fixed.map { h.model.title(of: $0) }
         #expect(
-            names == ["All Books", "Audiobooks", "Ebooks", "Unread", "In Progress", "Finished", "Needs Attention"])
+            names == [
+                "All Books", "Audiobooks", "Ebooks", "On Audible", "Unread", "In Progress", "Finished",
+                "Needs Attention",
+            ])
         #expect(BrowseField.sidebarOrder.map(\.title) == ["Authors", "Series", "Narrators", "Genres"])
         #expect(Set(BrowseField.sidebarOrder) == Set(BrowseField.allCases))
     }

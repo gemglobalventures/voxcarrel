@@ -73,12 +73,49 @@ extension BookRow {
     }
 
     /// For the tooltip of the list's format symbols, which stand without words:
-    /// "Audiobook and ebook: M4B, EPUB". Empty when the book has no files.
+    /// "Audiobook and ebook: M4B, EPUB", with ". Also on Audible" for a book that is
+    /// there too. For a book with no files, where it is: "On Audible, not on this Mac".
+    /// Empty when there is nothing to say.
     public var formatsHelpText: String {
-        [formsText, formatsText.trimmedOrNil].compactMap { $0 }.joined(separator: ": ")
+        guard hasFiles else { return whereaboutsText ?? formsText ?? "" }
+        let files = [formsText, formatsText.trimmedOrNil].compactMap { $0 }.joined(separator: ": ")
+        return [files.trimmedOrNil, whereaboutsText].compactMap { $0 }.joined(separator: ". ")
     }
 
-    /// What there is to open; nil when the book has neither.
+    // MARK: Owned elsewhere
+
+    public var externalCopies: [ExternalCopy] {
+        book.externalCopies
+    }
+
+    public var isOnAudible: Bool {
+        book.isOwned(on: .audible)
+    }
+
+    /// The book's Audible copy as an audiobook: what Listen opens when there is no audio file.
+    var audibleAudioCopy: ExternalCopy? {
+        book.externalCopies.first { $0.kind == .audible && $0.form == .audio }
+    }
+
+    /// Whether the book has an audio file here.
+    var hasAudioFile: Bool {
+        formats.contains { $0.defaultRole == .audio }
+    }
+
+    /// Whether opening or listening to the book opens its page on the Audible website:
+    /// it is on Audible as an audiobook and has no audio file here.
+    public var opensOnAudible: Bool {
+        audibleAudioCopy != nil && !hasAudioFile
+    }
+
+    /// Where the book is, for a book that is on Audible: "On Audible, not on this Mac"
+    /// when it has no files, "Also on Audible" when it has. Nil for any other book.
+    public var whereaboutsText: String? {
+        guard isOnAudible else { return nil }
+        return hasFiles ? "Also on Audible" : "On Audible, not on this Mac"
+    }
+
+    /// What there is to open, here or on Audible; nil when the book has neither.
     public var formsText: String? {
         switch (hasAudio, hasEbook) {
         case (true, true): "Audiobook and ebook"
@@ -99,7 +136,9 @@ extension BookRow {
     /// For a grid cell's tooltip: the whole title, the authors, and what the badges mean.
     public var summaryText: String {
         var badges: [String] = []
-        if let formsText { badges.append(formsText) }
+        // A book with no files is said to be on Audible, which says it is an audiobook too.
+        if hasFiles || whereaboutsText == nil, let formsText { badges.append(formsText) }
+        if let whereaboutsText { badges.append(whereaboutsText) }
         if book.readStatus != .unread { badges.append(book.readStatus.title) }
         if let warningText { badges.append(warningText) }
         return [book.title, authorsText, badges.joined(separator: " · ")]

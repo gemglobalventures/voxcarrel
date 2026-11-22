@@ -18,6 +18,8 @@ extension AppModel {
     /// one book is not what is inspected.
     public var appOnlyMarkers: Set<MetadataField> {
         guard case .one(let detail, let draft) = inspecting else { return [] }
+        // R7: a book with no files has no file that "cannot hold" a field.
+        guard detail.row.hasFiles else { return [] }
         return draft.appOnlyMarkers(hasCover: detail.row.coverURL != nil)
     }
 
@@ -47,6 +49,8 @@ extension BookDetail {
     /// there is nothing to say.
     public var attentionReasons: [String] {
         var reasons: [String] = []
+        // R7: a book with no files is never filed, and has no file to miss.
+        guard row.hasFiles else { return [] }
         if row.book.needsAttention, row.firstAuthorText.isEmpty {
             reasons.append("Add an author to file this book")
         }

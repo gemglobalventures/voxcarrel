@@ -10,6 +10,7 @@ extension SidebarItem {
         case .allBooks: "books.vertical"
         case .audiobooks: "headphones"
         case .ebooks: "book"
+        case .onAudible: "cloud"
         case .unread: "circle"
         case .inProgress: "circle.lefthalf.filled"
         case .finished: "checkmark.circle"
@@ -50,6 +51,7 @@ extension EmptyState {
         switch self {
         case .emptyLibrary: "books.vertical"
         case .noMatches: "magnifyingglass"
+        case .noAudibleBooks: "cloud"
         }
     }
 
@@ -57,6 +59,7 @@ extension EmptyState {
         switch self {
         case .emptyLibrary: "books.empty.library"
         case .noMatches: "books.empty.noMatches"
+        case .noAudibleBooks: "books.empty.onAudible"
         }
     }
 }

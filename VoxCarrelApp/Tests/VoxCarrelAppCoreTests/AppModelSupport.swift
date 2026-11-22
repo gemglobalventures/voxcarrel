@@ -11,8 +11,11 @@ final class RecordingOpener: FileOpener, @unchecked Sendable {
     private let lock = NSLock()
     private var openedURLs: [URL] = []
     private var revealedURLs: [[URL]] = []
+    private var webURLs: [URL] = []
 
     var opened: [URL] { lock.withLock { openedURLs } }
+    /// The web addresses it was asked to open, in order.
+    var openedWeb: [URL] { lock.withLock { webURLs } }
     var revealed: [[URL]] { lock.withLock { revealedURLs } }
 
     func open(_ url: URL) {
@@ -21,6 +24,10 @@ final class RecordingOpener: FileOpener, @unchecked Sendable {
 
     func reveal(_ urls: [URL]) {
         lock.withLock { revealedURLs.append(urls) }
+    }
+
+    func openWeb(_ url: URL) {
+        lock.withLock { webURLs.append(url) }
     }
 }
 

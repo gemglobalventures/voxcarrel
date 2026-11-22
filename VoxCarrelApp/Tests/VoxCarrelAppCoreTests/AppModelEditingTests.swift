@@ -417,7 +417,7 @@ import VoxCarrelFixtures
         #expect(h.model.prompt == nil)
         let ids = try await h.select(["Salt Road", "Quiet Rivers"])
         h.model.requestRemoveSelection()
-        guard case .removeBooks(let asked, _, _) = try #require(h.model.prompt) else { return }
+        guard case .removeBooks(let asked, _, _, _) = try #require(h.model.prompt) else { return }
         #expect(Set(asked) == ids)
     }
 
@@ -831,7 +831,7 @@ import VoxCarrelFixtures
 
             h.model.requestRemove([id, try h.id("Salt Road")])
             let prompt = try #require(h.model.prompt)
-            guard case .removeBooks(_, _, let outside) = prompt else {
+            guard case .removeBooks(_, _, let outside, _) = prompt else {
                 Issue.record("not the remove question")
                 return
             }
@@ -861,7 +861,7 @@ import VoxCarrelFixtures
     @Test func theRemoveQuestionSaysNothingMoreForFilesInTheLibrary() async throws {
         let h = try await Harness.demo()
         h.model.requestRemove(try h.ids(["Salt Road", "Voices from the Attic"]))
-        guard case .removeBooks(_, _, let outside) = try #require(h.model.prompt) else { return }
+        guard case .removeBooks(_, _, let outside, _) = try #require(h.model.prompt) else { return }
         #expect(outside.isEmpty)
         #expect(h.model.prompt?.message == "You can move the files to the Trash as well, or leave them where they are.")
     }
