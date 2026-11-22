@@ -184,7 +184,10 @@ public final class LibraryService {
     /// The fields that live in the database only: those no file of the book holds.
     /// `.cover` is listed when the book has a stored cover and no file has one inside.
     /// In the order of `MetadataField.allCases`.
+    ///
+    /// A book with no files at all has none: there is no file that "cannot hold" a field.
     static func appOnlyFields(files: [WorkingFile], hasStoredCover: Bool) -> [MetadataField] {
+        guard !files.isEmpty else { return [] }
         let held = files.filter { $0.role != .extra }
         return MetadataField.allCases.filter { field in
             if field == .cover {

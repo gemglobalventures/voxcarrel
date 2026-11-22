@@ -72,6 +72,7 @@ extension LibraryService {
         } catch {
             return .failed(Self.reason(for: error))
         }
+        if rows.isEmpty { return prepareEditWithoutFiles(edit, book: book, into: &operation) }
 
         // E2: the facts about the files are not editable.
         var metadata = edit.metadata
@@ -174,5 +175,44 @@ extension LibraryService {
         return .saved(
             writeIndex: operation.writes.count - 1, refiled: !moves.isEmpty,
             problems: Self.fileProblems(files))
+    }
+
+    /// An edit to a book with no files (one owned elsewhere): only the database and the
+    /// stored cover change. There are no tags to write and nothing to file, so no file
+    /// problems and nothing "in the app only"; and the book is never flagged for lacking
+    /// what filing would need (a title, an author), since it is not filed. A flag it
+    /// already has is left alone.
+    private func prepareEditWithoutFiles(
+        _ edit: BookEdit, book: Book, into operation: inout PendingOperation
+    ) -> PreparedEdit {
+        // E2 holds here too: the length and page count are not editable. For a book
+        // with no audio file the length is the one it was added with.
+        var metadata = edit.metadata
+        metadata.durationSeconds = book.durationSeconds
+        metadata.pageCount = book.pageCount
+        if metadata == book.metadata, edit.cover == .keep, edit.tags == book.tags, edit.rating == book.rating {
+            return .unchanged([])
+        }
+
+        // E10
+        let storedCoverBefore: String?
+        do {
+            storedCoverBefore = try saveStoredCoverForUndo(bookId: edit.bookId, token: operation.token)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+
+        var updated = book
+        updated.metadata = metadata
+        updated.tags = edit.tags
+        updated.rating = edit.rating
+        updated.appOnlyFields = []
+        operation.add(
+            .init(book: updated, files: []),
+            snapshot: BookSnapshot(
+                bookId: edit.bookId, bookBefore: book, filesBefore: [], fileStates: [],
+                storedCoverBefore: storedCoverBefore),
+            storedCover: edit.cover, records: [])
+        return .saved(writeIndex: operation.writes.count - 1, refiled: false, problems: [])
     }
 }

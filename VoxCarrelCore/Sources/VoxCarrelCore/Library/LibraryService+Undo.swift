@@ -43,8 +43,8 @@ extension LibraryService {
     /// A copy the operation made is deleted only while the original still exists;
     /// otherwise it is moved to where the original was.
     ///
-    /// Only what the operation changed is restored: a book's read status and dates stay
-    /// as they are now, and a book with a file missing from disk stays (or becomes)
+    /// Only what the operation changed is restored: a book's read status and dates, and
+    /// its external copies (where else it is owned), stay as they are now, and a book with a file missing from disk stays (or becomes)
     /// flagged as needing attention.
     ///
     /// - Throws: `LibraryError.nothingToUndo` when there is nothing recorded, or what is
@@ -90,6 +90,13 @@ extension LibraryService {
                     before.readStatus = current.readStatus
                     before.dateStarted = current.dateStarted
                     before.dateFinished = current.dateFinished
+                    // Nor where else the book is owned: it keeps the copies it has now.
+                    // But a book that goes back to having no files must stay owned
+                    // somewhere, so if it has since lost every copy it gets back the
+                    // ones it had.
+                    if !(book.filesBefore.isEmpty && current.externalCopies.isEmpty) {
+                        before.externalCopies = current.externalCopies
+                    }
                 }
                 // A book with a file missing needs attention whatever it was before.
                 if book.filesBefore.contains(where: {

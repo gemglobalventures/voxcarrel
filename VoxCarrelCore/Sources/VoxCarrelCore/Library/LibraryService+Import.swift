@@ -223,6 +223,12 @@ extension LibraryService {
         var files: [WorkingFile]
         let storedCoverBefore: String?
         let hadStoredCover = covers.url(for: bookId) != nil
+        // A book that has no files yet (one owned elsewhere) is not filed anywhere: its
+        // first files are filed from its own details, as a new book's would be.
+        if let entry = try? store.book(id: bookId), entry.folderPath == nil, !entry.needsAttention,
+           (try? store.files(bookId: bookId))?.isEmpty == true {
+            return prepareFirstFiles(item, book: entry, bookId: bookId, options: options, into: &operation)
+        }
         do {
             // A1, A7
             guard let found = try store.book(id: bookId) else { throw LibraryError.bookNotFound(bookId) }
@@ -331,6 +337,95 @@ extension LibraryService {
             snapshot: BookSnapshot(  // A6
                 bookId: bookId, bookBefore: book, filesBefore: rows,
                 fileStates: files.compactMap(\.state), storedCoverBefore: storedCoverBefore),
+            storedCover: newCover.map { .set($0) } ?? .keep, records: records)
+        return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
+    }
+
+    // MARK: Into a book that has no files yet
+
+    /// The first files of a book that is in the library without any (one owned
+    /// elsewhere). The book is filed exactly as a new book with its details would be,
+    /// by the same planner: its folder is made, the files are named, and the **book's**
+    /// details are written into them, with its stored cover where a file can hold one.
+    /// The item's own metadata and cover are not used, as for any book already in the
+    /// library. The book keeps its external copies and its stored cover; when it has no
+    /// stored cover the files keep theirs and the first of them becomes the book's.
+    ///
+    /// All or nothing: if the book cannot be filed (no author, say) or a file cannot be
+    /// transferred, the item fails and nothing has moved. Undo takes the files back out
+    /// and leaves the book as the entry with no files it was.
+    private func prepareFirstFiles(
+        _ item: ImportItem, book: Book, bookId: Int64, options: ImportOptions,
+        into operation: inout PendingOperation
+    ) -> PreparedItem {
+        var files: [WorkingFile]
+        do {
+            files = try workingFiles(for: item.candidate)  // I3
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+
+        let sources = item.candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
+        guard let plan = filingPlan(for: sources, metadata: book.metadata) else {
+            let title = book.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = title.isEmpty ? "That book" : "\"\(title)\""
+            let hasAuthor = !(book.authors.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return .failed(
+                hasAuthor
+                    ? "\(name) cannot be filed under its title and author, so files cannot be added to it yet"
+                    : "\(name) has no author, so its files cannot be filed: give it an author first")
+        }
+
+        // What undo needs is saved before anything moves, so a failure here leaves the
+        // item untouched.
+        let stored = covers.image(for: bookId)
+        let cover: CoverChange = stored.map { .set($0) } ?? .keep
+        let coversBefore: [CoverBefore?]
+        let storedCoverBefore: String?
+        do {
+            coversBefore = try files.map { try coverBefore(of: $0, change: cover, token: operation.token) }
+            storedCoverBefore = try saveStoredCoverForUndo(bookId: bookId, token: operation.token)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+
+        // I4
+        let records: [MoveRecord]
+        do {
+            records = try organiser.transfer(plan.moves.map(\.move), mode: options.mode, pruneRoot: layout.root)
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+        for index in files.indices { files[index].url = plan.locations[index] }
+
+        // I5, I6, with the book's details.
+        let parts = Self.partPositions(for: files.map(\.role))
+        for index in files.indices {
+            writeTags(
+                book.metadata, cover: cover, part: parts[index], to: &files[index],
+                restorePart: parts[index], coverBefore: coversBefore[index])
+        }
+
+        var updated = book
+        updated.folderPath = store.storedPath(for: plan.folder)
+        // As A5: once there are audio files the length is theirs, when every one could
+        // be read. Until then (and for ebooks alone) it stays as the book was added.
+        let audio = files.filter { $0.role == .audio }
+        if !audio.isEmpty, audio.allSatisfy({ $0.before?.metadata.durationSeconds != nil }),
+           let duration = Self.totalDuration(files) {
+            updated.durationSeconds = duration
+        }
+        if updated.pageCount == nil {
+            updated.pageCount = files.first { $0.format == .pdf && $0.before != nil }?.before?.metadata.pageCount
+        }
+        let newCover = stored == nil ? Self.firstCover(in: files) : nil
+        updated.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: stored != nil || newCover != nil)
+
+        operation.add(
+            .init(book: updated, files: bookFiles(files)),
+            snapshot: BookSnapshot(
+                bookId: bookId, bookBefore: book, filesBefore: [], fileStates: files.compactMap(\.state),
+                storedCoverBefore: storedCoverBefore),
             storedCover: newCover.map { .set($0) } ?? .keep, records: records)
         return .imported(writeIndex: operation.writes.count - 1, problems: Self.fileProblems(files))
     }

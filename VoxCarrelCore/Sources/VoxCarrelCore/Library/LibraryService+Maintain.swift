@@ -137,6 +137,9 @@ extension LibraryService {
                 guard let found = try store.book(id: bookId) else { throw LibraryError.bookNotFound(bookId) }
                 book = found
                 rows = try store.files(bookId: bookId)
+                // A book with no files (owned elsewhere) has nothing to write and
+                // nothing in the app only: it is as it should be.
+                if rows.isEmpty { return .done(appOnlyFields: [], problems: []) }
                 files = workingFiles(for: rows)
                 storedCoverBefore = try saveStoredCoverForUndo(bookId: bookId, token: operation.token)
             } catch {
@@ -189,6 +192,8 @@ extension LibraryService {
     // MARK: Removing a book
 
     /// Removes a book from the library. Its files go to the Trash, or stay where they are.
+    /// A book with no files (owned elsewhere) is simply removed, with its stored cover:
+    /// there is nothing to send to the Trash, whatever `moveFilesToTrash` says.
     ///
     /// Not undoable through VoxCarrel: use the Finder's Put Back. If the last recorded
     /// operation involved this book, it can no longer be undone and is forgotten.
@@ -340,8 +345,12 @@ extension LibraryService {
     ///
     /// A flagged book counts as flagged only for missing files when it is filed and can
     /// still be filed; one that was never filed, or no longer can be, stays flagged.
+    ///
+    /// A book with no files (owned elsewhere) has none to miss and none to come back: it
+    /// is never reported missing, flagged or recovered, and a flag it has stays.
     /// - Parameter urls: Where each of the book's files is recorded to be.
     func fileCheck(of book: Book, files urls: [URL]) -> FileCheck {
+        guard !urls.isEmpty else { return .asItWas }
         let fm = FileManager.default
         if urls.contains(where: { !fm.fileExists(atPath: $0.path) }) {
             return .missing(newlyFlagged: !book.needsAttention)
