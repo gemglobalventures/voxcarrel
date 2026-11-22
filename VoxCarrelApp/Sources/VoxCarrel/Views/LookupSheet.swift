@@ -8,6 +8,10 @@ import VoxCarrelCore
 /// Everything shown is the model's `lookup`, and every change goes through the model,
 /// which alone closes the sheet. `shown` is the lookup the sheet was opened with: what it
 /// goes on showing while it closes.
+///
+/// Plan 6, V5: the same sheet adds an Audible book (`isAddMode`): it has a heading, the
+/// chosen result's details are only read (there is nothing to tick), and Add stands in
+/// place of Apply.
 struct LookupSheet: View {
     @Environment(AppModel.self) private var model
     let shown: LookupSession
@@ -17,6 +21,15 @@ struct LookupSheet: View {
         let isApplying = lookup.phase == .applying
 
         VStack(spacing: 0) {
+            if let heading = lookup.headingText {
+                Text(heading)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("lookup.heading")
+            }
             SearchBar(lookup: lookup)
                 .disabled(isApplying)
             Divider()
@@ -27,8 +40,14 @@ struct LookupSheet: View {
             HSplitView {
                 ResultsPane(lookup: lookup)
                     .frame(minWidth: 260, idealWidth: 340, maxWidth: 480, maxHeight: .infinity)
-                OffersPane(lookup: lookup)
-                    .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if lookup.isAddMode {
+                        DetailsPane(lookup: lookup)
+                    } else {
+                        OffersPane(lookup: lookup)
+                    }
+                }
+                .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
             }
             .disabled(isApplying)
             Divider()
@@ -140,7 +159,7 @@ private struct ResultsPane: View {
     var body: some View {
         switch lookup.phase {
         case .idle:
-            message("Press Search to look for this book.")
+            message(lookup.idleText)
                 .accessibilityIdentifier("lookup.idle")
         case .searching:
             VStack(spacing: 10) {
@@ -218,24 +237,23 @@ private struct ResultRow: View {
 /// V6: a result's cover, asked of the model when the row comes on screen; a quiet box
 /// until it has arrived, and for a result that has none.
 private struct ResultCover: View {
-    private static let width: CGFloat = 36
-    private static let height: CGFloat = 54
-
     @Environment(AppModel.self) private var model
     let candidate: LookupCandidate
+    var width: CGFloat = 36
+    var height: CGFloat = 54
     @State private var fetched: Data?
 
     var body: some View {
         Group {
             if let data = fetched ?? model.cachedLookupThumbnail(for: candidate) {
-                DataCover(data: data, maxSide: Self.height, cornerRadius: 2)
+                DataCover(data: data, maxSide: max(width, height), cornerRadius: 2)
                     .equatable()
             } else {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(.quaternary)
             }
         }
-        .frame(width: Self.width, height: Self.height)
+        .frame(width: width, height: height)
         .accessibilityHidden(true)
         .task(id: candidate.coverURL) {
             let data = await model.lookupThumbnail(for: candidate)
@@ -253,7 +271,7 @@ private struct OffersPane: View {
     var body: some View {
         if lookup.selected == nil {
             if !lookup.candidates.isEmpty {
-                message("Select a match to see what it offers.")
+                message(lookup.noSelectionText)
                     .accessibilityIdentifier("lookup.offers.none")
             } else {
                 Color.clear
@@ -326,9 +344,61 @@ private struct OfferRow: View {
     }
 }
 
+// MARK: - What is added
+
+/// Plan 6, V5: the selected result's cover and details, to read: this is the book that
+/// Add adds. Nothing here is ticked or changed.
+private struct DetailsPane: View {
+    private static let labelWidth: CGFloat = 84
+    private static let coverSide: CGFloat = 120
+
+    let lookup: LookupSession
+
+    var body: some View {
+        if let candidate = lookup.selected {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ResultCover(candidate: candidate, width: Self.coverSide, height: Self.coverSide)
+                        // Another result is another picture, fetched for itself.
+                        .id(candidate.id)
+                        .padding(.bottom, 4)
+                    ForEach(lookup.detailLines) { line in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(line.label)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(width: Self.labelWidth, alignment: .leading)
+                            Text(line.value)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("lookup.detail.\(line.label)")
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityIdentifier("lookup.details")
+        } else if !lookup.candidates.isEmpty {
+            Text(lookup.noSelectionText)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("lookup.details.none")
+        } else {
+            Color.clear
+        }
+    }
+}
+
 // MARK: - The bottom
 
-/// V4: where the results are from, what applying leaves to do, Cancel and Apply.
+/// V4: where the results are from, what applying leaves to do, Cancel and Apply. For a
+/// book that is being added (plan 6, V5): Cancel, Add Without a Match… and Add.
 private struct BottomBar: View {
     @Environment(AppModel.self) private var model
     let lookup: LookupSession
@@ -360,16 +430,36 @@ private struct BottomBar: View {
             }
             .keyboardShortcut(.cancelAction)
             .accessibilityIdentifier("lookup.cancel")
-            // Not the default button: Return belongs to the search boxes, and must never
-            // apply while a query is being typed. ⌘Return applies.
-            Button("Apply") {
-                Task { await model.applyLookup() }
+            if lookup.isAddMode {
+                // Offered once the catalogue has been tried.
+                if lookup.canAddByHand {
+                    Button("Add Without a Match…") {
+                        Task { await model.addAudibleBookByHand() }
+                    }
+                    .help("Add a book with the title and author typed above, and nothing from Audible")
+                    .accessibilityIdentifier("lookup.addByHand")
+                }
+                // Not the default button, as Apply is not: ⌘Return adds.
+                Button("Add") {
+                    Task { await model.addLookupSelection() }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!lookup.canAdd)
+                .help("Add the selected book to your library (⌘Return)")
+                .accessibilityIdentifier("lookup.add")
+            } else {
+                // Not the default button: Return belongs to the search boxes, and must never
+                // apply while a query is being typed. ⌘Return applies.
+                Button("Apply") {
+                    Task { await model.applyLookup() }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!lookup.canApply)
+                .help("Put the ticked values into the book (⌘Return)")
+                .accessibilityIdentifier("lookup.apply")
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!lookup.canApply)
-            .help("Put the ticked values into the book (⌘Return)")
-            .accessibilityIdentifier("lookup.apply")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

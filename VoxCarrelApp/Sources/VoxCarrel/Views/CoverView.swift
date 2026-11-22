@@ -9,6 +9,12 @@ struct CoverView: View {
     /// to this, so that a list of small covers does not hold large images.
     let maxSide: CGFloat
     var cornerRadius: CGFloat = 4
+    /// Plan 6, V2: in the grid and the list the cover of a book that has no files here
+    /// is drawn dimmed, so that it is told from the books that are on this Mac.
+    var dimsWithoutFiles = false
+
+    /// How much of a dimmed cover shows.
+    private static let dimmedOpacity = 0.6
 
     @Environment(\.displayScale) private var displayScale
     /// The outcome of the last read: the request it was for, and the image if there was one.
@@ -45,6 +51,7 @@ struct CoverView: View {
                 CoverPlaceholder(row: row, side: maxSide, cornerRadius: cornerRadius)
             }
         }
+        .opacity(dimsWithoutFiles && !row.hasFiles ? Self.dimmedOpacity : 1)
         .task(id: request) {
             guard let request else { return }
             let image = await CoverThumbnails.shared.image(for: request)

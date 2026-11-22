@@ -628,6 +628,57 @@ import VoxCarrelFixtures
         #expect(try h.store().books().count == 13)
     }
 
+    /// V5: while a book is being added the add sheet shows its own progress, and stays
+    /// up: the window's progress sheet is not wanted in its place. Any other operation
+    /// is the progress sheet's to show.
+    @Test func V5_theAddSheetShowsItsOwnProgressWhileAdding() async throws {
+        let h = try await searched([glassTide()])
+        #expect(h.model.progressSheetLabel == nil)
+        let gate = Gate()
+        let png = png
+        h.lookup.cover { _ in
+            await gate.wait()
+            return (png, 200)
+        }
+        let adding = Task { await h.model.addLookupSelection() }
+        await gate.arrival()
+        #expect(h.model.addAudibleLookup?.phase == .applying)
+        #expect(h.model.busyLabel == "Adding book…")
+        #expect(h.model.progressSheetLabel == nil)
+        await gate.release()
+        await adding.value
+        #expect(h.model.progressSheetLabel == nil)
+
+        let other = Gate()
+        let salt = try h.id("Salt Road")
+        h.model.beforeOperation = { await other.wait() }
+        let marking = Task { await h.model.setOnAudible(true, for: [salt]) }
+        await other.arrival()
+        #expect(h.model.progressSheetLabel == "Updating…")
+        #expect(h.model.progressSheetLabel == h.model.busyLabel)
+        await other.release()
+        await marking.value
+        h.model.beforeOperation = nil
+        #expect(h.model.progressSheetLabel == nil)
+    }
+
+    /// V5: an add sheet that is only open, or searching, does not hide another operation's progress.
+    @Test func V5_anOpenAddSheetDoesNotHideProgress() async throws {
+        let h = try await Harness.demo()
+        let salt = try h.id("Salt Road")
+        h.model.beginAddAudibleBook()
+        #expect(h.model.addAudibleLookup?.phase == .idle)
+        let gate = Gate()
+        h.model.beforeOperation = { await gate.wait() }
+        let marking = Task { await h.model.setOnAudible(true, for: [salt]) }
+        await gate.arrival()
+        #expect(h.model.addAudibleLookup != nil)
+        #expect(h.model.progressSheetLabel == "Updating…")
+        await gate.release()
+        await marking.value
+        h.model.beforeOperation = nil
+    }
+
     /// N7: closing the sheet while the cover is on its way adds nothing.
     @Test func N7_closingWhileAddingAddsNothing() async throws {
         let h = try await searched([glassTide()])

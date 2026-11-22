@@ -352,7 +352,7 @@ import VoxCarrelFixtures
     /// K8: a big library put in the opposite order is a very different list.
     @Test func aBigListTurnedRoundIsMadeAgain() async throws {
         let root = try makeTempDir()
-        try DemoContent.makeLibrary(at: root, count: 60)
+        try DemoContent.makeLibrary(at: root, count: 60, audible: false)
         let h = try Harness(root: root)
         await h.model.start()
         #expect(h.model.rows.count == 60)

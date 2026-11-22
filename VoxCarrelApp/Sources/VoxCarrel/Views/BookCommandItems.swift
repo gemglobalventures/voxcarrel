@@ -16,11 +16,21 @@ struct BookCommandItems: View {
         let books = ids ?? model.selection
         let applies = model.commands(for: books)
 
+        if ids == nil {
+            // Plan 6, V4: adds a book, so it is the Book menu's alone.
+            Button("Add Audible Book…") { model.beginAddAudibleBook() }
+                .keyboardShortcut(shortcut("a", [.command, .shift]))
+                .disabled(!model.canAddAudibleBook)
+                .accessibilityIdentifier("\(prefix).addAudible")
+
+            Divider()
+        }
+
         Button("Open") { model.openOne(of: books) }
             .keyboardShortcut(shortcut("o", .command))
             .disabled(!applies.open)
             .accessibilityIdentifier("\(prefix).open")
-        Button("Listen") { model.listenOne(of: books) }
+        Button(model.listenTitle(for: books)) { model.listenOne(of: books) }
             .disabled(!applies.listen)
             .accessibilityIdentifier("\(prefix).listen")
         Button("Read") { model.readOne(of: books) }
@@ -50,6 +60,13 @@ struct BookCommandItems: View {
         }
         .disabled(!applies.mark)
         .accessibilityIdentifier("\(prefix).markAs")
+
+        // Plan 6, V4: "Mark as on Audible", or "Unmark as on Audible" when they all are.
+        Button(model.markOnAudibleTitle(for: books)) {
+            Task { await model.toggleOnAudible(for: books) }
+        }
+        .disabled(!model.canMarkOnAudible(for: books))
+        .accessibilityIdentifier("\(prefix).markOnAudible")
 
         Menu("Add to Collection") {
             ForEach(model.sidebar.collections) { collection in

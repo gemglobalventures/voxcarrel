@@ -79,7 +79,7 @@ import VoxCarrelFixtures
         await h.model.start()
         #expect(h.model.status == .unavailable(root))
 
-        try DemoContent.makeLibrary(at: root)
+        try DemoContent.makeLibrary(at: root, audible: false)
         await h.model.retryLibrary()
         #expect(h.model.status == .available(root))
         #expect(h.model.rows.count == 12)
@@ -150,7 +150,7 @@ import VoxCarrelFixtures
         let h = try Harness(root: try makeTempDir(), choose: false)
         await h.model.start()
         let library = try makeTempDir()
-        try DemoContent.makeLibrary(at: library)
+        try DemoContent.makeLibrary(at: library, audible: false)
 
         await h.model.chooseLibrary(library)
         #expect(h.model.prompt == nil)
@@ -236,7 +236,7 @@ import VoxCarrelFixtures
         #expect(h.draft != nil)
 
         let other = try makeTempDir()
-        try DemoContent.makeLibrary(at: other)
+        try DemoContent.makeLibrary(at: other, audible: false)
         await h.model.chooseLibrary(other)
         #expect(h.model.selection.isEmpty)
         #expect(h.model.searchText == "")

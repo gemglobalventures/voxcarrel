@@ -112,7 +112,16 @@ private struct BookInspector: View {
             }
 
             InspectorSection("Files") {
-                FileListView(detail: detail)
+                if let none = detail.noFilesText {
+                    // Plan 6, V3: a book that is owned on Audible and has no files here.
+                    Text(none)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("inspector.noFiles")
+                } else {
+                    FileListView(detail: detail)
+                }
             }
         }
     }
@@ -325,7 +334,8 @@ private struct RatingControl: View {
     }
 }
 
-/// I1: read status, its dates, Listen and Read, and the audiobook's length.
+/// I1: read status, its dates, Listen and Read, and the audiobook's length; where the
+/// book is owned other than as files, and the switch that says it is on Audible (plan 6, V3).
 private struct ReadingControls: View {
     @Environment(AppModel.self) private var model
     let detail: BookDetail
@@ -363,9 +373,9 @@ private struct ReadingControls: View {
                     Button {
                         model.listen(id)
                     } label: {
-                        Label("Listen", systemImage: "headphones")
+                        Label(detail.row.listenTitle, systemImage: detail.row.listenSymbol)
                     }
-                    .help("Open the audiobook")
+                    .help(detail.row.listenHelpText)
                     .accessibilityIdentifier("inspector.listen")
                 }
                 if detail.row.hasEbook {
@@ -386,6 +396,29 @@ private struct ReadingControls: View {
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("inspector.audioSummary")
         }
+
+        if let ownership = model.inspectorOwnershipText {
+            Label(ownership, systemImage: SidebarItem.onAudible.symbol)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("inspector.ownership")
+        }
+
+        // Applied at once, like the read status: it is not part of what Save saves.
+        Toggle(
+            "On Audible",
+            isOn: Binding(
+                get: { model.inspectorIsOnAudible },
+                set: { on in
+                    Task { await model.setOnAudible(on, for: [id]) }
+                })
+        )
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .disabled(!model.canMarkOnAudible(for: [id]))
+        .help("You own this book on Audible. Changes nothing in the book’s files.")
+        .accessibilityIdentifier("inspector.onAudible")
     }
 }
 

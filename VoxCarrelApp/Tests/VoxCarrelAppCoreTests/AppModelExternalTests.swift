@@ -154,6 +154,38 @@ private let glassASIN = "B0GLASSTID"
         #expect(detail.audioSummaryText == "10h 0m")
     }
 
+    /// V3, V4: what the Listen button and menu item say: for a book that is listened to
+    /// on Audible, that it opens there.
+    @Test func V3_listenSaysWhereItOpens() async throws {
+        let (h, glass) = try await demoWithGlassTide()
+        let salt = try mark(h, "Salt Road", itemId: "B0SALTROAD")
+        await h.model.retryLibrary()
+
+        let onlyThere = try row(h, glass)
+        #expect(onlyThere.listenTitle == "Open on Audible")
+        #expect(onlyThere.listenHelpText == "Open this book’s page on the Audible website")
+        let both = try row(h, salt)
+        #expect(both.listenTitle == "Listen")
+        #expect(both.listenHelpText == "Open the audiobook")
+
+        #expect(h.model.listenTitle(for: [glass]) == "Open on Audible")
+        #expect(h.model.listenTitle(for: [salt]) == "Listen")
+        // Several books are not opened at once, and a book that is not shown is not known.
+        #expect(h.model.listenTitle(for: [glass, salt]) == "Listen")
+        #expect(h.model.listenTitle(for: []) == "Listen")
+        #expect(h.model.listenTitle(for: [-5]) == "Listen")
+    }
+
+    /// V3: what the inspector's Files section says of a book that has none.
+    @Test func V3_theFilesSectionOfABookWithNoFiles() async throws {
+        let (h, glass) = try await demoWithGlassTide()
+        h.model.click(glass, modifiers: [])
+        await h.model.settle()
+        #expect(h.detail?.noFilesText == "This book has no files on this Mac.")
+        try await h.select("Salt Road")
+        #expect(try #require(h.detail).noFilesText == nil)
+    }
+
     // MARK: R4 Opening
 
     /// R4

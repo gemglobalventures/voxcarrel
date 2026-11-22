@@ -154,7 +154,11 @@ private struct BookGridCell: View {
             Color.clear
                 .aspectRatio(CoverPlaceholder.aspectRatio, contentMode: .fit)
                 .overlay(alignment: .bottom) {
-                    CoverView(row: row, maxSide: GridMetrics.coverSide)
+                    CoverView(row: row, maxSide: GridMetrics.coverSide, dimsWithoutFiles: true)
+                }
+                // Plan 6, V2: only for a book that is on Audible and has no files here.
+                .overlay(alignment: .bottomTrailing) {
+                    AudibleCoverLabel(row: row)
                 }
             Text(row.book.title)
                 .font(.callout.weight(.medium))

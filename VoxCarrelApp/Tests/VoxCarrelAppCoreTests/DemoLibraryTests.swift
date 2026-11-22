@@ -126,11 +126,13 @@ import VoxCarrelFixtures
 
         // Every file is where the database says, and holds its book's title and authors.
         let books = try service.store.books()
-        #expect(books.count == 12)
+        #expect(books.count == 14)
         for book in books {
             let id = try #require(book.id)
             let files = try service.store.files(bookId: id)
-            #expect(!files.isEmpty)
+            // V8: only the two books that are on Audible alone have no files, and no folder.
+            #expect(files.isEmpty == Self.onAudibleOnly.contains(book.title), "\(book.title)")
+            if files.isEmpty { #expect(book.folderPath == nil) }
             for file in files {
                 let url = service.store.url(for: file)
                 #expect(exists(url), "\(url.path)")
@@ -155,9 +157,83 @@ import VoxCarrelFixtures
         #expect(flagged.first?.authors == [])
         #expect(flagged.first?.folderPath == nil)
 
-        let filed = try store.books(needsAttention: false)
+        // V8: a book with no files is never flagged, and never filed.
+        let unflagged = try store.books(needsAttention: false)
+        #expect(unflagged.count == 13)
+        let filed = unflagged.filter { $0.folderPath != nil }
         #expect(filed.count == 11)
-        #expect(filed.allSatisfy { $0.folderPath != nil })
+        #expect(Set(unflagged.filter { $0.folderPath == nil }.map(\.title)) == Self.onAudibleOnly)
+    }
+
+    // MARK: Books on Audible (plan 6, V8)
+
+    private static let onAudibleOnly: Set<String> = ["The Glass Tide", "Letters from the Ice Shelf"]
+
+    /// V8: two books are on Audible with no files here, one of them the fourth of the
+    /// series whose first three are files; one book with files is also on Audible.
+    @Test func V8_threeBooksAreOnAudibleAndTwoOfThemHaveNoFiles() throws {
+        let folder = try makeTempDir().appendingPathComponent("Library")
+        try DemoContent.makeLibrary(at: folder)
+        let service = LibraryService(store: try LibraryStore(libraryRoot: folder))
+        let store = service.store
+        let books = try store.books()
+
+        let onAudible = books.filter { $0.isOwned(on: .audible) }
+        #expect(
+            Set(onAudible.map(\.title)) == Self.onAudibleOnly.union(["The Lighthouse Keeper"]))
+        for book in onAudible {
+            #expect(book.externalCopies.count == 1)
+            let copy = try #require(book.externalCopies.first)
+            #expect(copy.kind == .audible)
+            #expect(copy.form == .audio)
+            #expect(copy.store == "uk")
+            // A made-up ASIN of the usual form, and the book's own.
+            let asin = try #require(copy.itemId)
+            #expect(asin.count == 10)
+            #expect(asin.hasPrefix("B0"))
+            #expect(book.asin == asin)
+            let id = try #require(book.id)
+            let files = try store.files(bookId: id)
+            #expect(files.isEmpty == Self.onAudibleOnly.contains(book.title))
+        }
+        #expect(Set(onAudible.compactMap { $0.externalCopies.first?.itemId }).count == 3)
+
+        // The series is whole: three books here and the fourth on Audible.
+        let series = books.filter { $0.series == "Tidewater Chronicles" }
+            .sorted { ($0.seriesNumber ?? "") < ($1.seriesNumber ?? "") }
+        #expect(series.map(\.title) == ["Salt Road", "The Drowned Bell", "Harbour of Glass", "The Glass Tide"])
+        #expect(series.map(\.seriesNumber) == ["1", "2", "3", "4"])
+        #expect(Set(series.flatMap(\.authors)) == ["Ines Calloway"])
+
+        // What the list shows of a book with no files: who reads it and how long it is.
+        for title in Self.onAudibleOnly {
+            let book = try #require(books.first { $0.title == title })
+            #expect(!book.narrators.isEmpty)
+            #expect((book.durationSeconds ?? 0) > 3600)
+            #expect(book.readStatus == .unread)
+        }
+
+        // Marking a book wrote nothing into its file.
+        let lighthouse = try #require(books.first { $0.title == "The Lighthouse Keeper" })
+        let lighthouseId = try #require(lighthouse.id)
+        let file = try #require(try store.files(bookId: lighthouseId).first)
+        let inFile = try FileMetadataIO().readMetadata(at: store.url(for: file))
+        #expect(inFile.asin == nil)
+
+        // Nothing here is what Undo would reverse.
+        #expect(try service.undoLabel() == "Edit 7 books")
+    }
+
+    /// V8: without the Audible books the library is the twelve that have files.
+    @Test func V8_theLibraryCanBeMadeWithoutAudibleBooks() throws {
+        let folder = try makeTempDir().appendingPathComponent("Library")
+        try DemoContent.makeLibrary(at: folder, audible: false)
+        let service = LibraryService(store: try LibraryStore(libraryRoot: folder))
+        let books = try service.store.books()
+        #expect(books.count == 12)
+        #expect(books.allSatisfy { $0.externalCopies.isEmpty && $0.asin == nil })
+        #expect(try service.store.books(having: .audio).count == 9)
+        #expect(try service.reconcile() == ReconcileReport())
     }
 
     @Test func libraryHasStatusesTagsRatingsAndTwoCollections() throws {
@@ -180,7 +256,8 @@ import VoxCarrelFixtures
         }
 
         // Audiobooks and ebooks lists both have something to show.
-        #expect(try store.books(having: .audio).count == 9)
+        // The Audiobooks list has the two that are on Audible alone as well.
+        #expect(try store.books(having: .audio).count == 11)
         #expect(try store.books(having: .ebook).count == 4)
     }
 
@@ -242,7 +319,8 @@ import VoxCarrelFixtures
             // Hues within 20 degrees of each other count as one colour.
             hues.insert(Int(try backgroundHue(cover.data) / 20))
         }
-        #expect(square == 2)
+        // Two of the books with files, and one of the two on Audible, as Audible's covers are.
+        #expect(square == 3)
         #expect(hues.count >= 9)
     }
 
@@ -262,12 +340,13 @@ import VoxCarrelFixtures
         // Still only the one sample book with no author is flagged.
         #expect(try store.books(needsAttention: true).map(\.title) == ["Voices from the Attic"])
 
-        // Every book has files that are there, so that its badges show and it can be opened.
+        // Every book but the two on Audible alone has files that are there, so that its
+        // badges show and it can be opened.
         var withCover = 0
         for book in books {
             let id = try #require(book.id)
             let files = try store.files(bookId: id)
-            #expect(!files.isEmpty, "\(book.title)")
+            #expect(files.isEmpty == Self.onAudibleOnly.contains(book.title), "\(book.title)")
             for file in files { #expect(exists(store.url(for: file)), "\(file.path)") }
             if service.covers.url(for: id) != nil { withCover += 1 }
         }
@@ -285,14 +364,18 @@ import VoxCarrelFixtures
         #expect(try store.books(having: .ebook).count > 40)
         #expect(try store.allFiles().contains { $0.writeProblem != nil })
 
+        // The numbered copies are of files alone: only the three sample books are on Audible.
+        #expect(books.filter { $0.isOwned(on: .audible) }.count == 3)
+        #expect(books.filter { $0.asin != nil }.count == 3)
+
         // What Undo would reverse is as in the small library.
         #expect(try service.undoLabel() == "Edit 7 books")
     }
 
     /// G8: a count no larger than the sample books adds none.
-    @Test func aCountBelowTheSampleBooksLeavesTheTwelve() throws {
+    @Test func aCountBelowTheSampleBooksLeavesTheFourteen() throws {
         let folder = try makeTempDir().appendingPathComponent("Library")
         try DemoContent.makeLibrary(at: folder, count: 5)
-        #expect(try LibraryStore(libraryRoot: folder).books().count == 12)
+        #expect(try LibraryStore(libraryRoot: folder).books().count == 14)
     }
 }

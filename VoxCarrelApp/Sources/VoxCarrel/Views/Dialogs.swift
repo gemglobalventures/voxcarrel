@@ -4,7 +4,7 @@ import VoxCarrelAppCore
 /// V5: the sheets, alerts and questions the model asks the window to show.
 ///
 /// One sheet at a time, in this order: progress, the import review, a result, the
-/// launch check, and a lookup for the inspected book. Which is up is
+/// launch check, and a lookup: for the inspected book, or to add an Audible book. Which is up is
 /// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
 /// is up has closed, so each has a sheet window of its own, at its own size.
 ///
@@ -12,6 +12,9 @@ import VoxCarrelAppCore
 /// arrives while it is open (files opened from the Finder, say) that one is shown, and
 /// the lookup comes back as it was when it has been dealt with. A lookup for an entry of
 /// an import is not the window's sheet: it is shown over the import sheet (`ImportLookup`).
+///
+/// The progress sheet's words are the model's `progressSheetLabel`, which is nil while an
+/// Audible book is being added: the add sheet shows that itself, and stays up meanwhile.
 struct Dialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     /// Set a moment after an operation starts, so a short one shows no sheet at all.
@@ -38,18 +41,19 @@ struct Dialogs: ViewModifier {
 
     /// The sheet the model wants shown now.
     private var wanted: ActiveSheet? {
-        if progressDue, let label = model.busyLabel { return .progress(label) }
+        if progressDue, let label = model.progressSheetLabel { return .progress(label) }
         if let review = model.review { return .review(review) }
         if let result = model.result { return .result(result) }
         if let check = model.libraryCheckSummary { return .check(check) }
         if let lookup = model.inspectorLookup { return .lookup(lookup) }
+        if let lookup = model.addAudibleLookup { return .lookup(lookup) }
         return nil
     }
 
     func body(content: Content) -> some View {
         content
-            .task(id: model.busyLabel != nil) {
-                guard model.busyLabel != nil else {
+            .task(id: model.progressSheetLabel != nil) {
+                guard model.progressSheetLabel != nil else {
                     progressDue = false
                     return
                 }
@@ -162,14 +166,20 @@ private struct Questions: ViewModifier {
             .confirmationDialog(
                 model.prompt?.title ?? "", isPresented: isAsking(removeBooks), titleVisibility: .visible
             ) {
-                Button("Move Files to Trash", role: .destructive) {
-                    Task { await model.confirmRemove(moveFilesToTrash: true) }
+                // Plan 6, V6: books that have no files have nothing to send to the Trash:
+                // the model then names one button only.
+                if let title = model.prompt?.removeTrashTitle {
+                    Button(title, role: .destructive) {
+                        Task { await model.confirmRemove(moveFilesToTrash: true) }
+                    }
+                    .accessibilityIdentifier("prompt.remove.trash")
                 }
-                .accessibilityIdentifier("prompt.remove.trash")
-                Button("Remove from Library Only") {
-                    Task { await model.confirmRemove(moveFilesToTrash: false) }
+                if let title = model.prompt?.removeOnlyTitle {
+                    Button(title) {
+                        Task { await model.confirmRemove(moveFilesToTrash: false) }
+                    }
+                    .accessibilityIdentifier("prompt.remove.libraryOnly")
                 }
-                .accessibilityIdentifier("prompt.remove.libraryOnly")
                 // Return is Cancel: sending files to the Trash takes a deliberate click.
                 Button("Cancel", role: .cancel) {
                     model.prompt = nil

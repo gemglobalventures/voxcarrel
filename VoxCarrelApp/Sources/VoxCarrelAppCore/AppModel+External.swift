@@ -95,7 +95,33 @@ extension AppModel {
     }
 }
 
+extension AppModel {
+    // MARK: Plan 6, V3–V5 What the screens say
+
+    /// V4: what the Listen menu item says for these books: "Open on Audible" when there
+    /// is one book and listening to it opens its page on the Audible website, "Listen"
+    /// otherwise.
+    public func listenTitle(for ids: Set<Int64>) -> String {
+        let one = ids.count == 1 ? rows.first { ids.contains($0.id) } : nil
+        return (one?.opensOnAudible ?? false) ? "Open on Audible" : "Listen"
+    }
+
+    /// V5: what the window's progress sheet says: what is being done, or nil when
+    /// nothing is. Nil, too, while an Audible book is being added: the add sheet shows
+    /// that itself and stays up until the book is in the library, so the progress sheet
+    /// must not take its place.
+    public var progressSheetLabel: String? {
+        addAudibleLookup?.phase == .applying ? nil : busyLabel
+    }
+}
+
 extension BookDetail {
+    /// Plan 6, V3: what the inspector's Files section says of a book that has no files;
+    /// nil for a book that has some.
+    public var noFilesText: String? {
+        row.hasFiles ? nil : "This book has no files on this Mac."
+    }
+
     /// R7: "On Audible (United Kingdom)", with " · not on this Mac" for a book that has
     /// no files. The store is the one the book's Audible copy names; when it names none
     /// (or one this version does not know) no country is given. Nil for a book that is

@@ -108,6 +108,17 @@ extension BookRow {
         audibleAudioCopy != nil && !hasAudioFile
     }
 
+    /// Plan 6, V3: what the button that opens the audiobook says: "Open on Audible"
+    /// when that opens its page on the Audible website, "Listen" otherwise.
+    public var listenTitle: String {
+        opensOnAudible ? "Open on Audible" : "Listen"
+    }
+
+    /// The same button's tooltip.
+    public var listenHelpText: String {
+        opensOnAudible ? "Open this book’s page on the Audible website" : "Open the audiobook"
+    }
+
     /// Where the book is, for a book that is on Audible: "On Audible, not on this Mac"
     /// when it has no files, "Also on Audible" when it has. Nil for any other book.
     public var whereaboutsText: String? {

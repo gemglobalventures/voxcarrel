@@ -18,9 +18,26 @@ extension LookupSession {
         current.isbn?.trimmedOrNil != nil
     }
 
-    /// V2: the same for the Audible ID (the ASIN).
+    /// V2: the same for the Audible ID (the ASIN). When an Audible book is being added
+    /// the box is always there: the book's ASIN can be pasted into it.
     public var showsAudibleIDBox: Bool {
-        current.asin?.trimmedOrNil != nil
+        isAddMode || current.asin?.trimmedOrNil != nil
+    }
+
+    /// Plan 6, V5: what the sheet is headed when it is for adding an Audible book; nil
+    /// for a lookup, which has no heading.
+    public var headingText: String? {
+        isAddMode ? "Add Audible Book" : nil
+    }
+
+    /// What stands in place of the results before anything has been searched for.
+    public var idleText: String {
+        isAddMode ? "Search the Audible catalogue for the book you own." : "Press Search to look for this book."
+    }
+
+    /// What stands beside the results while none of them is selected.
+    public var noSelectionText: String {
+        isAddMode ? "Select a match to see its details." : "Select a match to see what it offers."
     }
 
     /// V4: what is still to be done once values have been applied; for a book that is

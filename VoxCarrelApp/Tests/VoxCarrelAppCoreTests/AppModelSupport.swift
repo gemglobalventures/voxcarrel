@@ -92,7 +92,7 @@ final class Harness {
     /// tests do it at the same moment; each test works on a copy of its own.
     private static let template = Result { () throws -> URL in
         let folder = try makeTempDir()
-        try DemoContent.makeLibrary(at: folder)
+        try DemoContent.makeLibrary(at: folder, audible: false)
         return folder
     }
 
@@ -104,7 +104,7 @@ final class Harness {
     static func demo(start: Bool = true, fresh: Bool = false) async throws -> Harness {
         let root = try makeTempDir()
         if fresh {
-            try DemoContent.makeLibrary(at: root)
+            try DemoContent.makeLibrary(at: root, audible: false)
         } else {
             try FileManager.default.removeItem(at: root)
             try FileManager.default.copyItem(at: try template.get(), to: root)

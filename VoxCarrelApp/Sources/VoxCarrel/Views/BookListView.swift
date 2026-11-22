@@ -87,7 +87,7 @@ private struct TitleCell: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CoverView(row: row, maxSide: 30, cornerRadius: 2)
+            CoverView(row: row, maxSide: 30, cornerRadius: 2, dimsWithoutFiles: true)
                 .frame(width: 20, height: 30)
             Text(row.book.title)
                 .lineLimit(1)

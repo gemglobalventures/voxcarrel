@@ -109,6 +109,32 @@ import VoxCarrelFixtures
         #expect(session.showsAudibleIDBox)
     }
 
+    /// Plan 6, V5: adding an Audible book starts from nothing, so the book has no number;
+    /// the Audible ID box is there all the same, for an ASIN to be pasted into. No ISBN
+    /// box: an Audible book is not looked for by ISBN.
+    @Test func V5_addingAnAudibleBookHasAnAudibleIDBox() {
+        let adding = session(BookMetadata(), target: .newAudibleBook)
+        #expect(adding.showsAudibleIDBox)
+        #expect(!adding.showsISBNBox)
+        #expect(!session(BookMetadata(title: "Salt Road"), target: .importEntry(UUID())).showsAudibleIDBox)
+    }
+
+    /// Plan 6, V5: what the sheet says of itself when it is for adding an Audible book.
+    @Test func V5_theWordsOfTheSheetWhenAdding() {
+        let adding = session(BookMetadata(), target: .newAudibleBook)
+        #expect(adding.headingText == "Add Audible Book")
+        #expect(adding.idleText == "Search the Audible catalogue for the book you own.")
+        #expect(adding.noSelectionText == "Select a match to see its details.")
+        #expect(adding.reminderText == "The book is added to your library without files.")
+
+        for target in [LookupSession.Target.book(7), .importEntry(UUID())] {
+            let looking = session(BookMetadata(title: "Salt Road"), target: target)
+            #expect(looking.headingText == nil)
+            #expect(looking.idleText == "Press Search to look for this book.")
+            #expect(looking.noSelectionText == "Select a match to see what it offers.")
+        }
+    }
+
     /// V2: an emptied number box is no number, not an empty one.
     @Test func V2_anEmptiedNumberBoxIsNoNumber() {
         var query = LookupQuery(title: "Salt Road", isbn: "9780000000002", asin: "B0SALTROAD")

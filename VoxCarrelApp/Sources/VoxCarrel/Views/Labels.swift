@@ -64,6 +64,14 @@ extension EmptyState {
     }
 }
 
+extension BookRow {
+    /// For the button that opens the audiobook: headphones, or an arrow out of the app
+    /// when it opens the book's page on the Audible website.
+    var listenSymbol: String {
+        opensOnAudible ? "arrow.up.right.square" : "headphones"
+    }
+}
+
 extension FileRole {
     var symbol: String {
         switch self {

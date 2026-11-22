@@ -21,7 +21,7 @@ import VoxCarrelFixtures
 
     private func demoLibrary() throws -> Fixture {
         let root = try makeTempDir()
-        try DemoContent.makeLibrary(at: root)
+        try DemoContent.makeLibrary(at: root, audible: false)
         return Fixture(worker: try LibraryWorker(libraryRoot: root), store: try LibraryStore(libraryRoot: root))
     }
 

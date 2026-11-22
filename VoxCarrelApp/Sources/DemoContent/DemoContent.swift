@@ -138,13 +138,17 @@ public enum DemoContent {
     // MARK: Library
 
     /// A library with the inbox's books already imported, plus read statuses,
-    /// tags, ratings and two collections.
+    /// tags, ratings and two collections; and two books that are owned on Audible and
+    /// have no files here, with one of the imported audiobooks marked as also on Audible.
     ///
-    /// - Parameter count: How many books the library is to have. Above the twelve
-    ///   sample books, the rest are copies of them under numbered titles, with other
-    ///   authors, series, lengths and read statuses: enough to try the app on a large
-    ///   library. No audio is encoded for them, so thousands are made in seconds.
-    public static func makeLibrary(at folder: URL, count: Int = 0) throws {
+    /// - Parameters:
+    ///   - count: How many books the library is to have. Above the fourteen sample
+    ///     books, the rest are copies of the ones with files under numbered titles, with
+    ///     other authors, series, lengths and read statuses: enough to try the app on a
+    ///     large library. No audio is encoded for them, so thousands are made in seconds.
+    ///   - audible: False leaves out everything to do with Audible: the twelve sample
+    ///     books that have files, none of them marked.
+    public static func makeLibrary(at folder: URL, count: Int = 0, audible: Bool = true) throws {
         try prepareEmptyFolder(folder)
         let fm = FileManager.default
 
@@ -236,7 +240,60 @@ public enum DemoContent {
             }
         }
 
+        if audible { try addAudibleBooks(to: service, alsoOnAudible: try book(alsoOnAudibleTitle)) }
+
         try addNumberedBooks(to: service, upTo: count)
+    }
+
+    // MARK: Books on Audible
+
+    /// The Audible store the demo books are owned in.
+    static let audibleStore = AudibleStore.uk.rawValue
+    /// The imported audiobook that is marked as also owned on Audible.
+    static let alsoOnAudibleTitle = "The Lighthouse Keeper"
+
+    /// Two books that are owned on Audible and have no files here: the fourth book of the
+    /// series whose first three are files, and one that stands alone. One book that has
+    /// files is marked as also on Audible. The ASINs are made up; nothing is asked of Audible.
+    private static func addAudibleBooks(to service: LibraryService, alsoOnAudible local: Book) throws {
+        var cover = CoverMaker(startingAt: try service.store.books().count)
+
+        var glassTide = BookMetadata(title: "The Glass Tide", authors: ["Ines Calloway"])
+        glassTide.narrators = ["Marcus Lindqvist"]
+        glassTide.series = "Tidewater Chronicles"
+        glassTide.seriesNumber = "4"
+        glassTide.genre = "Fantasy"
+        glassTide.year = 2018
+        glassTide.publisher = "Tidewater Audio"
+        glassTide.language = "en"
+        glassTide.summary = "The harbour is rebuilt in glass, and the sea comes back for what it is owed."
+        glassTide.durationSeconds = 11 * 3600 + 24 * 60
+
+        var iceShelf = BookMetadata(title: "Letters from the Ice Shelf", authors: ["Solveig Aaberg"])
+        iceShelf.narrators = ["Freya Dahl"]
+        iceShelf.genre = "Travel"
+        iceShelf.year = 2020
+        iceShelf.publisher = "Northlight Audio"
+        iceShelf.language = "en"
+        iceShelf.summary = "A winter at a research station, written home one letter at a time."
+        iceShelf.durationSeconds = 8 * 3600 + 5 * 60
+
+        // The series' covers are upright; the other is square, as Audible's covers are.
+        let onlyThere: [(metadata: BookMetadata, asin: String, square: Bool)] = [
+            (glassTide, "B0DEMO0004", false), (iceShelf, "B0DEMO0002", true),
+        ]
+        for book in onlyThere {
+            let copy = ExternalCopy(kind: .audible, form: .audio, store: audibleStore, itemId: book.asin)
+            let outcome = try service.addExternalBook(
+                metadata: book.metadata, cover: cover.next(book.metadata, square: book.square), copy: copy)
+            guard case .added = outcome else {
+                throw DemoError.importFailed("\"\(book.metadata.title)\" was already in the library")
+            }
+        }
+
+        guard let id = local.id else { return }
+        try service.setExternalCopies(
+            [ExternalCopy(kind: .audible, form: .audio, store: audibleStore, itemId: "B0DEMO0001")], for: id)
     }
 
     // MARK: A large library
@@ -258,7 +315,8 @@ public enum DemoContent {
         "Poetry", "Adventure",
     ]
 
-    /// Brings the library up to `total` books by copying the sample books that are filed.
+    /// Brings the library up to `total` books by copying the sample books that are filed
+    /// (those on Audible with no files here have nothing to copy).
     ///
     /// Each new book gets a folder and files of its own, where the library would have
     /// filed them, and a record put straight into the catalogue. The files are copies of
@@ -292,6 +350,8 @@ public enum DemoContent {
                 metadata.series = nil
                 metadata.seriesNumber = nil
             }
+            // The template's Audible ID is its own.
+            metadata.asin = nil
             metadata.genre = genrePool[number % genrePool.count]
             metadata.year = 1985 + (number * 3) % 40
             // Two to thirty hours for something to listen to.
