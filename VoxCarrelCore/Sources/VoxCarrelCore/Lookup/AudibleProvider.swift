@@ -124,8 +124,18 @@ public struct AudibleProvider: LookupProvider {
         guard !items.isEmpty else { return [] }
         items.append(("num_results", String(limit)))
         items.append(("products_sort_by", "Relevance"))
-        guard let url = LookupRequest.url(host: store.host, path: "/1.0/catalog/products", query: items + shared) else { return [] }
 
+        if let narrator = query.narrator?.nonBlank {
+            let found = try await products(matching: items + [("narrator", narrator)] + shared)
+            // Nothing read by that narrator: the same search once more, without the name.
+            // A request that failed has thrown by now, and is not searched around.
+            if !found.isEmpty { return found }
+        }
+        return try await products(matching: items + shared)
+    }
+
+    private func products(matching items: [(name: String, value: String)]) async throws -> [LookupCandidate] {
+        guard let url = LookupRequest.url(host: store.host, path: "/1.0/catalog/products", query: items) else { return [] }
         let answer = try await LookupRequest.object(at: url, http: http)
         guard let products = answer["products"] as? [Any] else { throw LookupError.unreadable }
         // Audible's order is kept and nothing is dropped for its language: ranking is the service's.
@@ -168,7 +178,8 @@ public struct AudibleProvider: LookupProvider {
         (metadata.series, metadata.seriesNumber) = Self.series(product["series"], main: line("publication_name", limit: LookupText.nameLimit))
 
         var note = [source.title]
-        if let format = line("format_type") { note.append(Self.readable(format)) }
+        let format = line("format_type")
+        if let format { note.append(Self.readable(format)) }
         if let minutes { note.append(LookupText.lengthLabel(minutes: minutes)) }
         if let language { note.append(Self.readable(language)) }
 
@@ -185,8 +196,20 @@ public struct AudibleProvider: LookupProvider {
             coverURL: image("1024") ?? small,
             thumbnailURL: small,
             note: note.joined(separator: " · "),
-            hasMoreDetails: false
+            hasMoreDetails: false,
+            edition: EditionFacts(
+                format: .digital, abridged: Self.abridged(format), publisher: metadata.publisher, year: metadata.year,
+                stores: [store.rawValue])
         )
+    }
+
+    /// "unabridged" -> false, "abridged" -> true; nil for any other kind, which does not say.
+    private static func abridged(_ format: String?) -> Bool? {
+        switch format?.lowercased() {
+        case "unabridged": false
+        case "abridged": true
+        default: nil
+        }
     }
 
     private static func names(_ list: Any?) -> [String] {

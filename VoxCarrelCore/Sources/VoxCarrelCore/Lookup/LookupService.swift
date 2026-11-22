@@ -94,7 +94,10 @@ public struct LookupService: Sendable {
     }
 
     /// Asks every provider at once and waits for all of them.
-    private static func askAll(
+    ///
+    /// The answers are carried in a struct and gathered by position: carried as a tuple,
+    /// an optimised build has returned every answer under the first position.
+    static func askAll(
         _ providers: [any LookupProvider], _ query: LookupQuery
     ) async -> [Result<[LookupCandidate], any Error>?] {
         var byIndex: [Int: Result<[LookupCandidate], any Error>] = [:]
