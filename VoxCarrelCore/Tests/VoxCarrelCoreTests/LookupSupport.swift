@@ -16,8 +16,15 @@ final class FakeHTTP: HTTPFetching, @unchecked Sendable {
         var headers: [String: String]
     }
 
+    /// What each request allowed, in the order of `requests`.
+    struct Limits: Equatable {
+        var maxBytes: Int
+        var redirectHosts: Set<String>
+    }
+
     private let lock = NSLock()
     private var recorded: [Request] = []
+    private var recordedLimits: [Limits] = []
     private let answer: @Sendable (URL) throws -> (data: Data, status: Int)
 
     /// `answer` gives the response for a URL, or throws what the fetch should throw.
@@ -36,10 +43,16 @@ final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     }
 
     var requests: [Request] { lock.withLock { recorded } }
+    var limits: [Limits] { lock.withLock { recordedLimits } }
     var urls: [URL] { requests.map(\.url) }
 
-    func get(_ url: URL, headers: [String: String]) async throws -> (data: Data, status: Int) {
-        lock.withLock { recorded.append(Request(url: url, headers: headers)) }
+    func get(_ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>) async throws
+        -> (data: Data, status: Int)
+    {
+        lock.withLock {
+            recorded.append(Request(url: url, headers: headers))
+            recordedLimits.append(Limits(maxBytes: maxBytes, redirectHosts: redirectHosts))
+        }
         return try answer(url)
     }
 }

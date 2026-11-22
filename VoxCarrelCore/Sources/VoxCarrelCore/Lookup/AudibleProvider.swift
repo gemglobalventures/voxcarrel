@@ -107,65 +107,85 @@ public struct AudibleProvider: LookupProvider {
 
     /// Nil for a product without an ASIN and a title.
     private func candidate(from product: Any) -> LookupCandidate? {
-        guard let product = product as? [String: Any],
-              let asin = (product["asin"] as? String)?.nonBlank,
-              let title = (product["title"] as? String)?.nonBlank
+        guard let product = product as? [String: Any] else { return nil }
+        func line(_ key: String, limit: Int = LookupText.lineLimit) -> String? {
+            LookupText.cleaned(product[key] as? String, limit: limit)
+        }
+        guard let asin = line("asin"),
+              let title = line("title", limit: LookupText.nameLimit)
         else { return nil }
 
         var metadata = BookMetadata(title: title)
         metadata.asin = asin
-        metadata.subtitle = (product["subtitle"] as? String)?.nonBlank
+        metadata.subtitle = line("subtitle", limit: LookupText.nameLimit)
         // Names exactly as listed: Audible puts translators and "foreword" credits here too.
         metadata.authors = Self.names(product["authors"])
         metadata.narrators = Self.names(product["narrators"])
-        metadata.publisher = (product["publisher_name"] as? String)?.nonBlank
+        metadata.publisher = line("publisher_name")
         metadata.year = Self.year(product["release_date"]) ?? Self.year(product["issue_date"])
-        let language = (product["language"] as? String)?.nonBlank
+        let language = line("language")
         metadata.language = language.flatMap(LookupText.languageCode)
-        let minutes = (product["runtime_length_min"] as? Int).flatMap { $0 > 0 ? $0 : nil }
+        let minutes = (product["runtime_length_min"] as? Int).flatMap { (1...1_000_000).contains($0) ? $0 : nil }
         metadata.durationSeconds = minutes.map { Double($0) * 60 }
-        metadata.summary = (product["publisher_summary"] as? String).map(LookupText.plainText(fromHTML:)).flatMap(\.nonBlank)
+        metadata.summary = LookupText.cleaned(
+            (product["publisher_summary"] as? String).map(LookupText.plainText(fromHTML:)),
+            limit: LookupText.summaryLimit, multiline: true)
         metadata.genre = Self.genre(product["category_ladders"])
-        (metadata.series, metadata.seriesNumber) = Self.series(product["series"], main: product["publication_name"] as? String)
+        (metadata.series, metadata.seriesNumber) = Self.series(product["series"], main: line("publication_name", limit: LookupText.nameLimit))
 
         var note = [source.title]
-        if let format = (product["format_type"] as? String)?.nonBlank { note.append(Self.readable(format)) }
+        if let format = line("format_type") { note.append(Self.readable(format)) }
         if let minutes { note.append(minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m") }
         if let language { note.append(Self.readable(language)) }
 
         let images = product["product_images"] as? [String: Any]
-        let cover = ["1024", "500"].lazy.compactMap { (images?[$0] as? String)?.nonBlank }.first
+        func image(_ size: String) -> URL? {
+            LookupText.cleaned(images?[size] as? String, limit: 2000).flatMap(URL.init(string:))
+        }
+        let small = image("500")
 
         return LookupCandidate(
             id: "\(source.rawValue):\(store.rawValue):\(asin)",
             source: source,
             metadata: metadata,
-            coverURL: cover.flatMap(URL.init(string:)),
+            coverURL: image("1024") ?? small,
+            thumbnailURL: small,
             note: note.joined(separator: " · "),
             hasMoreDetails: false
         )
     }
 
     private static func names(_ list: Any?) -> [String] {
-        (list as? [Any] ?? []).compactMap { (($0 as? [String: Any])?["name"] as? String)?.nonBlank }
+        LookupText.cleanedNames((list as? [Any] ?? []).compactMap { ($0 as? [String: Any])?["name"] as? String })
     }
 
     /// The year of a "YYYY-MM-DD" date.
     private static func year(_ date: Any?) -> Int? {
         guard let text = date as? String else { return nil }
-        let digits = text.lookupTrimmed.prefix(4)
-        guard digits.count == 4, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
-        return Int(digits)
+        let tidy = text.lookupTrimmed
+        let digits = tidy.prefix(4)
+        // Four digits and then the rest of a date, not the start of a longer number.
+        guard digits.count == 4, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+              tidy.dropFirst(4).first.map({ !$0.isNumber }) ?? true
+        else { return nil }
+        return LookupText.year(Int(digits))
     }
 
-    /// The top of the first ladder filed under "Genres".
+    /// The top name that most of the ladders filed under "Genres" share: a book is often
+    /// filed under a second genre as well as its own. Among equals, the first listed.
     private static func genre(_ ladders: Any?) -> String? {
-        for ladder in ladders as? [Any] ?? [] {
-            guard let ladder = ladder as? [String: Any], ladder["root"] as? String == "Genres" else { continue }
-            let top = (ladder["ladder"] as? [Any])?.first as? [String: Any]
-            return (top?["name"] as? String)?.nonBlank
+        var order: [String] = []
+        var counts: [String: Int] = [:]
+        for ladder in (ladders as? [Any] ?? []).prefix(100) {
+            guard let ladder = ladder as? [String: Any], ladder["root"] as? String == "Genres",
+                  let top = (ladder["ladder"] as? [Any])?.first as? [String: Any],
+                  let name = LookupText.cleaned(top["name"] as? String, limit: LookupText.lineLimit)
+            else { continue }
+            if counts[name] == nil { order.append(name) }
+            counts[name, default: 0] += 1
         }
-        return nil
+        let most = counts.values.max()
+        return order.first { counts[$0] == most }
     }
 
     /// A book can sit in several series (a universe and a series within it). The one with a
@@ -173,12 +193,13 @@ public struct AudibleProvider: LookupProvider {
     /// a number are used only when none has one.
     private static func series(_ list: Any?, main: String?) -> (title: String?, number: String?) {
         let entries: [(title: String, number: String?)] = (list as? [Any] ?? []).compactMap { entry in
-            guard let entry = entry as? [String: Any], let title = (entry["title"] as? String)?.nonBlank else { return nil }
-            return (title, (entry["sequence"] as? String)?.nonBlank)
+            guard let entry = entry as? [String: Any],
+                  let title = LookupText.cleaned(entry["title"] as? String, limit: LookupText.nameLimit)
+            else { return nil }
+            return (title, LookupText.cleaned(entry["sequence"] as? String, limit: LookupText.lineLimit))
         }
         let numbered = entries.filter { $0.number != nil }
         let pool = numbered.isEmpty ? entries : numbered
-        let main = main?.nonBlank
         guard let chosen = pool.first(where: { $0.title == main }) ?? pool.first else { return (nil, nil) }
         return chosen
     }

@@ -4,20 +4,30 @@ import Foundation
 public enum LookupText {
     // MARK: HTML
 
+    /// The most of a piece of HTML that is read; what is past it is dropped and the text ends "…".
+    static let htmlCharacterLimit = 50_000
+
     /// The text of a piece of HTML: `<p>` and `<br>` become line breaks, every other tag goes,
     /// entities are decoded and spacing is tidied. Text with no tags and no entities is only
     /// trimmed. Does not use the system HTML importer, so it is safe off the main thread.
+    ///
+    /// Read once from start to end, in time that grows with its length whatever it holds.
+    /// Only the first `htmlCharacterLimit` characters are read.
     public static func plainText(fromHTML html: String) -> String {
-        let whole = NSRange(html.startIndex..., in: html)
-        guard tag.firstMatch(in: html, range: whole) != nil || entity.firstMatch(in: html, range: whole) != nil else {
-            return html.lookupTrimmed
+        var html = html
+        var cut = false
+        if html.utf8.count > htmlCharacterLimit, html.count > htmlCharacterLimit {
+            html = String(html.prefix(htmlCharacterLimit))
+            cut = true
         }
-        var text = html.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-        text = replace(hidden, in: text, with: "")
-        text = replace(lineBreak, in: text, with: "\n")
-        text = replace(paragraph, in: text, with: "\n\n")
-        text = replace(tag, in: text, with: "")
-        text = decodingEntities(text)
+        var scanner = HTMLScanner(Array(html.utf8))
+        scanner.scan()
+        guard scanner.changed else {
+            let text = html.lookupTrimmed
+            return cut ? text + "…" : text
+        }
+        let text = String(decoding: scanner.out, as: UTF8.self)
+            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
 
         var lines: [String] = []
         for line in text.components(separatedBy: "\n") {
@@ -26,23 +36,152 @@ public enum LookupText {
             if tidy.isEmpty, lines.last?.isEmpty ?? true { continue }
             lines.append(tidy)
         }
-        return lines.joined(separator: "\n").lookupTrimmed
+        let tidy = lines.joined(separator: "\n").lookupTrimmed
+        return cut ? tidy + "…" : tidy
     }
 
-    private static func regex(_ pattern: String) -> NSRegularExpression {
-        // The patterns are fixed and known to compile.
-        try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators])
-    }
+    /// Reads HTML as bytes, once. Every search ahead that fails is remembered, so the
+    /// same stretch is never searched twice: hostile text cannot make it slow.
+    struct HTMLScanner {
+        let bytes: [UInt8]
+        var out: [UInt8] = []
+        /// True once a tag, a comment or an entity has been found.
+        var changed = false
+        private var index = 0
+        private var noMoreGreaterThan = false
+        private var noMoreCommentEnds = false
+        private var noMoreClosings: Set<String> = []
 
-    private static let hidden = regex("<(script|style)\\b[^>]*>.*?</\\1\\s*>|<!--.*?-->")
-    private static let lineBreak = regex("<br\\b[^>]*>")
-    private static let paragraph = regex("</?p(\\s[^>]*)?>")
-    private static let tag = regex("</?[a-z][^>]*>|<!--.*?-->")
-    private static let entity = regex("&(#[0-9]{1,8}|#x[0-9a-f]{1,8}|[a-z][a-z0-9]{1,10});")
+        init(_ bytes: [UInt8]) {
+            self.bytes = bytes
+            out.reserveCapacity(bytes.count)
+        }
 
-    private static func replace(_ regex: NSRegularExpression, in text: String, with replacement: String) -> String {
-        regex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
-                                       withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+        private static let lessThan = UInt8(ascii: "<"), greaterThan = UInt8(ascii: ">")
+        private static let slash = UInt8(ascii: "/"), ampersand = UInt8(ascii: "&"), semicolon = UInt8(ascii: ";")
+        private static let newline = UInt8(ascii: "\n")
+
+        private static func isLetter(_ byte: UInt8) -> Bool {
+            (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
+        }
+
+        private static func isDigit(_ byte: UInt8) -> Bool { byte >= 48 && byte <= 57 }
+
+        private static func isSpace(_ byte: UInt8) -> Bool {
+            byte == 32 || byte == 9 || byte == 10 || byte == 13 || byte == 12
+        }
+
+        private static func lowered(_ byte: UInt8) -> UInt8 {
+            byte >= 65 && byte <= 90 ? byte + 32 : byte
+        }
+
+        mutating func scan() {
+            while index < bytes.count {
+                let byte = bytes[index]
+                if byte == Self.lessThan, skipMarkup() { continue }
+                if byte == Self.ampersand, decodeEntity() { continue }
+                out.append(byte)
+                index += 1
+            }
+        }
+
+        /// True when a comment or a tag began at `index` and has been dealt with.
+        private mutating func skipMarkup() -> Bool {
+            if matches("<!--", at: index) {
+                guard !noMoreCommentEnds else { return false }
+                guard let end = find("-->", from: index + 4) else {
+                    noMoreCommentEnds = true
+                    return false
+                }
+                index = end + 3
+                changed = true
+                return true
+            }
+            var nameStart = index + 1
+            let closing = nameStart < bytes.count && bytes[nameStart] == Self.slash
+            if closing { nameStart += 1 }
+            guard nameStart < bytes.count, Self.isLetter(bytes[nameStart]) else { return false }
+            var nameEnd = nameStart
+            while nameEnd < bytes.count, Self.isLetter(bytes[nameEnd]) || Self.isDigit(bytes[nameEnd]) { nameEnd += 1 }
+            guard !noMoreGreaterThan else { return false }
+            guard let tagEnd = bytes[nameEnd...].firstIndex(of: Self.greaterThan) else {
+                noMoreGreaterThan = true
+                return false
+            }
+            let name = String(decoding: bytes[nameStart..<nameEnd].map(Self.lowered), as: UTF8.self)
+            changed = true
+            index = tagEnd + 1
+            switch name {
+            case "script", "style":
+                // What is inside is not text. Without an end, only the tag goes.
+                if !closing, let after = endOfClosing(name, from: index) { index = after }
+            case "br":
+                if !closing { out.append(Self.newline) }
+            case "p":
+                out.append(Self.newline)
+                out.append(Self.newline)
+            default:
+                break
+            }
+            return true
+        }
+
+        /// The index just past `</name>` (spaces allowed before `>`), searching from `start`.
+        private mutating func endOfClosing(_ name: String, from start: Int) -> Int? {
+            guard !noMoreClosings.contains(name) else { return nil }
+            let wanted = "</" + name
+            var from = start
+            while let found = find(wanted, from: from) {
+                var after = found + wanted.utf8.count
+                while after < bytes.count, Self.isSpace(bytes[after]) { after += 1 }
+                if after < bytes.count, bytes[after] == Self.greaterThan { return after + 1 }
+                from = found + 1
+            }
+            noMoreClosings.insert(name)
+            return nil
+        }
+
+        /// True when an entity began at `index` and its character has been written.
+        private mutating func decodeEntity() -> Bool {
+            // "&" + up to 11 characters of name + ";"
+            let limit = min(bytes.count, index + 13)
+            var end = index + 1
+            while end < limit, bytes[end] != Self.semicolon {
+                let byte = bytes[end]
+                guard Self.isLetter(byte) || Self.isDigit(byte) || (byte == UInt8(ascii: "#") && end == index + 1) else {
+                    return false
+                }
+                end += 1
+            }
+            guard end < limit, end > index + 1 else { return false }
+            let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self)
+            guard let text = LookupText.decoded(name) else { return false }
+            out.append(contentsOf: Array(text.utf8))
+            index = end + 1
+            changed = true
+            return true
+        }
+
+        /// Whether the ASCII `text` is at `position`, ignoring case.
+        private func matches(_ text: String, at position: Int) -> Bool {
+            let wanted = Array(text.utf8)
+            guard position + wanted.count <= bytes.count else { return false }
+            for offset in wanted.indices where Self.lowered(bytes[position + offset]) != wanted[offset] { return false }
+            return true
+        }
+
+        /// The first place at or after `start` where the lower-case ASCII `text` is, ignoring case.
+        private func find(_ text: String, from start: Int) -> Int? {
+            let wanted = Array(text.utf8)
+            guard let first = wanted.first, start <= bytes.count - wanted.count else { return nil }
+            var position = start
+            let last = bytes.count - wanted.count
+            while position <= last {
+                if Self.lowered(bytes[position]) == first, matches(text, at: position) { return position }
+                position += 1
+            }
+            return nil
+        }
     }
 
     private static let namedEntities: [String: String] = [
@@ -51,26 +190,98 @@ public enum LookupText {
         "lsquo": "‘", "rsquo": "’", "ldquo": "“", "rdquo": "”",
     ]
 
-    /// Each entity decoded once, in one pass, so "&amp;lt;" becomes "&lt;" and no further.
-    private static func decodingEntities(_ text: String) -> String {
-        var out = ""
-        var position = text.startIndex
-        for match in entity.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-            guard let range = Range(match.range, in: text), let nameRange = Range(match.range(at: 1), in: text) else { continue }
-            out += text[position..<range.lowerBound]
-            out += decoded(String(text[nameRange])) ?? String(text[range])
-            position = range.upperBound
+    /// What the entity called `name` ("amp", "#39", "#x2014") stands for; nil when it is
+    /// not an entity. One that stands for a control character stands for nothing.
+    private static func decoded(_ name: String) -> String? {
+        guard name.hasPrefix("#") else {
+            guard name.count >= 2, let first = name.unicodeScalars.first, !CharacterSet.decimalDigits.contains(first) else {
+                return nil
+            }
+            return namedEntities[name.lowercased()]
         }
-        out += text[position...]
-        return out
+        let digits = name.dropFirst()
+        guard !digits.isEmpty, digits.count <= 9 else { return nil }
+        let value: UInt32?
+        if digits.first == "x" || digits.first == "X" {
+            let hex = digits.dropFirst()
+            value = hex.isEmpty || hex.count > 8 ? nil : UInt32(hex, radix: 16)
+        } else {
+            value = digits.count > 8 ? nil : UInt32(digits, radix: 10)
+        }
+        guard let value, value != 0, let scalar = Unicode.Scalar(value) else { return nil }
+        if scalar.value == 0xA0 { return " " }
+        if isUnwanted(scalar), scalar != "\n", scalar != "\t" { return "" }
+        return String(Character(scalar))
     }
 
-    private static func decoded(_ name: String) -> String? {
-        guard name.hasPrefix("#") else { return namedEntities[name.lowercased()] }
-        let digits = name.dropFirst()
-        let value = digits.first == "x" || digits.first == "X" ? UInt32(digits.dropFirst(), radix: 16) : UInt32(digits, radix: 10)
-        guard let value, value != 0, let scalar = Unicode.Scalar(value) else { return nil }
-        return scalar.value == 0xA0 ? " " : String(Character(scalar))
+    // MARK: Cleaning what a source sends
+
+    /// The most characters kept of a title or a name, of any other one-line value, and of a description.
+    public static let nameLimit = 500
+    public static let lineLimit = 200
+    public static let summaryLimit = 50_000
+
+    /// Control characters, and the characters that turn the direction of the text
+    /// around them (overrides, embeddings and isolates): never wanted in a book's details.
+    static func isUnwanted(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x00...0x1F, 0x7F...0x9F: true
+        case 0x202A...0x202E, 0x2066...0x2069: true
+        default: false
+        }
+    }
+
+    /// A value from a source, made safe to keep: no control or direction-turning
+    /// characters, no more than `limit` characters, trimmed; nil when nothing is left.
+    /// On one line unless `multiline`: line breaks and tabs become single spaces.
+    public static func cleaned(_ raw: String?, limit: Int, multiline: Bool = false) -> String? {
+        guard let raw else { return nil }
+        var scalars = String.UnicodeScalarView()
+        var count = 0
+        // A little more than is kept is read, so that what is trimmed away does not count.
+        let readLimit = limit * 4 + 64
+        var pendingSpace = false
+        for scalar in raw.unicodeScalars {
+            guard count < readLimit else { break }
+            let isBreak = scalar == "\n" || scalar == "\r" || scalar.value == 0x2028 || scalar.value == 0x2029
+            if multiline {
+                if scalar == "\r" { continue }
+                if isBreak {
+                    scalars.append("\n")
+                    count += 1
+                    continue
+                }
+                if scalar == "\t" {
+                    scalars.append(" ")
+                    count += 1
+                    continue
+                }
+            } else if isBreak || scalar == "\t" || scalar == " " {
+                pendingSpace = true
+                continue
+            }
+            if isUnwanted(scalar) { continue }
+            if pendingSpace {
+                if !scalars.isEmpty { scalars.append(" ") }
+                pendingSpace = false
+            }
+            scalars.append(scalar)
+            count += 1
+        }
+        var text = String(scalars).lookupTrimmed
+        if text.count > limit { text = String(text.prefix(limit)).lookupTrimmed }
+        return text.isEmpty ? nil : text
+    }
+
+    /// Names from a source: each cleaned, empty ones dropped, at most fifty.
+    public static func cleanedNames(_ raw: [String]) -> [String] {
+        Array(raw.lazy.compactMap { cleaned($0, limit: nameLimit) }.prefix(50))
+    }
+
+    /// A year from a source; nil unless it is from 1 to 9999.
+    public static func year(_ raw: Int?) -> Int? {
+        guard let raw, (1...9999).contains(raw) else { return nil }
+        return raw
     }
 
     // MARK: Languages

@@ -78,6 +78,26 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         #expect(results.failures.isEmpty)
         #expect(results.candidates.map(\.id) == ["openLibrary:/works/OL1W", "audible:us:B000000001"])
         #expect(results.searched == [.openLibrary, .audible])
+        #expect(results.found == [.openLibrary: 1, .audible: 1])
+    }
+
+    /// How many each source found is told apart from a source that did not answer.
+    @Test func S1_howManyEachSourceFound() async throws {
+        let open = FakeProvider(.openLibrary) { _ in [] }
+        let audible = FakeProvider(.audible) { asked in
+            [found(.audible, "us:B000000001", asked.title), found(.audible, "us:B000000002", asked.title),
+             found(.audible, "us:B000000001", asked.title)]
+        }
+        let results = await LookupService(providers: [open, audible], http: unusedHTTP)
+            .search(query, preferAudio: false, language: nil)
+        // Counted as kept: a second result with the same id is not one more.
+        #expect(results.found == [.openLibrary: 0, .audible: 2])
+
+        let failing = FakeProvider(.openLibrary) { _ in throw LookupError.notReachable }
+        let partly = await LookupService(providers: [failing, audible], http: unusedHTTP)
+            .search(query, preferAudio: false, language: nil)
+        #expect(partly.found == [.audible: 2])
+        #expect(partly.failures == [.openLibrary: .notReachable])
     }
 
     @Test func S1_oneFailingProviderDoesNotLoseTheOthers() async throws {
@@ -305,6 +325,41 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         #expect(http.requests.count == 1)
         #expect(http.urls.first == URL(string: address))
         #expect(http.requests.first?.headers == ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.app)"])
+    }
+
+    /// A cover may be 10 MB at most, and may redirect only among the cover hosts and the Internet Archive.
+    @Test func S6_coverRequestsAreLimited() async throws {
+        let http = FakeHTTP(data: Self.jpeg)
+        _ = try await LookupService(providers: [], http: http).cover(for: withCover("https://covers.openlibrary.org/b/id/1-L.jpg"))
+        #expect(http.limits == [FakeHTTP.Limits(
+            maxBytes: 10 * 1024 * 1024,
+            redirectHosts: ["covers.openlibrary.org", "m.media-amazon.com", "images-na.ssl-images-amazon.com", "archive.org"])])
+    }
+
+    /// The row's picture: the smaller address when there is one, under the same rules as the cover.
+    @Test func S6_theThumbnailIsFetchedFromItsOwnAddress() async throws {
+        let http = FakeHTTP(data: Self.jpeg)
+        let service = LookupService(providers: [], http: http)
+        var candidate = withCover("https://covers.openlibrary.org/b/id/1-L.jpg")
+        candidate.thumbnailURL = URL(string: "https://covers.openlibrary.org/b/id/1-M.jpg")
+        #expect(try await service.thumbnail(for: candidate) == CoverImage(data: Self.jpeg, mime: "image/jpeg"))
+        #expect(http.urls == [URL(string: "https://covers.openlibrary.org/b/id/1-M.jpg")])
+        #expect(http.limits.first?.maxBytes == 10 * 1024 * 1024)
+        #expect(http.limits.first?.redirectHosts.contains("archive.org") == true)
+
+        // Without a smaller one, the cover itself.
+        candidate.thumbnailURL = nil
+        _ = try await service.thumbnail(for: candidate)
+        #expect(http.urls.last == URL(string: "https://covers.openlibrary.org/b/id/1-L.jpg"))
+
+        // Not from anywhere else, and not when it is no picture.
+        candidate.thumbnailURL = URL(string: "https://evil.test/1-M.jpg")
+        await #expect(throws: LookupError.unreadable) { _ = try await service.thumbnail(for: candidate) }
+        #expect(http.urls.count == 2)
+        candidate.thumbnailURL = URL(string: "https://covers.openlibrary.org/b/id/1-M.jpg")
+        await #expect(throws: LookupError.unreadable) {
+            _ = try await LookupService(providers: [], http: FakeHTTP(data: Data("<html>".utf8))).thumbnail(for: candidate)
+        }
     }
 
     @Test func S6_pngIsAcceptedAndTypedByItsBytes() async throws {

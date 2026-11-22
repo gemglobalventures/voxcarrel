@@ -96,6 +96,90 @@ import Testing
         #expect(LookupText.plainText(fromHTML: "<p></p>") == "")
     }
 
+    /// The scanner reads once: text made to send a pattern-matcher back over itself costs no more than any other.
+    @Test(arguments: ["<script>", "<style>", "<!--", "<a ", "</p", "&amp", "<script></script x", "<p>&#x41;"])
+    func T2_hostileTextIsReadInLinearTime(piece: String) {
+        let megabyte = String(repeating: piece, count: 1_048_576 / piece.utf8.count)
+        var scanner = LookupText.HTMLScanner(Array(megabyte.utf8))
+        let clock = ContinuousClock()
+        let taken = clock.measure { scanner.scan() }
+        #expect(taken < .seconds(1), "1 MB of \(piece) took \(taken)")
+        // And through the front door, which reads only the first 50,000 characters.
+        let whole = clock.measure { _ = LookupText.plainText(fromHTML: megabyte) }
+        #expect(whole < .seconds(1), "1 MB of \(piece) took \(whole) in all")
+    }
+
+    @Test func T2_unfinishedMarkupIsLeftAsText() {
+        #expect(LookupText.plainText(fromHTML: "<b>a</b> <!-- never closed") == "a <!-- never closed")
+        #expect(LookupText.plainText(fromHTML: "<b>a</b> <i never closed") == "a <i never closed")
+        // A script with no end: only its tag goes, as any other tag would.
+        #expect(LookupText.plainText(fromHTML: "<p>a</p><script>b") == "a\n\nb")
+        #expect(LookupText.plainText(fromHTML: "<p>a</p><SCRIPT type=x>b</script >c<style>d</STYLE>e") == "a\n\nce")
+    }
+
+    @Test func T2_onlyTheFirstFiftyThousandCharactersAreRead() {
+        let long = "<p>" + String(repeating: "é", count: 60_000) + "</p>"
+        let text = LookupText.plainText(fromHTML: long)
+        #expect(text.count == 50_000 - 3 + 1)
+        #expect(text.hasSuffix("é…"))
+        let plain = LookupText.plainText(fromHTML: String(repeating: "a", count: 50_001))
+        #expect(plain.count == 50_001)
+        #expect(plain.hasSuffix("a…"))
+        #expect(LookupText.plainText(fromHTML: String(repeating: "a", count: 50_000)).count == 50_000)
+    }
+
+    /// An entity that stands for a control character, or for one that turns the text around, stands for nothing.
+    @Test func T2_entitiesForControlCharactersAreDropped() {
+        #expect(LookupText.plainText(fromHTML: "a&#1;b&#x202E;c&#x7f;d&#x2066;e&#x9b;f") == "abcdef")
+        #expect(LookupText.plainText(fromHTML: "<p>a&#10;b&#9;c</p>") == "a\nb c")
+    }
+
+    // MARK: Cleaning
+
+    @Test func cleanedRemovesControlAndDirectionCharacters() {
+        #expect(LookupText.cleaned("A\u{202E}B\u{01}C\u{2066}D\u{2069}\u{7F}\u{9B}E", limit: 200) == "ABCDE")
+        // Marks that belong in right-to-left text are kept.
+        #expect(LookupText.cleaned("שלום\u{200F} עולם", limit: 200) == "שלום\u{200F} עולם")
+        #expect(LookupText.cleaned("\u{01}\u{202E}", limit: 200) == nil)
+        #expect(LookupText.cleaned("   ", limit: 200) == nil)
+        #expect(LookupText.cleaned(nil, limit: 200) == nil)
+    }
+
+    @Test func cleanedPutsAOneLineValueOnOneLine() {
+        #expect(LookupText.cleaned("  The\tSalt\r\nRoad \n\n again\u{2028}now  ", limit: 200) == "The Salt Road again now")
+        #expect(LookupText.cleaned("a  b", limit: 200) == "a b")
+    }
+
+    @Test func cleanedKeepsTheLinesOfADescription() {
+        #expect(LookupText.cleaned(" One\r\n\r\nTwo\tthree\u{01}\u{2029}Four ", limit: 200, multiline: true) == "One\n\nTwo three\nFour")
+    }
+
+    @Test func cleanedKeepsNoMoreThanTheLimit() {
+        #expect(LookupText.cleaned(String(repeating: "a", count: 1000), limit: 500)?.count == 500)
+        #expect(LookupText.cleaned("abc def", limit: 4) == "abc")
+        #expect(LookupText.cleaned(String(repeating: "éa", count: 100_000), limit: 50_000, multiline: true)?.count == 50_000)
+        // Hostile length costs little: what is past the limit is hardly read.
+        let clock = ContinuousClock()
+        let huge = String(repeating: "\u{01}x ", count: 2_000_000)
+        #expect(clock.measure { _ = LookupText.cleaned(huge, limit: 200) } < .seconds(1))
+    }
+
+    @Test func cleanedNamesDropsEmptyOnesAndKeepsFifty() {
+        #expect(LookupText.cleanedNames([" A\nB ", "\u{01}", "", "C"]) == ["A B", "C"])
+        #expect(LookupText.cleanedNames((1...80).map { "N\($0)" }).count == 50)
+    }
+
+    @Test func yearsOutsideOneToNineThousandNineHundredNinetyNineAreNoYear() {
+        #expect(LookupText.year(1984) == 1984)
+        #expect(LookupText.year(1) == 1)
+        #expect(LookupText.year(9999) == 9999)
+        #expect(LookupText.year(0) == nil)
+        #expect(LookupText.year(-44) == nil)
+        #expect(LookupText.year(10_000) == nil)
+        #expect(LookupText.year(123_456_789) == nil)
+        #expect(LookupText.year(nil) == nil)
+    }
+
     // T3
     @Test(arguments: [
         ("en", "English", "eng", "eng"), ("fr", "French", "fre", "fra"), ("de", "German", "ger", "deu"),
@@ -291,7 +375,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         StubURLProtocol.set(.respond(status: 200, headers: ["Set-Cookie": "id=1; Path=/"], body: Data("hello".utf8)), forHost: host)
         let url = try #require(URL(string: "https://\(host)/a?b=c"))
         let fetcher = fetcher()
-        let answer = try await fetcher.get(url, headers: ["User-Agent": "VoxCarrel/test", "Accept": "application/json"])
+        let answer = try await fetcher.get(url, headers: ["User-Agent": "VoxCarrel/test", "Accept": "application/json"], maxBytes: 1000, redirectHosts: [])
         #expect(answer.status == 200)
         #expect(answer.data == Data("hello".utf8))
         let request = try #require(StubURLProtocol.requests(forHost: host).first)
@@ -301,7 +385,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(request.value(forHTTPHeaderField: "Accept") == "application/json")
 
         // No cookies: one set by an answer is not sent back on the next request.
-        _ = try await fetcher.get(url, headers: [:])
+        _ = try await fetcher.get(url, headers: [:], maxBytes: 1000, redirectHosts: [])
         let second = try #require(StubURLProtocol.requests(forHost: host).last)
         #expect(second.value(forHTTPHeaderField: "Cookie") == nil)
         #expect(StubURLProtocol.requests(forHost: host).count == 2)
@@ -310,7 +394,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     @Test func T1_anErrorStatusIsReturnedNotThrown() async throws {
         let host = "status.stub.test"
         StubURLProtocol.set(.respond(status: 503, headers: [:], body: Data()), forHost: host)
-        let answer = try await fetcher().get(try #require(URL(string: "https://\(host)/")), headers: [:])
+        let answer = try await fetcher().get(try #require(URL(string: "https://\(host)/")), headers: [:], maxBytes: 1000, redirectHosts: [])
         #expect(answer.status == 503)
     }
 
@@ -321,7 +405,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         StubURLProtocol.set(.fail(code), forHost: host)
         let url = try #require(URL(string: "https://\(host)/"))
         await #expect(throws: LookupError.notReachable) {
-            _ = try await fetcher().get(url, headers: [:])
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [])
         }
     }
 
@@ -335,12 +419,15 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         #expect(URLSessionFetcher.mapped(CancellationError()) is CancellationError)
     }
 
-    @Test func T1_aRealRefusedConnectionIsNotReachable() async throws {
-        // Nothing listens on this machine's port 1; the request never leaves it.
-        let url = try #require(URL(string: "http://127.0.0.1:1/"))
+    @Test func T1_aRefusedConnectionIsNotReachable() async throws {
+        // What the system says when nothing listens at the address; no socket is opened here.
+        let host = "refusedconnection.stub.test"
+        StubURLProtocol.set(.fail(.cannotConnectToHost), forHost: host)
+        let url = try #require(URL(string: "https://\(host)/"))
         await #expect(throws: LookupError.notReachable) {
-            _ = try await URLSessionFetcher(timeout: 5).get(url, headers: [:])
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [])
         }
+        #expect(StubURLProtocol.requests(forHost: host).count == 1)
     }
 
     @Test func T1_anAnswerThatIsNotHTTPIsUnreadable() async throws {
@@ -348,19 +435,97 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         StubURLProtocol.set(.notHTTP, forHost: host)
         let url = try #require(URL(string: "https://\(host)/"))
         await #expect(throws: LookupError.unreadable) {
-            _ = try await fetcher().get(url, headers: [:])
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 1000, redirectHosts: [])
         }
     }
 
-    @Test func T1_followsRedirects() async throws {
+    @Test func T1_followsARedirectToAnAllowedHost() async throws {
         let from = "from.stub.test", to = "to.stub.test"
         let target = try #require(URL(string: "https://\(to)/final"))
         StubURLProtocol.set(.redirect(to: target), forHost: from)
         StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("arrived".utf8)), forHost: to)
-        let answer = try await fetcher().get(try #require(URL(string: "https://\(from)/start")), headers: ["User-Agent": "VoxCarrel/test"])
+        let answer = try await fetcher().get(
+            try #require(URL(string: "https://\(from)/start")), headers: ["User-Agent": "VoxCarrel/test"],
+            maxBytes: 1000, redirectHosts: ["elsewhere.test", to])
         #expect(answer.status == 200)
         #expect(answer.data == Data("arrived".utf8))
         #expect(StubURLProtocol.requests(forHost: to).count == 1)
+    }
+
+    @Test func T1_followsARedirectToASubdomainOfAnAllowedHost() async throws {
+        let from = "covers.stub.test", to = "ia800.us.archive.stub.test"
+        let target = try #require(URL(string: "https://\(to)/final"))
+        StubURLProtocol.set(.redirect(to: target), forHost: from)
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("arrived".utf8)), forHost: to)
+        let answer = try await fetcher().get(
+            try #require(URL(string: "https://\(from)/start")), headers: [:], maxBytes: 1000,
+            redirectHosts: ["archive.stub.test"])
+        #expect(answer.data == Data("arrived".utf8))
+    }
+
+    /// A redirect to a host that was not allowed is not followed: nothing is asked of that host.
+    @Test func T1_aRedirectAnywhereElseIsRefusedWithoutFollowing() async throws {
+        let from = "leaving.stub.test", to = "notallowed.stub.test"
+        let target = try #require(URL(string: "https://\(to)/final"))
+        StubURLProtocol.set(.redirect(to: target), forHost: from)
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("arrived".utf8)), forHost: to)
+        await #expect(throws: LookupError.refused(status: 302)) {
+            _ = try await fetcher().get(
+                try #require(URL(string: "https://\(from)/start")), headers: [:], maxBytes: 1000,
+                redirectHosts: [from, "allowed.stub.test", "d.stub.test"])
+        }
+        #expect(StubURLProtocol.requests(forHost: to).isEmpty)
+    }
+
+    /// Nor is one that leaves `https`, even to an allowed host.
+    @Test func T1_aRedirectToPlainHTTPIsRefused() async throws {
+        let from = "downgrade.stub.test", to = "plain.stub.test"
+        let target = try #require(URL(string: "http://\(to)/final"))
+        StubURLProtocol.set(.redirect(to: target), forHost: from)
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data("arrived".utf8)), forHost: to)
+        await #expect(throws: LookupError.refused(status: 302)) {
+            _ = try await fetcher().get(
+                try #require(URL(string: "https://\(from)/start")), headers: [:], maxBytes: 1000, redirectHosts: [to])
+        }
+        #expect(StubURLProtocol.requests(forHost: to).isEmpty)
+    }
+
+    @Test func T1_redirectRules() throws {
+        let hosts: Set<String> = ["archive.org", "m.media-amazon.com"]
+        func may(_ address: String) -> Bool { URLSessionFetcher.mayRedirect(to: URL(string: address), hosts: hosts) }
+        #expect(may("https://archive.org/x.jpg"))
+        #expect(may("https://ia800100.us.archive.org/1/items/x.jpg"))
+        #expect(may("https://M.Media-Amazon.com/x.jpg"))
+        #expect(!may("http://archive.org/x.jpg"))
+        #expect(!may("https://notarchive.org/x.jpg"))
+        #expect(!may("https://archive.org.evil.test/x.jpg"))
+        #expect(!may("https://evil.test/archive.org"))
+        #expect(!may("file:///etc/passwd"))
+        #expect(!URLSessionFetcher.mayRedirect(to: nil, hosts: hosts))
+        #expect(!URLSessionFetcher.mayRedirect(to: URL(string: "https://archive.org/"), hosts: []))
+    }
+
+    /// A body that says it is longer than is wanted is not read.
+    @Test func T1_aBodyDeclaredTooLongIsUnreadable() async throws {
+        let host = "declared.stub.test"
+        StubURLProtocol.set(.respond(status: 200, headers: ["Content-Length": "5000"], body: Data(count: 5000)), forHost: host)
+        let url = try #require(URL(string: "https://\(host)/"))
+        await #expect(throws: LookupError.unreadable) {
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 4999, redirectHosts: [])
+        }
+    }
+
+    /// One that does not say, or says less than it sends, is given up on at the limit.
+    @Test func T1_aBodyLongerThanTheLimitIsUnreadable() async throws {
+        let host = "undeclared.stub.test"
+        StubURLProtocol.set(.respond(status: 200, headers: [:], body: Data(count: 20_000)), forHost: host)
+        let url = try #require(URL(string: "https://\(host)/"))
+        await #expect(throws: LookupError.unreadable) {
+            _ = try await fetcher().get(url, headers: [:], maxBytes: 19_999, redirectHosts: [])
+        }
+        // Exactly the limit is fine.
+        let answer = try await fetcher().get(url, headers: [:], maxBytes: 20_000, redirectHosts: [])
+        #expect(answer.data.count == 20_000)
     }
 
     @Test func T1_sessionIsEphemeralWithNoCookiesAndNoCache() {

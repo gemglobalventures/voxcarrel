@@ -8,11 +8,17 @@ public struct LookupResults: Equatable, Sendable {
     public var failures: [LookupSource: LookupError]
     /// Sources that were asked.
     public var searched: [LookupSource]
+    /// How many of `candidates` each source that answered found; 0 for one that found none.
+    public var found: [LookupSource: Int]
 
-    public init(candidates: [LookupCandidate] = [], failures: [LookupSource: LookupError] = [:], searched: [LookupSource] = []) {
+    public init(
+        candidates: [LookupCandidate] = [], failures: [LookupSource: LookupError] = [:], searched: [LookupSource] = [],
+        found: [LookupSource: Int] = [:]
+    ) {
         self.candidates = candidates
         self.failures = failures
         self.searched = searched
+        self.found = found
     }
 }
 
@@ -72,7 +78,12 @@ public struct LookupService: Sendable {
             switch answer {
             case .success(let candidates):
                 // Provider order; a second candidate with the same id is dropped.
-                for candidate in candidates where seen.insert(candidate.id).inserted { found.append(candidate) }
+                var kept = 0
+                for candidate in candidates where seen.insert(candidate.id).inserted {
+                    found.append(candidate)
+                    kept += 1
+                }
+                results.found[provider.source, default: 0] += kept
             case .failure(let error):
                 if error is CancellationError { continue }
                 results.failures[provider.source] = error as? LookupError ?? .unreadable
@@ -160,12 +171,28 @@ public struct LookupService: Sendable {
 
     // MARK: Cover
 
+    /// Where a cover's address may redirect: the cover hosts, and the Internet Archive,
+    /// which holds Open Library's covers.
+    static let coverRedirectHosts: Set<String> = coverHosts.union(["archive.org"])
+
     /// Downloads the candidate's cover. Throws `.unreadable` when there is no cover, when
     /// its address is not `https` on one of the known cover hosts (no request is made), or
     /// when what arrives is not a JPEG or PNG of at most 10 MB.
     public func cover(for candidate: LookupCandidate) async throws -> CoverImage {
-        guard let url = candidate.coverURL, Self.isCoverAddress(url) else { throw LookupError.unreadable }
-        let answer = try await http.get(url, headers: ["User-Agent": LookupRequest.userAgent])
+        try await image(at: candidate.coverURL)
+    }
+
+    /// The same for the smaller picture a result's row shows: `thumbnailURL`, or the
+    /// cover itself when the candidate has no smaller one.
+    public func thumbnail(for candidate: LookupCandidate) async throws -> CoverImage {
+        try await image(at: candidate.thumbnailURL ?? candidate.coverURL)
+    }
+
+    private func image(at url: URL?) async throws -> CoverImage {
+        guard let url, Self.isCoverAddress(url) else { throw LookupError.unreadable }
+        let answer = try await http.get(
+            url, headers: ["User-Agent": LookupRequest.userAgent], maxBytes: Self.coverByteLimit,
+            redirectHosts: Self.coverRedirectHosts)
         guard answer.status == 200 else { throw LookupError.refused(status: answer.status) }
         guard answer.data.count <= Self.coverByteLimit,
               let mime = CoverImage.sniffedMIME(answer.data), mime == "image/jpeg" || mime == "image/png"

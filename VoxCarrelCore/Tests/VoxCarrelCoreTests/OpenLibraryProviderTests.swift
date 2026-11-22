@@ -41,14 +41,58 @@ import Testing
         #expect(queryItems(http.urls[1]) == ["author": "Frank Herbert", "limit": "3", "fields": Self.fields])
     }
 
-    @Test func O1_anISBNIsSearchedAlone() async throws {
+    @Test func O1_anISBNThatIsFoundIsSearchedAlone() async throws {
         let http = FakeHTTP(data: fixture("ol-isbn"))
-        _ = try await OpenLibraryProvider(http: http).search(
+        let found = try await OpenLibraryProvider(http: http).search(
             LookupQuery(title: "Project Hail Mary", author: "Andy Weir", isbn: "978-0-593-13520-4", asin: "B08G9PRS1K"))
+        #expect(!found.isEmpty)
+        #expect(http.urls.count == 1)
         let url = try #require(http.urls.first)
         #expect(url.host == "openlibrary.org")
         #expect(url.path == "/search.json")
         #expect(queryItems(url) == ["isbn": "9780593135204", "limit": "8", "fields": Self.fields])
+    }
+
+    /// An ISBN Open Library does not know: the title and author are searched for instead.
+    @Test func O1_anISBNThatFindsNothingFallsBackToTitleAndAuthor() async throws {
+        let none = fixture("ol-none"), some = fixture("ol-search")
+        let http = FakeHTTP { url in (queryItems(url)["isbn"] == nil ? some : none, 200) }
+        let found = try await OpenLibraryProvider(http: http).search(
+            LookupQuery(title: "Project Hail Mary", author: "Andy Weir", isbn: "9780000000002"))
+        #expect(http.urls.count == 2)
+        #expect(queryItems(http.urls[0]) == ["isbn": "9780000000002", "limit": "8", "fields": Self.fields])
+        #expect(queryItems(http.urls[1]) == ["title": "Project Hail Mary", "author": "Andy Weir", "limit": "8", "fields": Self.fields])
+        #expect(!found.isEmpty)
+        // What was found by its title is not said to have the ISBN that found nothing.
+        #expect(found.allSatisfy { $0.metadata.isbn != "9780000000002" })
+    }
+
+    @Test func O1_anISBNAloneThatFindsNothingAsksNoMore() async throws {
+        let http = FakeHTTP(data: fixture("ol-none"))
+        #expect(try await OpenLibraryProvider(http: http).search(LookupQuery(isbn: "9780000000002")).isEmpty)
+        #expect(http.urls.count == 1)
+    }
+
+    @Test func O1_aFailedISBNRequestDoesNotFallBack() async throws {
+        let http = FakeHTTP(data: Data(), status: 503)
+        await #expect(throws: LookupError.refused(status: 503)) {
+            _ = try await OpenLibraryProvider(http: http).search(LookupQuery(title: "Dune", isbn: "9780000000002"))
+        }
+        #expect(http.urls.count == 1)
+    }
+
+    /// An answer may be 5 MB at most, and may redirect only within openlibrary.org.
+    @Test func O2_requestsAreLimited() async throws {
+        let http = FakeHTTP { url in
+            (url.path == "/search.json" ? fixture("ol-search") : fixture("ol-work"), 200)
+        }
+        let provider = OpenLibraryProvider(http: http)
+        let found = try await provider.search(LookupQuery(title: "Project Hail Mary"))
+        _ = try await provider.details(for: try #require(found.first))
+        #expect(http.limits.count == 2)
+        for limit in http.limits {
+            #expect(limit == FakeHTTP.Limits(maxBytes: 5 * 1024 * 1024, redirectHosts: ["openlibrary.org"]))
+        }
     }
 
     @Test func O1_anUnusableISBNFallsBackToTitleAndAuthor() async throws {
@@ -297,5 +341,101 @@ import Testing
         #expect(try await provider.search(LookupQuery(asin: "B08G9PRS1K")).isEmpty)
         #expect(try await provider.search(LookupQuery(isbn: "12345")).isEmpty)
         #expect(http.requests.isEmpty)
+    }
+
+    // MARK: What is taken is made safe
+
+    @Test func O3_everythingTakenIsCleaned() async throws {
+        let long = String(repeating: "x", count: 3000)
+        let http = FakeHTTP(data: json("""
+        {"docs": [
+          {"key": "/works/OL1W", "title": "The\\tSalt\\nRoad\\u202e", "subtitle": "\\u0001 ",
+           "author_name": ["Ines\\u2066 Calloway", "\\u0001", 7, null], "first_publish_year": 123456789,
+           "number_of_pages_median": -3, "edition_count": 1, "publisher": ["Harbour\\u0001\\nPress"],
+           "cover_i": -3, "isbn": ["9780593135204\\n"]},
+          {"key": "/works/OL2W", "title": "\(long)", "author_name": ["\(long)"], "first_publish_year": 0,
+           "edition_count": 1, "publisher": ["\(long)"], "cover_i": 12},
+          {"key": "/works/OL3W", "title": "A", "first_publish_year": -44, "edition_count": 99999999999},
+          {"key": "/works/OL4W", "title": "\\u0001\\u202e"},
+          {"key": "/works/OL5W", "title": "B", "first_publish_year": 1e40, "cover_i": "12"}
+        ]}
+        """))
+        let found = try await OpenLibraryProvider(http: http).search(LookupQuery(title: "Salt Road"))
+        #expect(found.map(\.id) == ["openLibrary:/works/OL1W", "openLibrary:/works/OL2W", "openLibrary:/works/OL3W", "openLibrary:/works/OL5W"])
+        let book = try #require(found.first)
+        #expect(book.metadata.title == "The Salt Road")
+        #expect(book.metadata.subtitle == nil)
+        #expect(book.metadata.authors == ["Ines Calloway"])
+        #expect(book.metadata.year == nil)
+        #expect(book.metadata.pageCount == nil)
+        #expect(book.metadata.publisher == "Harbour Press")
+        #expect(book.metadata.isbn == "9780593135204")
+        #expect(book.coverURL == nil)
+        #expect(book.thumbnailURL == nil)
+        #expect(book.note == "Open Library · 1 edition")
+        #expect(found[1].metadata.title.count == 500)
+        #expect(found[1].metadata.authors.first?.count == 500)
+        #expect(found[1].metadata.publisher?.count == 200)
+        #expect(found[1].metadata.year == nil)
+        #expect(found[2].metadata.year == nil)
+        #expect(found[2].note == "Open Library")
+        #expect(found[3].metadata.year == nil)
+        #expect(found[3].coverURL == nil)
+    }
+
+    /// O5: the row's picture is the medium size of the same cover.
+    @Test func O5_theThumbnailIsTheMediumCover() async throws {
+        let found = try await OpenLibraryProvider(http: FakeHTTP(data: fixture("ol-search")))
+            .search(LookupQuery(title: "Project Hail Mary"))
+        let work = try #require(found.first)
+        #expect(work.coverURL == URL(string: "https://covers.openlibrary.org/b/id/11200092-L.jpg"))
+        #expect(work.thumbnailURL == URL(string: "https://covers.openlibrary.org/b/id/11200092-M.jpg"))
+    }
+
+    /// The whole key, or it is no key: nothing may follow it, a line break included.
+    @Test func O7_aKeyIsMatchedWhole() async throws {
+        for good in ["/works/OL21745884W", "/books/OL1M", "/a/9"] {
+            #expect(OpenLibraryProvider.isKey(good), "\(good)")
+        }
+        for bad in ["/works/OL1W\n", "/works/OL1W\r\n", "/works/OL1W\u{2028}", "\n/works/OL1W", "/works/OL1W/", "works/OL1W",
+                    "/works/", "//OL1W", "/Works/OL1W", "/works/OL1W.json", "/works/OL1W?x=1", "/works/../OL1W", "/wörks/OL1W",
+                    "/works/OL１W", ""] {
+            #expect(!OpenLibraryProvider.isKey(bad), "\(bad.debugDescription)")
+        }
+        // As it comes out of a JSON answer, too.
+        let http = FakeHTTP(data: json(#"{"docs": [{"key": "/works/OL1W\n", "title": "T"}, {"key": "/works/OL2W", "title": "U"}]}"#))
+        let found = try await OpenLibraryProvider(http: http).search(LookupQuery(title: "T"))
+        #expect(found.map(\.id) == ["openLibrary:/works/OL2W"])
+    }
+
+    @Test func O7_markdownEmphasisAndLinkReferencesAreRemoved() {
+        let raw = """
+        **Ada Example** is the *only reader* in a _quiet_ library.\r
+        \r
+        He has 2 * 3 * 4 problems, a snake_case_name, a footnote* and a rating of *****.\r
+        See [the publisher][1].\r
+        \r
+        [1]: https://example.org/a\r
+        \r
+          [2]: https://example.org/b\r
+        """
+        #expect(OpenLibraryProvider.description(raw) == """
+        Ada Example is the only reader in a quiet library.
+
+        He has 2 * 3 * 4 problems, a snake_case_name, a footnote* and a rating of *****.
+        See [the publisher][1].
+        """)
+        // A reference that is not at the end is part of the text.
+        #expect(OpenLibraryProvider.description("[1]: https://example.org/a\nText") == "[1]: https://example.org/a\nText")
+        #expect(OpenLibraryProvider.withoutEmphasis("*a* and **b c** and _d_ and * e * and f*g*h") == "a and b c and d and * e * and f*g*h")
+    }
+
+    @Test func O7_aDescriptionIsCleanedAndKeptToFiftyThousandCharacters() async throws {
+        let http = FakeHTTP(data: json(#"{"description": {"value": "One\u0001\u202e\r\n\r\nTwo"}}"#))
+        let detailed = try await OpenLibraryProvider(http: http).details(for: candidate())
+        #expect(detailed.metadata.summary == "One\n\nTwo")
+        let long = FakeHTTP(data: json("{\"description\": \"\(String(repeating: "word ", count: 30_000))\"}"))
+        let summary = try #require(try await OpenLibraryProvider(http: long).details(for: candidate()).metadata.summary)
+        #expect(summary.count <= 50_000)
     }
 }

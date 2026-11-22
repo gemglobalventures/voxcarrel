@@ -240,7 +240,8 @@ import Testing
         expected.year = 2021
         expected.language = "en"
         expected.durationSeconds = 970 * 60
-        expected.genre = "Mystery, Thriller & Suspense"
+        // Three of its four ladders are under this; the first listed is not.
+        expected.genre = "Science Fiction & Fantasy"
         expected.asin = "B08G9PRS1K"
         expected.summary = summary
         // No subtitle, no series, no ISBN, no page count: nothing invented.
@@ -248,6 +249,7 @@ import Testing
         #expect(first.source == .audible)
         // U6, U7
         #expect(first.coverURL == URL(string: "https://m.media-amazon.com/images/I/81Nzlrfud+L._SL1024_.jpg"))
+        #expect(first.thumbnailURL == URL(string: "https://m.media-amazon.com/images/I/51POf8gOyLL._SL500_.jpg"))
         #expect(first.note == "Audible · Unabridged · 16h 10m · English")
         #expect(first.id == "audible:us:B08G9PRS1K")
         #expect(!first.hasMoreDetails)
@@ -277,18 +279,110 @@ import Testing
         #expect(fallback.map(\.metadata.year) == [1999, 2005, nil, 2001])
     }
 
-    @Test func U3_genreIsTheFirstGenresLadder() async throws {
+    @Test func U3_genreIsTheMostCommonTopOfTheGenresLadders() async throws {
         let found = try await search("""
         {"products": [
           {"asin": "B000000001", "title": "A", "category_ladders": [
             {"root": "EditorsPicks", "ladder": [{"id": "1", "name": "Staff Picks"}]},
+            {"root": "EditorsPicks", "ladder": [{"id": "1", "name": "Staff Picks"}]},
+            {"root": "EditorsPicks", "ladder": [{"id": "1", "name": "Staff Picks"}]},
             {"root": "Genres", "ladder": [{"id": "2", "name": "History"}, {"id": "3", "name": "Europe"}]},
             {"root": "Genres", "ladder": [{"id": "4", "name": "Biographies"}]}]},
           {"asin": "B000000002", "title": "B", "category_ladders": [{"root": "Genres", "ladder": []}]},
-          {"asin": "B000000003", "title": "C", "category_ladders": "none"}
+          {"asin": "B000000003", "title": "C", "category_ladders": "none"},
+          {"asin": "B000000004", "title": "D", "category_ladders": [
+            {"root": "Genres", "ladder": [{"name": "Thrillers"}, {"name": "Science Fiction"}]},
+            {"root": "Genres", "ladder": [{"name": "Science Fiction"}, {"name": "Thrillers"}]},
+            {"root": "Genres", "ladder": [{"name": 7}]},
+            {"root": "Genres", "ladder": [{"name": " Science Fiction "}]}]}
         ]}
         """)
-        #expect(found.map(\.metadata.genre) == ["History", nil, nil])
+        // A tie goes to the first listed; otherwise the most common top name, whatever is under it.
+        #expect(found.map(\.metadata.genre) == ["History", nil, nil, "Science Fiction"])
+    }
+
+    /// Whatever the service sends is made safe to keep before anything else sees it.
+    @Test func U3_everythingTakenIsCleaned() async throws {
+        let long = String(repeating: "x", count: 3000)
+        let found = try await search("""
+        {"products": [
+          {"asin": " B00000\\u00010001\\n", "title": "The\\tSalt\\nRoad\\u202e", "subtitle": "\\u0001",
+           "authors": [{"name": "Ines\\u2066 Calloway\\u2069"}, {"name": "\\u0001"}, {"name": 5}],
+           "narrators": [{"name": "A\\r\\nB"}], "publisher_name": "Tide\\u0007water\\nAudio",
+           "release_date": "0000-01-01", "issue_date": "12345-01-01", "language": "eng\\u0001lish",
+           "runtime_length_min": 9223372036854775807, "format_type": "un\\u0001abridged",
+           "publisher_summary": "<p>One&#1;&#x202E;</p><p>Two\\u0001\\tthree</p>",
+           "category_ladders": [{"root": "Genres", "ladder": [{"name": "Sci\\u0001ence\\nFiction"}]}],
+           "series": [{"title": "Tide\\u0001water\\nBooks", "sequence": " 2\\u202e "}],
+           "product_images": {"500": "https://m.media-amazon.com/a\\u0001.jpg"}},
+          {"asin": "B000000002", "title": "\(long)", "subtitle": "\(long)", "authors": [{"name": "\(long)"}],
+           "publisher_name": "\(long)", "release_date": "1999-01-01",
+           "series": [{"title": "\(long)", "sequence": "\(long)"}]},
+          {"asin": "B000000003", "title": "\\u0001\\u202e \\n"}
+        ]}
+        """)
+        #expect(found.count == 2)
+        let book = try #require(found.first)
+        #expect(book.metadata.asin == "B000000001")
+        #expect(book.id == "audible:us:B000000001")
+        #expect(book.metadata.title == "The Salt Road")
+        #expect(book.metadata.subtitle == nil)
+        #expect(book.metadata.authors == ["Ines Calloway"])
+        #expect(book.metadata.narrators == ["A B"])
+        #expect(book.metadata.publisher == "Tidewater Audio")
+        #expect(book.metadata.year == nil)
+        #expect(book.metadata.language == "en")
+        #expect(book.metadata.durationSeconds == nil)
+        #expect(book.metadata.summary == "One\n\nTwo three")
+        #expect(book.metadata.genre == "Science Fiction")
+        #expect(book.metadata.series == "Tidewater Books")
+        #expect(book.metadata.seriesNumber == "2")
+        #expect(book.note == "Audible · Unabridged · English")
+        #expect(book.coverURL == URL(string: "https://m.media-amazon.com/a.jpg"))
+
+        let big = found[1]
+        #expect(big.metadata.title.count == 500)
+        #expect(big.metadata.subtitle?.count == 500)
+        #expect(big.metadata.authors.first?.count == 500)
+        #expect(big.metadata.publisher?.count == 200)
+        #expect(big.metadata.series?.count == 500)
+        #expect(big.metadata.seriesNumber?.count == 200)
+        #expect(big.metadata.year == 1999)
+    }
+
+    @Test func U3_aDescriptionIsKeptToFiftyThousandCharacters() async throws {
+        let found = try await search("""
+        {"products": [{"asin": "B000000001", "title": "A", "publisher_summary": "<p>\(String(repeating: "word ", count: 30_000))</p>"}]}
+        """)
+        let summary = try #require(found.first?.metadata.summary)
+        #expect(summary.count <= 50_000)
+        #expect(summary.hasSuffix("…"))
+    }
+
+    /// U6: the row's picture is the 500; the cover is the 1024, or the 500 when that is all there is.
+    @Test func U6_theThumbnailIsTheSmallerImage() async throws {
+        let found = try await search("""
+        {"products": [
+          {"asin": "B000000001", "title": "A", "product_images": {"500": "https://m.media-amazon.com/a500.jpg", "1024": "https://m.media-amazon.com/a1024.jpg"}},
+          {"asin": "B000000002", "title": "B", "product_images": {"500": "https://m.media-amazon.com/b500.jpg"}},
+          {"asin": "B000000003", "title": "C", "product_images": {"1024": "https://m.media-amazon.com/c1024.jpg"}},
+          {"asin": "B000000004", "title": "D"}
+        ]}
+        """)
+        #expect(found.map(\.coverURL?.lastPathComponent) == ["a1024.jpg", "b500.jpg", "c1024.jpg", nil])
+        #expect(found.map(\.thumbnailURL?.lastPathComponent) == ["a500.jpg", "b500.jpg", nil, nil])
+    }
+
+    /// An answer may be 5 MB at most, and may redirect only within the store's own host.
+    @Test func U2_requestsAreLimited() async throws {
+        let http = FakeHTTP { url in
+            (url.path.hasSuffix("B08G9PRS1K") ? fixture("au-badasin") : fixture("au-none"), 200)
+        }
+        _ = try await AudibleProvider(http: http, store: .uk).search(LookupQuery(title: "Dune", asin: "B08G9PRS1K"))
+        #expect(http.limits.count == 2)
+        for limit in http.limits {
+            #expect(limit == FakeHTTP.Limits(maxBytes: 5 * 1024 * 1024, redirectHosts: ["api.audible.co.uk"]))
+        }
     }
 
     @Test func U3_languageGoesThroughLanguageCode() async throws {

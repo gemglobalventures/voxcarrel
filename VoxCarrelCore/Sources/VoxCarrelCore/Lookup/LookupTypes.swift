@@ -41,17 +41,20 @@ public struct LookupCandidate: Identifiable, Equatable, Sendable {
     /// Only what the source actually gave; everything else left empty or nil.
     public var metadata: BookMetadata
     public var coverURL: URL?
+    /// A smaller picture of the same cover, for a row in a list; nil when the source has none.
+    public var thumbnailURL: URL?
     /// One line to tell editions apart: "Audible · Unabridged · 16h 10m · English".
     public var note: String
     /// True when `LookupService.details(for:)` can add more (a description).
     public var hasMoreDetails: Bool
 
     public init(id: String, source: LookupSource, metadata: BookMetadata, coverURL: URL? = nil,
-                note: String = "", hasMoreDetails: Bool = false) {
+                thumbnailURL: URL? = nil, note: String = "", hasMoreDetails: Bool = false) {
         self.id = id
         self.source = source
         self.metadata = metadata
         self.coverURL = coverURL
+        self.thumbnailURL = thumbnailURL
         self.note = note
         self.hasMoreDetails = hasMoreDetails
     }
