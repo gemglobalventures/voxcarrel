@@ -46,16 +46,3 @@ public enum WatchFolderError: Error, Equatable, Sendable {
     /// No watch folder has this id.
     case notFound(Int64)
 }
-
-/// One file found under a watch folder, with what tells one state of it from another.
-public struct ListedFile: Hashable, Sendable {
-    public var url: URL
-    public var size: Int64
-    public var modifiedAt: Date
-
-    public init(url: URL, size: Int64, modifiedAt: Date) {
-        self.url = url
-        self.size = size
-        self.modifiedAt = modifiedAt
-    }
-}

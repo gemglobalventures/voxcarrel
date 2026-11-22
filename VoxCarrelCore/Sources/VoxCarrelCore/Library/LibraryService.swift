@@ -37,8 +37,10 @@ public final class LibraryService {
     var trashItem: (URL) throws -> Void = { _ = try LibraryService.moveToSystemTrash($0) }
 
     /// How the files under a watch folder are listed: given the folder and whether PDFs
-    /// count. Lists nothing until a lister is given.
-    var listWatchFolder: (_ folder: URL, _ includePDFs: Bool) -> [ListedFile] = { _, _ in [] }
+    /// count. A test seam.
+    var listWatchFolder: (_ folder: URL, _ includePDFs: Bool) -> [ListedFile] = {
+        FolderLister().list($0, includePDFs: $1).files
+    }
 
     /// Moves a file to the user's Trash; returns where it now is, when the system says.
     @discardableResult

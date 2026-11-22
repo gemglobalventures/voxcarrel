@@ -236,14 +236,45 @@ import VoxCarrelFixtures
         #expect(recorded.allSatisfy { $0.state == .baseline && $0.folderId == added.id })
     }
 
-    @Test func IB3_withNoListerNothingIsRecorded() throws {
+    /// With the lister the service has unless a test replaces it: the real one.
+    @Test func IB3_theSupportedFilesReallyInTheFolderAreItsBaseline() throws {
+        let f = try F()
+        let url = try folder(f, "Watched")
+        let book = try touch(url.appendingPathComponent("a.m4b"), "four")
+        let part = try touch(url.appendingPathComponent("Book/part 1.MP3"), "sixsix")
+        try touch(url.appendingPathComponent("paper.pdf"))
+        try touch(url.appendingPathComponent("notes.txt"))
+        try touch(url.appendingPathComponent(".hidden.m4b"))
+        try touch(url.appendingPathComponent("empty.m4b"), "")
+        try touch(url.appendingPathComponent("book.m4b.crdownload"))
+
+        let added = try f.service.addWatchFolder(url, now: now)
+
+        let recorded = try entries(f, added.id).sorted { $0.path < $1.path }
+        // Paths are under the stored folder, as text; PDFs are off for a new folder.
+        #expect(recorded.map(\.path) == [added.path + "/Book/part 1.MP3", added.path + "/a.m4b"])
+        #expect(recorded.map(\.size) == [6, 4])
+        let dates = try [part, book].map {
+            try #require(try $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+        }
+        #expect(recorded.map(\.modifiedAt) == dates)
+        #expect(recorded.allSatisfy { $0.state == .baseline && $0.folderId == added.id })
+        // And they are what the lister reports for the stored folder now.
+        let listed = FolderLister().list(added.url, includePDFs: false).files
+        #expect(listed.map(\.url.path) == recorded.map(\.path))
+        #expect(listed.map(\.modifiedAt) == recorded.map(\.modifiedAt))
+    }
+
+    @Test func IB3_withAListerThatFindsNothingNothingIsRecorded() throws {
         let f = try F()
         let url = try folder(f, "Watched")
         try touch(url.appendingPathComponent("a.m4b"))
+        f.service.listWatchFolder = { _, _ in [] }
 
         let added = try f.service.addWatchFolder(url, now: now)
 
         #expect(try f.service.watchFolders() == [added])
+        #expect(try entryCount(f) == 0)
     }
 
     /// One transaction: when the baseline cannot be stored, neither is the folder.
