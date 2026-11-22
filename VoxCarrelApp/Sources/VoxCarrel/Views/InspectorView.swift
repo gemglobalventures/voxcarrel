@@ -9,12 +9,12 @@ struct InspectorView: View {
 
     var body: some View {
         switch model.inspecting {
-        case .nothing, .missing:
-            // I9
-            Text("No book selected")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("inspector.empty")
+        case .nothing:
+            InspectorEmptyView()
+        case .missing(let entry):
+            // Plan 9: a book that is on Audible's list of the series and not in the library.
+            MissingBookInspector()
+                .id(entry.id)
         case .one(let detail, let draft):
             BookInspector(detail: detail, draft: draft)
                 // Another book is another form: its own scroll position, and no field
@@ -24,6 +24,16 @@ struct InspectorView: View {
             BulkInspectorView(draft: draft)
                 .id(draft.books.map(\.id))
         }
+    }
+}
+
+/// I9: a few words when there is nothing to inspect.
+struct InspectorEmptyView: View {
+    var body: some View {
+        Text("No book selected")
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("inspector.empty")
     }
 }
 

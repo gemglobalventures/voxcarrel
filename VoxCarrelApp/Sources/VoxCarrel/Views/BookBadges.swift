@@ -44,22 +44,78 @@ struct AudibleCoverLabel: View {
 
     var body: some View {
         if !row.hasFiles, let whereabouts = row.whereaboutsText {
-            Label(ExternalKind.audible.title, systemImage: SidebarItem.onAudible.symbol)
-                .labelStyle(.titleAndIcon)
-                .font(.caption2.weight(.semibold))
+            CoverCornerLabel(
+                title: ExternalKind.audible.title, symbol: SidebarItem.onAudible.symbol, meaning: whereabouts,
+                identifier: "books.cover.onAudible")
+        }
+    }
+}
+
+/// Plan 9: the same label, for a book that is on Audible's list of the series and not in
+/// the library.
+struct MissingCoverLabel: View {
+    let row: BookRow
+
+    var body: some View {
+        if let label = row.missingLabel {
+            CoverCornerLabel(
+                title: label, symbol: MissingMark.symbol, meaning: row.missingText ?? label,
+                identifier: "books.cover.missing")
+        }
+    }
+}
+
+/// The symbol of a book the library does not have.
+enum MissingMark {
+    static let symbol = "circle.dashed"
+}
+
+/// A symbol and a word in a corner of a cover, on a material so that it reads over any cover.
+private struct CoverCornerLabel: View {
+    let title: String
+    let symbol: String
+    /// What the label means, in full: its tooltip, and what is read out.
+    let meaning: String
+    let identifier: String
+
+    var body: some View {
+        Label(title, systemImage: symbol)
+            .labelStyle(.titleAndIcon)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.15), lineWidth: 0.5)
+            }
+            .padding(5)
+            .help(meaning)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(meaning)
+            .accessibilityIdentifier(identifier)
+    }
+}
+
+/// Plan 9: the word "Missing" in a small capsule beside the title of a book the library
+/// does not have; nothing for any other.
+struct MissingBadge: View {
+    let row: BookRow
+
+    var body: some View {
+        if let label = row.missingLabel {
+            Text(label)
+                .font(.caption2.weight(.medium))
                 .lineLimit(1)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(.primary.opacity(0.15), lineWidth: 0.5)
-                }
-                .padding(5)
-                .help(whereabouts)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(whereabouts)
-                .accessibilityIdentifier("books.cover.onAudible")
+                .fixedSize()
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(.quaternary, in: Capsule())
+                .foregroundStyle(.secondary)
+                .help(row.missingText ?? label)
+                .accessibilityLabel(row.missingText ?? label)
+                .accessibilityIdentifier("books.badge.missing")
         }
     }
 }

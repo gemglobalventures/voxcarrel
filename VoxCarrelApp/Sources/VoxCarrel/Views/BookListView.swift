@@ -81,7 +81,7 @@ struct BookListView: View {
     }
 }
 
-/// A small cover, the title, what kind of edition it is when that is worth saying, the
+/// A small cover, the title, a word for a book the library does not have, what kind of edition it is when that is worth saying, the
 /// pencil of a book with unsaved edits, and the warning triangle.
 private struct TitleCell: View {
     let model: AppModel
@@ -93,7 +93,9 @@ private struct TitleCell: View {
                 .frame(width: 20, height: 30)
             Text(row.book.title)
                 .lineLimit(1)
+                .foregroundStyle(row.isMissing ? .secondary : .primary)
                 .help(row.book.title)
+            MissingBadge(row: row)
             // In words where the column has room for them, a symbol where it has not.
             EditionBadge(row: row)
             EditedBadge(model: model, id: row.id)

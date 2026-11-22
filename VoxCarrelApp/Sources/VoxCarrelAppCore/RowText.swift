@@ -222,6 +222,17 @@ extension BookRow {
         return hasFiles ? "Also on Audible" : "On Audible, not on this Mac"
     }
 
+    /// Plan 9: the word on the row of a book that is on Audible's list of the series
+    /// and not in the library; nil for a book of the library.
+    public var missingLabel: String? {
+        isMissing ? "Missing" : nil
+    }
+
+    /// Plan 9: what that word means, in full; nil for a book of the library.
+    public var missingText: String? {
+        isMissing ? "On Audible's list, not in your library" : nil
+    }
+
     /// What there is to open, here or on Audible; nil when the book has neither.
     public var formsText: String? {
         switch (hasAudio, hasEbook) {
@@ -252,6 +263,7 @@ extension BookRow {
         // A book with no files is said to be on Audible, which says it is an audiobook too.
         if hasFiles || whereaboutsText == nil, let formsText { badges.append(formsText) }
         if let whereaboutsText { badges.append(whereaboutsText) }
+        if let missingText { badges.append(missingText) }
         if let editionLabel { badges.append(editionLabel) }
         if book.readStatus != .unread { badges.append(book.readStatus.title) }
         if let warningText { badges.append(warningText) }

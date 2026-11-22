@@ -48,6 +48,12 @@ struct BookCommandItems: View {
                 .disabled(!model.canLookUp)
                 .help(model.lookUpHelp)
                 .accessibilityIdentifier("\(prefix).lookup")
+            // Plan 9: for the series the sidebar shows, so the Book menu's alone.
+            Button("Check Series") {
+                Task { await model.checkSeries() }
+            }
+            .disabled(model.seriesHeader?.canCheck != true)
+            .accessibilityIdentifier("\(prefix).checkSeries")
         }
 
         Divider()

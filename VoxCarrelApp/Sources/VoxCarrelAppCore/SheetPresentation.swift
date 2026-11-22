@@ -43,3 +43,44 @@ public struct SheetPresentation<Sheet: Identifiable> {
         presented = wanted
     }
 }
+
+/// V5: a sheet of the library window. Sheets of one kind have one id, whatever they show.
+public enum WindowSheet: Identifiable, Equatable, Sendable {
+    case progress(String)
+    case review(ImportReview)
+    case result(ResultSummary)
+    case check(LibraryCheckSummary)
+    case seriesChoice([SeriesChoice])
+    case lookup(LookupSession)
+
+    public var id: String {
+        switch self {
+        case .progress: "progress"
+        case .review: "review"
+        case .result: "result"
+        case .check: "check"
+        case .seriesChoice: "seriesChoice"
+        case .lookup: "lookup"
+        }
+    }
+}
+
+extension AppModel {
+    /// V5: the one sheet the window should have up now; nil for none. When several are
+    /// wanted, the first of: progress, the import review, a result, the launch check,
+    /// the choice between Audible series, and a lookup (for the inspected book, or to
+    /// add an Audible book).
+    ///
+    /// - Parameter progressDue: Whether the operation that is running has run long
+    ///   enough for its progress to be shown: a short one shows no sheet.
+    public func windowSheet(progressDue: Bool) -> WindowSheet? {
+        if progressDue, let label = progressSheetLabel { return .progress(label) }
+        if let review { return .review(review) }
+        if let result { return .result(result) }
+        if let check = libraryCheckSummary { return .check(check) }
+        if let choices = seriesChoices { return .seriesChoice(choices) }
+        if let lookup = inspectorLookup { return .lookup(lookup) }
+        if let lookup = addAudibleLookup { return .lookup(lookup) }
+        return nil
+    }
+}

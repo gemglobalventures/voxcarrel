@@ -161,9 +161,14 @@ private struct BookGridCell: View {
                 .overlay(alignment: .bottomTrailing) {
                     AudibleCoverLabel(row: row)
                 }
+                // Plan 9: in the same corner, for a book the library does not have.
+                .overlay(alignment: .bottomTrailing) {
+                    MissingCoverLabel(row: row)
+                }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(row.book.title)
                     .font(.callout.weight(.medium))
+                    .foregroundStyle(row.isMissing ? .secondary : .primary)
                     .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)

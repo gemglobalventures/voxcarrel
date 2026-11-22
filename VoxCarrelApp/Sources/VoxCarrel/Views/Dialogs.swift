@@ -3,8 +3,9 @@ import VoxCarrelAppCore
 
 /// V5: the sheets, alerts and questions the model asks the window to show.
 ///
-/// One sheet at a time, in this order: progress, the import review, a result, the
-/// launch check, and a lookup: for the inspected book, or to add an Audible book. Which is up is
+/// One sheet at a time, in the model's order (`AppModel.windowSheet`): progress, the
+/// import review, a result, the launch check, the choice between Audible series, and a
+/// lookup: for the inspected book, or to add an Audible book. Which is up is
 /// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
 /// is up has closed, so each has a sheet window of its own, at its own size.
 ///
@@ -19,35 +20,11 @@ struct Dialogs: ViewModifier {
     @Environment(AppModel.self) private var model
     /// Set a moment after an operation starts, so a short one shows no sheet at all.
     @State private var progressDue = false
-    @State private var sheets = SheetPresentation<ActiveSheet>()
-
-    private enum ActiveSheet: Identifiable, Equatable {
-        case progress(String)
-        case review(ImportReview)
-        case result(ResultSummary)
-        case check(LibraryCheckSummary)
-        case lookup(LookupSession)
-
-        var id: String {
-            switch self {
-            case .progress: "progress"
-            case .review: "review"
-            case .result: "result"
-            case .check: "check"
-            case .lookup: "lookup"
-            }
-        }
-    }
+    @State private var sheets = SheetPresentation<WindowSheet>()
 
     /// The sheet the model wants shown now.
-    private var wanted: ActiveSheet? {
-        if progressDue, let label = model.progressSheetLabel { return .progress(label) }
-        if let review = model.review { return .review(review) }
-        if let result = model.result { return .result(result) }
-        if let check = model.libraryCheckSummary { return .check(check) }
-        if let lookup = model.inspectorLookup { return .lookup(lookup) }
-        if let lookup = model.addAudibleLookup { return .lookup(lookup) }
-        return nil
+    private var wanted: WindowSheet? {
+        model.windowSheet(progressDue: progressDue)
     }
 
     func body(content: Content) -> some View {
@@ -79,6 +56,9 @@ struct Dialogs: ViewModifier {
                         .modifier(Questions(isActive: true))
                 case .check(let summary):
                     LibraryCheckSheet(summary: summary)
+                        .modifier(Questions(isActive: true))
+                case .seriesChoice(let choices):
+                    SeriesPickerSheet(model: model, choices: choices)
                         .modifier(Questions(isActive: true))
                 case .lookup(let lookup):
                     LookupSheet(shown: lookup)

@@ -28,6 +28,11 @@ public struct SeriesHeader: Equatable, Sendable {
     /// How many entries of the list are hidden: whether there is anything for
     /// "Show Hidden" to show.
     public var hiddenCount: Int
+
+    /// What the button that asks Audible says: a series that has a list is checked again.
+    public var checkTitle: String {
+        isLinked ? "Check Again" : "Check Series"
+    }
 }
 
 /// One of the Audible series the owner is asked to choose between.
@@ -57,6 +62,26 @@ public struct MissingBookInfo: Equatable, Sendable {
     public var isHidden: Bool
     /// Whether it can be added or hidden now: nothing is running or in the way.
     public var canChange: Bool
+
+    /// What the action that hides it says: a hidden book is shown again.
+    public var hideTitle: String {
+        isHidden ? "Show" : "Hide"
+    }
+}
+
+/// The three things that can be done with a book the library does not have, as a
+/// context menu offers them.
+public struct MissingActions: Equatable, Sendable {
+    /// Add as Audible Book.
+    public var canAdd: Bool
+    /// Show on Audible.
+    public var canShow: Bool
+    /// Hide, or Show.
+    public var canSetHidden: Bool
+    /// "Hide", or "Show" for a book that is hidden.
+    public var hideTitle: String
+    /// Whether the book is hidden now.
+    public var isHidden: Bool
 }
 
 /// A book of a library series, as Check Series asks Audible about it.

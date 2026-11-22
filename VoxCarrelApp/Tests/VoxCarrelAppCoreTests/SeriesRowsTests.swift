@@ -172,6 +172,30 @@ import VoxCarrelCore
         #expect(!bare.canChange)
     }
 
+    /// The buttons' words: a checked series is checked again, a hidden book is shown.
+    @Test func theButtonsWords() {
+        #expect(header(nil).checkTitle == "Check Series")
+        #expect(header(completeness()).checkTitle == "Check Again")
+        let shown = SeriesRows.info(for: entry(1, "One", number: "1"), link: link(), canChange: true)
+        let hidden = SeriesRows.info(for: entry(2, "Two", number: "2", hidden: true), link: link(), canChange: true)
+        #expect(shown.hideTitle == "Hide")
+        #expect(hidden.hideTitle == "Show")
+    }
+
+    /// A missing row says that it is one, in a word and in full; a book's row does not.
+    @Test func aMissingRowSaysSo() {
+        let row = SeriesRows.row(for: entry(12, "The Lost Book", number: "7"), link: link())
+        #expect(row.missingLabel == "Missing")
+        #expect(row.missingText == "On Audible's list, not in your library")
+        #expect(row.summaryText.contains("On Audible's list, not in your library"))
+        let book = BookRow(
+            id: 4, book: Book(metadata: BookMetadata(title: "Here")), hasAudio: true, hasEbook: false, formats: [.m4b], coverURL: nil,
+            hasWriteProblem: false)
+        #expect(book.missingLabel == nil)
+        #expect(book.missingText == nil)
+        #expect(!book.summaryText.contains("Audible's list"))
+    }
+
     /// SV5: the hidden entries have rows only while hidden entries are shown; a series
     /// that is not linked has none.
     @Test func rowsForTheEntriesThatAreNotHidden() {

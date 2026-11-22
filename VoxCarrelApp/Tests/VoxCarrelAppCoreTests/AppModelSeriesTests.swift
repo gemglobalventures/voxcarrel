@@ -804,6 +804,85 @@ private let notChecked = "Not checked against Audible"
         #expect(h.model.seriesHeader?.notes == [])
     }
 
+    /// SV8: a context menu on missing rows offers the three actions in place of the
+    /// book commands, and they work only for the one missing row that is selected.
+    @Test func aContextMenuOnAMissingRowOffersItsActions() async throws {
+        let h = try await checked()
+        let glass = try missingRow(h, "The Glass Tide").id
+        let lantern = try missingRow(h, "Lantern Reef").id
+        let salt = try h.id("Salt Road")
+        let off = MissingActions(canAdd: false, canShow: false, canSetHidden: false, hideTitle: "Hide", isHidden: false)
+
+        // A book's menu is the book commands.
+        #expect(h.model.missingActions(for: [salt]) == nil)
+        #expect(h.model.missingActions(for: []) == nil)
+        // Not selected: offered, and off.
+        #expect(h.model.missingActions(for: [glass]) == off)
+
+        try await selectMissing(h, "The Glass Tide")
+        #expect(
+            h.model.missingActions(for: [glass])
+                == MissingActions(canAdd: true, canShow: true, canSetHidden: true, hideTitle: "Hide", isHidden: false))
+        // Another row than the selected one, and more than one.
+        #expect(h.model.missingActions(for: [lantern]) == off)
+        #expect(h.model.missingActions(for: [glass, lantern]) == off)
+        #expect(h.model.missingActions(for: [glass, salt]) == off)
+
+        // While something runs, the book can still be shown on Audible.
+        h.model.busyLabel = "Working…"
+        #expect(
+            h.model.missingActions(for: [glass])
+                == MissingActions(canAdd: false, canShow: true, canSetHidden: false, hideTitle: "Hide", isHidden: false))
+        h.model.busyLabel = nil
+
+        // Hidden, and shown among the rows: Hide is Show.
+        await h.model.setSelectedMissingHidden(true)
+        h.model.showsHiddenMissing = true
+        await h.model.settle()
+        let hidden = try await selectMissing(h, "The Glass Tide").id
+        #expect(
+            h.model.missingActions(for: [hidden])
+                == MissingActions(canAdd: true, canShow: true, canSetHidden: true, hideTitle: "Show", isHidden: true))
+
+        h.model.select([glass, lantern])
+        await h.model.settle()
+        #expect(h.model.missingActions(for: [glass, lantern]) == off)
+    }
+
+    // MARK: The picker as a sheet
+
+    /// V5, SV3: the choice between series is the window's sheet while it is asked, after
+    /// progress, a review, a result and the launch check, and gone when it is answered.
+    @Test func theChoiceIsOneOfTheWindowsSheets() async throws {
+        let published = tidewater(id: "B0PUBLISHD", title: "Tidewater (publication order)")
+        let story = tidewater(id: "B0STORYORD", title: "Tidewater (chronological order)")
+        let h = try await shown([published, story])
+        #expect(h.model.windowSheet(progressDue: true) == nil)
+
+        await h.model.checkSeries()
+        let choices = try #require(h.model.seriesChoices)
+        #expect(h.model.windowSheet(progressDue: false) == .seriesChoice(choices))
+        #expect(h.model.windowSheet(progressDue: true) == .seriesChoice(choices))
+        #expect(WindowSheet.seriesChoice(choices).id == WindowSheet.seriesChoice([]).id)
+        #expect(Set([WindowSheet.seriesChoice([]).id, WindowSheet.progress("").id]).count == 2)
+
+        // A result comes first, and the choice is back when it has been read.
+        let result = ResultSummary(headline: "Done", problems: [], isClean: true)
+        h.model.result = result
+        #expect(h.model.windowSheet(progressDue: false) == .result(result))
+        h.model.result = nil
+        #expect(h.model.windowSheet(progressDue: false) == .seriesChoice(choices))
+
+        // Progress comes before everything, once it is due.
+        h.model.busyLabel = "Working…"
+        #expect(h.model.windowSheet(progressDue: false) == .seriesChoice(choices))
+        #expect(h.model.windowSheet(progressDue: true) == .progress("Working…"))
+        h.model.busyLabel = nil
+
+        h.model.cancelSeriesChoice()
+        #expect(h.model.windowSheet(progressDue: true) == nil)
+    }
+
     // MARK: SV10 Audible's numbers
 
     private func numberedDifferently() -> [FakeCatalogue.Series] {

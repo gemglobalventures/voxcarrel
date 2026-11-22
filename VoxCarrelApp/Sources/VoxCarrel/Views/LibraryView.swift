@@ -90,10 +90,22 @@ private struct LibraryToolbar: ToolbarContent {
 }
 
 /// The books: as covers or as a table, or a few words when there are none to show.
+/// Above the books of a series, what is known of Audible's list of it (plan 9).
 private struct BooksView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let header = model.seriesHeader {
+                SeriesHeaderStrip(model: model, header: header)
+                Divider()
+            }
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
         switch model.booksContent {
         case .notLoaded:
             // The library is being opened, under the progress sheet.

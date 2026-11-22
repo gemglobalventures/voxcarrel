@@ -192,6 +192,22 @@ extension AppModel {
         return SeriesRows.info(for: entry, link: link, canChange: isQuietForSeries)
     }
 
+    /// SV8: what a context menu opened on these rows offers in place of the book
+    /// commands; nil when none of them is a row for a book the library does not have,
+    /// and the book commands are the ones to show.
+    ///
+    /// The actions are for the one selected missing book: all are off unless these
+    /// rows are exactly that one, selected.
+    public func missingActions(for ids: Set<Int64>) -> MissingActions? {
+        guard holdsMissing(ids) else { return nil }
+        guard ids == selection, let info = missingBook else {
+            return MissingActions(canAdd: false, canShow: false, canSetHidden: false, hideTitle: "Hide", isHidden: false)
+        }
+        return MissingActions(
+            canAdd: info.canChange, canShow: true, canSetHidden: info.canChange, hideTitle: info.hideTitle,
+            isHidden: info.isHidden)
+    }
+
     /// SV8: adds the one selected missing book to the library as a book that is on
     /// Audible and has no files here, as Add Audible Book adds one: with the entry's
     /// title, authors, narrators and Audible ID, in the store the list came from, under
