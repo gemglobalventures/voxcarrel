@@ -158,6 +158,11 @@ public final class AppModel {
 
     /// A1
     private func openLibrary() async {
+        // A26: files the app was asked to open meanwhile are imported, or refused, now.
+        defer {
+            hasTriedLibrary = true
+            importHeldFiles()
+        }
         worker = nil
         openFailure = nil
         sidebar = SidebarData(counts: [:], browse: [:], collections: [])
@@ -543,7 +548,12 @@ public final class AppModel {
     // MARK: Activity
 
     /// Not nil while an operation runs: what to show beside the progress indicator.
-    public internal(set) var busyLabel: String?
+    public internal(set) var busyLabel: String? {
+        didSet {
+            // A26
+            if busyLabel == nil { importHeldFiles() }
+        }
+    }
     /// A plain sentence, dismissed by the view.
     public var alert: String?
     /// Shown as a sheet when not clean.
@@ -676,6 +686,11 @@ public final class AppModel {
     @ObservationIgnored var reviewBeganCopying = false
     /// Whether the review is of the files the launch check found loose in the library folder.
     @ObservationIgnored var reviewIsOfUntracked = false
+    /// A26: true once the library has been looked for, whether or not it opened.
+    @ObservationIgnored var hasTriedLibrary = false
+    /// A26: files the app was asked to open that are waiting for the library to open, or
+    /// for an operation to end.
+    @ObservationIgnored var heldFiles: [URL] = []
 
     // MARK: Inspector
 

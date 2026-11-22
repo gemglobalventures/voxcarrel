@@ -10,6 +10,50 @@ extension AppModel {
         await beginImport(urls.filter(\.isFileURL), untracked: false)
     }
 
+    /// A26: the app has been asked to open these files and folders, by a drop on its
+    /// Dock icon or from the Finder: they are imported like files dropped on the window.
+    ///
+    /// The user is not looking at the window, so nothing is refused without a word.
+    /// Before the library has been opened, and while an operation runs, the files are
+    /// held and imported when that is over. With no library open, or with an import
+    /// already being reviewed, they are not taken and `alert` says what to do.
+    public func openFiles(_ urls: [URL]) async {
+        // Q13
+        let files = urls.filter(\.isFileURL)
+        guard !files.isEmpty else { return }
+        guard hasTriedLibrary, busyLabel == nil else {
+            heldFiles += files
+            return
+        }
+        guard isLibraryOpen else {
+            alert = status == .notChosen ? Self.openedWithNoLibraryChosen : Self.openedWithLibraryNotOpen
+            return
+        }
+        guard review == nil else {
+            alert = Self.openedDuringReview
+            return
+        }
+        await beginImport(files)
+    }
+
+    static let openedWithNoLibraryChosen =
+        "Choose a library folder first, then open the files with VoxCarrel again."
+    static let openedWithLibraryNotOpen =
+        "The library is not open, so nothing was imported. Open the files with VoxCarrel again when it is."
+    static let openedDuringReview =
+        "Finish or cancel the import you are reviewing, then open the files with VoxCarrel again."
+
+    /// A26: takes up the held files again, now that the library has been looked for or
+    /// an operation has ended.
+    func importHeldFiles() {
+        guard !heldFiles.isEmpty else { return }
+        spawn {
+            let files = self.heldFiles
+            self.heldFiles = []
+            await self.openFiles(files)
+        }
+    }
+
     /// - Parameter untracked: True when the files are those the launch check found
     ///   loose in the library folder.
     private func beginImport(_ urls: [URL], untracked: Bool) async {

@@ -121,10 +121,18 @@ enum MainWindow {
     }
 }
 
-/// Asks the model before the app quits.
+/// Asks the model before the app quits, and hands it the files the app is asked to open.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var model: AppModel?
+
+    /// Files and folders dropped on the Dock icon, or opened with the app from the
+    /// Finder: imported like a drop on the window, which is where the review is shown.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let model = Self.model else { return }
+        MainWindow.show()
+        Task { await model.openFiles(urls) }
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model = Self.model else { return .terminateNow }

@@ -12,4 +12,73 @@
 <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<!-- Opening these with VoxCarrel imports them. Alternate: never the default app for any of them. -->
+<key>CFBundleDocumentTypes</key>
+<array>
+    <dict>
+        <key>CFBundleTypeName</key><string>Audiobook</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>Alternate</string>
+        <key>LSItemContentTypes</key>
+        <array>
+            <string>com.apple.protected-mpeg-4-audio-b</string>
+            <string>com.apple.m4a-audio</string>
+            <string>public.mpeg-4-audio</string>
+            <string>public.mp3</string>
+        </array>
+    </dict>
+    <dict>
+        <key>CFBundleTypeName</key><string>Ebook</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>Alternate</string>
+        <key>LSItemContentTypes</key>
+        <array>
+            <string>org.idpf.epub-container</string>
+            <string>com.adobe.pdf</string>
+            <string>app.voxcarrel.mobipocket-ebook</string>
+            <string>app.voxcarrel.kindle-azw3-ebook</string>
+        </array>
+    </dict>
+    <dict>
+        <key>CFBundleTypeName</key><string>Folder</string>
+        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>LSHandlerRank</key><string>Alternate</string>
+        <key>LSItemContentTypes</key>
+        <array>
+            <string>public.folder</string>
+        </array>
+    </dict>
+</array>
+<!-- Kinds of file the system has no name for, known by their extensions. -->
+<key>UTImportedTypeDeclarations</key>
+<array>
+    <dict>
+        <key>UTTypeIdentifier</key><string>app.voxcarrel.mobipocket-ebook</string>
+        <key>UTTypeDescription</key><string>Mobipocket Ebook</string>
+        <key>UTTypeConformsTo</key>
+        <array>
+            <string>public.data</string>
+            <string>public.content</string>
+        </array>
+        <key>UTTypeTagSpecification</key>
+        <dict>
+            <key>public.filename-extension</key>
+            <array><string>mobi</string></array>
+        </dict>
+    </dict>
+    <dict>
+        <key>UTTypeIdentifier</key><string>app.voxcarrel.kindle-azw3-ebook</string>
+        <key>UTTypeDescription</key><string>Kindle Ebook</string>
+        <key>UTTypeConformsTo</key>
+        <array>
+            <string>public.data</string>
+            <string>public.content</string>
+        </array>
+        <key>UTTypeTagSpecification</key>
+        <dict>
+            <key>public.filename-extension</key>
+            <array><string>azw3</string></array>
+        </dict>
+    </dict>
+</array>
 </dict></plist>
