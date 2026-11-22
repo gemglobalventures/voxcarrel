@@ -67,7 +67,7 @@ Look Up sends the title, author, ISBN or Audible ID you search for to Open Libra
 
 If VoxCarrel is useful to you, you can support its development:
 
-[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K7Q12B3BHJ)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/K7Q12B3BHJ)
 
 ## Licence
 
