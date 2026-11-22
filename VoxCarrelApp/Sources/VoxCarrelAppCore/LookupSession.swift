@@ -247,7 +247,8 @@ public struct LookupSession: Equatable, Sendable {
         func names(_ theirs: [String], _ ours: [String]) -> Offer? {
             let theirs = Self.names(theirs)
             let ours = Self.names(ours)
-            guard !theirs.isEmpty, theirs.map { $0.lowercased() } != ours.map({ $0.lowercased() }) else { return nil }
+            let differs = theirs.map { $0.lowercased() } != ours.map { $0.lowercased() }
+            guard !theirs.isEmpty, differs else { return nil }
             return Offer(
                 id: field, label: Self.label(field), current: NameListText.text(from: ours),
                 found: NameListText.text(from: theirs), ticked: ours.isEmpty)

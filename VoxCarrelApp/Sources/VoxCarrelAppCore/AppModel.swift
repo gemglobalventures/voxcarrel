@@ -51,10 +51,18 @@ public final class AppModel {
         didSet { isLibraryOpen = worker != nil }
     }
 
-    public init(location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard) {
+    /// - Parameter lookupService: Makes what books are looked up with, for an Audible
+    ///   store; nil for the real sources over the network. Tests give fakes.
+    public init(
+        location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
+        lookupService: ((AudibleStore) -> LookupService)? = nil
+    ) {
         self.location = location
         self.opener = opener
         self.defaults = defaults
+        makeLookupService = lookupService ?? { LookupService.standard(store: $0) }
+        storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
+            ?? AudibleStore.forRegion(Locale.current.region?.identifier)
         status = location.status()
         storedViewMode = defaults.string(forKey: Keys.viewMode).flatMap(ViewMode.init) ?? .grid
         storedSort = BookSort(
@@ -68,6 +76,7 @@ public final class AppModel {
         static let sortKey = "sortKey"
         static let sortAscending = "sortAscending"
         static let copyOnImport = "copyOnImport"
+        static let audibleStore = "audibleStore"
     }
 
     // MARK: Library
@@ -176,6 +185,8 @@ public final class AppModel {
         missingFileTitles = []
         review = nil
         reviewIsOfUntracked = false
+        // A5: a lookup was for a book or an import of the library shown before.
+        closeLookup()
         strandedNames = [:]
         sentDraft = nil
         // A25: a request to quit that was waiting for an answer is called off.
@@ -198,7 +209,10 @@ public final class AppModel {
         do {
             // Opening reads the disk and may create or migrate the catalogue: not on the main thread.
             let trashItem = trashItem
-            worker = try await Task.detached { try LibraryWorker(libraryRoot: folder, trashItem: trashItem) }.value
+            let lookup = makeLookupService(storedAudibleStore)
+            worker = try await Task.detached {
+                try LibraryWorker(libraryRoot: folder, trashItem: trashItem, lookup: lookup)
+            }.value
         } catch {
             openFailure =
                 "The library in \"\(folder.lastPathComponent)\" could not be opened. \(UserMessage.text(for: error))"
@@ -681,7 +695,9 @@ public final class AppModel {
 
     /// The import being reviewed; not nil shows the sheet. Changed through
     /// `updateReview`, closed by `confirmImport` or `cancelImport`.
-    public internal(set) var review: ImportReview?
+    public internal(set) var review: ImportReview? {
+        didSet { closeLookupIfItsTargetHasGone() }
+    }
     /// Whether the review began as a copy, to tell a choice the user made from the setting it began with.
     @ObservationIgnored var reviewBeganCopying = false
     /// Whether the review is of the files the launch check found loose in the library folder.
@@ -695,7 +711,9 @@ public final class AppModel {
     // MARK: Inspector
 
     /// What the inspector shows. Follows `selection`.
-    public internal(set) var inspecting: Inspecting = .nothing
+    public internal(set) var inspecting: Inspecting = .nothing {
+        didSet { closeLookupIfItsTargetHasGone() }
+    }
     /// While a save runs: the draft as it was when it was sent, to tell what has been
     /// typed since. Nil at any other time.
     @ObservationIgnored var sentDraft: Inspecting?
@@ -772,6 +790,37 @@ public final class AppModel {
         let shownIds = rows.map(\.id)
         return shownIds.filter(ids.contains) + ids.subtracting(shownIds).sorted()
     }
+
+    // MARK: Looking up online
+
+    /// The lookup that is open; not nil shows its sheet, over the import sheet when its
+    /// `target` is an import entry and over the window otherwise. Opened by
+    /// `beginLookup`, closed by `applyLookup` or `cancelLookup`, and whenever what it
+    /// was for has gone.
+    public internal(set) var lookup: LookupSession?
+
+    /// A7: which country's Audible catalogue is searched. Remembered; the Mac's region's
+    /// to begin with. Changing it rebuilds what the open library looks books up with.
+    public var audibleStore: AudibleStore {
+        get { storedAudibleStore }
+        set {
+            guard newValue != storedAudibleStore else { return }
+            storedAudibleStore = newValue
+            defaults.set(newValue.rawValue, forKey: Keys.audibleStore)
+            worker?.setLookupService(makeLookupService(newValue))
+        }
+    }
+
+    private var storedAudibleStore: AudibleStore
+    @ObservationIgnored private let makeLookupService: (AudibleStore) -> LookupService
+    /// The two-letter code of the language results are preferred in: the Mac's own.
+    /// Tests give another.
+    @ObservationIgnored var lookupLanguage = Locale.current.language.languageCode?.identifier
+    /// The search that is running, or the last that ran.
+    @ObservationIgnored var lookupSearch: Task<Void, Never>?
+    /// Changes whenever a lookup is opened or closed: an answer that arrives for a
+    /// lookup that has closed is not for the one that is open now.
+    @ObservationIgnored var lookupGeneration = 0
 
     // MARK: Work in the background
 

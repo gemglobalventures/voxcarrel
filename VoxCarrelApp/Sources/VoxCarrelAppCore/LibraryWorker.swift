@@ -1,4 +1,5 @@
 import Foundation
+import os
 import VoxCarrelCore
 
 /// Owns the library engine and runs it off the main thread, one call at a time.
@@ -11,15 +12,48 @@ public actor LibraryWorker {
 
     private let service: LibraryService
     private var store: LibraryStore { service.store }
+    /// What books are looked up with. Not part of the library, and not behind the
+    /// actor: a lookup waits on the network and must not keep the library waiting.
+    private nonisolated let lookup: OSAllocatedUnfairLock<LookupService>
 
     /// Opens (creating if new) the library at `libraryRoot`.
     ///
-    /// - Parameter trashItem: How a removed book's file is sent to the Trash; nil for
-    ///   the system's Trash. Tests give a folder of their own.
-    public init(libraryRoot: URL, trashItem: (@Sendable (URL) throws -> Void)? = nil) throws {
+    /// - Parameters:
+    ///   - trashItem: How a removed book's file is sent to the Trash; nil for the
+    ///     system's Trash. Tests give a folder of their own.
+    ///   - lookup: What books are looked up with; nil for Open Library and the Audible
+    ///     store of the Mac's region, over the network. Tests give fakes.
+    public init(
+        libraryRoot: URL, trashItem: (@Sendable (URL) throws -> Void)? = nil, lookup: LookupService? = nil
+    ) throws {
         self.libraryRoot = libraryRoot
         let store = try LibraryStore(libraryRoot: libraryRoot)
         self.service = trashItem.map { LibraryService(store: store, trashItem: $0) } ?? LibraryService(store: store)
+        self.lookup = OSAllocatedUnfairLock(
+            initialState: lookup ?? .standard(store: .forRegion(Locale.current.region?.identifier)))
+    }
+
+    // MARK: Looking up online
+
+    // None of these touches the library, and none runs on the actor: the library goes
+    // on answering while a source is slow.
+
+    /// Replaces what books are looked up with: for when the Audible store setting changes.
+    public nonisolated func setLookupService(_ service: LookupService) {
+        lookup.withLock { $0 = service }
+    }
+
+    /// Never throws; a search whose task is cancelled comes back looking like no matches.
+    public nonisolated func lookUp(_ query: LookupQuery, preferAudio: Bool, language: String?) async -> LookupResults {
+        await lookup.withLock { $0 }.search(query, preferAudio: preferAudio, language: language)
+    }
+
+    public nonisolated func lookupDetails(for candidate: LookupCandidate) async throws -> LookupCandidate {
+        try await lookup.withLock { $0 }.details(for: candidate)
+    }
+
+    public nonisolated func lookupCover(for candidate: LookupCandidate) async throws -> CoverImage {
+        try await lookup.withLock { $0 }.cover(for: candidate)
     }
 
     // MARK: Reading

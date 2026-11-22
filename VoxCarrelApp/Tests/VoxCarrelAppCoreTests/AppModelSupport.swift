@@ -59,6 +59,8 @@ final class Harness {
     let root: URL
     let defaults: UserDefaults
     let opener = RecordingOpener()
+    /// What the model looks books up in, in place of the network.
+    let lookup: FakeLookup
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -70,7 +72,10 @@ final class Harness {
         defaults = try #require(UserDefaults(suiteName: suite))
         let location = LibraryLocation(defaults: defaults)
         if choose { location.url = root }
-        model = AppModel(location: location, opener: opener, defaults: defaults)
+        let lookup = FakeLookup()
+        self.lookup = lookup
+        model = AppModel(location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:))
+        model.lookupLanguage = "en"
     }
 
     /// What Undo would reverse in a demo library nothing has been done to yet.
@@ -125,7 +130,9 @@ final class Harness {
 
     /// A second model over the same preferences, as after quitting and reopening the app.
     func relaunched() -> AppModel {
-        AppModel(location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults)
+        AppModel(
+            location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
+            lookupService: lookup.service(for:))
     }
 
     // MARK: Looking at the library directly
