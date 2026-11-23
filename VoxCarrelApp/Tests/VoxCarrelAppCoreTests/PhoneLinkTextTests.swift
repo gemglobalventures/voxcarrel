@@ -75,6 +75,36 @@ import Testing
         #expect(LocalAddress.candidates(from: all) == ["192.168.1.20", "10.0.0.7", "192.168.64.1", "172.16.5.1"])
     }
 
+    /// The network the sheet speaks of (and the owner marks as their own) is the one
+    /// the Mac's main connection is on: the link is offered there, not on whichever
+    /// interface the system happens to list first.
+    @Test func ph8_theAddressOfTheMainConnectionComesFirst() {
+        let all = [
+            interface("bridge100", "192.168.64.1", wired: false), interface("en0", "192.168.1.20"),
+            interface("en4", "192.168.7.5"), interface("en4", "fe80::1%en4"), interface("en4", "192.168.7.6"),
+            interface("utun3", "10.8.0.2", tunnel: true, wired: false), interface("en9", "169.254.3.4"),
+        ]
+        let asListed = ["192.168.1.20", "192.168.7.5", "192.168.7.6", "192.168.64.1"]
+        #expect(LocalAddress.candidates(from: all) == asListed)
+        #expect(LocalAddress.candidates(from: all, main: "en4") == ["192.168.7.5", "192.168.7.6", "192.168.1.20", "192.168.64.1"])
+        #expect(LocalAddress.candidates(from: all, main: "bridge100") == ["192.168.64.1", "192.168.1.20", "192.168.7.5", "192.168.7.6"])
+        #expect(LocalAddress.candidates(from: all, main: "en0") == asListed)
+        // A main connection with no address a phone could reach (a VPN, say) changes nothing.
+        #expect(LocalAddress.candidates(from: all, main: "utun3") == asListed)
+        #expect(LocalAddress.candidates(from: all, main: "en9") == asListed)
+        #expect(LocalAddress.candidates(from: all, main: "en7") == asListed)
+        #expect(LocalAddress.candidates(from: all, main: "") == asListed)
+
+        // Only then is the link offered on the network the main connection is on.
+        #expect(LocalAddress.offersOnMain(all, main: "en4"))
+        #expect(LocalAddress.offersOnMain(all, main: "en0"))
+        #expect(LocalAddress.offersOnMain(all, main: "bridge100"))
+        for other in ["utun3", "en9", "en7", "", nil] {
+            #expect(!LocalAddress.offersOnMain(all, main: other), "\(other ?? "nil")")
+        }
+        #expect(!LocalAddress.offersOnMain([], main: "en0"))
+    }
+
     @Test func ph8_theSystemsInterfacesCanBeListed() {
         let interfaces = LocalAddress.systemInterfaces()
         // Every Mac has a loopback interface, and it is never a candidate.
@@ -83,7 +113,8 @@ import Testing
         #expect(loopback.first?.isLoopback == true)
         #expect(loopback.first?.isEthernetOrWiFi == false)
         let current = LocalAddress.current()
-        #expect(current == LocalAddress.candidates(from: interfaces))
+        #expect(Set(current) == Set(LocalAddress.candidates(from: interfaces)))
+        #expect(current == LocalAddress.candidates(from: interfaces, main: DefaultRoute.current()?.interface))
         #expect(!current.contains("127.0.0.1"))
         for address in current {
             let parts = LocalAddress.ipv4Parts(address)

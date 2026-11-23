@@ -126,23 +126,137 @@ import VoxCarrelCore
 
     // MARK: PH27 Telling networks apart
 
-    @Test func ph27_aNetworkIsTheSameByItsRouterAndByItsNameWhereBothAreKnown() {
-        let home = NetworkIdentity(router: "192.168.1.1", name: "Home")
-        #expect(home.matches(NetworkIdentity(router: "192.168.1.1", name: "Home")))
-        #expect(!home.matches(NetworkIdentity(router: "192.168.1.1", name: "Cafe")))
-        #expect(!home.matches(NetworkIdentity(router: "10.0.0.1", name: "Home")))
+    @Test func ph27_aNetworkIsTheSameByItsRoutersTwoAddressesAndByItsNameWhereBothAreKnown() {
+        let home = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Home")
+        #expect(home.matches(NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Home")))
+        #expect(!home.matches(NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Cafe")))
+        #expect(!home.matches(NetworkIdentity(router: "10.0.0.1", hardware: "a4:5e:60:c1:02:9f", name: "Home")))
+        // Another router that has the same address, as most of one make do, is another network.
+        #expect(!home.matches(NetworkIdentity(router: "192.168.1.1", hardware: "00:11:22:33:44:55", name: "Home")))
+        #expect(!home.matches(NetworkIdentity(router: "192.168.1.1", hardware: "00:11:22:33:44:55")))
         // A name that could not be read rules nothing out, either way round.
-        #expect(home.matches(NetworkIdentity(router: "192.168.1.1")))
-        #expect(NetworkIdentity(router: "192.168.1.1").matches(home))
+        #expect(home.matches(NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f")))
+        #expect(NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f").matches(home))
     }
 
     @Test func ph27_aNetworkIsKeptAsTextAndReadBack() {
-        let home = NetworkIdentity(router: "192.168.1.1", name: "Home\tWi-Fi")
+        let home = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Home\tWi-Fi")
+        #expect(home.stored == "192.168.1.1\ta4:5e:60:c1:02:9f\tHome\tWi-Fi")
         #expect(NetworkIdentity(stored: home.stored) == home)
-        let wired = NetworkIdentity(router: "10.0.0.1")
-        #expect(wired.stored == "10.0.0.1")
+        let wired = NetworkIdentity(router: "10.0.0.1", hardware: "00:11:22:33:44:55")
+        #expect(wired.stored == "10.0.0.1\t00:11:22:33:44:55")
         #expect(NetworkIdentity(stored: wired.stored) == wired)
         #expect(NetworkIdentity(stored: "") == nil)
         #expect(NetworkIdentity(stored: "\tHome") == nil)
+        // What was kept before the router's hardware address was part of it says too
+        // little to know a network by.
+        #expect(NetworkIdentity(stored: "192.168.1.1") == nil)
+        #expect(NetworkIdentity(stored: "192.168.1.1\tHome") == nil)
+        #expect(NetworkIdentity(stored: "192.168.1.1\t\tHome") == nil)
+        #expect(NetworkIdentity(stored: "192.168.1.1\ta4:5e:60:c1:02\tHome") == nil)
+        #expect(NetworkIdentity(stored: "192.168.1.1\tzz:5e:60:c1:02:9f") == nil)
+    }
+
+    // MARK: PH27 The router's hardware address
+
+    /// One message of the system's table of neighbours: a header, an IPv4 address and
+    /// a link-level address, as the system lays them out.
+    static func neighbour(
+        _ address: [UInt8], _ hardware: [UInt8], interface: UInt8 = 4, interfaceName: String = ""
+    ) -> [UInt8] {
+        var internet = [UInt8](repeating: 0, count: 16)
+        internet[0] = 16
+        internet[1] = UInt8(AF_INET)
+        internet.replaceSubrange(4..<8, with: address)
+        var link: [UInt8] = [0, UInt8(AF_LINK), interface, 0, 6, UInt8(interfaceName.utf8.count), UInt8(hardware.count), 0]
+        link += Array(interfaceName.utf8) + hardware
+        while link.count < 20 || link.count % 4 != 0 { link.append(0) }
+        link[0] = UInt8(link.count)
+        var message = [UInt8](repeating: 0, count: NeighbourTable.headerBytes)
+        let length = message.count + internet.count + link.count
+        message[0] = UInt8(length & 0xFF)
+        message[1] = UInt8(length >> 8)
+        return message + internet + link
+    }
+
+    @Test func ph27_theTableOfNeighboursGivesEachOnesHardwareAddress() {
+        let router = Self.neighbour([192, 168, 1, 1], [0xA4, 0x5E, 0x60, 0xC1, 0x02, 0x9F])
+        let phone = Self.neighbour([192, 168, 1, 23], [0x00, 0x0B, 0xFF, 0x10, 0x20, 0x30], interface: 7, interfaceName: "en0")
+        // One that has not answered yet has no hardware address, and one of all zeros is none.
+        let silent = Self.neighbour([192, 168, 1, 40], [])
+        let blank = Self.neighbour([192, 168, 1, 41], [0, 0, 0, 0, 0, 0])
+
+        #expect(NeighbourTable.entries(in: router + silent + phone + blank) == [
+            NeighbourTable.Entry(address: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", interface: 4),
+            NeighbourTable.Entry(address: "192.168.1.23", hardware: "00:0b:ff:10:20:30", interface: 7),
+        ])
+        #expect(NeighbourTable.entries(in: []) == [])
+    }
+
+    @Test func ph27_aTableThatIsCutShortOrIsNotOneIsReadAsFarAsItGoes() {
+        let router = Self.neighbour([192, 168, 1, 1], [0xA4, 0x5E, 0x60, 0xC1, 0x02, 0x9F])
+        let expected = [NeighbourTable.Entry(address: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", interface: 4)]
+        // Cut anywhere, it never reads past its end.
+        for cut in 0..<router.count {
+            #expect(NeighbourTable.entries(in: Array(router.prefix(cut))) == [])
+            #expect(NeighbourTable.entries(in: router + Array(router.prefix(cut))) == expected)
+        }
+        // A length that is too small, or longer than what is there.
+        var short = router
+        short[0] = 4
+        #expect(NeighbourTable.entries(in: short + router) == [])
+        var long = router
+        long[1] = 0x7F
+        #expect(NeighbourTable.entries(in: router + long) == expected)
+        // An address that says it is longer than its message, and one of another kind.
+        var wide = router
+        wide[NeighbourTable.headerBytes] = 252
+        #expect(NeighbourTable.entries(in: wide + router) == expected)
+        var other = router
+        other[NeighbourTable.headerBytes + 1] = UInt8(AF_INET6)
+        #expect(NeighbourTable.entries(in: other + router) == expected)
+        var longAddress = router
+        longAddress[NeighbourTable.headerBytes + 16 + 6] = 200
+        #expect(NeighbourTable.entries(in: longAddress + router) == expected)
+        // Bytes of no shape at all.
+        for seed in 0..<50 {
+            var noise = LinkProbe.contents(400 + seed)
+            noise[0] = UInt8(truncatingIfNeeded: seed * 5)
+            noise[1] = 0
+            _ = NeighbourTable.entries(in: noise)
+        }
+    }
+
+    @Test func ph27_theSystemsOwnTableCanBeRead() {
+        for entry in NeighbourTable.system() {
+            #expect(LocalAddress.ipv4Parts(entry.address) != nil)
+            #expect(NetworkIdentity.isHardwareAddress(entry.hardware))
+            #expect(entry.interface > 0)
+        }
+    }
+
+    @Test func ph27_aNetworkIsKnownOnlyWhenItsRouterHasOneHardwareAddress() {
+        typealias Entry = NeighbourTable.Entry
+        let table = [
+            Entry(address: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", interface: 4),
+            Entry(address: "192.168.1.23", hardware: "00:0b:ff:10:20:30", interface: 4),
+        ]
+        func identity(_ router: String, _ interface: Int?, _ table: [Entry], name: String? = nil) -> NetworkIdentity? {
+            SystemLocalNetwork.identity(router: router, interface: interface, neighbours: table, name: name)
+        }
+        #expect(
+            identity("192.168.1.1", 4, table, name: "Home")
+                == NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Home"))
+        #expect(identity("192.168.1.1", nil, table) == NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f"))
+        // A router the system has no hardware address for is not known: nor is the network.
+        #expect(identity("192.168.1.254", 4, table) == nil)
+        #expect(identity("192.168.1.1", 4, []) == nil)
+        // Nor one known only on another interface than the one it is reached through.
+        #expect(identity("192.168.1.1", 5, table) == nil)
+        // Nor one that two different hardware addresses answer for.
+        let two = table + [Entry(address: "192.168.1.1", hardware: "00:11:22:33:44:55", interface: 4)]
+        #expect(identity("192.168.1.1", 4, two) == nil)
+        // The same one listed twice is one.
+        #expect(identity("192.168.1.1", 4, table + [table[0]]) != nil)
     }
 }

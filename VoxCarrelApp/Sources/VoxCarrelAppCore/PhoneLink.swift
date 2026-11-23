@@ -105,6 +105,11 @@ public enum PhoneLinkText {
     /// How long a link lasts.
     public static let lifetime: TimeInterval = 600
 
+    /// Why a link failed: its file was written to, or cut short, while it was served.
+    public static let fileChanged = "The file changed while it was being sent."
+    /// Why a link failed: the address it was offered at is no longer this Mac's.
+    public static let networkChanged = "The network changed."
+
     /// A new secret: 32 bytes from the system's secure generator, as URL-safe base64
     /// without padding (43 characters). Nil when the generator fails.
     static func makeToken() -> String? {
@@ -257,9 +262,10 @@ public struct NetworkInterface: Equatable, Sendable {
 /// Which of this Mac's addresses a phone on the same network can reach.
 public enum LocalAddress {
     /// The private IPv4 addresses (10/8, 172.16/12, 192.168/16) of interfaces that are
-    /// up and are neither loopback nor point-to-point, those of Ethernet and Wi-Fi
-    /// first; otherwise in the order given, each once.
-    public static func candidates(from interfaces: [NetworkInterface]) -> [String] {
+    /// up and are neither loopback nor point-to-point: those of the interface named
+    /// `main` (the one the Mac's main connection is on) first, then those of Ethernet
+    /// and Wi-Fi; otherwise in the order given, each once.
+    public static func candidates(from interfaces: [NetworkInterface], main: String? = nil) -> [String] {
         let usable = interfaces.filter { interface in
             guard interface.isUp, !interface.isLoopback, !interface.isPointToPoint,
                   let parts = ipv4Parts(interface.address)
@@ -267,13 +273,22 @@ public enum LocalAddress {
             return isPrivate(parts)
         }
         var seen = Set<String>()
-        return (usable.filter(\.isEthernetOrWiFi) + usable.filter { !$0.isEthernetOrWiFi })
+        return (usable.filter { $0.name == main } + usable.filter(\.isEthernetOrWiFi) + usable.filter { !$0.isEthernetOrWiFi })
             .map(\.address).filter { seen.insert($0).inserted }
     }
 
-    /// The candidates among this Mac's interfaces as they are now.
+    /// Whether the first candidate, which is where a link is offered, is an address of
+    /// the interface named `main`.
+    static func offersOnMain(_ interfaces: [NetworkInterface], main: String?) -> Bool {
+        guard let main, let first = candidates(from: interfaces, main: main).first else { return false }
+        return interfaces.contains { $0.name == main && $0.address == first }
+    }
+
+    /// The candidates among this Mac's interfaces as they are now. The first is on the
+    /// network of the Mac's main connection whenever that has one: the network whose
+    /// router `SystemLocalNetwork` knows it by.
     public static func current() -> [String] {
-        candidates(from: systemInterfaces())
+        candidates(from: systemInterfaces(), main: DefaultRoute.current()?.interface)
     }
 
     /// The four numbers of a dotted IPv4 address written plainly ("192.168.1.20"); nil

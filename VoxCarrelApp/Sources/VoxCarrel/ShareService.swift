@@ -5,7 +5,7 @@ import VoxCarrelAppCore
 /// The system's sharing, for Send to Phone: AirDrop on its own, and the share picker.
 ///
 /// Glue only. What is shared is whatever the model's `shareItems()` gives, and how it
-/// went is told to the model's `shareFinished(completed:)`; nothing is decided here.
+/// went is told to the model's `shareFinished(completed:items:)`; nothing is decided here.
 @MainActor
 enum ShareService {
     /// The sharing that is under way. Kept so that its delegate lives until it reports.
@@ -16,7 +16,7 @@ enum ShareService {
         Task {
             let items = await model.shareItems()
             guard !items.isEmpty else { return }
-            let sharing = Sharing(model: model, window: anchor.view?.window)
+            let sharing = Sharing(model: model, window: anchor.view?.window, items: items)
             guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: items) else {
                 await model.shareUnavailable(.airDrop)
                 return
@@ -33,10 +33,10 @@ enum ShareService {
             let items = await model.shareItems()
             guard !items.isEmpty else { return }
             guard let view = anchor.view, view.window != nil else {
-                await model.shareFinished(completed: false)
+                await model.shareFinished(completed: false, items: items)
                 return
             }
-            let sharing = Sharing(model: model, window: view.window)
+            let sharing = Sharing(model: model, window: view.window, items: items)
             current = sharing
             let picker = NSSharingServicePicker(items: items)
             picker.delegate = sharing
@@ -54,18 +54,22 @@ enum ShareService {
 private final class Sharing: NSObject, NSSharingServiceDelegate, @preconcurrency NSSharingServicePickerDelegate {
     private let model: AppModel
     private weak var window: NSWindow?
+    /// What the model gave to be shared: it is told how the sharing of these went.
+    private let items: [URL]
     private var reported = false
 
-    init(model: AppModel, window: NSWindow?) {
+    init(model: AppModel, window: NSWindow?, items: [URL]) {
         self.model = model
         self.window = window
+        self.items = items
     }
 
     private func report(_ completed: Bool) {
         guard !reported else { return }
         reported = true
         let model = model
-        Task { await model.shareFinished(completed: completed) }
+        let items = items
+        Task { await model.shareFinished(completed: completed, items: items) }
         ShareService.ended(self)
     }
 

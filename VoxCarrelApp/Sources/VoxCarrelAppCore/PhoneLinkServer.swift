@@ -34,9 +34,12 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
     private let addresses: @Sendable () -> [String]
     private let schedule: Scheduler
     private let clock: @Sendable () -> Date
+    private let watchPath: PathWatcher
     private let settings: Settings
     private let lock = NSLock()
     private var session: LinkSession?
+    /// The watch on the network kept for `session`.
+    private var watch: PathWatch?
 
     public convenience init() {
         self.init(
@@ -51,12 +54,16 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
     /// - Parameters:
     ///   - addresses: The local addresses to choose from; the first is listened on.
     ///   - schedule: How the link's expiry is timed.
+    ///   - watchPath: Says when the Mac's network connections change: a link whose
+    ///     address is then no longer among `addresses` ends.
     ///   - clock: The time of day, by which a link is over ten minutes after it began
     ///     even if the timer has not said so (the Mac slept meanwhile, say).
     init(
         addresses: @escaping @Sendable () -> [String], schedule: @escaping Scheduler,
-        clock: @escaping @Sendable () -> Date = { Date() }, settings: Settings = Settings()
+        clock: @escaping @Sendable () -> Date = { Date() },
+        watchPath: @escaping PathWatcher = { SystemPathWatch(onChange: $0) }, settings: Settings = Settings()
     ) {
+        self.watchPath = watchPath
         self.addresses = addresses
         self.schedule = schedule
         self.clock = clock
@@ -64,6 +71,7 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
     }
 
     deinit {
+        watch?.cancel()
         session?.end(waitingForListener: false)
     }
 
@@ -97,20 +105,71 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
         }
         lock.withLock { session = new }
         schedule(PhoneLinkText.lifetime) { [weak new] in new?.expire() }
+        let watching = watchPath { [weak self, weak new] in
+            guard let self, let new else { return }
+            self.pathChanged(for: new, address: address)
+        }
+        let isCurrent = lock.withLock { () -> Bool in
+            guard session === new else { return false }
+            watch = watching
+            return true
+        }
+        if !isCurrent { watching.cancel() }
         return offer
     }
 
+    /// The Mac's network connections changed. A link whose address is no longer one of
+    /// this Mac's cannot be reached by the phone it was shown to, and might be by
+    /// others on whatever network has that address now: it ends.
+    private func pathChanged(for linked: LinkSession, address: String) {
+        guard !addresses().contains(address) else { return }
+        let watching = lock.withLock { () -> PathWatch? in
+            guard session === linked else { return nil }
+            let watching = watch
+            watch = nil
+            return watching
+        }
+        watching?.cancel()
+        linked.networkChanged()
+    }
+
     @MainActor public func stop() {
-        let old = lock.withLock { () -> LinkSession? in
-            let old = session
+        let (old, watching) = lock.withLock { () -> (LinkSession?, PathWatch?) in
+            let old = (session, watch)
             session = nil
+            watch = nil
             return old
         }
+        watching?.cancel()
         old?.end(waitingForListener: true)
     }
 
     @MainActor public var isServing: Bool {
         lock.withLock { session }?.isLive ?? false
+    }
+}
+
+// MARK: - The network path
+
+/// Something that is watching the Mac's network connections until it is cancelled.
+protocol PathWatch: AnyObject, Sendable {
+    func cancel()
+}
+
+/// Starts watching: the action is run, on any thread, whenever the connections change.
+typealias PathWatcher = @Sendable (@escaping @Sendable () -> Void) -> PathWatch
+
+/// Watches with the system's own monitor of the network path.
+final class SystemPathWatch: PathWatch, @unchecked Sendable {
+    private let monitor = NWPathMonitor()
+
+    init(onChange: @escaping @Sendable () -> Void) {
+        monitor.pathUpdateHandler = { _ in onChange() }
+        monitor.start(queue: DispatchQueue(label: "VoxCarrel.PhoneLink.Path"))
+    }
+
+    func cancel() {
+        monitor.cancel()
     }
 }
 
@@ -164,7 +223,11 @@ private final class LinkSession: @unchecked Sendable {
         enum Phase { case reading, answering, sending, closing, done }
 
         let connection: NWConnection
+        /// Its place among all the callers the link has had: lower is earlier.
+        let order: Int
         var phase = Phase.reading
+        /// True once it has been answered with the refusal.
+        var refused = false
         var received: [UInt8] = []
         var timer: DispatchWorkItem?
         /// Set while this caller is being sent the file: where its part starts, how long
@@ -174,8 +237,9 @@ private final class LinkSession: @unchecked Sendable {
         /// True once the caller has said it will send nothing more.
         var inputEnded = false
 
-        init(_ connection: NWConnection) {
+        init(_ connection: NWConnection, order: Int) {
             self.connection = connection
+            self.order = order
         }
     }
 
@@ -185,6 +249,8 @@ private final class LinkSession: @unchecked Sendable {
     private let fileName: String
     private let address: String
     private let size: Int64
+    /// When the file was last written to, as it was when the link began.
+    private let modified: timespec
     private let token: String
     /// Whether the link's ten minutes are over, by the time of day.
     private let isPastItsTime: @Sendable () -> Bool
@@ -196,6 +262,7 @@ private final class LinkSession: @unchecked Sendable {
     private var listener: NWListener?
     private var listenerStopped = false
     private var callers: [ObjectIdentifier: Caller] = [:]
+    private var callersSoFar = 0
     private var transfers = 0
     /// The parts of the file that connections have reported as sent, merged and in order.
     private var covered: [Range<Int64>] = []
@@ -222,6 +289,7 @@ private final class LinkSession: @unchecked Sendable {
         }
         descriptor = opened
         size = Int64(info.st_size)
+        modified = info.st_mtimespec
         self.fileName = fileName
         self.token = token
         self.address = address
@@ -322,6 +390,12 @@ private final class LinkSession: @unchecked Sendable {
         queue.async { self.timeIsUp() }
     }
 
+    /// The link's address is no longer this Mac's: the link ends at once, with any
+    /// fetch under way.
+    func networkChanged() {
+        queue.async { self.finish(.failed(PhoneLinkText.networkChanged)) }
+    }
+
     /// On the queue: the same.
     private func timeIsUp() {
         guard !ended else { return }
@@ -372,11 +446,23 @@ private final class LinkSession: @unchecked Sendable {
             connection.cancel()
             return timeIsUp()
         }
-        guard !ended, !listenerStopped, callers.count < settings.maxConnections else {
+        guard !ended, !listenerStopped else {
             connection.cancel()
             return
         }
-        let caller = Caller(connection)
+        if callers.count >= settings.maxConnections {
+            // Whoever holds the places without asking for the file cannot keep the phone
+            // out: the oldest caller that has sent no good request makes way. One that is
+            // being sent the file, or has been answered with its headers, never does.
+            let idle = callers.values.filter { $0.transfer == nil && ($0.phase == .reading || $0.refused) }
+            guard let oldest = idle.min(by: { $0.order < $1.order }) else {
+                connection.cancel()
+                return
+            }
+            drop(oldest)
+        }
+        callersSoFar += 1
+        let caller = Caller(connection, order: callersSoFar)
         callers[ObjectIdentifier(caller)] = caller
         connection.stateUpdateHandler = { [weak self, weak caller] state in
             guard let self, let caller else { return }
@@ -431,6 +517,7 @@ private final class LinkSession: @unchecked Sendable {
     private func refuse(_ caller: Caller) {
         guard caller.phase == .reading else { return }
         caller.phase = .answering
+        caller.refused = true
         sendLast(Data(PhoneLinkRequest.notFound), to: caller)
     }
 
@@ -526,7 +613,7 @@ private final class LinkSession: @unchecked Sendable {
         guard remaining > 0 else { return sendEnd(caller) }
         let count = Int(min(remaining, Int64(settings.chunkBytes)))
         guard let piece = readFile(at: transfer.start + transfer.sent, count: count) else {
-            return finish(.failed("The file changed while it was being sent."))
+            return finish(.failed(PhoneLinkText.fileChanged))
         }
         caller.connection.send(content: piece, completion: .contentProcessed { [weak self] error in
             guard let self, !self.ended, caller.phase == .sending else { return }
@@ -590,10 +677,19 @@ private final class LinkSession: @unchecked Sendable {
         if complete { caller.connection.cancel() } else { caller.connection.forceCancel() }
 
         if complete, covered == [0..<size] || size == 0 {
-            finish(.finished)
+            // What was fetched is the file that was checked only if nothing wrote to it meanwhile.
+            finish(fileIsAsItWas() ? .finished : .failed(PhoneLinkText.fileChanged))
         } else if transfers == 0 {
             if expiring { finish(.expired) } else { relay.report(.interrupted) }
         }
+    }
+
+    /// Whether the file has the size and the date of last writing it had when the link began.
+    private func fileIsAsItWas() -> Bool {
+        var info = stat()
+        guard descriptor >= 0, fstat(descriptor, &info) == 0 else { return false }
+        return Int64(info.st_size) == size && info.st_mtimespec.tv_sec == modified.tv_sec
+            && info.st_mtimespec.tv_nsec == modified.tv_nsec
     }
 
     private func noteCovered(_ range: Range<Int64>) {

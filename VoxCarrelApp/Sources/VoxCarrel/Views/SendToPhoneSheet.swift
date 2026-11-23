@@ -34,7 +34,7 @@ struct SendToPhoneSheet: View {
                 // serves has been made, and nothing above could change it now.
                 Divider()
                 SendLinkView(model: model, link: link)
-                network
+                if state.showsNetwork { network }
             } else {
                 if !state.warnings.isEmpty { warnings }
                 if !state.sizeText.isEmpty {

@@ -41,13 +41,17 @@ public struct SendSheetState: Equatable, Sendable {
     public var isOwnNetwork: Bool
     /// Whether the network can be told from others, so that it can be marked.
     public var canMarkOwnNetwork: Bool
+    /// Whether the sentence about the network and its tick are shown: not once the
+    /// book has gone by a link, when there is nothing left for them to be about.
+    public var showsNetwork = true
     /// "Shared." once a share has gone through; nil otherwise.
     public var shareNote: String?
     /// Not nil once a link is showing.
     public var link: SendLinkState?
     /// Whether the sheet can be closed: not in the middle of something.
     public var canClose = false
-    /// Whether what the blockers and warnings offer (Save, Repair) can be begun.
+    /// Whether what the blockers and warnings offer (Save, Repair) can be begun: not
+    /// in the middle of something, and not once a link is showing.
     public var canFix = false
     /// Whether the tick for a square cover can be changed: nothing has been made to send yet
     /// that a link is showing for, and nothing is being made.
@@ -93,7 +97,13 @@ struct SendSession {
     var folders: [URL] = []
     var coversNotSquared = 0
     /// What was handed to the share sheet and has not been heard of since.
-    var sharing: SendFingerprint?
+    var sharing: Sharing?
+
+    struct Sharing {
+        var file: URL
+        var fingerprint: SendFingerprint
+    }
+
     var shared = false
     var link: Link?
 
@@ -244,10 +254,11 @@ extension AppModel {
             networkNote: SendText.networkNote(isOwn: session.isOwnNetwork),
             isOwnNetwork: session.isOwnNetwork,
             canMarkOwnNetwork: session.network != nil,
+            showsNetwork: session.link?.phase != .finished,
             shareNote: session.shared ? SendText.shared : nil,
             link: session.link.map(Self.linkState),
             canClose: busyLabel == nil,
-            canFix: busyLabel == nil,
+            canFix: busyLabel == nil && session.link == nil,
             canChangeSquareCover: free,
             closeTitle: session.shared || session.link?.phase == .finished ? SendText.done : SendText.cancel)
     }
@@ -291,9 +302,10 @@ extension AppModel {
 
     /// PH22: repairs the book's wrong length headers, as Repair Length Headers does (an
     /// operation that Undo reverses), then checks the book again. The sheet stays open.
-    /// Does nothing unless a warning offers the repair.
+    /// Does nothing unless a warning offers the repair, nor once a link is showing:
+    /// what the link serves may be the library's own file.
     public func sendRepair() async {
-        guard let session = sendSession, busyLabel == nil,
+        guard let session = sendSession, busyLabel == nil, session.link == nil,
               sendSheet?.warnings.contains(where: { $0.fix == .repair }) == true
         else { return }
         sendIsActing = true
@@ -346,11 +358,29 @@ extension AppModel {
     // MARK: PH23 Sharing
 
     /// The one folder every send's package goes under: VoxCarrel's own, inside the
-    /// temporary folder. Each attempt has a folder of its own in it, named by a UUID.
+    /// temporary folder. Each attempt has a folder of its own in it, named by the id of
+    /// the process that made it and a UUID (`sendFolderName`).
     nonisolated static let sendParentName = "VoxCarrelSend"
 
     nonisolated static func sendParent(in root: URL) -> URL {
         root.appendingPathComponent(sendParentName, isDirectory: true)
+    }
+
+    /// The name of a new folder for one attempt: "<process id>-<UUID>". The id says
+    /// whose it is, so that another copy of the app, running at the same time, never
+    /// takes it for something left behind.
+    nonisolated static func sendFolderName(process: Int32) -> String {
+        "\(process)-\(UUID().uuidString)"
+    }
+
+    /// The id of the process that made the folder of this name; nil for a name that
+    /// is not "<process id>-<UUID>".
+    nonisolated static func sendFolderProcess(_ name: String) -> Int32? {
+        let parts = name.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, parts[0].utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
+              let process = Int32(parts[0]), process > 1, UUID(uuidString: String(parts[1])) != nil
+        else { return nil }
+        return process
     }
 
     /// Whether a folder itself is at `url`: never a link to one, nor a file.
@@ -360,7 +390,8 @@ extension AppModel {
     }
 
     /// Makes the parent folder if it is not there, for this user alone. Refuses when
-    /// something else has its name: a link (which could lead anywhere) or a file.
+    /// something else has its name: a link (which could lead anywhere) or a file, or a
+    /// folder that is another user's. One found open to other users is closed to them.
     nonisolated static func makeSendParent(in root: URL) throws {
         let parent = sendParent(in: root)
         var info = stat()
@@ -368,7 +399,13 @@ extension AppModel {
             try FileManager.default.createDirectory(
                 at: parent, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         }
-        guard isRealFolder(parent) else { throw SendFolderError.parentIsNotAFolder }
+        guard lstat(parent.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+            throw SendFolderError.parentIsNotAFolder
+        }
+        guard info.st_uid == getuid() else { throw SendFolderError.parentIsNotOurs }
+        if info.st_mode & 0o077 != 0 {
+            guard chmod(parent.path, 0o700) == 0 else { throw SendFolderError.parentIsNotOurs }
+        }
     }
 
     /// Makes what is sent for the open send's book, in a temporary folder of its own.
@@ -382,7 +419,7 @@ extension AppModel {
         sendIsActing = false
         guard let worker else { return nil }
         // Known to the clean-up before it exists, so that it is never taken for a leftover.
-        let name = UUID().uuidString
+        let name = Self.sendFolderName(process: getpid())
         sendFoldersMade.note(name)
         let folder = Self.sendParent(in: sendTempRoot).appendingPathComponent(name, isDirectory: true)
         var prepared: PreparedSend?
@@ -417,28 +454,35 @@ extension AppModel {
     /// closes, whatever the sharing does with it.
     public func shareItems() async -> [URL] {
         guard sendSheet?.canShare == true, let prepared = await prepareSend() else { return [] }
-        sendSession?.sharing = prepared.fingerprint
+        sendSession?.sharing = SendSession.Sharing(file: prepared.file, fingerprint: prepared.fingerprint)
         return [prepared.file]
     }
 
     /// PH23: the system could not share what `shareItems` gave it in the way that was
     /// asked for. Nothing is recorded.
     public func shareUnavailable(_ share: UnavailableShare) async {
-        guard sendSession?.sharing != nil else { return }
-        await shareFinished(completed: false)
+        guard let sharing = sendSession?.sharing else { return }
+        await shareFinished(completed: false, items: [sharing.file])
         switch share {
         case .airDrop: alert = SendText.airDropUnavailable
         }
     }
 
-    /// PH23: the system's sharing is done with what `shareItems` last gave it. When it
-    /// went through, the send is recorded; otherwise nothing is.
-    public func shareFinished(completed: Bool) async {
-        guard let session = sendSession, let fingerprint = session.sharing else { return }
+    /// PH23: the system's sharing is done with `items`, which `shareItems` gave it. When
+    /// it went through, the send is recorded; otherwise nothing is.
+    ///
+    /// A share can outlast the sheet it was begun from. Word of one that is not the
+    /// share now under way changes nothing: it is not about this book.
+    public func shareFinished(completed: Bool, items: [URL]) async {
+        // The sheet it was shared from has closed: what it was handed can go now.
+        guard !removeSharePackageHeld(for: items) else { return }
+        guard let session = sendSession, let sharing = session.sharing,
+              items.map(\.standardizedFileURL.path) == [sharing.file.standardizedFileURL.path]
+        else { return }
         sendSession?.sharing = nil
         guard completed else { return }
         sendSession?.shared = true
-        await recordSend(of: session.bookId, method: .share, fingerprint: fingerprint, with: worker)
+        await recordSend(of: session.bookId, method: .share, fingerprint: sharing.fingerprint, with: worker)
     }
 
     /// Records a send, and shows its date in the inspector (PH29).
@@ -543,16 +587,45 @@ extension AppModel {
 
     /// PH26: ends the open send at once: for Cancel, and for when the library is closed
     /// or changed or the app quits. Does nothing when no send is open.
+    ///
+    /// What was made to be sent is removed, but for what a share was handed and has not
+    /// reported on: the share may still be reading it, so it is kept until the share
+    /// reports (`shareFinished`) or the app quits (`removeSharePackagesHeld`).
     func endSend() {
         guard let session = sendSession else { return }
         if session.link != nil { phoneLink.stop() }
         keepAwake(false)
         sendSession = nil
+        let shared = session.sharing.map { $0.file.deletingLastPathComponent().standardizedFileURL.path }
         let fm = FileManager.default
         // Only ever the folders made here: what was sent may be a file of the library.
         for folder in session.folders where Self.isSendFolder(folder, in: sendTempRoot) {
-            try? fm.removeItem(at: folder)
+            if let sharing = session.sharing, folder.standardizedFileURL.path == shared {
+                sharePackagesHeld.append((file: sharing.file, folder: folder))
+            } else {
+                try? fm.removeItem(at: folder)
+            }
         }
+    }
+
+    /// PH23: removes what a share was handed and has since reported on, when the sheet
+    /// it was shared from has closed. False when `items` are not such a share's.
+    private func removeSharePackageHeld(for items: [URL]) -> Bool {
+        let paths = items.map(\.standardizedFileURL.path)
+        guard let index = sharePackagesHeld.firstIndex(where: { [$0.file.standardizedFileURL.path] == paths }) else {
+            return false
+        }
+        let held = sharePackagesHeld.remove(at: index)
+        if Self.isSendFolder(held.folder, in: sendTempRoot) { try? FileManager.default.removeItem(at: held.folder) }
+        return true
+    }
+
+    /// PH26: the app is quitting. Whatever a share was handed goes, reported on or not.
+    func removeSharePackagesHeld() {
+        for held in sharePackagesHeld where Self.isSendFolder(held.folder, in: sendTempRoot) {
+            try? FileManager.default.removeItem(at: held.folder)
+        }
+        sharePackagesHeld = []
     }
 
     /// Whether `folder` is a temporary folder of a send: a folder itself, directly in
@@ -568,7 +641,8 @@ extension AppModel {
     /// own, at low priority, and nothing the window shows depends on it.
     ///
     /// Only VoxCarrel's own parent folder is listed, never the temporary folder it is
-    /// in. Folders made by this run are left alone, whenever they are made.
+    /// in. Folders made by this run are left alone, whenever they are made, and so are
+    /// those of any other copy of the app that is running.
     func startSendCleanup() {
         let root = sendTempRoot
         let made = sendFoldersMade
@@ -579,15 +653,40 @@ extension AppModel {
         }
     }
 
-    /// Removes every folder directly inside the parent folder in `root` that this run
-    /// did not make. Does nothing when the parent is not a folder itself (a link, a
-    /// file, or not there). Files and links inside it are left as they are.
-    nonisolated static func removeLeftoverSendFolders(in root: URL, keeping made: SendFolderNames) {
+    /// How old a folder named as an earlier version named them must be to be removed.
+    nonisolated static let oldSendFolderAge: TimeInterval = 86_400
+
+    /// Whether a process of this id is running (whoever's it is).
+    nonisolated static func processIsRunning(_ process: Int32) -> Bool {
+        kill(process, 0) == 0 || errno != ESRCH
+    }
+
+    /// Removes the folders directly inside the parent folder in `root` that were left
+    /// behind: those named for a process that is no longer running (or for this one,
+    /// `process`, when this run did not make them: an earlier run had the same id),
+    /// and those named by a UUID alone, as an earlier version named them, once they
+    /// are more than a day old. A folder named for another process that is running is
+    /// that copy of the app's, and is never touched; nor is anything named otherwise.
+    ///
+    /// Does nothing when the parent is not a folder itself (a link, a file, or not
+    /// there). Files and links inside it are left as they are.
+    nonisolated static func removeLeftoverSendFolders(
+        in root: URL, keeping made: SendFolderNames, process: Int32 = getpid(), now: Date = Date()
+    ) {
         let parent = sendParent(in: root)
         guard isRealFolder(parent) else { return }
         let fm = FileManager.default
         for name in (try? fm.contentsOfDirectory(atPath: parent.path)) ?? [] {
             let folder = parent.appendingPathComponent(name, isDirectory: true)
+            if let owner = sendFolderProcess(name) {
+                guard owner == process || !processIsRunning(owner) else { continue }
+            } else if UUID(uuidString: name) != nil {
+                guard let modified = (try? fm.attributesOfItem(atPath: folder.path))?[.modificationDate] as? Date,
+                      now.timeIntervalSince(modified) > oldSendFolderAge
+                else { continue }
+            } else {
+                continue
+            }
             // Asked at the last moment: a send may have begun since the folder was listed.
             guard !made.contains(name), isSendFolder(folder, in: root) else { continue }
             try? fm.removeItem(at: folder)
@@ -599,6 +698,8 @@ extension AppModel {
 enum SendFolderError: Error {
     /// Something that is not a folder has the name of VoxCarrel's folder of packages.
     case parentIsNotAFolder
+    /// VoxCarrel's folder of packages is another user's, or cannot be kept from others.
+    case parentIsNotOurs
 }
 
 /// The names of the temporary folders this run of the app has made for sends, shared
