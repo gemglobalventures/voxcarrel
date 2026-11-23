@@ -104,6 +104,21 @@ import VoxCarrelFixtures
         #expect(try f.service.existingMatch(for: candidate)?.id == audiobook)
     }
 
+    // A title taken from a name has a real colon; text from tags is never changed.
+    @Test func aTitleReadFromANameHasARealColonAndTagsAreLeftAlone() throws {
+        let (f, _) = try ownersLibrary()
+        let pdf = try makeUntaggedPDF(f, "Mind Over Markets\u{A789} Power Trading with Market Generated Information.pdf")
+        let untagged = try #require(f.service.scan([pdf]).candidates.first)
+        #expect(untagged.metadata.title == "Mind Over Markets: Power Trading with Market Generated Information")
+        #expect(untagged.guessNotes.contains(.fromFileName))
+
+        let tagged = try f.makeM4B(
+            "tagged.m4b", tags: F.meta("Mind Over Markets\u{A789} Power_ Trading", "James\u{A789} Dalton"))
+        let fromTags = try #require(f.service.scan([tagged]).candidates.first)
+        #expect(fromTags.metadata.title == "Mind Over Markets\u{A789} Power_ Trading")
+        #expect(fromTags.metadata.authors == ["James\u{A789} Dalton"])
+    }
+
     // IM16: the audiobook tagged without the edition word.
     @Test func theAudiobookTaggedWithoutTheEditionWordIsASureMatch() throws {
         let (f, audiobook) = try ownersLibrary()

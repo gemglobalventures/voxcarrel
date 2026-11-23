@@ -36,14 +36,22 @@ public enum TitleMatch {
 
     /// A title read from a file name, as it was probably written: "_ " after a word,
     /// which is how a colon is often saved, becomes ": "; any other "_" becomes a space;
-    /// then runs of spaces are made one and those at the ends go. Text with no
-    /// underscore is returned as it is.
+    /// "꞉" (U+A789, which file systems write for a colon) becomes ":", closed up to the
+    /// word before it; then runs of spaces are made one and those at the ends go. Text
+    /// with neither an underscore nor that colon is returned as it is.
+    ///
+    /// For text taken from a name only: what tags say is never changed.
     public static func tidyFromFileName(_ text: String) -> String {
-        guard text.contains("_") else { return text }
+        guard text.contains(where: { $0 == "_" || $0 == fileSystemColon }) else { return text }
         let characters = Array(text)
         var out: [Character] = []
         out.reserveCapacity(characters.count)
         for (index, character) in characters.enumerated() {
+            if character == fileSystemColon {
+                while out.last == " " { out.removeLast() }
+                out.append(":")
+                continue
+            }
             guard character == "_" else {
                 out.append(character)
                 continue
@@ -54,6 +62,9 @@ public enum TitleMatch {
         }
         return String(out).split(separator: " ").joined(separator: " ")
     }
+
+    /// U+A789, the letter that stands for a colon in a file's name.
+    static let fileSystemColon: Character = "\u{A789}"
 
     // MARK: Compared many times
 
@@ -88,7 +99,7 @@ public enum TitleMatch {
     private static func firstSeparator(in characters: [Character]) -> Int? {
         for index in characters.indices.dropLast() {
             let character = characters[index], next = characters[index + 1]
-            if next == " ", character == ":" || character == "\u{A789}" || character == "_" { return index }
+            if next == " ", character == ":" || character == fileSystemColon || character == "_" { return index }
             if character == " ", next == "-" || next == "–" || next == "—",
                index + 2 < characters.count, characters[index + 2] == " " {
                 return index

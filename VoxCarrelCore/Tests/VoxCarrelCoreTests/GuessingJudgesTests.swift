@@ -158,10 +158,24 @@ import Testing
         #expect(TitleMatch.tidyFromFileName("Mind__Over _ Markets_") == "Mind Over Markets")
         #expect(TitleMatch.tidyFromFileName("_Dune_ Messiah") == "Dune: Messiah")
         #expect(TitleMatch.tidyFromFileName("_") == "")
-        // Text with no underscore is never changed.
-        for text in ["Dune", "  Dune   Messiah ", "", "Dune: Messiah", "Mind Over Markets꞉ Power", " - "] {
+        // Text with no underscore and no file-system colon is never changed.
+        for text in ["Dune", "  Dune   Messiah ", "", "Dune: Messiah", " - "] {
             #expect(TitleMatch.tidyFromFileName(text) == text)
         }
+    }
+
+    // The colon a file system writes in place of ":" (U+A789) is a colon again.
+    @Test func tidyingTurnsTheFileSystemColonIntoAColon() {
+        #expect(TitleMatch.tidyFromFileName("Mind Over Markets\u{A789} Power Trading") == "Mind Over Markets: Power Trading")
+        #expect(TitleMatch.tidyFromFileName("Dune \u{A789}  Messiah") == "Dune: Messiah")
+        #expect(TitleMatch.tidyFromFileName("Dune\u{A789}Messiah") == "Dune:Messiah")
+        #expect(TitleMatch.tidyFromFileName("At 10\u{A789}30") == "At 10:30")
+        #expect(TitleMatch.tidyFromFileName("Dune\u{A789}") == "Dune:")
+        #expect(TitleMatch.tidyFromFileName("Dune\u{A789} Messiah_ Part_Two") == "Dune: Messiah: Part Two")
+        // The tidied title compares as the same book up to its subtitle, as before.
+        #expect(
+            TitleMatch.relation(TitleMatch.tidyFromFileName("Mind Over Markets\u{A789} Power Trading"), "Mind Over Markets")
+                == .sameUpToSubtitle)
     }
 
     // IM7

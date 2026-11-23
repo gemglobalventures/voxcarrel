@@ -299,7 +299,7 @@ import Testing
         let owner = guess(
             "Mind Over Markets꞉ Power Trading with Market Generated Information, Updated Edition [B09WXN61GL].pdf")
         #expect(owner.asin == "B09WXN61GL")
-        #expect(owner.title == "Mind Over Markets꞉ Power Trading with Market Generated Information, Updated Edition")
+        #expect(owner.title == "Mind Over Markets: Power Trading with Market Generated Information, Updated Edition")
         #expect(owner.author == nil)
         #expect(owner.notes == [.fromFileName, .audibleIDFromName])
 
