@@ -60,4 +60,33 @@ import VoxCarrelFixtures
         try f2.service.mergeBooks([audio2, companion2], keep: audio2, roles: [:])
         #expect(try f2.store.book(id: audio2)?.pageCount == nil)
     }
+
+    // MARK: Files as they were
+
+    @Test func aFilePutBackWholeIsNotWrittenIntoAgainWhereDatesCannotTellItFromTheWrittenOne() throws {
+        let f = try F()
+        let file = try f.makePDF("x/book.pdf")
+        let details = F.meta("Dune", "Frank Herbert")
+        try f.io.write(details, to: file)
+        let asItWas = try f.bytes(file)
+        let token = UUID().uuidString
+        var original = try f.service.saveOriginal(of: file, token: token)
+        // As a write leaves the file on a disk that keeps dates to the second: of the
+        // same size, and with the date it had.
+        try Data(repeating: 0x20, count: asItWas.count).write(to: file)
+        original.before.setTime(ofFileAt: file)
+        original.written = FileStamp(fileAt: file)
+        #expect(original.written == original.before)
+        var state = FileState(
+            pathAfter: file.path, metadataBefore: details, part: nil, trackBefore: nil, coverBefore: nil)
+        state.original = original
+
+        try f.service.restoreFile(state, at: file.path, token: token)
+        #expect(try f.bytes(file) == asItWas)
+
+        // The undo is made again, as after a catalogue that could not be written: the
+        // file is already the one that was kept.
+        try f.service.restoreFile(state, at: file.path, token: token)
+        #expect(try f.bytes(file) == asItWas)
+    }
 }

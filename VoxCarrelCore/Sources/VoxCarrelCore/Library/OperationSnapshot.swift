@@ -210,6 +210,11 @@ struct SavedOriginal: Codable, Equatable {
     var before: FileStamp
     /// What the file was once the operation had written it; nil when it never was.
     var written: FileStamp?
+    /// The kept file's number on its disk. Once the kept file has taken the file's
+    /// place, the file has this number: that tells a file already put back from the
+    /// file as written where their sizes and dates are the same (a disk that keeps
+    /// dates to the second). Nil when the disk gave none.
+    var keptFileNumber: UInt64?
 }
 
 /// A file's size and modification time, to the nanosecond as the disk keeps it: enough
@@ -227,6 +232,13 @@ struct FileStamp: Codable, Equatable {
         size = Int64(info.st_size)
         seconds = Int64(info.st_mtimespec.tv_sec)
         nanoseconds = Int64(info.st_mtimespec.tv_nsec)
+    }
+
+    /// The number the disk knows the file at `url` itself by; nil when there is nothing there.
+    static func fileNumber(at url: URL) -> UInt64? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        return UInt64(info.st_ino)
     }
 
     /// Gives the file at `url` this stamp's modification time.
