@@ -207,9 +207,25 @@ import VoxCarrelFixtures
         #expect(summary(1, 1, folder: "Ann/Old", .folderTaken)
             == "1 file will move into “Atlas”. 1 entry will be removed. Another book uses the folder this book "
             + "belongs in, so it will stay in “Ann/Old” and will still need attention.")
+        // Nothing moves when the book has no folder to be in: said plainly, with why.
         #expect(summary(1, 1, folder: nil, .cannotBeFiled)
+            == "The files stay where they are, because the book cannot be filed yet. 1 entry will be removed. "
+            + "The book will still need attention.")
+        #expect(MergeText.summary(
+            incoming: 2, title: "Atlas", removed: 2, folder: nil, attention: .cannotBeFiled,
+            unfiledReason: "Add an author to file this book")
+            == "The files stay where they are, because the book cannot be filed yet: Add an author to file this "
+            + "book. 2 entries will be removed. The book will still need attention.")
+        #expect(summary(1, 1, folder: nil, .folderTaken)
+            == "The files stay where they are, because another book uses the folder this book belongs in. "
+            + "1 entry will be removed. The book will still need attention.")
+        #expect(summary(1, 1, folder: nil, .fileMissing)
+            == "The files stay where they are, because some of this book's files are missing. "
+            + "1 entry will be removed. The book will still need attention.")
+        // With a folder to stay in, the files that come in do move into it.
+        #expect(summary(1, 1, folder: "Ann/Old", .cannotBeFiled)
             == "1 file will move into “Atlas”. 1 entry will be removed. The folder layout cannot file this book "
-            + "yet, so it will stay where it is and will still need attention.")
+            + "yet, so it will stay in “Ann/Old” and will still need attention.")
         #expect(summary(1, 1, folder: "Ann/Atlas", .fileMissing)
             == "1 file will move into “Atlas”. 1 entry will be removed. Some of this book's files are missing, "
             + "so it will stay in “Ann/Atlas” and will still need attention.")
@@ -966,7 +982,7 @@ import VoxCarrelFixtures
         #expect(h.model.canMergeBooks([ebook, notes]))
     }
 
-    @Test func mg5_anOfferWhoseOtherBookHasGoneOpensASheetThatCannotMerge() async throws {
+    @Test func mg5_anOfferWhoseOtherBookHasGoneOpensNoSheetAndSaysSo() async throws {
         let (h, books) = try await Harness.merging { try $0.ownersCase() }
         await h.select(ids: [books.audio])
         let offer = try #require(h.model.mergeOffer)
@@ -975,15 +991,54 @@ import VoxCarrelFixtures
         let before = h.libraryFiles()
 
         await h.model.beginMerge(with: offer.bookId)
+        await h.model.settle()
+
+        #expect(h.model.mergeSheet == nil)
+        #expect(h.model.alert == "“\(L.title)” is no longer in the library, so there is nothing to merge with.")
+        #expect(h.model.busyLabel == nil)
+        #expect(h.libraryFiles() == before)
+        // The inspector has been read again: the offer it made is gone with the book.
+        #expect(h.model.mergeOffer == nil)
+        #expect(!h.model.rows.contains { $0.id == books.pdf })
+    }
+
+    @Test func mg5_anOfferThatNoLongerHoldsOpensNoSheetAndSaysSo() async throws {
+        let (h, books) = try await Harness.merging { try $0.ownersCase() }
+        await h.select(ids: [books.audio])
+        let offer = try #require(h.model.mergeOffer)
+        // The other book has been given another title since, by something other than
+        // this window: it has left the folder, which is no longer in this book's way.
+        var edit = BookEdit(book: try h.book(books.pdf))
+        edit.metadata.title = "Markets in Profile"
+        _ = try LibraryService(store: try h.store()).save([edit])
+
+        await h.model.beginMerge(with: offer.bookId)
+        await h.model.settle()
+
+        #expect(h.model.mergeSheet == nil)
+        #expect(h.model.alert
+            == "“\(L.title)” no longer uses the folder this book belongs in, so there is nothing to merge.")
+        #expect(h.model.mergeOffer == nil)
+        #expect(try h.store().books().count == 3)
+    }
+
+    // MARK: MG2 Nothing moves when the book cannot be filed
+
+    @Test func mg2_theSummarySaysThatTheFilesStayWhereTheyAreWhenTheBookCannotBeFiled() async throws {
+        let (h, books) = try await Harness.merging { library in
+            (try library.pdf("Loose Notes", nil), try library.epub("Loose Notes Text", nil))
+        }
+        let before = try [books.0, books.1].flatMap { try h.fileURLs($0) }
+        await h.select(ids: [books.0, books.1])
+        await h.model.beginMergeBooks()
+        await h.model.setMergeKeep(books.0)
 
         let sheet = try #require(h.model.mergeSheet)
-        #expect(sheet.entries.map(\.id) == [books.audio])
-        #expect(sheet.blockers == ["Merging needs two or more entries that are in the library."])
-        #expect(!sheet.canMerge)
+        #expect(sheet.summary == "The files stay where they are, because the book cannot be filed yet: No author, "
+            + "which the folder layout needs. 1 entry will be removed. The book will still need attention.")
+        #expect(sheet.willNeedAttention)
+        #expect(sheet.canMerge)
         await h.model.confirmMerge()
-        #expect(h.model.mergeSheet != nil)
-        #expect(h.libraryFiles() == before)
-        h.model.cancelMerge()
-        #expect(h.model.mergeSheet == nil)
+        #expect(try h.fileURLs(books.0) == before)
     }
 }

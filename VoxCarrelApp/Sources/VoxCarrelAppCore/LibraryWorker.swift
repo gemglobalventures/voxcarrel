@@ -467,6 +467,12 @@ public actor LibraryWorker {
         return MergeReading(plan: plan, entries: entries)
     }
 
+    /// MG5: how the offer to merge `bookId` with `otherId` stands now.
+    public func mergeOfferStanding(for bookId: Int64, with otherId: Int64) throws -> MergeOfferStanding {
+        guard try store.book(id: otherId) != nil else { return .otherGone }
+        return try service.bookUsingFolder(of: bookId)?.id == otherId ? .holds : .changed
+    }
+
     /// Makes the entries one book, as one operation that Undo reverses. Returns the
     /// kept book's id.
     public func mergeBooks(_ bookIds: [Int64], keep: Int64, roles: [Int64: FileRole]) throws -> Int64 {

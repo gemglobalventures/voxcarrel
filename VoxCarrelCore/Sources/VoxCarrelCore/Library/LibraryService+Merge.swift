@@ -68,13 +68,18 @@ public struct MergePlan: Equatable, Sendable {
     /// How many of the files the merge would move are outside the library folder now:
     /// they would be moved into it (and undoing the merge would move them back).
     public var filesFromOutside: Int
+    /// When the library's layout cannot file the merged book (`attention` is
+    /// `.cannotBeFiled`): why, as the library says it of any book. Nil otherwise.
+    public var unfiledReason: String?
 
     public init(
         keepId: Int64, suggestedKeepId: Int64, files: [MergeFilePlan], blockers: [MergeBlocker],
-        resultFolder: String?, attention: MergeAttention? = nil, filesFromOutside: Int = 0
+        resultFolder: String?, attention: MergeAttention? = nil, filesFromOutside: Int = 0,
+        unfiledReason: String? = nil
     ) {
         self.attention = attention
         self.filesFromOutside = filesFromOutside
+        self.unfiledReason = unfiledReason
         self.keepId = keepId
         self.suggestedKeepId = suggestedKeepId
         self.files = files
@@ -106,6 +111,11 @@ extension LibraryService {
     ///   `LibraryError.invalidRole` when it gives a file a role its format cannot have.
     public func planMerge(bookIds: [Int64], keep: Int64?, roles: [Int64: FileRole] = [:]) throws -> MergePlan {
         let work = try mergeWork(bookIds: bookIds, keep: keep, roles: roles)
+        var whyNotFiled: String?
+        if work.attention == .cannotBeFiled, let merged = work.merged {
+            whyNotFiled = self.unfiledReason(
+                for: merged.metadata, hasAudio: work.files.contains { $0.role == .audio }, pattern: try folderPattern())
+        }
         return MergePlan(
             keepId: work.keepId, suggestedKeepId: work.suggestedKeepId,
             files: work.files.map {
@@ -115,7 +125,8 @@ extension LibraryService {
             },
             blockers: work.blockers, resultFolder: work.folder.map { store.storedPath(for: $0) },
             attention: work.attention,
-            filesFromOutside: work.moves.filter { layout.relativeComponents(of: $0.from) == nil }.count)
+            filesFromOutside: work.moves.filter { layout.relativeComponents(of: $0.from) == nil }.count,
+            unfiledReason: whyNotFiled)
     }
 
     /// Whether a file's name holds an Audible ID in brackets: "[B" followed by nine
