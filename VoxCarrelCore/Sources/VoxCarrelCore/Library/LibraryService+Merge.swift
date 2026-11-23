@@ -63,12 +63,16 @@ public struct MergePlan: Equatable, Sendable {
     /// Why the kept book will still need attention afterwards; nil when it will not.
     /// Worked out as the merge itself settles the flag, for a merge nothing blocks.
     public var attention: MergeAttention?
+    /// How many of the files the merge would move are outside the library folder now:
+    /// they would be moved into it (and undoing the merge would move them back).
+    public var filesFromOutside: Int
 
     public init(
         keepId: Int64, suggestedKeepId: Int64, files: [MergeFilePlan], blockers: [MergeBlocker],
-        resultFolder: String?, attention: MergeAttention? = nil
+        resultFolder: String?, attention: MergeAttention? = nil, filesFromOutside: Int = 0
     ) {
         self.attention = attention
+        self.filesFromOutside = filesFromOutside
         self.keepId = keepId
         self.suggestedKeepId = suggestedKeepId
         self.files = files
@@ -108,7 +112,8 @@ extension LibraryService {
                     guessedRole: $0.guessedRole)
             },
             blockers: work.blockers, resultFolder: work.folder.map { store.storedPath(for: $0) },
-            attention: work.attention)
+            attention: work.attention,
+            filesFromOutside: work.moves.filter { layout.relativeComponents(of: $0.from) == nil }.count)
     }
 
     /// Whether a file's name holds an Audible ID in brackets: "[B" followed by nine

@@ -913,6 +913,39 @@ import VoxCarrelFixtures
         #expect(review.entry(id)?.candidate.metadata.authors == ["Mind,Markets", "Eric Jones"])
     }
 
+    // MARK: MG2 Files outside the library folder
+
+    @Test func mg2_theSummarySaysWhenFilesWillBeMovedIntoTheLibraryFolderFromOutside() async throws {
+        #expect(MergeText.summary(
+            incoming: 1, title: "Atlas", removed: 1, folder: "Ann/Atlas", attention: nil, fromOutside: 1)
+            == "1 file will move into “Atlas”. 1 entry will be removed. 1 file is outside the library folder "
+            + "and will be moved into it. The book will be filed in “Ann/Atlas”.")
+        #expect(MergeText.summary(
+            incoming: 2, title: "Atlas", removed: 2, folder: "Ann/Old", attention: .folderTaken, fromOutside: 2)
+            == "2 files will move into “Atlas”. 2 entries will be removed. 2 files are outside the library folder "
+            + "and will be moved into it. Another book uses the folder this book belongs in, so it will stay in "
+            + "“Ann/Old” and will still need attention.")
+
+        // An entry catalogued where its file is (it has no author), kept: with the other
+        // entry's author it can be filed, and its own file comes into the library.
+        let (h, books) = try await Harness.merging { library in
+            (try library.pdf("Loose Notes", nil), try library.epub("Loose Notes Text", "Someone"))
+        }
+        #expect(try h.book(books.0).folderPath == nil)
+        await h.select(ids: [books.0, books.1])
+        await h.model.beginMergeBooks()
+        await h.model.setMergeKeep(books.0)
+        let sheet = try #require(h.model.mergeSheet)
+        #expect(sheet.entries.filter(\.isKept).map(\.id) == [books.0])
+        #expect(sheet.summary == "1 file will move into “Loose Notes”. 1 entry will be removed. 1 file is outside "
+            + "the library folder and will be moved into it. The book will be filed in “Someone/Loose Notes”.")
+
+        // Nothing of the kind is said of files that are in the library folder already.
+        let (inside, ebook, notes) = try await merging()
+        _ = (ebook, notes)
+        #expect(inside.model.mergeSheet?.summary.contains("outside") == false)
+    }
+
     // MARK: After undo, and an offer that is out of date
 
     @Test func mg4_afterUndoTheKeptBookIsStillSelectedAndIsTheEntryItWas() async throws {

@@ -78,8 +78,9 @@ public struct MergeSheetState: Equatable, Sendable {
     public var files: [MergeFileRow]
     /// Why the merge cannot be made, each a sentence; empty when it can.
     public var blockers: [String]
-    /// What the merge will do, where the book will be filed, and, plainly, when it
-    /// will still need attention afterwards.
+    /// What the merge will do, where the book will be filed, and, plainly, when files
+    /// will be moved into the library folder from outside it and when the book will
+    /// still need attention afterwards.
     public var summary: String
     /// Whether the summary warns that the book will still need attention.
     public var willNeedAttention: Bool
@@ -187,8 +188,10 @@ enum MergeText {
     ///   - removed: How many entries are removed.
     ///   - folder: The folder the book is in afterwards, relative to the library.
     ///   - attention: Why the book will still need attention; nil when it will not.
+    ///   - fromOutside: How many of the files that move are outside the library folder now.
     static func summary(
-        incoming: Int, title: String, removed: Int, folder: String?, attention: MergeAttention?
+        incoming: Int, title: String, removed: Int, folder: String?, attention: MergeAttention?,
+        fromOutside: Int = 0
     ) -> String {
         let book = "“\(shownTitle(title))”"
         var sentences: [String] = []
@@ -198,6 +201,12 @@ enum MergeText {
         default: sentences.append("\(incoming) files will move into \(book).")
         }
         sentences.append(removed == 1 ? "1 entry will be removed." : "\(removed) entries will be removed.")
+        // Said plainly: these leave the folders they are in, which are not the library's.
+        switch fromOutside {
+        case 0: break
+        case 1: sentences.append("1 file is outside the library folder and will be moved into it.")
+        default: sentences.append("\(fromOutside) files are outside the library folder and will be moved into it.")
+        }
         let stay = folder.map { "it will stay in “\($0)”" } ?? "it will stay where it is"
         switch attention {
         case nil:
@@ -310,7 +319,7 @@ extension AppModel {
             blockers: plan.blockers.map { MergeText.blocker($0, titles: titles) },
             summary: MergeText.summary(
                 incoming: incoming, title: titles[plan.keepId] ?? "", removed: max(entries.count - 1, 0),
-                folder: plan.resultFolder, attention: plan.attention),
+                folder: plan.resultFolder, attention: plan.attention, fromOutside: plan.filesFromOutside),
             willNeedAttention: plan.attention != nil,
             busyText: busyLabel,
             canChange: busyLabel == nil,

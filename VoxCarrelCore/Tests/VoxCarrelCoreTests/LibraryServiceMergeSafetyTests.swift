@@ -210,6 +210,36 @@ import VoxCarrelFixtures
         #expect(try f.store.books() == books)
     }
 
+    @Test func thePlanCountsTheFilesThatWouldComeIntoTheLibraryFromOutside() throws {
+        let f = try F()
+        let inside = try f.importNew([try f.makeEPUB("dune.epub")], F.meta("Dune", "Frank Herbert"))
+        let alsoInside = try f.importNew([try f.makePDF("maps.pdf")], F.meta("Dune Maps", "Frank Herbert"))
+        // No author: each is catalogued where it is, outside the library.
+        let result = try f.service.importItems([
+            ImportItem(candidate: f.candidate([try f.makePDF("loose/notes.pdf")], BookMetadata(title: "Loose Notes"))),
+            ImportItem(candidate: f.candidate([try f.makePDF("loose/more.pdf")], BookMetadata(title: "More Notes"))),
+        ])
+        guard case .needsAttention(let outside) = result.outcomes[0],
+              case .needsAttention(let alsoOutside) = result.outcomes[1]
+        else {
+            Issue.record("expected both to be catalogued in place, got \(result.outcomes)")
+            return
+        }
+
+        // A file that comes in from outside.
+        #expect(try f.service.planMerge(bookIds: [inside, outside], keep: inside).filesFromOutside == 1)
+        // The kept entry's own file: with the other's author the book can be filed, in the library.
+        let keptOutside = try f.service.planMerge(bookIds: [inside, outside], keep: outside)
+        #expect(keptOutside.resultFolder == "Frank Herbert/Loose Notes")
+        #expect(keptOutside.filesFromOutside == 1)
+        #expect(try f.service.planMerge(bookIds: [inside, outside, alsoOutside], keep: inside).filesFromOutside == 2)
+        // None: every file is in the library already, or nothing moves at all.
+        #expect(try f.service.planMerge(bookIds: [inside, alsoInside], keep: inside).filesFromOutside == 0)
+        let nowhere = try f.service.planMerge(bookIds: [outside, alsoOutside], keep: outside)
+        #expect(nowhere.resultFolder == nil)
+        #expect(nowhere.filesFromOutside == 0)
+    }
+
     // MARK: A third book in the way
 
     @Test func aKeptEntryWithNoFolderOfItsOwnAndAThirdBookInTheWay() throws {
