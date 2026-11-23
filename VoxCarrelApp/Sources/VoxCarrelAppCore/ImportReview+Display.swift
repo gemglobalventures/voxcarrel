@@ -52,10 +52,10 @@ extension ImportReview {
         }
     }
 
-    /// MG6: whether the entry has a title and an author to exchange.
+    /// MG6: whether the entry has a title or an author to put in the other's place.
     public func canSwapTitleAndAuthor(of id: UUID) -> Bool {
         guard let metadata = entry(id)?.candidate.metadata else { return false }
-        return !metadata.title.trimmed.isEmpty && metadata.authors.contains { !$0.trimmed.isEmpty }
+        return !metadata.title.trimmed.isEmpty || metadata.authors.contains { !$0.trimmed.isEmpty }
     }
 
     /// MG6: exchanges the entry's title with its first author; any other authors stay
@@ -63,14 +63,16 @@ extension ImportReview {
     /// the details it had, so both are due again (`entriesNeedingDestination`,
     /// `entriesNeedingMatch`). A title that holds a semicolon is still one author, also
     /// when the authors are typed again as they are shown (`NameListText.oneName`).
-    /// Nothing when either is blank.
+    /// With no title, the first author becomes the title and is an author no more;
+    /// with no author, the title becomes the author and the title is left empty.
+    /// Nothing when both are blank.
     public mutating func swapTitleAndAuthor(for id: UUID) {
         guard canSwapTitleAndAuthor(of: id) else { return }
         update(id) { entry in
             var names = entry.candidate.metadata.authors.compactMap(\.trimmedOrNil)
-            let author = names.removeFirst()
-            entry.candidate.metadata.authors = [NameListText.oneName(entry.candidate.metadata.title.trimmed)] + names
-            entry.candidate.metadata.title = author
+            let old = entry.candidate.metadata.title.trimmed
+            entry.candidate.metadata.title = names.isEmpty ? "" : names.removeFirst()
+            entry.candidate.metadata.authors = (old.isEmpty ? [] : [NameListText.oneName(old)]) + names
         }
     }
 

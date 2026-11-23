@@ -283,7 +283,7 @@ extension PendingPrompt {
     /// FL13: what the button that gives up on an interrupted change of folder layout
     /// says; nil for any other question.
     public var stopLayoutRecoveryTitle: String? {
-        self == .stopLayoutRecovery ? "Stop Trying" : nil
+        self == .stopLayoutRecovery || self == .stopMergeRecovery ? "Stop Trying" : nil
     }
 
     /// The question, as the dialog's heading.
@@ -299,6 +299,8 @@ extension PendingPrompt {
             return "Use \"\(folder.lastPathComponent)\" as your library?"
         case .stopLayoutRecovery:
             return "Stop trying to put the folders back?"
+        case .stopMergeRecovery:
+            return "Stop trying to put the files back?"
         }
     }
 
@@ -344,6 +346,10 @@ extension PendingPrompt {
         case .stopLayoutRecovery:
             return "VoxCarrel will stop trying to put the folders back. Books whose folders moved will show as "
                 + "missing until you move the folders back or locate the files yourself. Nothing is deleted."
+        case .stopMergeRecovery:
+            return "VoxCarrel will stop trying to put the files of the interrupted merge back. Books whose files "
+                + "moved will show as missing until you move the files back or locate them yourself. Nothing "
+                + "is deleted."
         }
     }
 }

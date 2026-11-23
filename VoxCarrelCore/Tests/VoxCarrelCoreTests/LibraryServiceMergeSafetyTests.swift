@@ -238,6 +238,11 @@ import VoxCarrelFixtures
         let nowhere = try f.service.planMerge(bookIds: [outside, alsoOutside], keep: outside)
         #expect(nowhere.resultFolder == nil)
         #expect(nowhere.filesFromOutside == 0)
+        // And the plan says why the book cannot be filed, as the library says it of any book.
+        #expect(nowhere.attention == .cannotBeFiled)
+        #expect(nowhere.unfiledReason == (try f.service.unfiledReason(for: outside)))
+        #expect(nowhere.unfiledReason?.isEmpty == false)
+        #expect(keptOutside.unfiledReason == nil)
     }
 
     // MARK: A third book in the way

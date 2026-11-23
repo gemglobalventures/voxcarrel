@@ -207,9 +207,25 @@ import VoxCarrelFixtures
         #expect(summary(1, 1, folder: "Ann/Old", .folderTaken)
             == "1 file will move into “Atlas”. 1 entry will be removed. Another book uses the folder this book "
             + "belongs in, so it will stay in “Ann/Old” and will still need attention.")
+        // Nothing moves when the book has no folder to be in: said plainly, with why.
         #expect(summary(1, 1, folder: nil, .cannotBeFiled)
+            == "The files stay where they are, because the book cannot be filed yet. 1 entry will be removed. "
+            + "The book will still need attention.")
+        #expect(MergeText.summary(
+            incoming: 2, title: "Atlas", removed: 2, folder: nil, attention: .cannotBeFiled,
+            unfiledReason: "Add an author to file this book")
+            == "The files stay where they are, because the book cannot be filed yet: Add an author to file this "
+            + "book. 2 entries will be removed. The book will still need attention.")
+        #expect(summary(1, 1, folder: nil, .folderTaken)
+            == "The files stay where they are, because another book uses the folder this book belongs in. "
+            + "1 entry will be removed. The book will still need attention.")
+        #expect(summary(1, 1, folder: nil, .fileMissing)
+            == "The files stay where they are, because some of this book's files are missing. "
+            + "1 entry will be removed. The book will still need attention.")
+        // With a folder to stay in, the files that come in do move into it.
+        #expect(summary(1, 1, folder: "Ann/Old", .cannotBeFiled)
             == "1 file will move into “Atlas”. 1 entry will be removed. The folder layout cannot file this book "
-            + "yet, so it will stay where it is and will still need attention.")
+            + "yet, so it will stay in “Ann/Old” and will still need attention.")
         #expect(summary(1, 1, folder: "Ann/Atlas", .fileMissing)
             == "1 file will move into “Atlas”. 1 entry will be removed. Some of this book's files are missing, "
             + "so it will stay in “Ann/Atlas” and will still need attention.")
@@ -568,11 +584,6 @@ import VoxCarrelFixtures
 
     @Test func mg6_swappingExchangesTheDraftsTitleWithItsFirstAuthor() {
         var draft = BookDraft(book: bareBook(title: "James Dalton"))
-        #expect(!draft.canSwapTitleAndAuthor)
-        let untouched = draft
-        draft.swapTitleAndAuthor()
-        #expect(draft == untouched)
-
         // The title was the whole of what was in authors: the old title is the only author.
         draft.authors = "Mind Over Markets"
         #expect(draft.canSwapTitleAndAuthor)
@@ -595,16 +606,82 @@ import VoxCarrelFixtures
         #expect(several.title == "Terry Pratchett")
         #expect(several.authors == "Good Omens; Neil Gaiman; Eric Jones")
 
-        // Nothing to exchange with: no title, or no author.
+        // Neither a title nor an author: nothing to put anywhere.
         var blank = BookDraft(book: fullBook())
         blank.title = "  "
-        #expect(!blank.canSwapTitleAndAuthor)
-        blank.title = "Good Omens"
         blank.authors = " ; "
         #expect(!blank.canSwapTitleAndAuthor)
         let before = blank
         blank.swapTitleAndAuthor()
         #expect(blank == before)
+    }
+
+    @Test func mg6_withOnlyATitleOrOnlyAnAuthorTheOneGoesToTheOthersPlace() {
+        // No title: the first author becomes the title, and is an author no more.
+        var untitled = BookDraft(book: fullBook())
+        untitled.title = "  "
+        untitled.authors = "Good Omens; Neil Gaiman"
+        #expect(untitled.canSwapTitleAndAuthor)
+        untitled.swapTitleAndAuthor()
+        #expect(untitled.title == "Good Omens")
+        #expect(untitled.authors == "Neil Gaiman")
+        #expect(untitled.makeEdit()?.metadata.title == "Good Omens")
+        #expect(untitled.makeEdit()?.metadata.authors == ["Neil Gaiman"])
+
+        var onlyAuthor = BookDraft(book: fullBook())
+        onlyAuthor.title = ""
+        onlyAuthor.authors = "Good Omens"
+        onlyAuthor.swapTitleAndAuthor()
+        #expect(onlyAuthor.title == "Good Omens")
+        #expect(onlyAuthor.authors == "")
+
+        // No author: the title becomes the author, and the title is left to be filled in,
+        // which it must be before the book can be saved.
+        var authorless = BookDraft(book: bareBook(title: "James Dalton"))
+        #expect(authorless.authors == "")
+        #expect(authorless.canSwapTitleAndAuthor)
+        authorless.swapTitleAndAuthor()
+        #expect(authorless.title == "")
+        #expect(authorless.authors == "James Dalton")
+        #expect(!authorless.problems.isEmpty)
+        #expect(authorless.makeEdit() == nil)
+        authorless.title = "Mind Over Markets"
+        #expect(authorless.problems.isEmpty)
+        #expect(authorless.makeEdit()?.metadata.authors == ["James Dalton"])
+
+        // The same for an entry of an import being reviewed.
+        func file(_ name: String) -> CandidateFile {
+            CandidateFile(url: URL(fileURLWithPath: "/inbox/\(name)"), role: .ebook)
+        }
+        var review = ImportReview(
+            seeds: [
+                ImportSeed(
+                    candidate: CandidateBook(
+                        files: [file("a.epub")], metadata: BookMetadata(title: " ", authors: ["Good Omens", "Neil Gaiman"])),
+                    cover: nil, existingMatch: nil),
+                ImportSeed(
+                    candidate: CandidateBook(files: [file("b.epub")], metadata: BookMetadata(title: "James Dalton")),
+                    cover: nil, existingMatch: nil),
+                ImportSeed(
+                    candidate: CandidateBook(files: [file("c.epub")], metadata: BookMetadata(title: " ")),
+                    cover: nil, existingMatch: nil),
+            ], skipped: [], copyInsteadOfMove: false)
+        let untitledEntry = review.entries[0].id
+        let authorlessEntry = review.entries[1].id
+        let blankEntry = review.entries[2].id
+        #expect(review.canSwapTitleAndAuthor(of: untitledEntry))
+        #expect(review.canSwapTitleAndAuthor(of: authorlessEntry))
+        #expect(!review.canSwapTitleAndAuthor(of: blankEntry))
+
+        review.swapTitleAndAuthor(for: untitledEntry)
+        #expect(review.text(for: .title, of: untitledEntry) == "Good Omens")
+        #expect(review.entry(untitledEntry)?.candidate.metadata.authors == ["Neil Gaiman"])
+        review.swapTitleAndAuthor(for: authorlessEntry)
+        #expect(review.text(for: .title, of: authorlessEntry) == "")
+        #expect(review.entry(authorlessEntry)?.candidate.metadata.authors == ["James Dalton"])
+        let unchanged = review
+        review.swapTitleAndAuthor(for: blankEntry)
+        #expect(review == unchanged)
     }
 
     @Test func mg6_swappingInTheInspectorMarksTheBookEditedAndIsSavedLikeAnyChange() async throws {
@@ -651,7 +728,7 @@ import VoxCarrelFixtures
                         metadata: BookMetadata(title: "Terry Pratchett", authors: ["Good Omens", "Neil Gaiman"])),
                     cover: nil, existingMatch: nil),
                 ImportSeed(
-                    candidate: CandidateBook(files: [file("b.epub")], metadata: BookMetadata(title: "No Author")),
+                    candidate: CandidateBook(files: [file("b.epub")], metadata: BookMetadata(title: " ")),
                     cover: nil, existingMatch: nil),
             ], skipped: [], copyInsteadOfMove: false)
         let first = review.entries[0].id
@@ -966,7 +1043,7 @@ import VoxCarrelFixtures
         #expect(h.model.canMergeBooks([ebook, notes]))
     }
 
-    @Test func mg5_anOfferWhoseOtherBookHasGoneOpensASheetThatCannotMerge() async throws {
+    @Test func mg5_anOfferWhoseOtherBookHasGoneOpensNoSheetAndSaysSo() async throws {
         let (h, books) = try await Harness.merging { try $0.ownersCase() }
         await h.select(ids: [books.audio])
         let offer = try #require(h.model.mergeOffer)
@@ -975,15 +1052,54 @@ import VoxCarrelFixtures
         let before = h.libraryFiles()
 
         await h.model.beginMerge(with: offer.bookId)
+        await h.model.settle()
+
+        #expect(h.model.mergeSheet == nil)
+        #expect(h.model.alert == "“\(L.title)” is no longer in the library, so there is nothing to merge with.")
+        #expect(h.model.busyLabel == nil)
+        #expect(h.libraryFiles() == before)
+        // The inspector has been read again: the offer it made is gone with the book.
+        #expect(h.model.mergeOffer == nil)
+        #expect(!h.model.rows.contains { $0.id == books.pdf })
+    }
+
+    @Test func mg5_anOfferThatNoLongerHoldsOpensNoSheetAndSaysSo() async throws {
+        let (h, books) = try await Harness.merging { try $0.ownersCase() }
+        await h.select(ids: [books.audio])
+        let offer = try #require(h.model.mergeOffer)
+        // The other book has been given another title since, by something other than
+        // this window: it has left the folder, which is no longer in this book's way.
+        var edit = BookEdit(book: try h.book(books.pdf))
+        edit.metadata.title = "Markets in Profile"
+        _ = try LibraryService(store: try h.store()).save([edit])
+
+        await h.model.beginMerge(with: offer.bookId)
+        await h.model.settle()
+
+        #expect(h.model.mergeSheet == nil)
+        #expect(h.model.alert
+            == "“\(L.title)” no longer uses the folder this book belongs in, so there is nothing to merge.")
+        #expect(h.model.mergeOffer == nil)
+        #expect(try h.store().books().count == 3)
+    }
+
+    // MARK: MG2 Nothing moves when the book cannot be filed
+
+    @Test func mg2_theSummarySaysThatTheFilesStayWhereTheyAreWhenTheBookCannotBeFiled() async throws {
+        let (h, books) = try await Harness.merging { library in
+            (try library.pdf("Loose Notes", nil), try library.epub("Loose Notes Text", nil))
+        }
+        let before = try [books.0, books.1].flatMap { try h.fileURLs($0) }
+        await h.select(ids: [books.0, books.1])
+        await h.model.beginMergeBooks()
+        await h.model.setMergeKeep(books.0)
 
         let sheet = try #require(h.model.mergeSheet)
-        #expect(sheet.entries.map(\.id) == [books.audio])
-        #expect(sheet.blockers == ["Merging needs two or more entries that are in the library."])
-        #expect(!sheet.canMerge)
+        #expect(sheet.summary == "The files stay where they are, because the book cannot be filed yet: No author, "
+            + "which the folder layout needs. 1 entry will be removed. The book will still need attention.")
+        #expect(sheet.willNeedAttention)
+        #expect(sheet.canMerge)
         await h.model.confirmMerge()
-        #expect(h.model.mergeSheet != nil)
-        #expect(h.libraryFiles() == before)
-        h.model.cancelMerge()
-        #expect(h.model.mergeSheet == nil)
+        #expect(try h.fileURLs(books.0) == before)
     }
 }

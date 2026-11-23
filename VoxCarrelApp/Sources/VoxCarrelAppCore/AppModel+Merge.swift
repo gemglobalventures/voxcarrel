@@ -108,6 +108,16 @@ public struct MergeOffer: Equatable, Sendable {
     }
 }
 
+/// How an offer to merge stands when the library is asked again.
+public enum MergeOfferStanding: Equatable, Sendable {
+    /// The other book still has the folder this book belongs in.
+    case holds
+    /// The other book is no longer in the library.
+    case otherGone
+    /// The other book is there, but this book is no longer flagged because of it.
+    case changed
+}
+
 /// What the sheet says of one entry, read with the plan.
 public struct MergeEntryFacts: Equatable, Sendable {
     public var id: Int64
@@ -181,6 +191,29 @@ enum MergeText {
         return "\(listed) all have audiobook files, so they are treated as separate editions and cannot be merged."
     }
 
+    /// Why the files of a merge stay where they are, as the end of a sentence; nil when
+    /// that is not what `attention` means.
+    private static func staysReason(_ attention: MergeAttention, unfiledReason: String?) -> String? {
+        switch attention {
+        case .cannotBeFiled:
+            guard let reason = unfiledReason?.trimmedOrNil else { return "the book cannot be filed yet." }
+            return "the book cannot be filed yet: " + (".!?".contains(reason.last ?? ".") ? reason : reason + ".")
+        case .folderTaken: return "another book uses the folder this book belongs in."
+        case .fileMissing: return "some of this book's files are missing."
+        case .asBefore: return nil
+        }
+    }
+
+    /// What is said when the book an offer was for is no longer in the library.
+    static func offerGone(_ title: String) -> String {
+        "“\(shownTitle(title))” is no longer in the library, so there is nothing to merge with."
+    }
+
+    /// What is said when the book an offer was for no longer has this book's folder.
+    static func offerChanged(_ title: String) -> String {
+        "“\(shownTitle(title))” no longer uses the folder this book belongs in, so there is nothing to merge."
+    }
+
     /// MG2: what the merge will do, and where the book will be afterwards.
     /// - Parameters:
     ///   - incoming: How many files come in from the entries that are removed.
@@ -189,12 +222,20 @@ enum MergeText {
     ///   - folder: The folder the book is in afterwards, relative to the library.
     ///   - attention: Why the book will still need attention; nil when it will not.
     ///   - fromOutside: How many of the files that move are outside the library folder now.
+    ///   - unfiledReason: Why the layout cannot file the book, when it cannot.
     static func summary(
         incoming: Int, title: String, removed: Int, folder: String?, attention: MergeAttention?,
-        fromOutside: Int = 0
+        fromOutside: Int = 0, unfiledReason: String? = nil
     ) -> String {
         let book = "“\(shownTitle(title))”"
         var sentences: [String] = []
+        // With no folder to be in, the book takes the files where they are: nothing moves.
+        if folder == nil, incoming > 0, let attention, let why = staysReason(attention, unfiledReason: unfiledReason) {
+            sentences.append("The files stay where they are, because \(why)")
+            sentences.append(removed == 1 ? "1 entry will be removed." : "\(removed) entries will be removed.")
+            sentences.append("The book will still need attention.")
+            return sentences.joined(separator: " ")
+        }
         switch incoming {
         case 0: sentences.append("No files need to move into \(book).")
         case 1: sentences.append("1 file will move into \(book).")
@@ -276,10 +317,31 @@ extension AppModel {
     /// MG5: opens the sheet for the inspected book and `otherId`, the book that has its
     /// folder, keeping the one the library suggests (the one with audio). Does nothing
     /// unless one book is inspected and nothing is in the way.
+    ///
+    /// The offer is as old as the inspector's reading of the book, so the library is
+    /// asked again first. When that book no longer has the folder, or is no longer in
+    /// the library, no sheet opens: `alert` says so, and the inspector is read again.
     public func beginMerge(with otherId: Int64) async {
         guard case .one(let detail, _) = inspecting, isQuietForMerge, otherId > 0, otherId != detail.row.id
         else { return }
-        await openMerge([detail.row.id, otherId])
+        let ids = [detail.row.id, otherId]
+        guard let worker = await begin(MergeText.planningLabel) else { return }
+        do {
+            switch try await worker.mergeOfferStanding(for: detail.row.id, with: otherId) {
+            case .holds:
+                let reading = try await worker.planMerge(bookIds: ids, keep: nil, roles: [:])
+                mergeSession = MergeSession(bookIds: ids, reading: reading)
+            case .otherGone:
+                alert = MergeText.offerGone(detail.mergeOffer?.title ?? "")
+                await reloadAll()
+            case .changed:
+                alert = MergeText.offerChanged(detail.mergeOffer?.title ?? "")
+                await reloadAll()
+            }
+        } catch {
+            show(error)
+        }
+        busyLabel = nil
     }
 
     /// Planning is an operation: it looks at every file's place on the disk. When the
@@ -319,7 +381,8 @@ extension AppModel {
             blockers: plan.blockers.map { MergeText.blocker($0, titles: titles) },
             summary: MergeText.summary(
                 incoming: incoming, title: titles[plan.keepId] ?? "", removed: max(entries.count - 1, 0),
-                folder: plan.resultFolder, attention: plan.attention, fromOutside: plan.filesFromOutside),
+                folder: plan.resultFolder, attention: plan.attention, fromOutside: plan.filesFromOutside,
+                unfiledReason: plan.unfiledReason),
             willNeedAttention: plan.attention != nil,
             busyText: busyLabel,
             canChange: busyLabel == nil,

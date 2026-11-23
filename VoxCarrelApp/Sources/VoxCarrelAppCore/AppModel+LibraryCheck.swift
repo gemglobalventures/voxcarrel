@@ -59,6 +59,8 @@ public struct LibraryCheckSummary: Equatable, Sendable {
 
 extension AppModel {
     static let checkingLabel = "Checking the library…"
+    /// What the check says when it has put an interrupted merge right.
+    static let recoveredMergeText = "A merge of books was interrupted. The files have been put back as they were."
 
     /// A2: runs the launch check and keeps what it found worth telling.
     ///
@@ -72,12 +74,14 @@ extension AppModel {
         do {
             let report = try await worker.reconcile()
             // FL12: set before the check is shown, so that nothing is offered that is off.
-            layoutChangeIsUnresolved = report.layoutChangeProblem != nil
+            // The same for a merge of books that was interrupted.
+            mergeRecoveryIsUnresolved = report.mergeProblem != nil
+            layoutChangeIsUnresolved = report.layoutChangeProblem != nil || mergeRecoveryIsUnresolved
             // The check flags books with missing files and clears the flag of books that are whole
             // again, corrects the length of books whose files stated the wrong one, and marks
             // files it finds to state the wrong length.
             if reloads,
-               !report.booksWithMissingFiles.isEmpty || !report.booksRecovered.isEmpty
+               report.recoveredMerge || !report.booksWithMissingFiles.isEmpty || !report.booksRecovered.isEmpty
                 || report.correctedLengths > 0 || report.filesWithWrongLength > 0 {
                 await reloadAll()
             }
@@ -88,6 +92,8 @@ extension AppModel {
                 // FL11, FL12, and folders still set aside after FL13.
                 || report.recoveredLayoutChange || report.layoutChangeProblem != nil
                 || !report.strandedFolders.isEmpty
+                // A merge of books that was interrupted: put right, or not.
+                || report.recoveredMerge || report.mergeProblem != nil
             var titles: [String] = []
             if !report.booksWithMissingFiles.isEmpty {
                 // Q10: named now, so that the check can list them whatever the window shows later.
@@ -107,7 +113,8 @@ extension AppModel {
         } catch {
             show(error)
             // FL12: the check said nothing, so the library is asked.
-            layoutChangeIsUnresolved = await worker.hasInterruptedLayoutChange()
+            mergeRecoveryIsUnresolved = await worker.hasInterruptedMerge()
+            layoutChangeIsUnresolved = await worker.hasInterruptedLayoutChange() || mergeRecoveryIsUnresolved
         }
     }
 
@@ -122,7 +129,7 @@ extension AppModel {
     /// FL13: "Stop Trying…": asks whether to give up on putting the folders back.
     public func requestStopLayoutRecovery() {
         guard layoutChangeIsUnresolved, busyLabel == nil, worker != nil else { return }
-        raise(.stopLayoutRecovery)
+        raise(mergeRecoveryIsUnresolved ? .stopMergeRecovery : .stopLayoutRecovery)
     }
 
     /// FL13: the answer "stop trying" to `.stopLayoutRecovery`. The record of the
@@ -130,11 +137,12 @@ extension AppModel {
     /// ordinary check then runs, and tells of the books whose folders are not where
     /// the library has them.
     public func confirmStopLayoutRecovery() async {
-        guard storedPrompt == .stopLayoutRecovery else { return }
+        guard storedPrompt == .stopLayoutRecovery || storedPrompt == .stopMergeRecovery else { return }
         storedPrompt = nil
         guard layoutChangeIsUnresolved, let worker = await begin(Self.checkingLabel) else { return }
         do {
             try await worker.discardInterruptedLayoutChange()
+            try await worker.discardInterruptedMerge()
             await runLibraryCheck(with: worker, reloads: false)
         } catch {
             show(error)
@@ -156,6 +164,15 @@ extension AppModel {
                         + "Importing, saving and other changes are off until this is resolved.",
                     lines: folderLines(check.strandedFolders)),
                 retryTitle: "Try Again", stopTitle: "Stop Trying…")
+        } else if let reason = check.mergeProblem {
+            // Shown as an interrupted change of folder layout is, with the same two ways on.
+            summary.layoutProblem = LibraryCheckSummary.LayoutProblem(
+                section: LibraryCheckSummary.Section(
+                    heading: "A merge of books was interrupted",
+                    detail: Self.sentence(reason) + " Nothing was deleted. "
+                        + "Importing, saving and other changes are off until this is resolved.",
+                    lines: fileLines(check.mergeFilesOutOfPlace)),
+                retryTitle: "Try Again", stopTitle: "Stop Trying…")
         } else if !check.strandedFolders.isEmpty {
             // FL13: folders that were set aside when the change was given up on.
             let count = check.strandedFolders.count
@@ -173,6 +190,11 @@ extension AppModel {
             summary.intro = LibraryCheckSummary.noFileChanged
             summary.recoveredLayout =
                 "A change of folder layout was interrupted. The folders have been put back as they were."
+        }
+        if check.recoveredMerge {
+            summary.intro = LibraryCheckSummary.noFileChanged
+            summary.recoveredLayout = [summary.recoveredLayout, Self.recoveredMergeText].compactMap { $0 }
+                .joined(separator: " ")
         }
 
         let missing = check.booksWithMissingFiles.count

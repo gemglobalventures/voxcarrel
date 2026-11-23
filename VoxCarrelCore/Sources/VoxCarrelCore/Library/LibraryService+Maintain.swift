@@ -285,7 +285,9 @@ extension LibraryService {
     ///
     /// First of all a change of folder layout that was cut short is put right
     /// (`recoverInterruptedLayoutChange`): `recoveredLayoutChange` and
-    /// `layoutChangeProblem` say what came of that.
+    /// `layoutChangeProblem` say what came of that. Then a merge of entries that was
+    /// cut short is put right (`recoverInterruptedMerge`): `recoveredMerge` and
+    /// `mergeProblem`.
     ///
     /// Looks only at names, sizes and whether files exist. No file is opened, except for
     /// what `checkLengths` does: the audio files of a book whose recorded length cannot
@@ -312,6 +314,12 @@ extension LibraryService {
         // catalogue says: checking them against it would only flag every book the
         // change had moved. The check waits until the library has been put right.
         if recovery.problem != nil { return report }
+        // The same for a merge of entries that was cut short.
+        let merge = try recoverInterruptedMerge()
+        report.recoveredMerge = merge.filesPutBack
+        report.mergeProblem = merge.problem
+        report.mergeFilesOutOfPlace = merge.unresolved
+        if merge.problem != nil { return report }
 
         // R1, R2
         let pattern = try folderPattern()

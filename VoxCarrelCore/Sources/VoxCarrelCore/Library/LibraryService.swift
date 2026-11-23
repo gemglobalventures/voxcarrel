@@ -82,6 +82,11 @@ public final class LibraryService {
     /// written the catalogue, before it tidies up after itself.
     var afterLayoutCommit: (() throws -> Void)?
 
+    /// Test seam: called at each stage of a merge. Throwing from it stands in for the
+    /// app stopping dead there: the merge ends at once, with nothing put back and
+    /// nothing tidied up.
+    var mergeCheckpoint: ((MergeCheckpoint) throws -> Void)?
+
     /// How the squared cover is put into a copy made for sending, in place of
     /// `AudioTagIO.setCover`. A test seam.
     var sendCoverWriter: ((CoverImage, URL) throws -> Void)?
@@ -450,23 +455,32 @@ public final class LibraryService {
                FileStamp.fileNumber(at: url) == number, !FileManager.default.fileExists(atPath: kept.path) {
                 return
             }
-            if let written = original.written, now == written, FileManager.default.fileExists(atPath: kept.path) {
-                // On one volume, a rename: the file is the old one or the new, never neither.
-                if rename(kept.path, path) == 0 { return }
-                // On another, a copy beside the file first, under a working copy's name.
-                let beside = url.deletingLastPathComponent()
-                    .appendingPathComponent(".voxcarrel-\(UUID().uuidString).\(url.pathExtension)")
-                if (try? FileManager.default.copyItem(at: kept, to: beside)) != nil {
-                    original.before.setTime(ofFileAt: beside)
-                    if rename(beside.path, path) == 0 { return }
-                    try? FileManager.default.removeItem(at: beside)
-                }
+            if let written = original.written, now == written, FileManager.default.fileExists(atPath: kept.path),
+               putKeptFile(kept, inPlaceOf: url, before: original.before) {
+                return
             }
             // Put back by an earlier attempt. (Only where the disk tells the file as it
             // was from the file as written.)
             if now == original.before, original.written != original.before { return }
         }
         try restoreTags(state, at: path, token: token)
+    }
+
+    /// Puts a file kept whole in the place of the file at `url`, in one step: the file
+    /// is the old one or the new, never neither.
+    /// - Returns: False when it could not be done; the file at `url` is then as it was.
+    func putKeptFile(_ kept: URL, inPlaceOf url: URL, before: FileStamp) -> Bool {
+        // On one volume, a rename.
+        if rename(kept.path, url.path) == 0 { return true }
+        // On another, a copy beside the file first, under a working copy's name.
+        let beside = url.deletingLastPathComponent()
+            .appendingPathComponent(".voxcarrel-\(UUID().uuidString).\(url.pathExtension)")
+        if (try? FileManager.default.copyItem(at: kept, to: beside)) != nil {
+            before.setTime(ofFileAt: beside)
+            if rename(beside.path, url.path) == 0 { return true }
+            try? FileManager.default.removeItem(at: beside)
+        }
+        return false
     }
 
     /// Reverses one set of transfers and then puts the earlier tags back into the files,
@@ -683,6 +697,9 @@ public final class LibraryService {
             case .layoutChangeFailed(let book, let reason):
                 return "The folder of \(book) could not be moved, so the folder layout was not changed: \(reason)"
             case .mergeRefused(let blocker): return describe(blocker)
+            case .mergeInterrupted:
+                return "A merge of books was interrupted and has not been put right yet, so nothing else can be "
+                    + "changed"
             }
         default:
             return error.localizedDescription
@@ -702,6 +719,8 @@ public final class LibraryService {
             return "Something else is already where \"\(name)\" would go, and nothing is ever replaced"
         case .layoutChangeInterrupted:
             return describe(LibraryError.layoutChangeInterrupted)
+        case .mergeInterrupted:
+            return describe(LibraryError.mergeInterrupted)
         }
     }
 }

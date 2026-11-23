@@ -33,6 +33,8 @@ public enum MergeBlocker: Equatable, Sendable {
     case nameClash(String)
     /// A change of folder layout was cut short and has not been put right.
     case layoutChangeInterrupted
+    /// An earlier merge was cut short and has not been put right.
+    case mergeInterrupted
 }
 
 /// Why the kept book will still need attention when the entries have been merged.
@@ -66,13 +68,18 @@ public struct MergePlan: Equatable, Sendable {
     /// How many of the files the merge would move are outside the library folder now:
     /// they would be moved into it (and undoing the merge would move them back).
     public var filesFromOutside: Int
+    /// When the library's layout cannot file the merged book (`attention` is
+    /// `.cannotBeFiled`): why, as the library says it of any book. Nil otherwise.
+    public var unfiledReason: String?
 
     public init(
         keepId: Int64, suggestedKeepId: Int64, files: [MergeFilePlan], blockers: [MergeBlocker],
-        resultFolder: String?, attention: MergeAttention? = nil, filesFromOutside: Int = 0
+        resultFolder: String?, attention: MergeAttention? = nil, filesFromOutside: Int = 0,
+        unfiledReason: String? = nil
     ) {
         self.attention = attention
         self.filesFromOutside = filesFromOutside
+        self.unfiledReason = unfiledReason
         self.keepId = keepId
         self.suggestedKeepId = suggestedKeepId
         self.files = files
@@ -104,6 +111,11 @@ extension LibraryService {
     ///   `LibraryError.invalidRole` when it gives a file a role its format cannot have.
     public func planMerge(bookIds: [Int64], keep: Int64?, roles: [Int64: FileRole] = [:]) throws -> MergePlan {
         let work = try mergeWork(bookIds: bookIds, keep: keep, roles: roles)
+        var whyNotFiled: String?
+        if work.attention == .cannotBeFiled, let merged = work.merged {
+            whyNotFiled = self.unfiledReason(
+                for: merged.metadata, hasAudio: work.files.contains { $0.role == .audio }, pattern: try folderPattern())
+        }
         return MergePlan(
             keepId: work.keepId, suggestedKeepId: work.suggestedKeepId,
             files: work.files.map {
@@ -113,7 +125,8 @@ extension LibraryService {
             },
             blockers: work.blockers, resultFolder: work.folder.map { store.storedPath(for: $0) },
             attention: work.attention,
-            filesFromOutside: work.moves.filter { layout.relativeComponents(of: $0.from) == nil }.count)
+            filesFromOutside: work.moves.filter { layout.relativeComponents(of: $0.from) == nil }.count,
+            unfiledReason: whyNotFiled)
     }
 
     /// Whether a file's name holds an Audible ID in brackets: "[B" followed by nine
@@ -324,6 +337,7 @@ extension LibraryService {
 
         // MB3
         if hasInterruptedLayoutChange { work.blockers.append(.layoutChangeInterrupted) }
+        if hasInterruptedMerge { work.blockers.append(.mergeInterrupted) }
         let withAudio = entries.filter(\.hasAudio).compactMap(\.book.id)
         if withAudio.count > 1 { work.blockers.append(.bothHaveAudio(withAudio)) }
         for file in work.files where !file.isOnDisk {
@@ -467,8 +481,11 @@ extension LibraryService {
     public func mergeBooks(_ bookIds: [Int64], keep: Int64, roles: [Int64: FileRole]) throws -> Int64 {
         let work = try mergeWork(bookIds: bookIds, keep: keep, roles: roles)
         if let blocker = work.blockers.first {
-            throw blocker == .layoutChangeInterrupted
-                ? LibraryError.layoutChangeInterrupted : LibraryError.mergeRefused(blocker)
+            switch blocker {
+            case .layoutChangeInterrupted: throw LibraryError.layoutChangeInterrupted
+            case .mergeInterrupted: throw LibraryError.mergeInterrupted
+            default: throw LibraryError.mergeRefused(blocker)
+            }
         }
         guard let kept = work.kept, let keepId = kept.book.id, let merged = work.merged else {
             throw LibraryError.bookNotFound(keep)
@@ -535,7 +552,28 @@ extension LibraryService {
         }
         let removedIds = removed.compactMap(\.book.id)
         let hadCover = covers.url(for: keepId) != nil
-        let newCover = hadCover ? nil : removedIds.lazy.compactMap { self.covers.image(for: $0) }.first
+        let coverFrom = hadCover ? nil : removedIds.first { self.covers.image(for: $0) != nil }
+        let newCover = coverFrom.flatMap { self.covers.image(for: $0) }
+        try mergeCheckpoint?(.originalsSaved)
+
+        // What is about to be done is written down, and is on the disk, before the
+        // first file moves: a merge that is cut short is put right from it when the
+        // library is next opened (`recoverInterruptedMerge`). It is removed once the
+        // catalogue is written, or every file is back.
+        do {
+            try writeMergeIntent(
+                mergeIntent(
+                    token: operation.token, keptId: keepId, removedIds: removedIds, coverFromId: coverFrom,
+                    moves: work.moves,
+                    written: originals.keys.sorted().compactMap { index in
+                        originals[index].map { (files[index].url, work.locations[index], $0) }
+                    }))
+        } catch {
+            removeUndoData(token: operation.token)
+            removeMergeIntent()
+            throw error
+        }
+        try mergeCheckpoint?(.recorded)
 
         // MB4, MB6: one batch, all or nothing.
         let records: [MoveRecord]
@@ -543,10 +581,13 @@ extension LibraryService {
             records = try organiser.transfer(work.moves, mode: .move, pruneRoot: layout.root)
         } catch {
             removeUndoData(token: operation.token)
+            // While a file could not be put back the record stays, for the next launch.
+            if case OrganiserError.rollbackIncomplete = error {} else { removeMergeIntent() }
             throw error
         }
         for index in files.indices { files[index].url = work.locations[index] }
-        // From here to the commit nothing throws.
+        try mergeCheckpoint?(.moved)
+        // From here to the commit nothing fails the merge.
 
         // Each file's place among the audio parts of the entry it came from, for undo.
         var partBefore: [Int64: PartPosition] = [:]
@@ -556,10 +597,13 @@ extension LibraryService {
             }
         }
         let partsAfter = Self.partPositions(for: files.map(\.role))
+        var tagsWritten = 0
         for index in files.indices where writes[index] {
             writeTags(
                 merged.metadata, cover: .keep, part: partsAfter[index], to: &files[index],
                 restorePart: ordered[index].row.id.flatMap { partBefore[$0] }, coverBefore: nil)
+            tagsWritten += 1
+            try mergeCheckpoint?(.tagsWritten(tagsWritten))
             guard var original = originals[index] else { continue }
             if files[index].state != nil {
                 original.written = FileStamp(fileAt: files[index].url)
@@ -569,6 +613,9 @@ extension LibraryService {
                 try? fm.removeItem(at: undoFolder(operation.token).appendingPathComponent(original.fileName))
             }
         }
+        // The moves are forced out to the disk before the catalogue is written, so
+        // that after a loss of power the catalogue never says more than the disk shows.
+        if let forceFoldersToDisk { forceFoldersToDisk() } else { Self.forceToDisk(layout.root) }
 
         var updated = merged
         if work.isRefiled, let folder = work.folder { updated.folderPath = store.storedPath(for: folder) }
@@ -627,10 +674,18 @@ extension LibraryService {
         operation.sentRecordMoves = [.init(recordIds: removed.flatMap(\.sentRecordIds), toBookId: keepId)]
         operation.merge = MergeSnapshot(removed: removed, collectionsJoined: joined)
 
-        _ = try commit(operation, label: "Merge Books")
+        do {
+            _ = try commit(operation, label: "Merge Books")
+        } catch {
+            // Every file is back. (While one could not be put back the record stays.)
+            if case LibraryError.rollbackIncomplete = error {} else { removeMergeIntent() }
+            throw error
+        }
+        try mergeCheckpoint?(.committed)
 
         // Committed: the removed entries' stored covers have no book any more.
         for id in removedIds { try? covers.remove(for: id) }
+        removeMergeIntent()
         return keepId
     }
 

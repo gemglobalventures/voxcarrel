@@ -271,6 +271,18 @@ public actor LibraryWorker {
         try service.discardInterruptedLayoutChange()
     }
 
+    /// Whether a merge of books that was interrupted is still to be put right: while it
+    /// is, the library refuses everything that changes its files.
+    public func hasInterruptedMerge() -> Bool {
+        service.hasInterruptedMerge
+    }
+
+    /// Gives up on putting right a merge of books that was interrupted
+    /// (`LibraryService.discardInterruptedMerge`).
+    public func discardInterruptedMerge() throws {
+        try service.discardInterruptedMerge()
+    }
+
     private func books(for item: SidebarItem) throws -> [Book] {
         switch item {
         case .allBooks: try store.books()
@@ -453,6 +465,12 @@ public actor LibraryWorker {
                     roles: try store.files(bookId: id).map(\.role)))
         }
         return MergeReading(plan: plan, entries: entries)
+    }
+
+    /// MG5: how the offer to merge `bookId` with `otherId` stands now.
+    public func mergeOfferStanding(for bookId: Int64, with otherId: Int64) throws -> MergeOfferStanding {
+        guard try store.book(id: otherId) != nil else { return .otherGone }
+        return try service.bookUsingFolder(of: bookId)?.id == otherId ? .holds : .changed
     }
 
     /// Makes the entries one book, as one operation that Undo reverses. Returns the
