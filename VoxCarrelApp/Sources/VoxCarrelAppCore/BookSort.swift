@@ -44,29 +44,84 @@ public struct BookSort: Equatable, Sendable {
         }
         let missing = rows.filter(\.isMissing)
         guard !missing.isEmpty else { return arranged(rows) }
+        return arranged(rows.filter { !$0.isMissing }) + Self.inSeriesOrder(missing)
+    }
+
+    /// The books of one series in the order of the series: by number, numerically where
+    /// the numbers are numbers, books with no number last, ties by title. The order a
+    /// single series' view shows, and the order of the books inside a series group.
+    static func inSeriesOrder(_ rows: [BookRow]) -> [BookRow] {
         var inSeriesOrder = BookSort()
         inSeriesOrder.bySeriesNumber = true
-        return arranged(rows.filter { !$0.isMissing }) + inSeriesOrder.arranged(missing)
+        return inSeriesOrder.arranged(rows)
     }
 
-    /// The rows in this order, those with no value for the key last.
     private func arranged(_ rows: [BookRow]) -> [BookRow] {
-        var valued: [BookRow] = []
-        var valueless: [BookRow] = []
-        for row in rows {
-            if hasValue(row) { valued.append(row) } else { valueless.append(row) }
-        }
-        return ordered(valued) + ordered(valueless)
+        arranged(rows, by: SortValues.init(row:))
     }
 
-    private func ordered(_ rows: [BookRow]) -> [BookRow] {
-        rows.sorted { a, b in
-            let result = compare(a, b)
+    /// Anything in this order that can say what it is ordered by: books, and series
+    /// groups among them. Those with no value for the key come last, as rows do.
+    func arranged<Element>(_ elements: [Element], by values: (Element) -> SortValues) -> [Element] {
+        var valued: [(SortValues, Element)] = []
+        var valueless: [(SortValues, Element)] = []
+        for element in elements {
+            let entry = (values(element), element)
+            if hasValue(entry.0) { valued.append(entry) } else { valueless.append(entry) }
+        }
+        return (ordered(valued) + ordered(valueless)).map(\.1)
+    }
+
+    private func ordered<Element>(_ entries: [(SortValues, Element)]) -> [(SortValues, Element)] {
+        entries.sorted { a, b in
+            let result = compare(a.0, b.0)
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
     }
 
     // MARK: Values
+
+    /// What one thing in the list is ordered by, under every key: a book's own values,
+    /// or a series group's (`SeriesGroup.sortValues`).
+    struct SortValues {
+        /// Compared last but for `id`, under every key.
+        var title: String
+        /// Breaks the last tie.
+        var id: Int64
+        var firstAuthor: String?
+        var series: String?
+        var seriesNumber: String?
+        var formatRank: Int?
+        var length: Double?
+        var added: Date
+        var statusRank: Int
+        var editionRank: Int?
+
+        init(
+            title: String, id: Int64, firstAuthor: String?, series: String?, seriesNumber: String?,
+            formatRank: Int?, length: Double?, added: Date, statusRank: Int, editionRank: Int?
+        ) {
+            self.title = title
+            self.id = id
+            self.firstAuthor = BookSort.text(firstAuthor)
+            self.series = BookSort.text(series)
+            self.seriesNumber = BookSort.text(seriesNumber)
+            self.formatRank = formatRank
+            self.length = length
+            self.added = added
+            self.statusRank = statusRank
+            self.editionRank = editionRank
+        }
+
+        init(row: BookRow) {
+            self.init(
+                title: row.book.title, id: row.id, firstAuthor: row.book.authors.first, series: row.book.series,
+                seriesNumber: row.book.seriesNumber,
+                formatRank: BookSort.formatRank(hasAudio: row.hasAudio, hasEbook: row.hasEbook, hasFiles: row.hasFiles),
+                length: row.book.durationSeconds, added: row.book.dateAdded,
+                statusRank: BookSort.statusRank(row.book.readStatus), editionRank: BookSort.editionRank(row))
+        }
+    }
 
     private static func text(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty
@@ -74,13 +129,11 @@ public struct BookSort: Equatable, Sendable {
         return trimmed
     }
 
-    private static func firstAuthor(_ row: BookRow) -> String? { text(row.book.authors.first) }
-
     /// 0 audio only, 1 an audiobook that is only owned elsewhere (on Audible), 2 audio
     /// and ebook, 3 ebook only; nil when the book has neither.
-    private static func formatRank(_ row: BookRow) -> Int? {
-        switch (row.hasAudio, row.hasEbook) {
-        case (true, false): row.hasFiles ? 0 : 1
+    static func formatRank(hasAudio: Bool, hasEbook: Bool, hasFiles: Bool) -> Int? {
+        switch (hasAudio, hasEbook) {
+        case (true, false): hasFiles ? 0 : 1
         case (true, true): 2
         case (false, true): 3
         case (false, false): nil
@@ -88,8 +141,8 @@ public struct BookSort: Equatable, Sendable {
     }
 
     /// Unread, in progress, finished.
-    private static func statusRank(_ row: BookRow) -> Int {
-        switch row.book.readStatus {
+    static func statusRank(_ status: ReadStatus) -> Int {
+        switch status {
         case .unread: 0
         case .inProgress: 1
         case .finished: 2
@@ -97,7 +150,7 @@ public struct BookSort: Equatable, Sendable {
     }
 
     /// Unabridged, abridged, dramatised.
-    private static func editionRank(_ row: BookRow) -> Int? {
+    static func editionRank(_ row: BookRow) -> Int? {
         switch row.book.editionKind?.kind {
         case .unabridged: 0
         case .abridged: 1
@@ -106,15 +159,15 @@ public struct BookSort: Equatable, Sendable {
         }
     }
 
-    private func hasValue(_ row: BookRow) -> Bool {
-        if bySeriesNumber { return Self.text(row.book.seriesNumber) != nil }
+    private func hasValue(_ values: SortValues) -> Bool {
+        if bySeriesNumber { return values.seriesNumber != nil }
         return switch key {
         case .title, .dateAdded, .status: true
-        case .author: Self.firstAuthor(row) != nil
-        case .series: Self.text(row.book.series) != nil
-        case .formats: Self.formatRank(row) != nil
-        case .length: row.book.durationSeconds != nil
-        case .edition: Self.editionRank(row) != nil
+        case .author: values.firstAuthor != nil
+        case .series: values.series != nil
+        case .formats: values.formatRank != nil
+        case .length: values.length != nil
+        case .edition: values.editionRank != nil
         }
     }
 
@@ -143,30 +196,30 @@ public struct BookSort: Equatable, Sendable {
     }
 
     /// The ascending order for the key, ending with title and then id.
-    private func compare(_ a: BookRow, _ b: BookRow) -> ComparisonResult {
+    private func compare(_ a: SortValues, _ b: SortValues) -> ComparisonResult {
         var result: ComparisonResult = .orderedSame
         switch key {
         case .title:
-            if bySeriesNumber { result = Self.compareSeriesNumbers(a.book.seriesNumber, b.book.seriesNumber) }
+            if bySeriesNumber { result = Self.compareSeriesNumbers(a.seriesNumber, b.seriesNumber) }
         case .author:
-            result = Self.compareText(Self.firstAuthor(a) ?? "", Self.firstAuthor(b) ?? "")
+            result = Self.compareText(a.firstAuthor ?? "", b.firstAuthor ?? "")
         case .series:
-            result = Self.compareText(Self.text(a.book.series) ?? "", Self.text(b.book.series) ?? "")
+            result = Self.compareText(a.series ?? "", b.series ?? "")
             if result == .orderedSame {
-                result = Self.compareSeriesNumbers(a.book.seriesNumber, b.book.seriesNumber)
+                result = Self.compareSeriesNumbers(a.seriesNumber, b.seriesNumber)
             }
         case .formats:
-            result = Self.compareValues(Self.formatRank(a) ?? .max, Self.formatRank(b) ?? .max)
+            result = Self.compareValues(a.formatRank ?? .max, b.formatRank ?? .max)
         case .length:
-            result = Self.compareValues(a.book.durationSeconds ?? 0, b.book.durationSeconds ?? 0)
+            result = Self.compareValues(a.length ?? 0, b.length ?? 0)
         case .dateAdded:
-            result = Self.compareValues(a.book.dateAdded, b.book.dateAdded)
+            result = Self.compareValues(a.added, b.added)
         case .status:
-            result = Self.compareValues(Self.statusRank(a), Self.statusRank(b))
+            result = Self.compareValues(a.statusRank, b.statusRank)
         case .edition:
-            result = Self.compareValues(Self.editionRank(a) ?? .max, Self.editionRank(b) ?? .max)
+            result = Self.compareValues(a.editionRank ?? .max, b.editionRank ?? .max)
         }
-        if result == .orderedSame { result = Self.compareText(a.book.title, b.book.title) }
+        if result == .orderedSame { result = Self.compareText(a.title, b.title) }
         if result == .orderedSame { result = Self.compareValues(a.id, b.id) }
         return result
     }
