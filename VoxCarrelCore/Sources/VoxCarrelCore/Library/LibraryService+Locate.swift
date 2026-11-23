@@ -31,6 +31,15 @@ extension LibraryService {
             for: Self.filledIn(metadata, from: files), hasAudio: firstFiles.contains { $0.role == .audio })
     }
 
+    /// Whether `folder` (as `plannedFolder` gives it) is the folder of a book other
+    /// than `bookId`, names compared as the library's volume compares them. A book is
+    /// never filed into such a folder (FP41): an import that would file the first
+    /// files of a book there is refused. Reads the catalogue only.
+    public func isFolderOfAnotherBook(_ folder: String, than bookId: Int64?) -> Bool {
+        var owners: FolderOwners?
+        return isAnotherBooksFolder(store.url(forFolder: folder), for: bookId, owners: &owners)
+    }
+
     // MARK: Putting a missing file back
 
     /// Puts a missing file back: `chosen` is moved (or, for a file kept outside the

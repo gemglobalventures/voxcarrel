@@ -460,6 +460,101 @@ import VoxCarrelFixtures
         #expect(try service.undoLabel() == nil)
     }
 
+    // MARK: FL13 Giving up on putting the folders back
+
+    /// An interruption that cannot be put right: six folders moved, one of them then
+    /// taken out of the library by hand. Returns the library opened afresh, checked once.
+    private func unrecoverable(_ f: F) throws -> LibraryService {
+        let planned = try f.service.planLayoutChange(to: try FolderPattern(Self.byNarrator))
+        crash(f.service, afterRenames: 6)
+        #expect(throws: FolderMover.Halted.self) { try f.service.applyLayoutChange(to: try FolderPattern(Self.byNarrator)) }
+        try FileManager.default.moveItem(at: f.lib(planned.moves[2].to), to: f.base.appendingPathComponent("Away"))
+        let service = try reopened(f)
+        #expect(try service.reconcile().layoutChangeProblem != nil)
+        #expect(service.hasInterruptedLayoutChange)
+        return service
+    }
+
+    @Test func fl13_discardingUnlocksTheLibraryAndDeletesNothing() throws {
+        let f = try twelveBooks()
+        let service = try unrecoverable(f)
+        let interrupted = try LayoutState(f)
+        let record = ".voxcarrel/" + LayoutIntent.fileName
+        #expect(interrupted.tree.contains(record))
+
+        try service.discardInterruptedLayoutChange()
+
+        // Only the record is gone (and the hidden folder, which held nothing else).
+        #expect(!service.hasInterruptedLayoutChange)
+        let after = try LayoutState(f)
+        #expect(after.tree == interrupted.tree.filter { $0 != record && $0 != ".voxcarrel" })
+        #expect(after.bytes == interrupted.bytes.filter { $0.key != record })
+        // The catalogue is as it was: it still files every book where it was before the change.
+        #expect(after.books == interrupted.books)
+        #expect(after.files == interrupted.files)
+        #expect(after.pattern == interrupted.pattern)
+        #expect(after.batch == interrupted.batch)
+
+        // The next launch check does not throw: the books whose folders moved are
+        // missing their files, and the files where the folders went belong to no book.
+        let moved = Set(try f.store.bookFolders().filter { !FileManager.default.fileExists(atPath: f.lib($0.value).path) }.keys)
+        #expect(moved.count == 6)
+        let again = try reopened(f)
+        let report = try again.reconcile()
+        #expect(report.layoutChangeProblem == nil)
+        #expect(!report.recoveredLayoutChange)
+        #expect(Set(report.booksWithMissingFiles) == moved)
+        // Five of the six folders are still in the library; each holds a book file and an extra.
+        #expect(report.untrackedFiles.count == 10)
+        #expect(try LayoutState(f).tree == after.tree)
+
+        // And the library can be changed again.
+        let movedId = try #require(moved.first)
+        let book = try #require(try f.store.book(id: movedId))
+        _ = try again.save([BookEdit(book: book)])
+        _ = try again.planLayoutChange(to: .standard)
+    }
+
+    @Test func fl13_discardingRemovesOnlyEmptyParkingFolders() throws {
+        // Crashed before the first rename: places to set folders aside were made, and hold none.
+        let empty = try dependentBooks()
+        crash(empty.service, afterRenames: 0)
+        #expect(throws: FolderMover.Halted.self) { try empty.service.applyLayoutChange(to: .standard) }
+        let untouched = empty.libraryTree()
+        try reopened(empty).discardInterruptedLayoutChange()
+        #expect(empty.hiddenTree().isEmpty)
+        #expect(empty.libraryTree() == untouched)
+
+        // Crashed with folders set aside: they stay exactly where they are, and are said.
+        let f = try dependentBooks()
+        crash(f.service, afterRenames: 2)
+        #expect(throws: FolderMover.Halted.self) { try f.service.applyLayoutChange(to: .standard) }
+        let interrupted = try LayoutState(f)
+        let parked = f.hiddenTree().filter { $0.hasSuffix(".m4b") }
+        #expect(!parked.isEmpty)
+        let service = try reopened(f)
+        try service.discardInterruptedLayoutChange()
+        #expect(!service.hasInterruptedLayoutChange)
+        let after = try LayoutState(f)
+        let record = ".voxcarrel/" + LayoutIntent.fileName
+        #expect(after.tree == interrupted.tree.filter { $0 != record })
+        #expect(after.bytes == interrupted.bytes.filter { $0.key != record })
+        #expect(after.books == interrupted.books)
+        #expect(after.files == interrupted.files)
+        let report = try service.reconcile()
+        #expect(report.layoutChangeProblem == nil)
+        #expect(!report.strandedFolders.isEmpty)
+        #expect(!report.booksWithMissingFiles.isEmpty)
+        #expect(f.hiddenTree().filter { $0.hasSuffix(".m4b") } == parked)
+    }
+
+    @Test func fl13_discardingWhenNothingWasInterruptedDoesNothing() throws {
+        let f = try twelveBooks()
+        let before = try LayoutState(f)
+        try f.service.discardInterruptedLayoutChange()
+        try expectSame(f, before)
+    }
+
     // MARK: Asking directly
 
     @Test func fp43_puttingRightCanBeAskedForWithoutTheLaunchCheck() throws {

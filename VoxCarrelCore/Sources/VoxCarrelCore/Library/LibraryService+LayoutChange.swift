@@ -71,7 +71,7 @@ extension LibraryService {
     }
 
     /// FP41: why a book that could be filed is not where the pattern files it.
-    static let folderTakenReason = "Another book uses the folder this book belongs in."
+    public static let folderTakenReason = "Another book uses the folder this book belongs in."
 
     // MARK: Planning
 

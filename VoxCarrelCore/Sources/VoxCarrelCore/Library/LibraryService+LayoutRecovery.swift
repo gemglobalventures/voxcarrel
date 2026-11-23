@@ -366,4 +366,28 @@ extension LibraryService {
             return LayoutRecovery(unresolved: failure.folders, problem: failure.reason)
         }
     }
+
+    // MARK: Giving up
+
+    /// Gives up on putting right a change of folder layout that was cut short: for
+    /// when `recoverInterruptedLayoutChange` cannot, and the owner would sooner sort
+    /// the folders out by hand than leave the library refusing every change.
+    ///
+    /// Removes the record of the interrupted change, forced out to the disk like every
+    /// removal of it, and what is left of a place where folders were set aside once no
+    /// folder is in it (its list and the empty folder). No book folder is touched,
+    /// wherever it is, nothing is deleted, and the catalogue is left exactly as it is:
+    /// it files each book where it was before the change. The launch check
+    /// (`reconcile`) then runs as usual, and reports the books whose folders are not
+    /// there as missing their files, the files where the folders went as belonging to
+    /// no book, and any folder still set aside.
+    ///
+    /// Does nothing when no change is recorded as interrupted.
+    /// - Throws: `LibraryError.layoutChangeInterrupted` when the record could not be removed.
+    public func discardInterruptedLayoutChange() throws {
+        guard hasInterruptedLayoutChange else { return }
+        clearEmptyParking()
+        removeLayoutIntent()
+        try refuseWhileLayoutChangeIsInterrupted()
+    }
 }

@@ -307,6 +307,23 @@ import VoxCarrelFixtures
         #expect(try f.store.files(bookId: owned).map(\.path) == ["Frank Herbert/Dune/Dune.m4b"])
     }
 
+    /// FL14: what is shown before an import can ask whether a folder is another book's.
+    @Test func fl14_aPlannedFolderCanBeAskedWhetherAnotherBookHasIt() throws {
+        let f = try F()
+        let ebook = try f.importNew([try f.makeEPUB("dune.epub")], F.meta("Dune", "Frank Herbert"))
+        let owned = try ownedElsewhere(f, "Dune Messiah", "Frank Herbert")
+        let folder = try #require(f.service.plannedFolder(for: F.meta("Dune", "Frank Herbert"), hasAudio: true))
+        #expect(folder == "Frank Herbert/Dune")
+        #expect(f.service.isFolderOfAnotherBook(folder, than: owned))
+        #expect(f.service.isFolderOfAnotherBook(folder, than: nil))
+        // Compared as the volume compares names.
+        #expect(f.service.isFolderOfAnotherBook("frank herbert/DUNE", than: owned))
+        // Its own folder is not another book's, and nor is a folder no book has.
+        #expect(!f.service.isFolderOfAnotherBook(folder, than: ebook))
+        #expect(!f.service.isFolderOfAnotherBook("Frank Herbert/Dune Messiah", than: owned))
+        #expect(!f.service.isFolderOfAnotherBook("Frank Herbert", than: owned))
+    }
+
     @Test func fp41_theFirstFilesOfABookAreNotFiledIntoTheFolderOfABookImportedInTheSameCall() throws {
         let f = try F()
         let owned = try ownedElsewhere(f, "Dune", "Frank Herbert")
