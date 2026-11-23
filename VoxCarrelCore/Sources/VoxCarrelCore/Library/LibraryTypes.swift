@@ -174,6 +174,16 @@ public struct ReconcileReport: Equatable, Sendable {
     /// `strandedFolders`. Nothing was moved or deleted; every operation that changes
     /// the library is refused until a later check succeeds.
     public var layoutChangeProblem: String?
+    /// True when a merge of entries had been cut short and this check put every file
+    /// back where and as it was before the merge. Said once: the library is in order.
+    public var recoveredMerge = false
+    /// Set when a merge of entries had been cut short and the library could not be put
+    /// right: why, as a sentence. The files in the way are `mergeFilesOutOfPlace`.
+    /// Nothing was deleted; every operation that changes the library is refused until
+    /// a later check succeeds.
+    public var mergeProblem: String?
+    /// The files that stopped an interrupted merge being put right. Never deleted.
+    public var mergeFilesOutOfPlace: [URL] = []
     /// Books whose recorded length was wrong because an MP3 of theirs states the wrong
     /// length, now corrected to the measured one.
     public var correctedLengths: Int
@@ -240,4 +250,9 @@ public enum LibraryError: Error, Equatable {
     case layoutChangeInterrupted
     /// Entries could not be merged as asked: why. Nothing was changed.
     case mergeRefused(MergeBlocker)
+    /// A merge of entries was cut short (by a crash or a loss of power) and the library
+    /// has not been put right yet: files may not be where the catalogue says. Nothing
+    /// was changed. `recoverInterruptedMerge`, which the launch check calls, puts it
+    /// right or says why it cannot.
+    case mergeInterrupted
 }

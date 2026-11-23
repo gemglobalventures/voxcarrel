@@ -271,6 +271,18 @@ public actor LibraryWorker {
         try service.discardInterruptedLayoutChange()
     }
 
+    /// Whether a merge of books that was interrupted is still to be put right: while it
+    /// is, the library refuses everything that changes its files.
+    public func hasInterruptedMerge() -> Bool {
+        service.hasInterruptedMerge
+    }
+
+    /// Gives up on putting right a merge of books that was interrupted
+    /// (`LibraryService.discardInterruptedMerge`).
+    public func discardInterruptedMerge() throws {
+        try service.discardInterruptedMerge()
+    }
+
     private func books(for item: SidebarItem) throws -> [Book] {
         switch item {
         case .allBooks: try store.books()

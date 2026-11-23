@@ -118,6 +118,10 @@ public enum UserMessage {
             "A change of folder layout was interrupted and has not been put right yet, so nothing else can be "
                 + "changed for now. Close the library and open it again: VoxCarrel will try once more to put "
                 + "every folder back."
+        case .mergeInterrupted:
+            "A merge of books was interrupted and has not been put right yet, so nothing else can be changed "
+                + "for now. Close the library and open it again: VoxCarrel will try once more to put every "
+                + "file back."
         case .layoutChangeFailed(let book, let reason):
             joined([
                 "The folder of \(book) could not be moved, so the folder layout was not changed.", sentence(reason),

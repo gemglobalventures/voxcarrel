@@ -40,6 +40,8 @@ public enum PendingPrompt: Equatable {
     /// interrupted. Answered with `AppModel.confirmStopLayoutRecovery`, or dismissed by
     /// setting `prompt` to nil.
     case stopLayoutRecovery
+    /// The same for a merge of books that was interrupted and cannot be put right.
+    case stopMergeRecovery
 }
 
 public enum UnsavedChoice: Sendable {
@@ -253,6 +255,7 @@ public final class AppModel {
         // FL9: the layout, its draft and its preview were those of the library shown before.
         layoutPreview = nil
         layoutChangeIsUnresolved = false
+        mergeRecoveryIsUnresolved = false
         libraryPattern = .standard
         layoutPatternRead = false
         layoutStoredIsUnreadable = false
@@ -888,8 +891,11 @@ public final class AppModel {
     /// FL5: what the change of layout being previewed would do; not nil shows the sheet.
     public internal(set) var layoutPreview: LayoutPreview?
     /// FL12: true while a change of folder layout that was interrupted has not been put
-    /// right: nothing that moves or rewrites files can be done.
+    /// right: nothing that moves or rewrites files can be done. The same while a merge
+    /// of books that was interrupted has not been (`mergeRecoveryIsUnresolved`).
     public internal(set) var layoutChangeIsUnresolved = false
+    /// True while what is unresolved is a merge of books that was interrupted.
+    public internal(set) var mergeRecoveryIsUnresolved = false
 
     /// True while there is a question or a message for the user: the window that shows
     /// them must be brought in front of whatever else is open (Settings, say), and

@@ -73,9 +73,11 @@ extension LibraryService {
     }
 
     /// Throws `LibraryError.layoutChangeInterrupted` while a change of folder layout
-    /// that was cut short has not been put right.
+    /// that was cut short has not been put right, and `LibraryError.mergeInterrupted`
+    /// while a merge of entries that was cut short has not been.
     func refuseWhileLayoutChangeIsInterrupted() throws {
         if hasInterruptedLayoutChange { throw LibraryError.layoutChangeInterrupted }
+        if hasInterruptedMerge { throw LibraryError.mergeInterrupted }
     }
 
     // MARK: The record
@@ -84,12 +86,17 @@ extension LibraryService {
     /// on the disk before this returns: under another name first, forced out, then
     /// renamed into place.
     func writeLayoutIntent(_ intent: LayoutIntent) throws {
+        try writeIntent(try JSONEncoder().encode(intent), named: LayoutIntent.fileName)
+    }
+
+    /// Writes a record of work in progress into the hidden folder under `fileName`, as
+    /// `writeLayoutIntent` describes.
+    func writeIntent(_ data: Data, named fileName: String) throws {
         let fm = FileManager.default
-        let url = layoutIntentURL
-        let folder = url.deletingLastPathComponent()
+        let folder = layout.hiddenFolder
+        let url = folder.appendingPathComponent(fileName)
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(intent)
-        let temporary = folder.appendingPathComponent("\(LayoutIntent.fileName).\(UUID().uuidString)")
+        let temporary = folder.appendingPathComponent("\(fileName).\(UUID().uuidString)")
         guard fm.createFile(atPath: temporary.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
         do {
             let handle = try FileHandle(forWritingTo: temporary)
@@ -118,10 +125,15 @@ extension LibraryService {
     /// hidden folder itself if that leaves it empty. The removal is forced out to the
     /// disk, so that a record once dealt with cannot come back after a loss of power.
     func removeLayoutIntent() {
+        removeIntent(named: LayoutIntent.fileName)
+    }
+
+    /// Removes the record kept under `fileName`, as `removeLayoutIntent` describes.
+    func removeIntent(named fileName: String) {
         let folder = layout.hiddenFolder
-        unlink(layoutIntentURL.path)
+        unlink(folder.appendingPathComponent(fileName).path)
         for name in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
-        where name.hasPrefix(LayoutIntent.fileName + ".") {
+        where name.hasPrefix(fileName + ".") {
             unlink(folder.appendingPathComponent(name).path)
         }
         let descriptor = open(folder.path, O_RDONLY)

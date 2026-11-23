@@ -214,7 +214,8 @@ private struct Questions: ViewModifier {
     }
 
     private var stopLayoutRecovery: Bool {
-        model.prompt == .stopLayoutRecovery
+        // For a change of folder layout or a merge of books that was interrupted.
+        model.prompt?.stopLayoutRecoveryTitle != nil
     }
 
     private var unsavedChanges: Bool {
