@@ -186,6 +186,45 @@ enum AudioTagIO {
         return WriteReport()
     }
 
+    /// Replaces the cover and nothing else, as a safe write (copy, change, verify, swap):
+    /// no other tag is written. The changed copy must read back with the same details,
+    /// track tags, length and chapter marks, and with this cover; otherwise the file is
+    /// left exactly as it was.
+    static func setCover(_ image: CoverImage, in url: URL) throws {
+        let name = url.lastPathComponent
+        let kind = try container(for: url)
+        let before = try read(url)
+        let trackBefore = try readTrackTags(url)
+        try SafeFileUpdate.update(url) { copy in
+            let changes = CTBChanges()
+            changes.setItems = [:]
+            changes.replaceCover = true
+            changes.coverData = image.data
+            changes.coverMIME = CoverImage.sniffedMIME(image.data) ?? image.mime
+            do {
+                switch kind {
+                case .mp4: try CTBTagFile.writeMP4(atPath: copy.path, changes: changes)
+                case .mp3: try CTBTagFile.writeMP3(atPath: copy.path, changes: changes)
+                }
+            } catch let error as NSError where error.domain == CTBErrorDomain {
+                throw error.code == 2 ? MetadataIOError.locked(name) : MetadataIOError.unreadable(name)
+            }
+        } verify: { copy in
+            guard let after = try? read(copy), let trackAfter = try? readTrackTags(copy) else {
+                throw MetadataIOError.verificationFailed("the changed copy no longer reads as audio")
+            }
+            guard let was = before.metadata.durationSeconds, let now = after.metadata.durationSeconds,
+                  was > 0, now > 0, abs(now - was) < 0.05, after.chapters == before.chapters
+            else { throw MetadataIOError.verificationFailed("duration or chapters changed") }
+            var detailsBefore = before.metadata, detailsAfter = after.metadata
+            detailsBefore.durationSeconds = nil
+            detailsAfter.durationSeconds = nil
+            guard detailsAfter == detailsBefore, trackAfter == trackBefore, after.cover?.data == image.data else {
+                throw MetadataIOError.verificationFailed("the details changed, or the cover was not taken")
+            }
+        }
+    }
+
     /// The raw TagLib write. Modifies `url` in place.
     static func writeInPlace(
         _ metadata: BookMetadata, cover: CoverChange, part: PartPosition?,

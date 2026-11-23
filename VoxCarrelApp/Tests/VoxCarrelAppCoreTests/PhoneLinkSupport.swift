@@ -128,6 +128,12 @@ final class RawConnection: @unchecked Sendable {
     private var isClosed = false
     private static let work = DispatchQueue(label: "RawConnection", attributes: .concurrent)
     private static let failure = OSAllocatedUnfairLock(initialState: Int32(0))
+    private static let silent = OSAllocatedUnfairLock(initialState: Set<Int>())
+    /// The ports on which a read gave up after 30 seconds of nothing: the other side
+    /// neither sent nor closed. No test expects that.
+    static var portsThatSaidNothing: Set<Int> { silent.withLock { $0 } }
+    private let port: Int
+
     /// Why the last connection that could not be made could not be: an `errno` value.
     static var lastFailure: Int32 { failure.withLock { $0 } }
 
@@ -135,6 +141,7 @@ final class RawConnection: @unchecked Sendable {
     /// - Parameter first: Bytes to send the moment the connection is made, with nothing
     ///   in between that could be held up: for tests of how long a caller may take.
     init?(port: Int, ipv6: Bool = false, sending first: [UInt8] = []) {
+        self.port = port
         let made = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0)
         guard made >= 0 else {
             Self.failure.withLock { $0 = errno }
@@ -230,6 +237,7 @@ final class RawConnection: @unchecked Sendable {
 
     private func read(upTo count: Int) async -> (bytes: [UInt8], closedCleanly: Bool) {
         let descriptor = descriptor
+        let port = port
         return await onWorkQueue {
             var all: [UInt8] = []
             var buffer = [UInt8](repeating: 0, count: 65536)
@@ -238,7 +246,10 @@ final class RawConnection: @unchecked Sendable {
                 let got = recv(descriptor, &buffer, want, 0)
                 if got < 0, errno == EINTR { continue }
                 if got == 0 { return (all, true) }
-                guard got > 0 else { return (all, false) }
+                guard got > 0 else {
+                    if errno == EAGAIN || errno == EWOULDBLOCK { _ = Self.silent.withLock { $0.insert(port) } }
+                    return (all, false)
+                }
                 all.append(contentsOf: buffer[0..<got])
             }
             return (all, true)

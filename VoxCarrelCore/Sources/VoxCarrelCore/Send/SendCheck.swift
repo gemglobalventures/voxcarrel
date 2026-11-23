@@ -81,11 +81,15 @@ public struct SendCheck: Equatable, Sendable {
     /// The zip's name: the book's title made safe, with ".zip".
     public var packageName: String
     public var fingerprint: SendFingerprint
+    /// Whether the cover inside the audio is square, or within 2% of it: that of the
+    /// first audio file that holds one. Nil when none holds a cover that can be read.
+    public var coverIsSquare: Bool?
 
     public init(
         blockers: [SendBlocker], warnings: [SendWarning], files: [URL], totalBytes: Int64, needsPackage: Bool,
-        packageName: String, fingerprint: SendFingerprint
+        packageName: String, fingerprint: SendFingerprint, coverIsSquare: Bool? = nil
     ) {
+        self.coverIsSquare = coverIsSquare
         self.blockers = blockers
         self.warnings = warnings
         self.files = files
@@ -93,6 +97,36 @@ public struct SendCheck: Equatable, Sendable {
         self.needsPackage = needsPackage
         self.packageName = packageName
         self.fingerprint = fingerprint
+    }
+}
+
+/// What the owner chose for a send.
+public struct SendOptions: Equatable, Sendable {
+    /// Send copies whose cover has been made square (`CoverSquaring`), when the cover is
+    /// not square already. The library's own files are never changed.
+    public var squareCover: Bool
+
+    public init(squareCover: Bool = false) {
+        self.squareCover = squareCover
+    }
+}
+
+/// What was made ready to send.
+public struct PreparedSend: Equatable, Sendable {
+    /// The one file to send: a library file itself, or a copy or a zip in the folder given.
+    public var file: URL
+    /// What is actually sent: where copies were made, their sizes.
+    public var fingerprint: SendFingerprint
+    /// How many files are sent as copies with the squared cover.
+    public var coversSquared: Int
+    /// How many files would not take the squared cover and are sent as they were.
+    public var coversNotSquared: Int
+
+    public init(file: URL, fingerprint: SendFingerprint, coversSquared: Int, coversNotSquared: Int) {
+        self.file = file
+        self.fingerprint = fingerprint
+        self.coversSquared = coversSquared
+        self.coversNotSquared = coversNotSquared
     }
 }
 

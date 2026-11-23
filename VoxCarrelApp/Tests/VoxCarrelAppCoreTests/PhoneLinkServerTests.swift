@@ -70,6 +70,9 @@ private final class Link {
         server?.stop()
         #expect(server?.isServing != true, sourceLocation: sourceLocation)
         #expect(await LinkProbe.portIsClosed(port), "the port is still open", sourceLocation: sourceLocation)
+        #expect(
+            !RawConnection.portsThatSaidNothing.contains(port), "a connection was left with neither an answer nor an end",
+            sourceLocation: sourceLocation)
         try? FileManager.default.removeItem(at: folder)
     }
 }
@@ -870,10 +873,14 @@ private func readHead(_ connection: RawConnection) async -> String {
         for _ in 0..<4 { waiting.append(try #require(RawConnection(port: link.port))) }
 
         // A fifth is turned away without a word, even with a good request.
+        // And at once: it is not left waiting for an answer that will not come.
+        let clock = ContinuousClock()
         for _ in 0..<3 {
             if let fifth = RawConnection(port: link.port) {
+                let began = clock.now
                 await fifth.send(link.request())
                 #expect(await fifth.readToEnd().bytes.isEmpty)
+                #expect(clock.now - began < .seconds(15))
                 fifth.close()
             }
         }
