@@ -123,9 +123,13 @@ extension LibraryService {
         }
         inboxSkipped = inboxSkipped.filter { identities[$0.key] == $0.value }
 
-        let scanner = BookScanner(reader: InboxTagReader { [self] url in
-            try cachedInboxTags(of: url, as: identities[url.path])
-        })
+        // Names are read with what the library has, as at import; nothing is asked of
+        // the library when nothing waits.
+        let known = everything.isEmpty ? KnownNames.none : (try? knownNames()) ?? .none
+        let scanner = BookScanner(
+            reader: InboxTagReader { [self] url in
+                try cachedInboxTags(of: url, as: identities[url.path])
+            }, known: known)
         var arrivals: [InboxArrival] = []
         var outdated: [Int64] = []
         for (folder, files) in listed {

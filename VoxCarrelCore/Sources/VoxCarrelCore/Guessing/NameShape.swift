@@ -43,6 +43,14 @@ public enum NameShape {
         return people.allSatisfy { isOnePerson(Array($0)) }
     }
 
+    /// True for one capitalised word that could be a person named alone: "Aristotle",
+    /// or a surname such as "Herbert". It could as well be a title ("Dune"); a single
+    /// word is never name-shaped, only not to be ruled out as the author.
+    static func couldBeALoneName(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        return trimmed.count <= longest && !trimmed.contains(" ") && kind(of: trimmed) == .whole
+    }
+
     private enum Word { case whole, initial, particle }
 
     private static func isOnePerson(_ given: [String]) -> Bool {

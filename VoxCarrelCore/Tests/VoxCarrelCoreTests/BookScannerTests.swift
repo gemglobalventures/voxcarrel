@@ -491,5 +491,191 @@ extension CandidateBook {
             "Circe.epub": ["Madeline Miller"],
         ])
     }
-}
 
+    // MARK: Guessing from names (Plan 14)
+
+    private func knowing(authors: [String] = [], titles: [String] = []) -> KnownNames {
+        KnownNames(
+            authors: Set(authors.map(KnownNames.authorKey)), titles: Set(titles.map(KnownNames.titleKey)))
+    }
+
+    /// The one candidate of a file scanned with these tags (none when nil).
+    private func scanned(
+        _ name: String, tags: BookMetadata? = nil, known: KnownNames = .none, in folder: String = "Downloads"
+    ) throws -> CandidateBook {
+        let root = try makeTempDir()
+        let file = try touch(root.appendingPathComponent("\(folder)/\(name)"))
+        let reader = StubReader(byFileName: tags.map { [name: $0] } ?? [:])
+        let result = BookScanner(reader: reader, known: known).scan([file])
+        #expect(result.candidates.count == 1)
+        return try #require(result.candidates.first)
+    }
+
+    // IM10: with a title and an author in the tags, the name is not read for them at all.
+    @Test func IM10_tagsAreNeverReplacedByAGuess() throws {
+        var tagged = BookMetadata(title: "Real Title", authors: ["Real Author"])
+        tagged.asin = "B0TAGGED01"
+        let c = try scanned(
+            "Dune - Frank Herbert [B002V1OF70].m4b", tags: tagged,
+            known: knowing(authors: ["Frank Herbert"], titles: ["Dune"]))
+        #expect(c.metadata == tagged)
+        #expect(c.guessNotes == [])
+    }
+
+    // IM10, IM11: only the field the tags leave empty is guessed.
+    @Test func IM10_onlyTheGapIsGuessed() throws {
+        let titled = try scanned("The Dune - Frank Herbert.m4b", tags: BookMetadata(title: "Real Title"))
+        #expect(titled.metadata.title == "Real Title")
+        #expect(titled.metadata.authors == ["Frank Herbert"])
+        #expect(titled.guessNotes == [.fromFileName, .orderSwapped])
+
+        let authored = try scanned(
+            "Mick Herron - Slow Horses.m4b", tags: BookMetadata(title: "", authors: ["Real Author"]))
+        #expect(authored.metadata.title == "Slow Horses")
+        #expect(authored.metadata.authors == ["Real Author"])
+        #expect(authored.guessNotes == [.fromFileName, .orderUnsure])
+
+        // A title that looks like a person is only a worry when there is no author.
+        let person = try scanned("Mick Herron.epub", tags: BookMetadata(title: "", authors: ["Real Author"]))
+        #expect(person.metadata.title == "Mick Herron")
+        #expect(person.guessNotes == [.fromFileName])
+        let untagged = try scanned("Mick Herron.epub")
+        #expect(untagged.metadata.title == "Mick Herron")
+        #expect(untagged.metadata.authors == [])
+        #expect(untagged.guessNotes == [.fromFileName, .titleLooksLikePerson])
+    }
+
+    // IM10, IM11: what the tags do say is evidence for reading the name.
+    @Test func IM11_theTagsSayWhichSideIsWhich() throws {
+        let byAuthor = try scanned(
+            "Slow Horses - Mick Herron.m4b", tags: BookMetadata(title: "", authors: ["mick herron", "Other"]))
+        #expect(byAuthor.metadata.title == "Slow Horses")
+        #expect(byAuthor.metadata.authors == ["mick herron", "Other"])
+        #expect(byAuthor.guessNotes == [.fromFileName, .orderSwapped])
+
+        let byTitle = try scanned("Slow Horses - Mick Herron.m4b", tags: BookMetadata(title: "Slow Horses (Unabridged)"))
+        #expect(byTitle.metadata.title == "Slow Horses (Unabridged)")
+        #expect(byTitle.metadata.authors == ["Mick Herron"])
+        #expect(byTitle.guessNotes == [.fromFileName, .orderSwapped])
+    }
+
+    // IM11: the scanner reads names with what the library knows.
+    @Test func IM11_theScannerUsesTheKnownNames() throws {
+        let unknown = try scanned("Slow Horses - Mick Herron.epub")
+        #expect(unknown.metadata.title == "Mick Herron")
+        #expect(unknown.metadata.authors == ["Slow Horses"])
+        #expect(unknown.guessNotes == [.fromFileName, .orderUnsure])
+
+        let known = try scanned("Slow Horses - Mick Herron.epub", known: knowing(authors: ["Mick Herron"]))
+        #expect(known.metadata.title == "Slow Horses")
+        #expect(known.metadata.authors == ["Mick Herron"])
+        #expect(known.guessNotes == [.fromFileName, .orderSwapped])
+
+        // A folder of parts is read the same way.
+        let root = try makeTempDir()
+        let book = root.appendingPathComponent("Slow Horses - Mick Herron", isDirectory: true)
+        try touch(book.appendingPathComponent("1.mp3"))
+        try touch(book.appendingPathComponent("2.mp3"))
+        let parts = try #require(
+            BookScanner(known: knowing(authors: ["Mick Herron"])).scan([book]).candidates.first)
+        #expect(parts.metadata.title == "Slow Horses")
+        #expect(parts.metadata.authors == ["Mick Herron"])
+        #expect(parts.guessNotes == [.fromFileName, .orderSwapped])
+    }
+
+    // IM13
+    @Test func IM13_anAudibleIDFromTheNameFillsOnlyAGap() throws {
+        let untagged = try scanned("Dune [B002V1OF70].m4b")
+        #expect(untagged.metadata.asin == "B002V1OF70")
+        #expect(untagged.metadata.title == "Dune")
+        #expect(untagged.guessNotes == [.fromFileName, .audibleIDFromName])
+
+        // Tags with a title and an author but no ID: only the ID is read from the name.
+        for blank in [nil, "", "  "] {
+            var tagged = BookMetadata(title: "Real Title", authors: ["Real Author"])
+            tagged.asin = blank
+            let c = try scanned("Dune [B002V1OF70].m4b", tags: tagged)
+            #expect(c.metadata.asin == "B002V1OF70")
+            #expect(c.metadata.title == "Real Title")
+            #expect(c.metadata.authors == ["Real Author"])
+            #expect(c.guessNotes == [.audibleIDFromName])
+        }
+
+        // The tags' own ID is never overridden.
+        var tagged = BookMetadata(title: "")
+        tagged.asin = "B0TAGGED01"
+        let own = try scanned("Dune [B002V1OF70].m4b", tags: tagged)
+        #expect(own.metadata.asin == "B0TAGGED01")
+        #expect(own.metadata.title == "Dune")
+        #expect(own.guessNotes == [.fromFileName])
+    }
+
+    // IM13: a folder of parts named with the ID.
+    @Test func IM13_anAudibleIDInAFolderOfParts() throws {
+        let root = try makeTempDir()
+        let book = root.appendingPathComponent("Frank Herbert/Dune [B002V1OF70]", isDirectory: true)
+        try touch(book.appendingPathComponent("1.mp3"))
+        try touch(book.appendingPathComponent("2.mp3"))
+
+        let c = try #require(BookScanner().scan([book]).candidates.first)
+
+        #expect(c.metadata.asin == "B002V1OF70")
+        #expect(c.metadata.title == "Dune")
+        #expect(c.metadata.authors == ["Frank Herbert"])
+        #expect(c.guessNotes == [.fromFileName, .audibleIDFromName])
+    }
+
+    // IM15: the same Audible ID joins an audiobook and a companion, whatever they are called.
+    @Test func IM15_candidatesWithTheSameAudibleIDAreOneBook() throws {
+        let root = try makeTempDir()
+        let audio = try touch(root.appendingPathComponent("a/Frank Herbert - Dune [B002V1OF70].m4b"))
+        let pdf = try touch(root.appendingPathComponent("b/Maps and Glossary [B002V1OF70].pdf"))
+        try touch(root.appendingPathComponent("b/Emma [B09WXN61GL].pdf"))
+
+        let result = BookScanner().scan([root])
+
+        #expect(Set(result.candidates.map(\.summary)) == [
+            [audio.lastPathComponent + ":audio", pdf.lastPathComponent + ":ebook"], ["Emma [B09WXN61GL].pdf:ebook"],
+        ])
+        let joined = try #require(result.candidates.first { $0.hasAudio })
+        #expect(joined.metadata.title == "Dune")
+        #expect(joined.metadata.asin == "B002V1OF70")
+    }
+
+    // IM15: only an unambiguous pair is joined, as before.
+    @Test func IM15_twoCompanionsWithTheSameAudibleIDAreLeftForTheReview() throws {
+        let root = try makeTempDir()
+        try touch(root.appendingPathComponent("a/Dune [B002V1OF70].m4b"))
+        try touch(root.appendingPathComponent("b/Maps [B002V1OF70].pdf"))
+        try touch(root.appendingPathComponent("c/Glossary [B002V1OF70].pdf"))
+
+        #expect(BookScanner().scan([root]).candidates.count == 3)
+    }
+
+    // IM15: the same first author and the same title, edition words aside.
+    @Test func IM15_editionWordsDoNotKeepABookApart() throws {
+        let root = try makeTempDir()
+        try touch(root.appendingPathComponent("a/audio.m4b"))
+        try touch(root.appendingPathComponent("b/Frank Herbert - the DUNE.epub"))
+        let tagged = BookMetadata(title: "Dune (Unabridged)", authors: ["Frank  Herbert"])
+
+        let result = BookScanner(reader: StubReader(byFileName: ["audio.m4b": tagged])).scan([root])
+
+        #expect(result.candidates.map(\.summary) == [["audio.m4b:audio", "Frank Herbert - the DUNE.epub:ebook"]])
+        #expect(result.candidates.first?.metadata == tagged)
+    }
+
+    // IM15: never on a title that is the other up to a subtitle, nor for another author.
+    @Test func IM15_aSubtitleOrAnotherAuthorKeepsBooksApart() throws {
+        let root = try makeTempDir()
+        try touch(root.appendingPathComponent("a/audio.m4b"))
+        try touch(root.appendingPathComponent("b/Frank Herbert - Dune_ Messiah.epub"))
+        try touch(root.appendingPathComponent("c/Brian Herbert - Dune.epub"))
+        let tagged = BookMetadata(title: "Dune", authors: ["Frank Herbert"])
+
+        let result = BookScanner(reader: StubReader(byFileName: ["audio.m4b": tagged])).scan([root])
+
+        #expect(result.candidates.count == 3)
+        #expect(result.candidates.allSatisfy { $0.files.count == 1 })
+    }
+}

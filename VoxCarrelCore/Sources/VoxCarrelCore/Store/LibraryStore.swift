@@ -528,6 +528,13 @@ public final class LibraryStore: Sendable {
         return try dbQueue.read { db in try String.fetchAll(db, sql: sql) }
     }
 
+    /// Every distinct title that is not empty, in no particular order.
+    public func distinctTitles() throws -> [String] {
+        try dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT DISTINCT title FROM book WHERE title <> ''")
+        }
+    }
+
     /// Books having exactly `value` for a browse field, sorted by title.
     public func books(where field: BrowseField, equals value: String) throws -> [Book] {
         let column = field.rawValue
