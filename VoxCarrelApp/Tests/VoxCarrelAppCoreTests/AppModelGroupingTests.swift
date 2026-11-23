@@ -434,28 +434,60 @@ import VoxCarrelFixtures
 
     // MARK: In the grid a group is one stack
 
-    /// In the grid a group is drawn as one stack, open or not, so none of its books
-    /// is selected without the rest: selecting one selects them all.
-    @Test func inTheGridSelectingABookOfAGroupSelectsTheGroup() async throws {
+    /// In the grid a group is drawn as one stack. The model never adds to a selection
+    /// on its own account: a book of a group that is selected without the rest stays
+    /// selected alone, the inspector shows it, and its stack is selected in part.
+    @Test func inTheGridABookOfAGroupSelectedByTheModelStaysSelectedAlone() async throws {
+        let h = try await groupedGrid()
+        let ids = try seriesIds(h)
+        let other = try h.id("Quiet Rivers")
+        h.model.select([ids[1]])
+        #expect(h.model.selection == [ids[1]])
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(!h.model.itemSelection.contains(Self.seriesItem))
+        await h.model.settle()
+        #expect(h.draft?.title == "The Drowned Bell")
+
+        h.model.select([ids[1], other])
+        #expect(h.model.selection == [ids[1], other])
+        await h.model.settle()
+        #expect(h.bulkDraft?.books.count == 2)
+    }
+
+    /// A click on the stack is what selects the whole group; a Command-click on a
+    /// stack that is selected in part selects the rest, and on one selected whole takes
+    /// it all away.
+    @Test func inTheGridAClickOnAPartlySelectedStackSelectsTheWholeGroup() async throws {
         let h = try await groupedGrid()
         let ids = try seriesIds(h)
         let other = try h.id("Quiet Rivers")
         h.model.select([ids[1], other])
+        #expect(h.model.isPartlySelected(try group(h)))
+
+        h.model.clickItem(Self.seriesItem, modifiers: .command)
         #expect(h.model.selection == Set(ids + [other]))
         #expect(h.model.itemSelection.contains(Self.seriesItem))
         #expect(!h.model.isPartlySelected(try group(h)))
-        await h.model.settle()
-        #expect(h.bulkDraft?.books.count == 4)
-
-        // A book that is in no group is selected alone, as ever.
-        h.model.click(other, modifiers: [])
+        h.model.clickItem(Self.seriesItem, modifiers: .command)
         #expect(h.model.selection == [other])
+
+        h.model.select([ids[0]])
+        h.model.clickItem(Self.seriesItem, modifiers: [])
+        #expect(h.model.selection == Set(ids))
         await h.model.settle()
-        #expect(h.draft?.title == "Quiet Rivers")
+        #expect(h.bulkDraft?.books.count == 3)
+
+        // A shift-click ranges over the items, each group whole.
+        let items = h.model.items.map(\.id)
+        let at = try groupIndex(h)
+        h.model.clickItem(items[at - 1], modifiers: [])
+        h.model.clickItem(items[at + 1], modifiers: .shift)
+        #expect(h.model.selection == h.model.bookIds(of: Set(items[(at - 1)...(at + 1)])))
+        #expect(h.model.selection.count == 5)
     }
 
-    /// The same when the list becomes the grid.
-    @Test func switchingToTheGridCompletesAPartlySelectedGroup() async throws {
+    /// Switching to the grid selects nothing more, and nor does switching back.
+    @Test func switchingToTheGridLeavesAPartlySelectedGroupAsItIs() async throws {
         let h = try await grouped()
         let ids = try seriesIds(h)
         h.model.setGroup(Self.series, open: true)
@@ -464,71 +496,115 @@ import VoxCarrelFixtures
         #expect(h.model.selection == [ids[2]])
 
         h.model.viewMode = .grid
-        #expect(h.model.selection == Set(ids))
-        #expect(h.model.itemSelection.contains(Self.seriesItem))
-        await h.model.settle()
-        #expect(h.bulkDraft?.books.count == 3)
-
-        // The list does not take it back.
-        h.model.viewMode = .list
-        #expect(h.model.selection == Set(ids))
-    }
-
-    /// The same when the items change: grouping is turned on over a selection.
-    @Test func inTheGridTurningGroupingOnCompletesAPartlySelectedGroup() async throws {
-        let h = try await Harness.demo()
-        let chosen = try await h.select(["Salt Road", "Quiet Rivers"])
-        #expect(h.model.selection == chosen)
-        h.model.groupsBySeries = true
-        #expect(h.model.selection == chosen.union(try seriesIds(h)))
-        #expect(!h.model.isPartlySelected(try group(h)))
-    }
-
-    /// With unsaved edits nothing is selected and nothing is asked: the stack is
-    /// drawn as selected in part, until the edits are discarded or saved.
-    @Test func inTheGridUnsavedEditsLeaveAGroupPartlySelected() async throws {
-        let h = try await grouped()
-        let ids = try seriesIds(h)
-        h.model.setGroup(Self.series, open: true)
-        h.model.clickItem(.book(ids[0]), modifiers: [])
-        await h.model.settle()
-        h.model.updateDraft { $0.title = "Salt Roads" }
-
-        h.model.viewMode = .grid
-        #expect(h.model.prompt == nil)
-        #expect(h.model.selection == [ids[0]])
+        #expect(h.model.selection == [ids[2]])
         #expect(h.model.isPartlySelected(try group(h)))
-        #expect(!h.model.itemSelection.contains(Self.seriesItem))
-        #expect(h.draft?.title == "Salt Roads")
-        // Nor when the items are made again.
-        h.model.sort = BookSort(key: .author)
-        #expect(h.model.prompt == nil)
-        #expect(h.model.selection == [ids[0]])
-
-        h.model.discardChanges()
-        #expect(h.model.selection == Set(ids))
-        #expect(!h.model.isPartlySelected(try group(h)))
         await h.model.settle()
-        #expect(h.bulkDraft?.books.count == 3)
+        #expect(h.draft?.title == "Harbour of Glass")
+
+        h.model.viewMode = .list
+        #expect(h.model.selection == [ids[2]])
+        #expect(h.model.itemSelection == [.book(ids[2])])
     }
 
-    /// The same after a save.
-    @Test func inTheGridASaveCompletesThePartlySelectedGroup() async throws {
-        let h = try await grouped()
-        let ids = try seriesIds(h)
-        h.model.setGroup(Self.series, open: true)
-        h.model.clickItem(.book(ids[0]), modifiers: [])
-        await h.model.settle()
-        h.model.updateDraft { $0.title = "Salt Roads" }
+    /// Nor does turning grouping on over a selection.
+    @Test func inTheGridTurningGroupingOnLeavesTheSelectionAsItIs() async throws {
+        let h = try await Harness.demo()
         h.model.viewMode = .grid
+        let chosen = try await h.select(["Salt Road", "Quiet Rivers"])
+        h.model.groupsBySeries = true
+        #expect(h.model.selection == chosen)
+        #expect(h.model.isPartlySelected(try group(h)))
+        await h.model.settle()
+        #expect(h.bulkDraft?.books.count == 2)
+    }
+
+    /// Nor the end of unsaved edits: discarded, typed back to what they were, or saved.
+    @Test func inTheGridTheEndOfUnsavedEditsLeavesTheSelectionAsItIs() async throws {
+        let h = try await groupedGrid()
+        let ids = try seriesIds(h)
+        h.model.select([ids[0]])
+        await h.model.settle()
+
+        h.model.updateDraft { $0.title = "Salt Roads" }
+        h.model.discardChanges()
         #expect(h.model.selection == [ids[0]])
 
+        h.model.updateDraft { $0.title = "Salt Roads" }
+        h.model.updateDraft { $0.title = "Salt Road" }
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(h.model.selection == [ids[0]])
+        #expect(h.draft?.title == "Salt Road")
+
+        h.model.updateDraft { $0.title = "Salt Roads" }
         await h.model.save()
         await h.model.settle()
-        #expect(try h.store().book(id: ids[0])?.title == "Salt Roads")
-        #expect(!h.model.hasUnsavedChanges)
-        #expect(h.model.selection == Set(ids))
-        #expect(h.bulkDraft?.books.count == 3)
+        #expect(try h.book(ids[0]).title == "Salt Roads")
+        #expect(h.model.selection == [ids[0]])
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(h.draft?.title == "Salt Roads")
+    }
+
+    /// Nor a save that puts the selected books into a series that has others.
+    @Test func inTheGridASaveIntoASeriesSelectsNoneOfItsOtherBooks() async throws {
+        let h = try await groupedGrid()
+        let moved = try await h.select(["Quiet Rivers", "Night Train to Vostok"])
+        h.model.updateBulkDraft { $0.values[.series] = Self.series }
+        await h.model.save()
+        await h.model.settle()
+        #expect(try group(h).books.count == 5)
+        #expect(h.model.selection == moved)
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(h.bulkDraft?.books.count == 2)
+    }
+
+    /// Nor clearing a search: the one book of a series that was selected among the
+    /// results is the one book selected afterwards.
+    @Test func inTheGridClearingASearchLeavesTheOneBookSelected() async throws {
+        let h = try await groupedGrid()
+        let ids = try seriesIds(h)
+        h.model.searchText = "salt"
+        await h.model.settle()
+        h.model.clickItem(.book(ids[0]), modifiers: [])
+        await h.model.settle()
+        #expect(h.model.selection == [ids[0]])
+
+        h.model.searchText = ""
+        await h.model.settle()
+        #expect(h.model.isGrouping)
+        #expect(h.model.selection == [ids[0]])
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(h.draft?.title == "Salt Road")
+    }
+
+    /// Nor an import: a book that joins a series the library has is the selection,
+    /// alone, with the inspector on it, and the series' stack is selected in part.
+    @Test func inTheGridAnImportedBookOfASeriesIsSelectedAlone() async throws {
+        let h = try await groupedGrid()
+        let ids = try seriesIds(h)
+        let before = Set(h.model.rows.map(\.id))
+        let inbox = try Harness.inbox()
+        await h.model.beginImport([inbox.appendingPathComponent("Downloads")])
+        h.model.updateReview { review in
+            for index in review.entries.indices {
+                review.entries[index].candidate.metadata.title = "The Fourth Tide"
+                review.entries[index].candidate.metadata.authors = ["Ines Calloway"]
+                review.entries[index].candidate.metadata.series = Self.series
+                review.entries[index].candidate.metadata.seriesNumber = "4"
+            }
+        }
+        await h.model.settle()
+        #expect(h.model.review?.entries.count == 1)
+        await h.model.confirmImport()
+        await h.model.settle()
+        #expect(h.model.alert == nil)
+
+        let added = Set(h.model.rows.map(\.id)).subtracting(before)
+        #expect(added.count == 1)
+        #expect(try group(h).books.map(\.id) == ids + Array(added))
+        #expect(h.model.selection == added)
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(!h.model.itemSelection.contains(Self.seriesItem))
+        #expect(h.draft?.title == "The Fourth Tide")
     }
 
     /// GS18: in the grid a group is one cell however many columns there are, and
@@ -854,6 +930,25 @@ import VoxCarrelFixtures
         await h.model.resolveUnsaved(.discard)
         #expect(h.model.selection == Set(try seriesIds(h)))
         #expect(try h.book(other).title == "Quiet Rivers")
+    }
+
+    /// GS15: the same selection given again still goes to `select`, as it did before
+    /// there were items: the one book selected becomes where a shift-click starts.
+    @Test func theSameItemsSelectedAgainStillSetTheAnchor() async throws {
+        let h = try await Harness.demo()
+        let id = try await h.select("Quiet Rivers")
+        h.model.anchor = nil
+        h.model.selectItems([.book(id)])
+        #expect(h.model.anchor == id)
+        #expect(h.model.selection == [id])
+        #expect(h.model.prompt == nil)
+
+        let g = try await grouped()
+        let other = try await g.select("Quiet Rivers")
+        g.model.anchor = nil
+        g.model.selectItems(g.model.itemSelection)
+        #expect(g.model.anchor == other)
+        #expect(g.model.selection == [other])
     }
 
     /// GS15: with grouping off it is `select`.

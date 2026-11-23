@@ -10,7 +10,9 @@ import VoxCarrelCore
 //
 // One thing is never allowed: a selected book out of sight in a closed group, part of
 // its group selected and part not. A closed group is selected whole or not at all
-// (GS13a), so no command acts on a book the owner cannot see is selected.
+// (GS13a), so no command acts on a book the owner cannot see is selected. In the grid,
+// where a group is one stack, a stack only some of whose books are selected is drawn as
+// selected in part (`isPartlySelected`); the model never selects the rest itself.
 
 /// GS19: where Back goes from a series that was opened from its group.
 struct SeriesReturn: Equatable {
@@ -83,41 +85,12 @@ extension AppModel {
     }
 
     /// Whether some of the group's books are selected and some are not. Never true of
-    /// a closed group (GS13a). The grid draws a group as one stack, open or not, and
-    /// selects a group whole (`gridCompleted`): this is for it to show a stack that is
-    /// selected only in part because unsaved changes stood in the way of the rest.
+    /// a closed group in the list (GS13a). The grid draws a group as one stack, open or
+    /// not, and shows with this a stack only some of whose books are selected: the
+    /// model never selects the rest on its own account; a click on the stack does.
     public func isPartlySelected(_ group: SeriesGroup) -> Bool {
         let count = selectedCount(in: group)
         return count > 0 && count < group.books.count
-    }
-
-    // MARK: In the grid a group is one stack
-
-    /// These books with, when the grid is what shows them and it is grouped, the rest
-    /// of every series group that any of them is in. The grid draws a group as one
-    /// stack whether or not the list would show it open, so a book selected without
-    /// the rest of its group would be selected where it cannot be seen.
-    func gridCompleted(_ ids: Set<Int64>) -> Set<Int64> {
-        guard viewMode == .grid, isGrouping, !ids.isEmpty else { return ids }
-        var whole = ids
-        for group in groups {
-            let own = group.books.map(\.id)
-            if own.contains(where: ids.contains) { whole.formUnion(own) }
-        }
-        return whole
-    }
-
-    /// In the grid, selects the rest of every group that is selected in part: when the
-    /// grid takes the list's place, and when the items change. (A selection made in
-    /// the grid is whole already: `gridCompleted`.)
-    ///
-    /// With unsaved changes nothing is selected and no question is asked, since
-    /// nothing was asked for: the group stays selected in part, which the grid shows
-    /// (`isPartlySelected`), until the changes are saved or discarded.
-    func completePartlySelectedGroups() {
-        guard !hasUnsavedChanges else { return }
-        let whole = gridCompleted(selection)
-        if whole != selection { applySelection(whole, anchor: anchor) }
     }
 
     // MARK: GS13 Open groups
@@ -183,7 +156,6 @@ extension AppModel {
     ///   with the books that still are: one of its books was deselected.
     public func selectItems(_ ids: Set<ItemID>) {
         let previous = itemSelection
-        guard ids != previous else { return }
         var named = Set<Int64>()
         var names = Set<String>()
         for id in ids {
