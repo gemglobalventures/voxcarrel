@@ -37,7 +37,8 @@ public enum FilenameParser {
     /// written all in lower case is never decided by shape.
     /// With nothing to go on it is read as "Author - Title" and noted `.orderUnsure`;
     /// read the other way it is noted `.orderSwapped`. A number before the dash is a
-    /// part or series number, and the rest is the title.
+    /// part or series number, and the rest is the title, unless the rest is an author
+    /// in `known` or the number a title in `known`: then it is read as any other name.
     ///
     /// Any other name is the title, and the author is the folder it is in, unless that
     /// is a place such as Downloads. A title shaped like a person's name with no author
@@ -83,8 +84,10 @@ public enum FilenameParser {
             let before = tidy(String(name[..<range.lowerBound]))
             let after = tidy(String(name[range.upperBound...]))
             if !before.isEmpty, !after.isEmpty {
-                // "01 - Chapter One" is a part or series number, not an author.
-                guard before.allSatisfy(\.isWholeNumber) else {
+                // "01 - Chapter One" is a part or series number, not an author; but
+                // "1984 - George Orwell" is a title and an author when what is known
+                // says so: the other side is a known author, or the number a known title.
+                guard before.allSatisfy(\.isWholeNumber), !known.hasAuthor(after), !known.hasTitle(before) else {
                     read(before, after, known: known, into: &guess)
                     return guess
                 }

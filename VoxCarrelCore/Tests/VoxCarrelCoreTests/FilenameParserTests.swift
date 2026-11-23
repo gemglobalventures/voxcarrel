@@ -102,6 +102,31 @@ import Testing
             authors: Set(authors.map(KnownNames.authorKey)), titles: Set(titles.map(KnownNames.titleKey)))
     }
 
+    // IM11: a number before the dash is the title when the other side is a known author,
+    // or the number is a known title; with nothing known it is a part number, as before.
+    @Test func IM11_aNumberBeforeTheDashIsTheTitleWhenWhatIsKnownSaysSo() {
+        let byAuthor = guess("1984 - George Orwell.pdf", in: "/x/Somebody", known: knowing(authors: ["George Orwell"]))
+        #expect(byAuthor.title == "1984")
+        #expect(byAuthor.author == "George Orwell")
+        #expect(byAuthor.notes == [.fromFileName, .orderSwapped])
+
+        let byTitle = guess("1984 - George Orwell.pdf", in: "/x/Somebody", known: knowing(titles: ["1984"]))
+        #expect(byTitle.title == "1984")
+        #expect(byTitle.author == "George Orwell")
+        #expect(byTitle.notes == [.fromFileName, .orderSwapped])
+
+        let unknown = guess("1984 - George Orwell.pdf", in: "/x/Somebody", known: knowing(authors: ["Frank Herbert"]))
+        #expect(unknown.title == "George Orwell")
+        #expect(unknown.author == "Somebody")
+        #expect(unknown.notes == [.fromFileName])
+
+        // A part of a known book is still a part.
+        let part = guess("01 - Dune.mp3", in: "/x/Frank Herbert", known: knowing(authors: ["Frank Herbert"], titles: ["Dune"]))
+        #expect(part.title == "Dune")
+        #expect(part.author == "Frank Herbert")
+        #expect(part.notes == [.fromFileName])
+    }
+
     // IM11: a known author decides, whichever side it is on.
     @Test func IM11_aKnownAuthorDecidesTheOrder() {
         let known = knowing(authors: ["James F. Dalton", "Mick Herron"])

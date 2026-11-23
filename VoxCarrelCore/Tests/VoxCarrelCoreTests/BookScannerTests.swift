@@ -559,6 +559,14 @@ extension CandidateBook {
         #expect(byTitle.guessNotes == [.fromFileName, .orderSwapped])
     }
 
+    // IM10, IM11: an author in the tags is not also made the title when the title is a number.
+    @Test func IM11_aNumberIsTheTitleBesideTheAuthorTheTagsGive() throws {
+        let book = try scanned("1984 - George Orwell.m4b", tags: BookMetadata(title: "", authors: ["George Orwell"]))
+        #expect(book.metadata.title == "1984")
+        #expect(book.metadata.authors == ["George Orwell"])
+        #expect(book.guessNotes == [.fromFileName, .orderSwapped])
+    }
+
     // IM11: the scanner reads names with what the library knows.
     @Test func IM11_theScannerUsesTheKnownNames() throws {
         let unknown = try scanned("Slow Horses - Mick Herron.epub")
