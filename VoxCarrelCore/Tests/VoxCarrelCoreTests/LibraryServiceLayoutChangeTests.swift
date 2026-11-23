@@ -348,6 +348,28 @@ extension LibraryFixture {
         #expect(plan.moves.count == 1)
     }
 
+    /// A file recorded by its whole path, though it is in its book's folder: what the
+    /// catalogue says of it cannot be rewritten by counting folder names, so the book
+    /// is left exactly as it is.
+    @Test func fp31_aBookWithAFileRecordedByItsWholePathStaysAsItIs() throws {
+        let f = try F()
+        let odd = try f.shelve("Odd", "Ann", files: ["Odd.m4b", "Extras/map.pdf"])
+        var rows = try f.store.files(bookId: odd)
+        rows[1].path = f.lib("Ann/Odd/Extras/map.pdf").path
+        try f.store.replaceFiles(bookId: odd, files: rows)
+        let other = try f.shelve("Other", "Bob")
+        let recorded = try f.rowPaths(odd)
+
+        let done = try f.service.applyLayoutChange(to: try pattern(Self.byKind))
+
+        #expect(stay(done, odd) == "Some of its files are not in its folder.")
+        #expect(try f.folder(odd) == "Ann/Odd")
+        #expect(try f.rowPaths(odd) == recorded)
+        #expect(try read(f.lib("Ann/Odd/Extras/map.pdf")) == "Odd by Ann: Extras/map.pdf")
+        #expect(try f.folder(other) == "Audiobooks/Bob/Other")
+        #expect(try f.service.reconcile() == ReconcileReport())
+    }
+
     @Test func fp31_aBookWhoseFolderNameOrPathWouldBeTooLongStays() throws {
         let f = try F()
         // 200 characters is as long as a folder name is made, and for these it is 400

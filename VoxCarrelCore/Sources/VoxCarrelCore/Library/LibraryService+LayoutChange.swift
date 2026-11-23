@@ -198,7 +198,12 @@ extension LibraryService {
                 continue
             }
             let places = mover.rows.map { row -> [String]? in
-                guard let place = layout.relativeComponents(of: store.url(for: row)) else { return nil }
+                // A file recorded by its whole path is one the catalogue keeps where it
+                // was found, wherever that is: its record is not rewritten by counting
+                // folder names, so its book is not moved.
+                guard !row.path.hasPrefix("/"),
+                      let place = layout.relativeComponents(of: store.url(for: row))
+                else { return nil }
                 let key = naming.key(place)
                 return key.count > mover.fromKey.count && Array(key.prefix(mover.fromKey.count)) == mover.fromKey
                     ? place : nil
