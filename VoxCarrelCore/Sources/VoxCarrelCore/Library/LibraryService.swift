@@ -51,6 +51,26 @@ public final class LibraryService {
     /// Test seam: how the inbox check reads a file's tags, in place of `metadataIO`.
     var readInboxTags: ((URL) throws -> BookMetadata)?
 
+    /// Test seam: whether names that differ only in capitalisation are different names
+    /// on the library's volume. Nil asks the volume.
+    var volumeIsCaseSensitive: Bool?
+
+    /// What the library's volume said of itself, once asked.
+    private var volumeNamingAsked: VolumeNaming?
+
+    /// How names are told apart on the library's volume.
+    var volumeNaming: VolumeNaming {
+        if let volumeIsCaseSensitive { return VolumeNaming(caseSensitive: volumeIsCaseSensitive) }
+        if let volumeNamingAsked { return volumeNamingAsked }
+        let asked = VolumeNaming.of(layout.root)
+        volumeNamingAsked = asked
+        return asked
+    }
+
+    /// How a book folder is renamed when the folder layout changes: to a path where
+    /// nothing exists, and never by copying. A test seam.
+    var renameFolder: (URL, URL) throws -> Void = FolderMover.renameWithoutReplacing
+
     /// The stored folder pattern last logged as unreadable, so it is said once.
     var unreadablePatternLogged: String?
 
@@ -568,6 +588,8 @@ public final class LibraryService {
             case .wouldLeaveNothing:
                 return "That book has no files, so it must stay marked as owned somewhere"
             case .invalidDetails(let reason): return reason
+            case .layoutChangeFailed(let book, let reason):
+                return "The folder of \(book) could not be moved, so the folder layout was not changed: \(reason)"
             }
         default:
             return error.localizedDescription

@@ -24,6 +24,15 @@ public struct LibraryChange: Sendable {
     public var batch: Batch?
     /// When true, empties the journal (used after an undo).
     public var clearsJournal = false
+    /// When set, the library's folder pattern is stored (or, with no text, forgotten)
+    /// in the same transaction as everything else.
+    var folderPattern: FolderPatternWrite?
+
+    struct FolderPatternWrite: Sendable {
+        /// The pattern's text; nil stores none, which means the standard pattern.
+        var text: String?
+    }
+
     /// For undo of an import by copy: files under watch folders that are no longer
     /// imported. The inbox ledger's `imported` entries for them are deleted; an entry
     /// of another kind stays.
@@ -100,6 +109,10 @@ extension LibraryStore {
                         Column("folderId") == file.folderId && Column("path") == file.path
                             && Column("state") == InboxEntryState.imported.rawValue)
                     .deleteAll(db)
+            }
+
+            if let pattern = change.folderPattern {
+                try Self.setFolderPatternText(db, pattern.text)
             }
 
             var batchId: Int64?

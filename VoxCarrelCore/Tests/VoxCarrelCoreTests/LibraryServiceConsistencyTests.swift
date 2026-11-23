@@ -520,7 +520,10 @@ import VoxCarrelFixtures
     @Test func snapshotCarriesItsVersion() throws {
         let f = try F()
         _ = try editedBook(f)
-        #expect(try f.snapshot().version == OperationSnapshot.currentVersion)
+        // An edit needs nothing that the first version does not know, and says so:
+        // only a change of folder layout is marked as needing the second.
+        #expect(try f.snapshot().version == 1)
+        #expect(OperationSnapshot.currentVersion == 2)
         let batch = try #require(try f.store.lastBatch())
         let data = try #require(batch.snapshot)
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

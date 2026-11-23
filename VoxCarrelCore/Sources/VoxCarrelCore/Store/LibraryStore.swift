@@ -368,6 +368,17 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// The stored folder of every book that has one, by book id.
+    func bookFolders() throws -> [Int64: String] {
+        try dbQueue.read { db in
+            var folders: [Int64: String] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT id, folderPath FROM book WHERE folderPath IS NOT NULL") {
+                folders[row["id"]] = row["folderPath"]
+            }
+            return folders
+        }
+    }
+
     /// The copies stored with each `book` row, one row per copy, for use in a query.
     /// Text that is not JSON counts as no copies, as it does when a book is read.
     private static let storedCopies = """

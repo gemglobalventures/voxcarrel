@@ -20,6 +20,10 @@ extension LibraryService {
             if let bookId = row.bookId { owners[Self.comparablePath(store.url(for: row))] = bookId }
         }
         var seen = Set<String>()
+        // Which book has which folder, for the one case in which adding files re-files a
+        // book (the pattern files by whether a book has audio), kept up to date as this
+        // call files and moves books (FP41).
+        var folderOwners: FolderOwners? = pattern.usesKind ? try folderOwners() : nil
         // Worked out for every item before anything moves: a path is resolved through
         // the folders that exist, so it would read differently once its file has gone.
         let itemPaths = items.map { $0.candidate.files.map { Self.comparablePath($0.url) } }
@@ -30,14 +34,26 @@ extension LibraryService {
             }
             switch item.target {
             case .newBook:
-                return prepareNewBook(item, options: options, pattern: pattern, into: &operation)
+                let result = prepareNewBook(item, options: options, pattern: pattern, into: &operation)
+                // A book of this call has no id yet: it holds its folder under a stand-in.
+                if case .imported(let index, _) = result, let path = operation.writes[index].book.folderPath {
+                    folderOwners?.set(folderKey(store.url(forFolder: path)), for: Int64(-1 - index))
+                }
+                return result
             case .existing(let bookId):
                 guard !targets.contains(bookId) else {
                     return .failed("Another item of this import already adds files to that book")
                 }
                 let result = prepareExistingBook(
-                    item, bookId: bookId, options: options, pattern: pattern, into: &operation)
-                if case .imported = result { targets.insert(bookId) }
+                    item, bookId: bookId, options: options, pattern: pattern, owners: &folderOwners,
+                    into: &operation)
+                if case .imported(let index, _) = result {
+                    targets.insert(bookId)
+                    // Where the book is now, if adding the files filed or re-filed it.
+                    if let path = operation.writes[index].book.folderPath {
+                        folderOwners?.set(folderKey(store.url(forFolder: path)), for: bookId)
+                    }
+                }
                 return result
             }
         }
@@ -223,7 +239,7 @@ extension LibraryService {
 
     private func prepareExistingBook(
         _ item: ImportItem, bookId: Int64, options: ImportOptions, pattern: FolderPattern,
-        into operation: inout PendingOperation
+        owners: inout FolderOwners?, into operation: inout PendingOperation
     ) -> PreparedItem {
         let book: Book
         let rows: [BookFile]
@@ -271,13 +287,21 @@ extension LibraryService {
         let hadAudio = rows.contains { $0.role == .audio }
         let hasAudio = files.contains { $0.role == .audio }
         var refiledFolder: URL?
+        // FP41: the folder the book would be re-filed in is another book's. It is then
+        // not re-filed: the new files join it where it is, and it is flagged.
+        var folderTaken = false
         if hadAudio != hasAudio {
             func filed(_ audio: Bool) -> String? {
                 PathBuilder.bookFolder(
                     values: FolderPatternValues(metadata: book.metadata, hasAudio: audio), pattern: pattern)
             }
-            if let now = filed(hasAudio), now != filed(hadAudio) {
-                refiledFolder = bookFolder(for: book.metadata, hasAudio: hasAudio, pattern: pattern)
+            if let now = filed(hasAudio), now != filed(hadAudio),
+               let target = bookFolder(for: book.metadata, hasAudio: hasAudio, pattern: pattern) {
+                if isAnotherBooksFolder(target, for: bookId, owners: &owners) {
+                    folderTaken = true
+                } else {
+                    refiledFolder = target
+                }
             }
         }
         if let refiledFolder { folder = refiledFolder }
@@ -345,6 +369,7 @@ extension LibraryService {
         // sum over some of the parts would be wrong, so the previous value is kept.
         var updated = book
         if refiledFolder != nil { updated.folderPath = store.storedPath(for: plan.folder) }
+        if folderTaken { updated.needsAttention = true }
         let audio = files.filter { $0.role == .audio }
         if audio.allSatisfy({ $0.before?.metadata.durationSeconds != nil }),
            let duration = Self.totalDuration(files) {

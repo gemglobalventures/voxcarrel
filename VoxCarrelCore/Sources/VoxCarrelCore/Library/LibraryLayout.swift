@@ -1,5 +1,19 @@
 import Foundation
 
+/// What folders were found to hold, kept for the length of one piece of work during
+/// which nothing on disk changes (planning a change of folder layout over a whole library).
+final class FolderNames {
+    struct Asked: Hashable {
+        var folder: String
+        var name: String
+    }
+
+    /// The names in each folder listed so far; nil for one that could not be listed.
+    var listings: [String: [String]?] = [:]
+    /// The folder name found for each name asked about; nil when there is none.
+    var answers: [Asked: String?] = [:]
+}
+
 /// Where VoxCarrel keeps its own data inside a library, and path rules that depend on the disk.
 public struct LibraryLayout: Sendable {
     public let root: URL
@@ -21,6 +35,12 @@ public struct LibraryLayout: Sendable {
     /// `<root>/.voxcarrel/undo`
     public var undoFolder: URL {
         hiddenFolder.appendingPathComponent("undo", isDirectory: true)
+    }
+
+    /// `<root>/.voxcarrel/moving`: where book folders are set aside for a moment while
+    /// folders that are in each other's way change places. Empty, and absent, at rest.
+    public var movingFolder: URL {
+        hiddenFolder.appendingPathComponent("moving", isDirectory: true)
     }
 
     /// A folder's location in the one form used to compare paths: no `.` or `..`, and no
@@ -85,6 +105,13 @@ public struct LibraryLayout: Sendable {
     ///
     /// Only reads directory listings. A URL that is not below the root is returned unchanged.
     public func adoptingExistingCapitalisation(_ url: URL) -> URL {
+        adoptingExistingCapitalisation(url, remembering: nil)
+    }
+
+    /// As `adoptingExistingCapitalisation(_:)`, for a piece of work that asks about many
+    /// paths while nothing on disk changes: what each folder holds, and which name was
+    /// found for each one asked about, is looked up once and kept in `names`.
+    func adoptingExistingCapitalisation(_ url: URL, remembering names: FolderNames?) -> URL {
         guard let relative = relativeComponents(of: url) else { return url }
         let fileManager = FileManager.default
         var current = root
@@ -93,7 +120,7 @@ public struct LibraryLayout: Sendable {
         for name in relative.dropLast() {
             var adopted = name
             if onDisk {
-                if let existing = Self.existingFolderName(matching: name, in: current, fileManager) {
+                if let existing = Self.existingFolderName(matching: name, in: current, fileManager, names) {
                     adopted = existing
                 } else {
                     onDisk = false
@@ -107,9 +134,27 @@ public struct LibraryLayout: Sendable {
     /// The name, as spelled on disk, of the folder in `parent` that `name` refers to once
     /// capitalisation is ignored. An exact match wins; nil when there is no such folder.
     private static func existingFolderName(
-        matching name: String, in parent: URL, _ fileManager: FileManager
+        matching name: String, in parent: URL, _ fileManager: FileManager, _ remembered: FolderNames?
     ) -> String? {
-        guard let names = try? fileManager.contentsOfDirectory(atPath: parent.path) else { return nil }
+        guard let remembered else { return findFolderName(matching: name, in: parent, fileManager) }
+        let asked = FolderNames.Asked(folder: parent.path, name: name)
+        if let answer = remembered.answers[asked] { return answer }
+        let answer = findFolderName(matching: name, in: parent, fileManager, listing: remembered)
+        remembered.answers[asked] = .some(answer)
+        return answer
+    }
+
+    private static func findFolderName(
+        matching name: String, in parent: URL, _ fileManager: FileManager, listing remembered: FolderNames? = nil
+    ) -> String? {
+        let listed: [String]?
+        if let remembered, let kept = remembered.listings[parent.path] {
+            listed = kept
+        } else {
+            listed = try? fileManager.contentsOfDirectory(atPath: parent.path)
+            remembered?.listings[parent.path] = .some(listed)
+        }
+        guard let names = listed else { return nil }
         func isFolder(_ candidate: String) -> Bool {
             var isDirectory: ObjCBool = false
             return fileManager.fileExists(

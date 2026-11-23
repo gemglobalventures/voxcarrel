@@ -65,11 +65,19 @@ extension LibraryService {
                 extraName: offset == index && role == .extra ? file.originalName : nil)
         }
         var folderPath = book.folderPath
+        // FP41: a book that belongs in another book's folder is not moved there; it
+        // stays where it is, its files as they are named, and is flagged.
+        var folderTaken = false
         if book.folderPath != nil,
            let plan = filingPlan(for: sources, metadata: book.metadata, pattern: pattern) {
-            moves = plan.moves
-            // As a save (E3): the folder the files are moved into is the book's folder.
-            if !moves.isEmpty { folderPath = store.storedPath(for: plan.folder) }
+            var owners: FolderOwners?
+            if !plan.moves.isEmpty, isAnotherBooksFolder(plan.folder, for: bookId, owners: &owners) {
+                folderTaken = true
+            } else {
+                moves = plan.moves
+                // As a save (E3): the folder the files are moved into is the book's folder.
+                if !moves.isEmpty { folderPath = store.storedPath(for: plan.folder) }
+            }
         }
         let records: [MoveRecord]
         do {
@@ -89,6 +97,7 @@ extension LibraryService {
 
         var updated = book
         updated.folderPath = folderPath
+        if folderTaken { updated.needsAttention = true }
         updated.appOnlyFields = keepingCoverMembership(
             of: book, in: Self.appOnlyFields(files: files, hasStoredCover: false))
         operation.add(
@@ -241,7 +250,8 @@ extension LibraryService {
     func lastBatchInvolves(bookId: Int64, files: [URL]) throws -> Bool {
         guard let batch = try store.lastBatch() else { return false }
         if let data = batch.snapshot, let snapshot = OperationSnapshot.usable(from: data),
-           snapshot.books.contains(where: { $0.bookId == bookId }) {
+           snapshot.books.contains(where: { $0.bookId == bookId })
+            || snapshot.layoutChange?.books.contains(where: { $0.bookId == bookId }) == true {
             return true
         }
         let paths = Set(files.map { Self.comparablePath($0) })
@@ -275,8 +285,11 @@ extension LibraryService {
     /// length, are read; and once in the life of a library, a few small reads are made
     /// of every MP3 to look at its length header. Records nothing in the journal, and
     /// changes no file other than deleting working copies left by an interrupted tag
-    /// write. Symbolic links are not followed, and packages and hidden folders are not
-    /// looked inside.
+    /// write, and the empty remains of the place where a change of folder layout sets
+    /// folders aside. Symbolic links are not followed, and packages and hidden folders
+    /// are not looked inside; but a book folder left set aside by an interrupted change
+    /// of folder layout, or left under a half-moved name, is reported
+    /// (`strandedFolders`) and never touched.
     public func reconcile() throws -> ReconcileReport {
         var report = ReconcileReport()
         let fm = FileManager.default
@@ -288,11 +301,12 @@ extension LibraryService {
         var tracked = Set<String>()
         var recovered: [Int64] = []
         var newlyFlagged: [Int64] = []
+        var owners: FolderOwners?
         for book in books.sorted(by: { ($0.id ?? 0) < ($1.id ?? 0) }) {
             guard let id = book.id else { continue }
             let rows = rowsByBook[id] ?? []
             for row in rows { tracked.insert(Self.comparablePath(store.url(for: row))) }
-            switch fileCheck(of: book, files: rows, pattern: pattern) {
+            switch fileCheck(of: book, files: rows, pattern: pattern, owners: &owners) {
             case .missing(let newly):
                 report.booksWithMissingFiles.append(id)
                 if newly { newlyFlagged.append(id) }
@@ -343,6 +357,8 @@ extension LibraryService {
                 if hidden || values.isPackage == true || FileFormat(url: url) != nil {
                     walker.skipDescendants()
                 }
+                // A folder under a half-moved name is said, not passed over in silence.
+                if Self.isStrandedMove(name) { report.strandedFolders.append(StrandedFolder(url: url)) }
                 continue
             }
             guard values.isRegularFile == true else { continue }
@@ -358,7 +374,43 @@ extension LibraryService {
         }
         report.untrackedFiles.sort { $0.path < $1.path }
         report.strandedFiles.sort { $0.path < $1.path }
+        report.strandedFolders += foldersLeftSetAside()
+        report.strandedFolders.sort { $0.url.path < $1.url.path }
         return report
+    }
+
+    /// Book folders left in the place where a change of folder layout sets folders
+    /// aside for a moment (`LibraryLayout.movingFolder`): the change was interrupted
+    /// there, or could not put them back. Each is reported with where it belongs, when
+    /// the list kept beside it says. They are never moved or deleted here. What is left
+    /// of an operation that has no folder set aside any more is cleared away.
+    private func foldersLeftSetAside() -> [StrandedFolder] {
+        let fm = FileManager.default
+        var found: [StrandedFolder] = []
+        let parking = layout.movingFolder
+        for operation in ((try? fm.contentsOfDirectory(atPath: parking.path)) ?? []).sorted() {
+            let folder = parking.appendingPathComponent(operation, isDirectory: true)
+            guard let names = try? fm.contentsOfDirectory(atPath: folder.path) else { continue }
+            let listURL = folder.appendingPathComponent(FolderMover.manifestName)
+            let list = (try? Data(contentsOf: listURL))
+                .flatMap { try? JSONDecoder().decode([FolderMover.ManifestEntry].self, from: $0) } ?? []
+            let others = names.filter { $0 != FolderMover.manifestName }
+            if others.isEmpty {
+                // Only the list, and then only a folder that is empty, is removed.
+                try? fm.removeItem(at: listURL)
+                _ = rmdir(folder.path)
+                continue
+            }
+            for name in others.sorted() {
+                let entry = list.first { $0.parkedAs == name }
+                found.append(
+                    StrandedFolder(
+                        url: folder.appendingPathComponent(name, isDirectory: true), belongsAt: entry?.folder,
+                        wasMovingTo: entry?.movingTo))
+            }
+        }
+        _ = rmdir(parking.path)
+        return found
     }
 
     /// The note a library carries once the header of every MP3 in it has been looked at.
@@ -490,17 +542,29 @@ extension LibraryService {
     ///   - rows: The book's files, as recorded.
     ///   - pattern: The library's folder pattern, when the caller has it already. If it
     ///     has to be read here and cannot be, a flag is left as it is.
-    func fileCheck(of book: Book, files rows: [BookFile], pattern: FolderPattern? = nil) -> FileCheck {
+    ///   - owners: Which book has which folder, read when first needed: a caller that
+    ///     checks many books passes the same one each time.
+    func fileCheck(
+        of book: Book, files rows: [BookFile], pattern: FolderPattern? = nil, owners: inout FolderOwners?
+    ) -> FileCheck {
         guard !rows.isEmpty else { return .asItWas }
         let fm = FileManager.default
         if rows.contains(where: { !fm.fileExists(atPath: store.url(for: $0).path) }) {
             return .missing(newlyFlagged: !book.needsAttention)
         }
-        if book.needsAttention, book.folderPath != nil, let pattern = pattern ?? (try? folderPattern()) {
-            let values = FolderPatternValues(metadata: book.metadata, hasAudio: rows.contains { $0.role == .audio })
-            if PathBuilder.bookFolder(values: values, pattern: pattern) != nil { return .recovered }
+        if book.needsAttention, book.folderPath != nil, let pattern = pattern ?? (try? folderPattern()),
+           let folder = bookFolder(
+               for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern),
+           // FP41: still flagged while the folder it belongs in is another book's.
+           !isAnotherBooksFolder(folder, for: book.id, owners: &owners) {
+            return .recovered
         }
         return .asItWas
+    }
+
+    func fileCheck(of book: Book, files rows: [BookFile], pattern: FolderPattern? = nil) -> FileCheck {
+        var owners: FolderOwners?
+        return fileCheck(of: book, files: rows, pattern: pattern, owners: &owners)
     }
 
     private static let uuidPattern = "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"

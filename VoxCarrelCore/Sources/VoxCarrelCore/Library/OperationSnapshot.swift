@@ -7,15 +7,22 @@ import Foundation
 /// already saved unreadable. A change that older code could not act on safely must raise
 /// `currentVersion` instead.
 struct OperationSnapshot: Codable, Equatable {
-    /// The newest snapshot layout this code understands.
-    static let currentVersion = 1
+    /// The newest snapshot layout this code understands. 2 added `layoutChange`: code
+    /// that does not know it would put the folders back and leave the new pattern.
+    static let currentVersion = 2
 
-    /// The layout the snapshot was written in. A snapshot with a higher version than
-    /// `currentVersion` cannot be undone by this code.
-    var version = OperationSnapshot.currentVersion
+    /// The oldest layout whose code can act on this snapshot safely: 1, unless it
+    /// carries something only newer code knows what to do with. A snapshot with a
+    /// higher version than `currentVersion` cannot be undone by this code.
+    var version = 1
     /// Folder name under `layout.undoFolder` holding saved cover images for this operation.
     var token: String
     var books: [BookSnapshot]
+    /// Set when the operation changed the library's folder layout: what undoing that
+    /// needs. The batch's moves are then moves of whole book folders, and `books` is empty.
+    var layoutChange: LayoutChangeSnapshot? {
+        didSet { if layoutChange != nil { version = max(version, 2) } }
+    }
 
     init(token: String, books: [BookSnapshot]) {
         self.token = token
@@ -27,6 +34,7 @@ struct OperationSnapshot: Codable, Equatable {
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         token = try c.decode(String.self, forKey: .token)
         books = try c.decodeIfPresent([BookSnapshot].self, forKey: .books) ?? []
+        layoutChange = try c.decodeIfPresent(LayoutChangeSnapshot.self, forKey: .layoutChange)
     }
 
     /// The snapshot in `data`, or nil when it cannot be read or was written by newer code.
@@ -35,6 +43,24 @@ struct OperationSnapshot: Codable, Equatable {
               snapshot.version <= currentVersion
         else { return nil }
         return snapshot
+    }
+}
+
+/// What undoing a change of folder layout needs, besides the folder moves themselves.
+struct LayoutChangeSnapshot: Codable, Equatable {
+    /// The pattern as the catalogue stored it before the change; nil when none was
+    /// stored (the standard pattern).
+    var patternTextBefore: String?
+    /// Every book the change wrote: those whose folder moved, and those it flagged.
+    var books: [BookBefore]
+
+    struct BookBefore: Codable, Equatable {
+        var bookId: Int64
+        /// The book's folder before and after, as stored. Equal for a book that was
+        /// only flagged.
+        var folderBefore: String?
+        var folderAfter: String?
+        var needsAttentionBefore: Bool
     }
 }
 

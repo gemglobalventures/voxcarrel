@@ -55,7 +55,8 @@ extension LibraryService {
         return nil
     }
 
-    /// Reverses the most recent import or edit. Returns its label.
+    /// Reverses the most recent import or edit. Returns its label. (A change of folder
+    /// layout is reversed by `undoLayoutChange`, which see.)
     ///
     /// Works in this order: the files are moved back, all or nothing; the tags inside
     /// them are put back, and the length headers a repair rewrote; the database is
@@ -95,6 +96,8 @@ extension LibraryService {
             forgetUndoData()
             throw LibraryError.nothingToUndo
         case .undoable(let recorded, let data):
+            // A change of folder layout moved whole folders, and is undone its own way.
+            if let saved = data?.layoutChange { return try undoLayoutChange(recorded, saved) }
             batch = recorded
             snapshot = data
         }

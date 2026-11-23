@@ -32,15 +32,25 @@ extension LibraryService {
         return try folderPattern().missingTokens(for: Self.patternValues(of: book, files: files))
     }
 
-    /// Why the library's folder pattern cannot file this book, as a sentence ("No
-    /// narrator, which the folder layout needs."); nil when it can, and for a book with
-    /// no files, which is never filed.
+    /// Why this book is not, and cannot now be, filed where the library's folder pattern
+    /// files it, as a sentence: what the pattern needs and the book lacks ("No narrator,
+    /// which the folder layout needs."), or that the folder it belongs in is another
+    /// book's ("Another book uses the folder this book belongs in."). Nil when nothing
+    /// stands in its way, and for a book with no files, which is never filed.
     /// - Throws: `LibraryError.bookNotFound` for an unknown id.
     public func unfiledReason(for bookId: Int64) throws -> String? {
         guard let book = try store.book(id: bookId) else { throw LibraryError.bookNotFound(bookId) }
         let files = try store.files(bookId: bookId)
         guard !files.isEmpty else { return nil }
-        return try folderPattern().unfiledReason(for: Self.patternValues(of: book, files: files))
+        let pattern = try folderPattern()
+        if let reason = pattern.unfiledReason(for: Self.patternValues(of: book, files: files)) { return reason }
+        // FP41
+        var owners: FolderOwners?
+        guard let folder = bookFolder(
+            for: book.metadata, hasAudio: files.contains { $0.role == .audio }, pattern: pattern),
+            isAnotherBooksFolder(folder, for: bookId, owners: &owners)
+        else { return nil }
+        return Self.folderTakenReason
     }
 
     /// What a book gives a folder pattern: its details, and whether any of its files is audio.

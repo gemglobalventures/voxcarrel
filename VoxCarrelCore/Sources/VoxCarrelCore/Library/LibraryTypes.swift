@@ -134,6 +134,23 @@ public enum SaveOutcome: Equatable, Sendable {
     case failed(bookId: Int64, reason: String)
 }
 
+/// A book folder left in the library's hidden folder by an interrupted change of
+/// folder layout.
+public struct StrandedFolder: Equatable, Sendable {
+    /// Where the folder is now.
+    public var url: URL
+    /// Where it was before the change, relative to the library; nil when that is not known.
+    public var belongsAt: String?
+    /// Where the change was moving it, relative to the library; nil when not known.
+    public var wasMovingTo: String?
+
+    public init(url: URL, belongsAt: String? = nil, wasMovingTo: String? = nil) {
+        self.url = url
+        self.belongsAt = belongsAt
+        self.wasMovingTo = wasMovingTo
+    }
+}
+
 /// What the launch-time check found.
 public struct ReconcileReport: Equatable, Sendable {
     /// Books with at least one file missing, now flagged needs-attention.
@@ -146,6 +163,9 @@ public struct ReconcileReport: Equatable, Sendable {
     public var removedWorkingCopies: Int
     /// Files left under a temporary name by an interrupted move. Never deleted.
     public var strandedFiles: [URL]
+    /// Book folders left set aside by a change of folder layout that was interrupted.
+    /// Never deleted, and no book in the catalogue points at them.
+    public var strandedFolders: [StrandedFolder] = []
     /// Books whose recorded length was wrong because an MP3 of theirs states the wrong
     /// length, now corrected to the measured one.
     public var correctedLengths: Int
@@ -201,4 +221,8 @@ public enum LibraryError: Error, Equatable {
     /// The details given for a book cannot be used. The text says why, in plain words.
     /// Nothing was changed.
     case invalidDetails(String)
+    /// The folder layout could not be changed because one book's folder could not be
+    /// moved: `book` names it (its title in quotation marks, or "a book") and `reason`
+    /// says why. Every folder already moved was put back; nothing was changed.
+    case layoutChangeFailed(book: String, reason: String)
 }

@@ -14,11 +14,13 @@ extension LibraryService {
         // Books an earlier edit of this call has already dealt with.
         var handled = Set<Int64>()
         var title = ""
+        // Which book has which folder, kept up to date as this call moves books (FP41).
+        var owners: FolderOwners?
         let prepared = edits.map { edit -> PreparedEdit in
             guard !handled.contains(edit.bookId) else {
                 return .failed("Another edit in the same save already changes that book")
             }
-            let result = prepareEdit(edit, pattern: pattern, into: &operation)
+            let result = prepareEdit(edit, pattern: pattern, owners: &owners, into: &operation)
             switch result {
             case .failed: break
             case .unchanged: handled.insert(edit.bookId)
@@ -63,7 +65,8 @@ extension LibraryService {
     }
 
     private func prepareEdit(
-        _ edit: BookEdit, pattern: FolderPattern, into operation: inout PendingOperation
+        _ edit: BookEdit, pattern: FolderPattern, owners: inout FolderOwners?,
+        into operation: inout PendingOperation
     ) -> PreparedEdit {
         let book: Book
         let rows: [BookFile]
@@ -92,11 +95,17 @@ extension LibraryService {
         var moves: [(index: Int, move: PlannedMove)] = []
         var folderPath = book.folderPath
         let plan = filingPlan(for: current, metadata: metadata, pattern: pattern)
+        // FP41: the folder the book would be filed in is another book's.
+        var folderTaken = false
         if let plan {
             // E5: a book catalogued in place is only filed while all its files are there.
             let canFile = book.folderPath != nil
                 || current.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) }
-            if canFile {
+            if canFile, book.folderPath == nil || !plan.moves.isEmpty,
+               isAnotherBooksFolder(plan.folder, for: book.id, owners: &owners) {
+                // Not moved at all: it stays where it is, and is flagged.
+                folderTaken = true
+            } else if canFile {
                 moves = plan.moves
                 if book.folderPath == nil || !moves.isEmpty {
                     folderPath = store.storedPath(for: plan.folder)
@@ -108,9 +117,9 @@ extension LibraryService {
         // has made it fileable or filed it, but never while one of its files is missing
         // from disk. Otherwise the flag is left as it is.
         let needsAttention: Bool
-        if plan == nil || folderPath == nil {
+        if plan == nil || folderPath == nil || folderTaken {
             needsAttention = true
-        } else if book.folderPath == nil || metadataChanged {
+        } else if book.folderPath == nil || metadataChanged || !moves.isEmpty {
             needsAttention = book.needsAttention
                 && !current.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) }
         } else {
@@ -144,6 +153,10 @@ extension LibraryService {
             return .failed(Self.reason(for: error))
         }
         for (index, move) in moves { files[index].url = move.to }
+        // The folder is this book's from here on, for the edits of this call that follow.
+        if folderPath != book.folderPath, let folderPath, let id = book.id {
+            owners?.set(folderKey(store.url(forFolder: folderPath)), for: id)
+        }
 
         // E7, E8
         var updated = book

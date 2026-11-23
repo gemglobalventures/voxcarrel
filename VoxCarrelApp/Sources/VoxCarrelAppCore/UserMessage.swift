@@ -95,6 +95,11 @@ public enum UserMessage {
             "That book has no files, so it must stay marked as owned somewhere. Remove it instead."
         case .invalidDetails(let reason):
             sentence(reason)
+        case .layoutChangeFailed(let book, let reason):
+            joined([
+                "The folder of \(book) could not be moved, so the folder layout was not changed.", sentence(reason),
+                "Every folder is where it was.",
+            ])
         }
     }
 

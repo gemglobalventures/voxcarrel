@@ -39,6 +39,15 @@ import VoxCarrelFixtures
             + "Once that is sorted out, you can try Undo again.")
     }
 
+    /// The book whose folder could not be moved is named, and that nothing changed is said.
+    @Test func layoutChangeFailed() {
+        let error = LibraryError.layoutChangeFailed(
+            book: "“Dune”", reason: "something is already there (/L/Frank Herbert/Dune)")
+        #expect(UserMessage.text(for: error)
+            == "The folder of “Dune” could not be moved, so the folder layout was not changed. "
+            + "Something is already there (/L/Frank Herbert/Dune). Every folder is where it was.")
+    }
+
     /// M1: each stranded file on its own line.
     @Test func rollbackIncomplete() {
         let error = LibraryError.rollbackIncomplete(
@@ -135,6 +144,7 @@ import VoxCarrelFixtures
             LibraryError.nothingToUndo, LibraryError.undoBlocked("it is locked"),
             LibraryError.rollbackIncomplete(cause: "the disk is full", stranded: ["/a (from /b)"]),
             LibraryError.cannotLocate("it is not a plain file"),
+            LibraryError.layoutChangeFailed(book: "“Dune”", reason: "it is locked"),
             CollectionError.blankName, CollectionError.notFound(1),
             MetadataIOError.unsupportedFormat("ogg"), MetadataIOError.unreadable("/a.m4b"),
             MetadataIOError.locked("/a.m4b"), MetadataIOError.notARegularFile("/a.m4b"),
