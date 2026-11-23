@@ -706,6 +706,67 @@ import VoxCarrelFixtures
         #expect(!h.model.canSwapReviewTitleAndAuthor(for: UUID()))
     }
 
+    // MARK: What the views are told
+
+    @Test func mg2_anEntrysSecondLineIsItsAuthorAndWhatItHas() {
+        var row = MergeEntryRow(id: 1, title: "Dune", author: "Frank Herbert", contents: "Ebook, 1 file", isKept: true)
+        #expect(row.subtitle == "Frank Herbert · Ebook, 1 file")
+        row.author = ""
+        #expect(row.subtitle == "Ebook, 1 file")
+    }
+
+    @Test func mg2_aFileSaysWhichEntryItComesFrom() {
+        let row = MergeFileRow(
+            id: 1, name: "Dune.pdf", entryTitle: "Dune Notes", role: .extra, allowedRoles: [.ebook, .extra],
+            isChanged: false)
+        #expect(row.sourceText == "From “Dune Notes”")
+    }
+
+    @Test func mg2_whatAnEntryHasIsSaidInWords() {
+        #expect(MergeText.contents(roles: []) == "No files")
+        #expect(MergeText.contents(roles: [.audio]) == "Audiobook, 1 file")
+        #expect(MergeText.contents(roles: [.audio, .audio, .ebook]) == "Audiobook and ebook, 3 files")
+        #expect(MergeText.contents(roles: [.ebook, .extra]) == "Ebook, 2 files")
+        #expect(MergeText.contents(roles: [.extra, .extra]) == "Extras only, 2 files")
+    }
+
+    @Test func mg1_aContextMenuOffersMergingForSeveralBooks() async throws {
+        let (h, ebook, notes) = try await ebookAndNotes()
+        #expect(!h.model.offersMergeBooks(for: []))
+        #expect(!h.model.offersMergeBooks(for: [ebook]))
+        #expect(h.model.offersMergeBooks(for: [ebook, notes]))
+        // Offered, though it does not apply, while something is in the way.
+        h.model.busyLabel = "Working…"
+        #expect(h.model.offersMergeBooks(for: [ebook, notes]))
+        #expect(!h.model.canMergeBooks([ebook, notes]))
+        h.model.busyLabel = nil
+    }
+
+    @Test func mg5_theOfferStandsUnderItsOwnReasonLine() async throws {
+        let (h, books) = try await Harness.merging { try $0.ownersCase() }
+        await h.select(ids: [books.audio])
+        var detail = try #require(h.detail)
+        let taken = "Another book uses the folder this book belongs in."
+        #expect(detail.attentionLines == [AttentionLine(text: taken, offer: MergeOffer(bookId: books.pdf, title: L.title))])
+        #expect(detail.attentionLines.map(\.id) == [taken])
+
+        // Under that reason and no other.
+        try FileManager.default.removeItem(at: try h.fileURLs(books.audio)[0])
+        await h.model.retryLibrary()
+        h.model.dismissLibraryCheck()
+        await h.select(ids: [books.audio])
+        detail = try #require(h.detail)
+        #expect(detail.attentionReasons == [taken, "Some files are missing"])
+        #expect(detail.attentionLines.map(\.text) == detail.attentionReasons)
+        #expect(detail.attentionLines.map(\.offer?.bookId) == [books.pdf, nil])
+
+        // No offer: the reasons alone.
+        await h.select(ids: [books.pdf])
+        #expect(h.detail?.attentionLines.isEmpty == true)
+        detail.mergeOffer = nil
+        #expect(detail.attentionLines.map(\.offer) == [nil, nil])
+    }
+
     // MARK: MG7 One sheet, and nothing else meanwhile
 
     @Test func mg7_theSheetIsOneOfTheWindowsSheetsAfterTheOthers() async throws {

@@ -71,9 +71,9 @@ struct Dialogs: ViewModifier {
                 case .sendToPhone(let state):
                     SendToPhoneSheet(model: model, state: state)
                         .modifier(Questions(isActive: true))
-                case .mergeBooks:
-                    // Nothing opens this sheet yet.
-                    EmptyView()
+                case .mergeBooks(let state):
+                    MergeBooksSheet(model: model, state: state)
+                        .modifier(Questions(isActive: true))
                 }
             }
             // While a sheet is up, or about to be, the sheet shows them.

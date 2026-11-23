@@ -19,6 +19,12 @@ public struct MergeEntryRow: Identifiable, Equatable, Sendable {
     public var contents: String
     /// Whether this is the entry that stays.
     public var isKept: Bool
+
+    /// The line under the title: "James Dalton · Audiobook, 1 file", or what the entry
+    /// has alone when it has no author.
+    public var subtitle: String {
+        author.isEmpty ? contents : "\(author) · \(contents)"
+    }
 }
 
 /// One file of the entries being merged, as the sheet lists it.
@@ -33,6 +39,35 @@ public struct MergeFileRow: Identifiable, Equatable, Sendable {
     public var allowedRoles: [FileRole]
     /// Whether the owner has given the file another role than the library would.
     public var isChanged: Bool
+
+    /// The line under the name: "From “Mind Over Markets”".
+    public var sourceText: String {
+        "From “\(entryTitle)”"
+    }
+}
+
+/// One reason a book needs attention, with what the inspector offers under it.
+public struct AttentionLine: Identifiable, Equatable, Sendable {
+    public var text: String
+    /// MG5: the merge to offer under this reason; nil for none.
+    public var offer: MergeOffer?
+
+    public var id: String { text }
+
+    public init(text: String, offer: MergeOffer? = nil) {
+        self.text = text
+        self.offer = offer
+    }
+}
+
+extension BookDetail {
+    /// `attentionReasons`, each with what is offered under it. MG5: the merge is
+    /// offered under the reason it answers, that another book has this book's folder.
+    public var attentionLines: [AttentionLine] {
+        attentionReasons.map { reason in
+            AttentionLine(text: reason, offer: reason == unfiledReason ? mergeOffer : nil)
+        }
+    }
 }
 
 /// What the Merge Books sheet shows.
@@ -196,6 +231,11 @@ extension AppModel {
     public func canMergeBooks(_ ids: Set<Int64>) -> Bool {
         // SV7: a row that stands for a book the library does not have is no book to merge.
         ids.count >= 2 && !holdsMissing(ids) && isQuietForMerge
+    }
+
+    /// Whether a context menu for these books has Merge Books in it: it is for several books.
+    public func offersMergeBooks(for ids: Set<Int64>) -> Bool {
+        ids.count > 1
     }
 
     /// Nothing is in the way of opening the sheet.
