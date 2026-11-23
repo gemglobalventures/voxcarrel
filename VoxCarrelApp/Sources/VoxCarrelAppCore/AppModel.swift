@@ -14,6 +14,15 @@ public enum Inspecting: Equatable {
     /// One row is selected that stands for a book the library does not have: a book of
     /// Audible's list of the series shown. There is nothing of it to edit.
     case missing(MissingEntry)
+
+    /// Whether what is shown has edits that are not saved.
+    var hasUnsavedChanges: Bool {
+        switch self {
+        case .nothing, .missing: false
+        case .one(_, let draft): draft.isDirty
+        case .many(let draft): draft.isDirty
+        }
+    }
 }
 
 /// A question the window must put to the user before the model goes on.
@@ -232,6 +241,9 @@ public final class AppModel {
         shown = (storedSidebarSelection, storedSearchText)
         seriesReturn = nil
         returnSelection = nil
+        // GS13: the open groups were those of the library shown before.
+        openGroups = []
+        groupsSeen = nil
         refreshItems()
 
         status = location.status()
@@ -316,6 +328,8 @@ public final class AppModel {
         set {
             storedViewMode = newValue
             defaults.set(newValue.rawValue, forKey: Keys.viewMode)
+            // The grid draws a group as one stack: none is left selected in part.
+            completePartlySelectedGroups()
         }
     }
 
@@ -386,7 +400,11 @@ public final class AppModel {
     public private(set) var itemsVersion = 0
     @ObservationIgnored private var itemsRowsVersion = 0
     /// GS13: the names of the groups that are open. None at first; not remembered.
+    /// A name stays while the list is not grouped, and in a list that has no such
+    /// group: it goes when the list its group was seen in no longer has the group.
     public internal(set) var openGroups: Set<String> = []
+    /// GS13: the list that was grouped last, and the names of its groups then.
+    @ObservationIgnored private var groupsSeen: (item: SidebarItem, names: Set<String>)?
     /// GS19: where Back goes from the series that was opened from a group; nil when
     /// no series was, or the owner has chosen in the sidebar since.
     var seriesReturn: SeriesReturn?
@@ -400,8 +418,12 @@ public final class AppModel {
     /// long as that book is still the anchor.
     @ObservationIgnored var groupAnchor: (name: String, book: Int64)?
 
-    /// GS11: works `items` out again. GS13: forgets the open groups that are no longer
-    /// there. GS13a: opens any closed group that now holds some selected books, not all.
+    /// GS11: works `items` out again. GS13: forgets the open groups that this list had
+    /// when it was grouped last and has no longer; while the list is not grouped (a
+    /// search, a single series, the Inbox, the setting off) the open groups are left as
+    /// they are, so that they are open still when it is grouped again. In the grid a
+    /// group that is selected in part is selected whole. GS13a: opens any closed group
+    /// that now holds some selected books, not all.
     private func refreshItems() {
         let grouping = storedGroupsBySeries && Self.allowsGrouping(shown.item, search: shown.search)
         if grouping != isGrouping || itemsRowsVersion != rowsVersion {
@@ -410,8 +432,15 @@ public final class AppModel {
         }
         if grouping != isGrouping { isGrouping = grouping }
         items = SeriesGrouping.items(from: rows, sort: storedSort, grouped: grouping)
-        let names = Set(groups.map(\.name))
-        if !openGroups.isSubset(of: names) { openGroups.formIntersection(names) }
+        if grouping {
+            let names = Set(groups.map(\.name))
+            if let seen = groupsSeen, seen.item == shown.item {
+                let gone = seen.names.subtracting(names)
+                if !openGroups.isDisjoint(with: gone) { openGroups.subtract(gone) }
+            }
+            groupsSeen = (shown.item, names)
+        }
+        completePartlySelectedGroups()
         openPartlySelectedGroups()
     }
 
@@ -699,7 +728,11 @@ public final class AppModel {
 
     /// A9, as far as it can be done without asking the library: a single book is shown
     /// from its row, without files, until `refreshInspector` has its details.
+    ///
+    /// In the grid, a book of a series group is never selected without the rest of its
+    /// group (`gridCompleted`).
     private func setSelection(_ ids: Set<Int64>, anchor: Int64?) {
+        let ids = gridCompleted(ids)
         selection = ids
         self.anchor = anchor
         // SV8
@@ -957,7 +990,11 @@ public final class AppModel {
 
     /// What the inspector shows. Follows `selection`.
     public internal(set) var inspecting: Inspecting = .nothing {
-        didSet { closeLookupIfItsTargetHasGone() }
+        didSet {
+            closeLookupIfItsTargetHasGone()
+            // Unsaved edits were what kept a group of the grid selected only in part.
+            if oldValue.hasUnsavedChanges, !hasUnsavedChanges { completePartlySelectedGroups() }
+        }
     }
     /// While a save runs: the draft as it was when it was sent, to tell what has been
     /// typed since. Nil at any other time.

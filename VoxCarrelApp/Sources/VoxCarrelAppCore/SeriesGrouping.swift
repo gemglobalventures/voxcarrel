@@ -71,6 +71,12 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
     public var hasEbook: Bool { books.contains(where: \.hasEbook) }
     public var isOnAudible: Bool { books.contains(where: \.isOnAudible) }
 
+    /// Whether any of the books has audio files here, and whether any has an ebook
+    /// here: when the group shows the headphones and the book, as a book's own row
+    /// shows them only for files that are on this Mac.
+    public var hasAudioFiles: Bool { books.contains { $0.hasFiles && $0.hasAudio } }
+    public var hasEbookFiles: Bool { books.contains { $0.hasFiles && $0.hasEbook } }
+
     /// What the warning triangle is for: how many of the books have one of their own.
     /// Nil when none has.
     public var warningText: String? {

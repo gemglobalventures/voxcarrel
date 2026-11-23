@@ -401,4 +401,89 @@ import VoxCarrelCore
         }
         #expect(Date().timeIntervalSince(start) < 20)
     }
+
+    /// GS6: the headphones and the book are for files that are here, as on a book's row.
+    @Test func aGroupShowsTheFormatsOfTheFilesThatAreHere() throws {
+        var elsewhere = row(1, "A", series: "Saga", number: "1", audible: true)
+        elsewhere.hasFiles = false
+        var alsoElsewhere = row(2, "B", series: "Saga", number: "2", audible: true)
+        alsoElsewhere.hasFiles = false
+        let onAudibleOnly = try group("Saga", in: [elsewhere, alsoElsewhere])
+        #expect(onAudibleOnly.hasAudio)
+        #expect(!onAudibleOnly.hasAudioFiles)
+        #expect(!onAudibleOnly.hasEbookFiles)
+        #expect(onAudibleOnly.isOnAudible)
+
+        let mixed = try group(
+            "Saga", in: [elsewhere, row(2, "B", series: "Saga", number: "2", audio: false, ebook: true)])
+        #expect(!mixed.hasAudioFiles)
+        #expect(mixed.hasEbookFiles)
+        #expect(try group("Saga", in: self.mixed).hasAudioFiles)
+        #expect(try group("Saga", in: self.mixed).hasEbookFiles)
+    }
+
+    // MARK: The list's column headers, over items
+
+    /// A book's column keys are its row's; a group's are what it is ordered by (GS4).
+    @Test func itemsHaveTheColumnKeysOfTheirRowsAndGroups() throws {
+        let rows = mixed
+        let book = LibraryItem.book(rows[1])
+        #expect(book.titleSortKey == rows[1].titleSortKey)
+        #expect(book.authorSortKey == rows[1].authorSortKey)
+        #expect(book.seriesSortKey == rows[1].seriesSortKey)
+        #expect(book.formatsSortKey == rows[1].formatsSortKey)
+        #expect(book.lengthSortKey == rows[1].lengthSortKey)
+        #expect(book.dateAddedSortKey == rows[1].dateAddedSortKey)
+        #expect(book.statusSortKey == rows[1].statusSortKey)
+        #expect(book.editionSortKey == rows[1].editionSortKey)
+
+        let saga = LibraryItem.series(try group("Saga", in: rows))
+        #expect(saga.titleSortKey == "Saga")
+        #expect(saga.authorSortKey == "Cat")
+        #expect(saga.seriesSortKey == "Saga")
+        #expect(saga.formatsSortKey == 3)
+        #expect(saga.lengthSortKey == 1000)
+        #expect(saga.dateAddedSortKey == Date(timeIntervalSinceReferenceDate: 40))
+        #expect(saga.statusSortKey == ReadStatus.inProgress.rawValue)
+        #expect(saga.editionSortKey == EditionKind.abridged.rawValue)
+    }
+
+    /// G3: every key has a column in a table of items, and a click on its header
+    /// comes back as that key.
+    @Test func everySortIsAnItemColumnSortOrderAndBack() {
+        for key in BookSortKey.allCases {
+            for ascending in [true, false] {
+                let sort = BookSort(key: key, ascending: ascending)
+                let order = sort.itemSortOrder
+                #expect(order.count == 1)
+                #expect(order.first?.order == (ascending ? .forward : .reverse))
+                #expect(BookSort(itemSortOrder: order) == sort)
+            }
+        }
+        #expect(Set(BookSortKey.allCases.map { BookSort(key: $0).itemSortOrder[0].keyPath }).count
+            == BookSortKey.allCases.count)
+
+        // The clicked column is first; only it counts.
+        let order = BookSort(key: .length, ascending: false).itemSortOrder + BookSort(key: .title).itemSortOrder
+        #expect(BookSort(itemSortOrder: order) == BookSort(key: .length, ascending: false))
+        #expect(BookSort(itemSortOrder: []) == nil)
+        // A column that is not one of the sort keys.
+        #expect(BookSort(itemSortOrder: [KeyPathComparator(\LibraryItem.books.count)]) == nil)
+    }
+
+    /// G3: a column of text is named with the comparator a table's text column has.
+    @Test func itemTextColumnsUseTheTablesOwnComparator() {
+        let standard = String.StandardComparator.localizedStandard
+        for order in [SortOrder.forward, .reverse] {
+            let expected: [BookSortKey: KeyPathComparator<LibraryItem>] = [
+                .title: KeyPathComparator(\.titleSortKey, comparator: standard, order: order),
+                .author: KeyPathComparator(\.authorSortKey, comparator: standard, order: order),
+                .series: KeyPathComparator(\.seriesSortKey, comparator: standard, order: order),
+                .status: KeyPathComparator(\.statusSortKey, comparator: standard, order: order),
+            ]
+            for (key, comparator) in expected {
+                #expect(BookSort(key: key, ascending: order == .forward).itemSortOrder[0] == comparator, "\(key)")
+            }
+        }
+    }
 }

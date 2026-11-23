@@ -200,6 +200,16 @@ extension AppModel {
         }
     }
 
+    /// The same for the list as a table of items (`items`): a click on a header sets
+    /// `sort` exactly as it does in a table of books.
+    public var itemTableSortOrder: [KeyPathComparator<LibraryItem>] {
+        get { sort.itemSortOrder }
+        set {
+            guard let sort = BookSort(itemSortOrder: newValue) else { return }
+            self.sort = sort
+        }
+    }
+
     public func listenSelection() {
         listenOne(of: selection)
     }

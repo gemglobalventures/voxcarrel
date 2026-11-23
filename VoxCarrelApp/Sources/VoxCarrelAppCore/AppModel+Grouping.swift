@@ -19,6 +19,9 @@ struct SeriesReturn: Equatable {
     var search: String
     /// The series that was opened: its group is what is selected on the way back.
     var series: String
+    /// GS13: whether its group was open in the list, which is how it is left on the
+    /// way back.
+    var wasOpen: Bool
 }
 
 extension AppModel {
@@ -80,11 +83,41 @@ extension AppModel {
     }
 
     /// Whether some of the group's books are selected and some are not. Never true of
-    /// a closed group (GS13a). The grid draws a group as one stack, open or not: this
-    /// is for it to show that a stack is selected only in part.
+    /// a closed group (GS13a). The grid draws a group as one stack, open or not, and
+    /// selects a group whole (`gridCompleted`): this is for it to show a stack that is
+    /// selected only in part because unsaved changes stood in the way of the rest.
     public func isPartlySelected(_ group: SeriesGroup) -> Bool {
         let count = selectedCount(in: group)
         return count > 0 && count < group.books.count
+    }
+
+    // MARK: In the grid a group is one stack
+
+    /// These books with, when the grid is what shows them and it is grouped, the rest
+    /// of every series group that any of them is in. The grid draws a group as one
+    /// stack whether or not the list would show it open, so a book selected without
+    /// the rest of its group would be selected where it cannot be seen.
+    func gridCompleted(_ ids: Set<Int64>) -> Set<Int64> {
+        guard viewMode == .grid, isGrouping, !ids.isEmpty else { return ids }
+        var whole = ids
+        for group in groups {
+            let own = group.books.map(\.id)
+            if own.contains(where: ids.contains) { whole.formUnion(own) }
+        }
+        return whole
+    }
+
+    /// In the grid, selects the rest of every group that is selected in part: when the
+    /// grid takes the list's place, and when the items change. (A selection made in
+    /// the grid is whole already: `gridCompleted`.)
+    ///
+    /// With unsaved changes nothing is selected and no question is asked, since
+    /// nothing was asked for: the group stays selected in part, which the grid shows
+    /// (`isPartlySelected`), until the changes are saved or discarded.
+    func completePartlySelectedGroups() {
+        guard !hasUnsavedChanges else { return }
+        let whole = gridCompleted(selection)
+        if whole != selection { applySelection(whole, anchor: anchor) }
     }
 
     // MARK: GS13 Open groups
@@ -258,11 +291,12 @@ extension AppModel {
     /// leads to and returns it; nil when there are no items, or the move is waiting
     /// for an answer about unsaved changes.
     ///
-    /// In one column, which is the list, an open group's books are steps between the
-    /// group and the item after it.
+    /// In one column of the list, an open group's books are steps between the group
+    /// and the item after it. In the grid a group is one cell, open or not, however
+    /// few columns the grid has.
     @discardableResult
     public func moveItemSelection(_ direction: SelectionLogic.Direction, columns: Int) -> ItemID? {
-        let order = columns <= 1 ? listOrder : items.map(\.id)
+        let order = columns <= 1 && viewMode != .grid ? listOrder : items.map(\.id)
         var from = itemAnchor
         // A book of an open group is not a cell of the grid: its group is.
         if let start = from, case .book(let book) = start, !order.contains(start) {
@@ -322,10 +356,14 @@ extension AppModel {
 
     /// GS20: what the list should scroll to when it has been made again
     /// (`itemsVersion`): the book `scrollTarget` names, or its group when the book is
-    /// out of sight in a closed group; nil when there is none.
+    /// out of sight in a closed group, when the whole group is selected, and in the
+    /// grid, where the group is one stack; nil when there is none.
     public var itemScrollTarget: ItemID? {
         guard let book = scrollTarget else { return nil }
-        if isGrouping, let group = group(holding: book), !openGroups.contains(group.name) { return group.id }
+        if isGrouping, let group = group(holding: book),
+           viewMode == .grid || !openGroups.contains(group.name) || !isPartlySelected(group) {
+            return group.id
+        }
         return .book(book)
     }
 
@@ -343,7 +381,8 @@ extension AppModel {
     public func openSeries(_ name: String) {
         let target = SidebarItem.browse(.series, name)
         guard sidebarSelection != target, sidebar.contains(target) else { return }
-        let from = SeriesReturn(item: sidebarSelection, search: searchText, series: name)
+        let from = SeriesReturn(
+            item: sidebarSelection, search: searchText, series: name, wasOpen: openGroups.contains(name))
         searchText = ""
         sidebarSelection = target
         seriesReturn = from
@@ -381,7 +420,7 @@ extension AppModel {
         searchText = back.search
         sidebarSelection = item
         isGoingBack = false
-        returnSelection = SeriesReturn(item: item, search: back.search, series: back.series)
+        returnSelection = SeriesReturn(item: item, search: back.search, series: back.series, wasOpen: back.wasOpen)
     }
 
     /// GS19: the owner has chosen in the sidebar: there is no way back, and nothing
@@ -396,6 +435,7 @@ extension AppModel {
     /// closed, where the list is grouped. With unsaved changes the selection is left
     /// as it is; `orWait` then keeps the series waiting for the next time the rows are
     /// read, which is when a save that was asked for on the way back has ended.
+    /// GS13: the group is open or closed as it was left.
     func selectReturnedSeries(orWait: Bool = false) {
         guard let back = returnSelection else { return }
         guard shown.item == back.item, shown.search == back.search else {
@@ -413,8 +453,9 @@ extension AppModel {
         if let group = group(named: back.series), let leading = group.books.first?.id {
             groupAnchor = (group.name, leading)
             applySelection(Set(books), anchor: leading)
-            // Whole, and so it need not be open: the group is what the list scrolls to.
-            openGroups.remove(group.name)
+            // GS13: as it was left. Whatever was selected in the series' own view may
+            // have opened it meanwhile (GS13a); all of it is selected now.
+            if !back.wasOpen { openGroups.remove(group.name) }
         } else {
             applySelection(Set(books), anchor: first)
         }

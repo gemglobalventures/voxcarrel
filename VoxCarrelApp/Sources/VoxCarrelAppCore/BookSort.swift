@@ -281,3 +281,109 @@ extension BookSort {
         self.init(key: key, ascending: first.order == .forward)
     }
 }
+
+// MARK: The column headers of a list of items
+
+extension LibraryItem {
+    // What the columns of a table of items are keyed by: a book's are its row's, and a
+    // series group's are what it is ordered by among the books (GS4). As with a row's,
+    // nothing is ever compared by these values: they name the column that was clicked.
+    public var titleSortKey: String {
+        switch self {
+        case .book(let row): row.titleSortKey
+        case .series(let group): group.name
+        }
+    }
+
+    public var authorSortKey: String {
+        switch self {
+        case .book(let row): row.authorSortKey
+        case .series(let group): group.books.first?.authorSortKey ?? ""
+        }
+    }
+
+    public var seriesSortKey: String {
+        switch self {
+        case .book(let row): row.seriesSortKey
+        case .series(let group): group.name
+        }
+    }
+
+    public var formatsSortKey: Int {
+        switch self {
+        case .book(let row): row.formatsSortKey
+        case .series(let group): (group.hasAudio ? 1 : 0) + (group.hasEbook ? 2 : 0)
+        }
+    }
+
+    public var lengthSortKey: Double {
+        switch self {
+        case .book(let row): row.lengthSortKey
+        case .series(let group): group.totalSeconds ?? 0
+        }
+    }
+
+    public var dateAddedSortKey: Date {
+        switch self {
+        case .book(let row): row.dateAddedSortKey
+        case .series(let group): group.newestAdded
+        }
+    }
+
+    /// A group's is that of the least advanced of its books.
+    public var statusSortKey: String {
+        switch self {
+        case .book(let row): row.statusSortKey
+        case .series(let group):
+            group.books.min { BookSort.statusRank($0.book.readStatus) < BookSort.statusRank($1.book.readStatus) }?
+                .statusSortKey ?? ""
+        }
+    }
+
+    /// A group's is the first kind, in the sort's order, that any of its books has.
+    public var editionSortKey: String {
+        switch self {
+        case .book(let row): row.editionSortKey
+        case .series(let group):
+            group.books.filter { BookSort.editionRank($0) != nil }
+                .min { (BookSort.editionRank($0) ?? .max) < (BookSort.editionRank($1) ?? .max) }?
+                .editionSortKey ?? ""
+        }
+    }
+}
+
+extension BookSortKey {
+    /// This key's column as a table of items names it: as `comparator(_:)`, which is
+    /// for a table of books.
+    func itemComparator(_ order: SortOrder) -> KeyPathComparator<LibraryItem> {
+        let text = String.StandardComparator.localizedStandard
+        return switch self {
+        case .title: KeyPathComparator(\.titleSortKey, comparator: text, order: order)
+        case .author: KeyPathComparator(\.authorSortKey, comparator: text, order: order)
+        case .series: KeyPathComparator(\.seriesSortKey, comparator: text, order: order)
+        case .formats: KeyPathComparator(\.formatsSortKey, order: order)
+        case .length: KeyPathComparator(\.lengthSortKey, order: order)
+        case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
+        case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
+        case .edition: KeyPathComparator(\.editionSortKey, comparator: text, order: order)
+        }
+    }
+}
+
+extension BookSort {
+    /// This sort as the sort order of a table of items: its key's column, forwards or
+    /// in reverse.
+    public var itemSortOrder: [KeyPathComparator<LibraryItem>] {
+        [key.itemComparator(ascending ? .forward : .reverse)]
+    }
+
+    /// The sort the sort order of a table of items asks for: the first column in it,
+    /// which is the one whose header was clicked last. Nil when that is not the column
+    /// of a sort key.
+    public init?(itemSortOrder: [KeyPathComparator<LibraryItem>]) {
+        guard let first = itemSortOrder.first,
+              let key = BookSortKey.allCases.first(where: { $0.itemComparator(.forward).keyPath == first.keyPath })
+        else { return nil }
+        self.init(key: key, ascending: first.order == .forward)
+    }
+}

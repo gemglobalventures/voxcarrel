@@ -16,9 +16,19 @@ import VoxCarrelFixtures
     private static let seriesTitles = ["Salt Road", "The Drowned Bell", "Harbour of Glass"]
     private static let seriesItem = ItemID.series(series)
 
-    /// A demo library with Group by Series on.
+    /// A demo library with Group by Series on, shown as a list: in the grid a group
+    /// is selected whole or not at all (`groupedGrid`).
     private func grouped() async throws -> Harness {
         let h = try await Harness.demo()
+        h.model.viewMode = .list
+        h.model.groupsBySeries = true
+        return h
+    }
+
+    /// The same, shown as the grid.
+    private func groupedGrid() async throws -> Harness {
+        let h = try await Harness.demo()
+        h.model.viewMode = .grid
         h.model.groupsBySeries = true
         return h
     }
@@ -328,28 +338,247 @@ import VoxCarrelFixtures
         #expect(h.model.openGroups.isEmpty)
     }
 
-    /// GS13: a name is dropped when the items no longer have its group.
+    /// GS13: a name is dropped when the list its group was seen in is grouped again
+    /// and no longer has the group.
     @Test func theNameOfAGroupThatHasGoneIsDropped() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        h.model.setGroup(Self.series, open: true)
+
+        // Kept while its group is still among the items, however they are ordered.
+        h.model.sort = BookSort(key: .length, ascending: false)
+        #expect(h.model.openGroups == [Self.series])
+
+        // Two of its three books are removed: one book is not a group.
+        h.model.requestRemove([ids[1], ids[2]])
+        await h.model.confirmRemove(moveFilesToTrash: false)
+        await h.model.settle()
+        #expect(!h.model.items.contains { $0.id == Self.seriesItem })
+        #expect(h.model.openGroups.isEmpty)
+    }
+
+    /// GS13: the open groups are kept while the list is not grouped: a search, a
+    /// series' own view, the setting turned off.
+    @Test func openGroupsSurviveWhileTheListIsNotGrouped() async throws {
+        let h = try await grouped()
+        h.model.setGroup(Self.series, open: true)
+
+        h.model.searchText = "salt"
+        await h.model.settle()
+        #expect(!h.model.isGrouping)
+        #expect(h.model.openGroups == [Self.series])
+        h.model.searchText = ""
+        await h.model.settle()
+        #expect(h.model.isGrouping)
+        #expect(h.model.openGroups == [Self.series])
+
+        h.model.groupsBySeries = false
+        #expect(h.model.openGroups == [Self.series])
+        h.model.groupsBySeries = true
+        #expect(h.model.openGroups == [Self.series])
+
+        // The series' own view, and back: the group is as it was left, and selected.
+        h.model.openSeries(Self.series)
+        await h.model.settle()
+        #expect(!h.model.isGrouping)
+        #expect(h.model.openGroups == [Self.series])
+        h.model.goBackFromSeries()
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .allBooks)
+        #expect(h.model.openGroups == [Self.series])
+        #expect(h.model.selection == Set(try seriesIds(h)))
+        #expect(h.model.itemSelection == books(try seriesIds(h)).union([Self.seriesItem]))
+        // GS20: all of it is selected, and its own row is where it starts.
+        #expect(h.model.itemScrollTarget == Self.seriesItem)
+    }
+
+    /// GS13: a list that never had the group does not close it in the list that has.
+    @Test func openGroupsSurviveAVisitToAnotherList() async throws {
         let h = try await grouped()
         h.model.setGroup(Self.series, open: true)
         h.model.sidebarSelection = .ebooks
         await h.model.settle()
+        #expect(h.model.isGrouping)
         #expect(!h.model.items.contains { $0.id == Self.seriesItem })
-        #expect(h.model.openGroups.isEmpty)
+        #expect(h.model.openGroups == [Self.series])
+        // However often that list is made again.
+        h.model.sort = BookSort(key: .author)
+        #expect(h.model.openGroups == [Self.series])
 
         h.model.sidebarSelection = .allBooks
         await h.model.settle()
-        #expect(h.model.openGroups.isEmpty)
+        #expect(h.model.items.contains { $0.id == Self.seriesItem })
+        #expect(h.model.openGroups == [Self.series])
+    }
 
-        // Kept while its group is still among the items.
+    /// GS13: a group that went while the list was not grouped is dropped when the
+    /// list is grouped again.
+    @Test func aGroupThatWentDuringASearchIsDroppedAfterIt() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
         h.model.setGroup(Self.series, open: true)
-        h.model.sort = BookSort(key: .length, ascending: false)
-        h.model.sidebarSelection = .audiobooks
+        h.model.searchText = "Tidewater"
         await h.model.settle()
+        #expect(Set(h.model.rows.map(\.id)) == Set(ids))
+        h.model.requestRemove([ids[1], ids[2]])
+        await h.model.confirmRemove(moveFilesToTrash: false)
+        await h.model.settle()
+        #expect(h.model.rows.map(\.id) == [ids[0]])
         #expect(h.model.openGroups == [Self.series])
 
-        h.model.groupsBySeries = false
+        h.model.searchText = ""
+        await h.model.settle()
+        #expect(h.model.isGrouping)
         #expect(h.model.openGroups.isEmpty)
+    }
+
+    // MARK: In the grid a group is one stack
+
+    /// In the grid a group is drawn as one stack, open or not, so none of its books
+    /// is selected without the rest: selecting one selects them all.
+    @Test func inTheGridSelectingABookOfAGroupSelectsTheGroup() async throws {
+        let h = try await groupedGrid()
+        let ids = try seriesIds(h)
+        let other = try h.id("Quiet Rivers")
+        h.model.select([ids[1], other])
+        #expect(h.model.selection == Set(ids + [other]))
+        #expect(h.model.itemSelection.contains(Self.seriesItem))
+        #expect(!h.model.isPartlySelected(try group(h)))
+        await h.model.settle()
+        #expect(h.bulkDraft?.books.count == 4)
+
+        // A book that is in no group is selected alone, as ever.
+        h.model.click(other, modifiers: [])
+        #expect(h.model.selection == [other])
+        await h.model.settle()
+        #expect(h.draft?.title == "Quiet Rivers")
+    }
+
+    /// The same when the list becomes the grid.
+    @Test func switchingToTheGridCompletesAPartlySelectedGroup() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        h.model.setGroup(Self.series, open: true)
+        h.model.clickItem(.book(ids[2]), modifiers: [])
+        await h.model.settle()
+        #expect(h.model.selection == [ids[2]])
+
+        h.model.viewMode = .grid
+        #expect(h.model.selection == Set(ids))
+        #expect(h.model.itemSelection.contains(Self.seriesItem))
+        await h.model.settle()
+        #expect(h.bulkDraft?.books.count == 3)
+
+        // The list does not take it back.
+        h.model.viewMode = .list
+        #expect(h.model.selection == Set(ids))
+    }
+
+    /// The same when the items change: grouping is turned on over a selection.
+    @Test func inTheGridTurningGroupingOnCompletesAPartlySelectedGroup() async throws {
+        let h = try await Harness.demo()
+        let chosen = try await h.select(["Salt Road", "Quiet Rivers"])
+        #expect(h.model.selection == chosen)
+        h.model.groupsBySeries = true
+        #expect(h.model.selection == chosen.union(try seriesIds(h)))
+        #expect(!h.model.isPartlySelected(try group(h)))
+    }
+
+    /// With unsaved edits nothing is selected and nothing is asked: the stack is
+    /// drawn as selected in part, until the edits are discarded or saved.
+    @Test func inTheGridUnsavedEditsLeaveAGroupPartlySelected() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        h.model.setGroup(Self.series, open: true)
+        h.model.clickItem(.book(ids[0]), modifiers: [])
+        await h.model.settle()
+        h.model.updateDraft { $0.title = "Salt Roads" }
+
+        h.model.viewMode = .grid
+        #expect(h.model.prompt == nil)
+        #expect(h.model.selection == [ids[0]])
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(!h.model.itemSelection.contains(Self.seriesItem))
+        #expect(h.draft?.title == "Salt Roads")
+        // Nor when the items are made again.
+        h.model.sort = BookSort(key: .author)
+        #expect(h.model.prompt == nil)
+        #expect(h.model.selection == [ids[0]])
+
+        h.model.discardChanges()
+        #expect(h.model.selection == Set(ids))
+        #expect(!h.model.isPartlySelected(try group(h)))
+        await h.model.settle()
+        #expect(h.bulkDraft?.books.count == 3)
+    }
+
+    /// The same after a save.
+    @Test func inTheGridASaveCompletesThePartlySelectedGroup() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        h.model.setGroup(Self.series, open: true)
+        h.model.clickItem(.book(ids[0]), modifiers: [])
+        await h.model.settle()
+        h.model.updateDraft { $0.title = "Salt Roads" }
+        h.model.viewMode = .grid
+        #expect(h.model.selection == [ids[0]])
+
+        await h.model.save()
+        await h.model.settle()
+        #expect(try h.store().book(id: ids[0])?.title == "Salt Roads")
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(h.model.selection == Set(ids))
+        #expect(h.bulkDraft?.books.count == 3)
+    }
+
+    /// GS18: in the grid a group is one cell however many columns there are, and
+    /// whether or not the list would show it open.
+    @Test func inTheGridArrowKeysTakeAGroupAsOneCellInOneColumn() async throws {
+        let h = try await groupedGrid()
+        let ids = try seriesIds(h)
+        let items = h.model.items.map(\.id)
+        let at = try groupIndex(h)
+        h.model.setGroup(Self.series, open: true)
+
+        h.model.clickItem(items[at - 1], modifiers: [])
+        #expect(h.model.moveItemSelection(.down, columns: 1) == Self.seriesItem)
+        #expect(h.model.selection == Set(ids))
+        #expect(h.model.moveItemSelection(.down, columns: 1) == items[at + 1])
+        #expect(h.model.moveItemSelection(.up, columns: 1) == Self.seriesItem)
+        #expect(h.model.moveItemSelection(.up, columns: 1) == items[at - 1])
+    }
+
+    /// GS20: in the grid the group is what is scrolled to, open or not.
+    @Test func inTheGridTheScrollTargetIsTheGroup() async throws {
+        let h = try await groupedGrid()
+        h.model.setGroup(Self.series, open: true)
+        h.model.clickItem(Self.seriesItem, modifiers: [])
+        #expect(h.model.itemScrollTarget == Self.seriesItem)
+    }
+
+    // MARK: The list's column headers, over items
+
+    /// K6: a click on a column header of the table of items becomes the sort, as it
+    /// does in a table of books.
+    @Test func theItemTablesSortOrderIsTheModelsSort() async throws {
+        let h = try await grouped()
+        #expect(h.model.itemTableSortOrder == BookSort(key: .title, ascending: true).itemSortOrder)
+
+        h.model.itemTableSortOrder =
+            BookSort(key: .author, ascending: false).itemSortOrder + BookSort(key: .title).itemSortOrder
+        #expect(h.model.sort == BookSort(key: .author, ascending: false))
+        #expect(h.model.itemTableSortOrder == BookSort(key: .author, ascending: false).itemSortOrder)
+        #expect(h.model.tableSortOrder == BookSort(key: .author, ascending: false).tableSortOrder)
+        #expect(h.model.rows == BookSort(key: .author, ascending: false).sorted(h.model.rows))
+        #expect(
+            h.model.items
+                == SeriesGrouping.items(
+                    from: h.model.rows, sort: BookSort(key: .author, ascending: false), grouped: true))
+        #expect(h.relaunched().sort == BookSort(key: .author, ascending: false))
+
+        // An order that is not one of the sorts changes nothing.
+        h.model.itemTableSortOrder = []
+        #expect(h.model.sort == BookSort(key: .author, ascending: false))
     }
 
     // MARK: GS13a
@@ -425,6 +654,7 @@ import VoxCarrelFixtures
     /// GS13a: turning grouping on over a selection that is part of a series opens its group.
     @Test func turningGroupingOnOpensAPartlySelectedGroup() async throws {
         let h = try await Harness.demo()
+        h.model.viewMode = .list
         let ids = try await h.select(["Salt Road", "Quiet Rivers"])
         h.model.groupsBySeries = true
         #expect(h.model.openGroups == [Self.series])
@@ -938,6 +1168,8 @@ import VoxCarrelFixtures
         #expect(h.model.rows.count == 12)
         #expect(h.model.seriesBackTitle == nil)
         #expect(h.model.selection == Set(ids))
+        // GS13: closed, as it was when its series was opened.
+        #expect(h.model.openGroups.isEmpty)
         #expect(h.model.itemSelection == [Self.seriesItem])
         #expect(h.model.itemScrollTarget == Self.seriesItem)
         #expect(h.bulkDraft?.books.count == 3)
@@ -1146,13 +1378,15 @@ import VoxCarrelFixtures
         h.model.clickItem(Self.seriesItem, modifiers: [])
         #expect(h.model.itemScrollTarget == Self.seriesItem)
 
+        // Open, and all of it selected: its own row is where it starts.
         h.model.setGroup(Self.series, open: true)
-        let first = try #require(h.model.scrollTarget)
-        #expect(ids.contains(first))
-        #expect(h.model.itemScrollTarget == .book(first))
+        #expect(h.model.itemScrollTarget == Self.seriesItem)
+        // Open, and one of its books selected: the book, which is in sight.
+        h.model.clickItem(.book(ids[1]), modifiers: [])
+        #expect(h.model.itemScrollTarget == .book(ids[1]))
 
         h.model.groupsBySeries = false
-        #expect(h.model.itemScrollTarget == .book(first))
+        #expect(h.model.itemScrollTarget == .book(ids[1]))
     }
 
     // MARK: GS21

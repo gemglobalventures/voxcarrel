@@ -26,11 +26,7 @@ extension AppModel {
     }
 
     public var hasUnsavedChanges: Bool {
-        switch inspecting {
-        case .nothing, .missing: false
-        case .one(_, let draft): draft.isDirty
-        case .many(let draft): draft.isDirty
-        }
+        inspecting.hasUnsavedChanges
     }
 
     /// A10: writes the draft. A draft with a problem is not written; `alert` says what
