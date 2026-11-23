@@ -912,4 +912,45 @@ import VoxCarrelFixtures
         review.setText(review.text(for: .authors, of: id), for: .authors, of: id)
         #expect(review.entry(id)?.candidate.metadata.authors == ["Mind,Markets", "Eric Jones"])
     }
+
+    // MARK: After undo, and an offer that is out of date
+
+    @Test func mg4_afterUndoTheKeptBookIsStillSelectedAndIsTheEntryItWas() async throws {
+        let (h, ebook, notes) = try await merging()
+        await h.model.confirmMerge()
+        #expect(h.model.selection == [ebook])
+
+        await h.model.undo()
+        await h.model.settle()
+
+        #expect(h.model.alert == nil)
+        #expect(Set(h.model.rows.map(\.id)) == [ebook, notes])
+        #expect(h.model.selection == [ebook])
+        #expect(h.detail?.row.id == ebook)
+        #expect(h.detail?.files.map(\.name) == ["Dune.epub"])
+        #expect(h.model.undoLabel == nil)
+        #expect(!h.model.hasUnsavedChanges)
+        #expect(h.model.canMergeBooks([ebook, notes]))
+    }
+
+    @Test func mg5_anOfferWhoseOtherBookHasGoneOpensASheetThatCannotMerge() async throws {
+        let (h, books) = try await Harness.merging { try $0.ownersCase() }
+        await h.select(ids: [books.audio])
+        let offer = try #require(h.model.mergeOffer)
+        // Removed by something other than this window since the inspector was filled.
+        try LibraryService(store: try h.store()).removeBook(id: books.pdf, moveFilesToTrash: false)
+        let before = h.libraryFiles()
+
+        await h.model.beginMerge(with: offer.bookId)
+
+        let sheet = try #require(h.model.mergeSheet)
+        #expect(sheet.entries.map(\.id) == [books.audio])
+        #expect(sheet.blockers == ["Merging needs two or more entries that are in the library."])
+        #expect(!sheet.canMerge)
+        await h.model.confirmMerge()
+        #expect(h.model.mergeSheet != nil)
+        #expect(h.libraryFiles() == before)
+        h.model.cancelMerge()
+        #expect(h.model.mergeSheet == nil)
+    }
 }
