@@ -38,6 +38,37 @@ import Testing
         }
     }
 
+    /// FP42: a leading "." or space is stripped even when a combining mark follows it,
+    /// where the two read as one character. Otherwise the name would begin with a dot
+    /// on disk, and the folder would be hidden.
+    @Test func fp42_sanitiseStripsALeadingDotOrSpaceBeforeACombiningMark() {
+        #expect(PathBuilder.sanitise(".\u{301}x").unicodeScalars.map(\.value) == [0x301, 0x78])
+        #expect(PathBuilder.sanitise(" .\u{308}. \u{301}Dune").unicodeScalars.map(\.value) == [0x308, 0x2E, 0x20, 0x301, 0x44, 0x75, 0x6E, 0x65])
+        for value in [".\u{301}x", "..\u{301}", ". .\u{20DD}name", " \u{301}.hidden", "...\u{301}...", ".\u{301}", "/.\u{301}x"] {
+            let safe = PathBuilder.sanitise(value)
+            #expect(safe.unicodeScalars.first != ".", "\(value.debugDescription)")
+            #expect(safe.unicodeScalars.first != " ", "\(value.debugDescription)")
+            #expect(safe.utf8.first != UInt8(ascii: "."))
+            #expect(PathBuilder.sanitise(safe) == safe)
+        }
+        #expect(PathBuilder.sanitise("..hidden. ") == "hidden")
+    }
+
+    @Test func fp42_noPresetFilesABookInAHiddenFolder() throws {
+        var m = BookMetadata(title: ".\u{301}Title", authors: [".\u{308}Author"])
+        m.series = " .\u{301}Series"
+        m.seriesNumber = ".\u{301}1"
+        for pattern in FolderPattern.presets.map(\.pattern) {
+            let folder = try #require(pattern.folder(for: FolderPatternValues(metadata: m, hasAudio: true)))
+            for level in folder.utf8.split(separator: UInt8(ascii: "/")) {
+                #expect(level.first != UInt8(ascii: "."), "\(pattern.text): \(folder.debugDescription)")
+            }
+        }
+        let names = PathBuilder.fileNames(
+            title: ".\u{301}Title", files: [CandidateFile(url: URL(fileURLWithPath: "/in/x.m4b"), role: .audio)])
+        #expect(names.allSatisfy { $0.utf8.first != UInt8(ascii: ".") })
+    }
+
     @Test func sanitiseStripsLeadingDotsAndTrailingDotsAndSpaces() {
         #expect(PathBuilder.sanitise("..hidden. ") == "hidden")
         #expect(PathBuilder.sanitise("  Dune  ") == "Dune")

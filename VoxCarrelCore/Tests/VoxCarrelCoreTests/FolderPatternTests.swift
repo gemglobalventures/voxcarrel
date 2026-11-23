@@ -7,7 +7,8 @@ import Testing
 ///
 /// One correction has been made to it, the same one made to `PathBuilder.sanitise`
 /// (FP42): "/" and ":" are replaced one Unicode scalar at a time, so that one followed
-/// by a combining mark is replaced too.
+/// by a combining mark is replaced too; and leading dots and spaces are stripped
+/// one scalar at a time, for the same reason.
 enum FixedRuleReference {
     static let maxComponentLength = 200
 
@@ -18,7 +19,11 @@ enum FixedRuleReference {
         }
         var s = String(scalars)
         s = String(s.prefix(maxComponentLength))
-        while let first = s.first, first == "." || first == " " { s.removeFirst() }
+        // One scalar at a time, as above: a "." before a combining mark reads as one
+        // character with it, but the name would still begin with a dot on disk.
+        var kept = s.unicodeScalars
+        while let first = kept.first, first == "." || first == " " { kept.removeFirst() }
+        s = String(kept)
         while let last = s.last, last == "." || last == " " { s.removeLast() }
         return s
     }
@@ -324,6 +329,7 @@ struct SeededGenerator: RandomNumberGenerator {
         "::/", "../..", "../../etc/passwd", ".hidden", "..hidden. ", "  spaced  ", "ends in dot.", "ends in dots...",
         "ends in space ", ". leading", " . . both . . ", "Du\u{0}ne\nPart\tOne\r", "\u{0}", "\u{7}\u{8}", "line\nbreak",
         "1", "2.5", "1-3", "10", "Book 1", "0", "- -", "Über", "Émile Zola", "e\u{301}cole", "\u{301}start", "naïve/\u{308}x",
+        ".\u{301}x", "..\u{301}", " \u{301}.hidden", ". .\u{20DD}name",
         "a/\u{301}b", "/\u{301}", ":\u{301}", "x:\u{20DD}y/\u{301}z", "\u{301}/\u{301}:\u{301}",
         "日本語のタイトル", "👩‍👩‍👧‍👦 family", "🇳🇱🇧🇪 flags", "zero\u{200B}width", "soft\u{AD}hyphen", "\u{FEFF}bom",
         "Tolkien, J.R.R.", "J.R.R. Tolkien", "The Hobbit, or There and Back Again", "a  b", "a - b", " - ",
@@ -332,7 +338,7 @@ struct SeededGenerator: RandomNumberGenerator {
     /// One value: usually from the list, sometimes long, sometimes random characters.
     static func value(using rng: inout SeededGenerator) -> String {
         let pieces: [String] = [
-            "a", "B", " ", ".", "/", ":", "-", "\u{0}", "\n", "é", "\u{301}", "字", "🙂", "1", "t", "/\u{301}", ":\u{308}",
+            "a", "B", " ", ".", "/", ":", "-", "\u{0}", "\n", "é", "\u{301}", "字", "🙂", "1", "t", "/\u{301}", ":\u{308}", ".\u{301}",
         ]
         switch Int.random(in: 0..<10, using: &rng) {
         case 0...5:
@@ -411,6 +417,8 @@ struct SeededGenerator: RandomNumberGenerator {
             let levels = folder.utf8.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
             #expect(levels.count == 2 || levels.count == 3, "\(folder.debugDescription)")
             #expect(!levels.contains { $0.isEmpty })
+            // Nor a level that begins with a dot, which would be hidden.
+            #expect(!levels.contains { $0.first == UInt8(ascii: ".") }, "\(folder.debugDescription)")
             #expect(!folder.unicodeScalars.contains(":"))
         }
         #expect(slashBeforeMark > 100)

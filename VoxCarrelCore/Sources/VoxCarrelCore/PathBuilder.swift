@@ -10,8 +10,9 @@ public enum PathBuilder {
 
     /// Makes a string safe to use as one path component.
     ///
-    /// "/" and ":" are replaced one Unicode scalar at a time: followed by a combining
-    /// mark either reads as a single character, but the disk still sees the "/".
+    /// "/" and ":" are replaced, and leading dots and spaces stripped, one Unicode
+    /// scalar at a time: followed by a combining mark any of them reads as a single
+    /// character, but the disk still sees the "/" or the leading dot.
     public static func sanitise(_ raw: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in raw.unicodeScalars where !CharacterSet.controlCharacters.contains(scalar) {
@@ -19,7 +20,11 @@ public enum PathBuilder {
         }
         var s = String(scalars)
         s = String(s.prefix(maxComponentLength))
-        while let first = s.first, first == "." || first == " " { s.removeFirst() }
+        // One scalar at a time, as above: a "." before a combining mark reads as one
+        // character with it, but the name would still begin with a dot on disk.
+        var kept = s.unicodeScalars
+        while let first = kept.first, first == "." || first == " " { kept.removeFirst() }
+        s = String(kept)
         while let last = s.last, last == "." || last == " " { s.removeLast() }
         return s
     }
