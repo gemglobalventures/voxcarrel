@@ -105,6 +105,11 @@ public enum PhoneLinkText {
     /// How long a link lasts.
     public static let lifetime: TimeInterval = 600
 
+    /// Why a link failed: its file was written to, or cut short, while it was served.
+    public static let fileChanged = "The file changed while it was being sent."
+    /// Why a link failed: the address it was offered at is no longer this Mac's.
+    public static let networkChanged = "The network changed."
+
     /// A new secret: 32 bytes from the system's secure generator, as URL-safe base64
     /// without padding (43 characters). Nil when the generator fails.
     static func makeToken() -> String? {

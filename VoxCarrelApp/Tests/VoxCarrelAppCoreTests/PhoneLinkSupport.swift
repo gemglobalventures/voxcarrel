@@ -97,6 +97,57 @@ final class LinkClock: @unchecked Sendable {
     }
 }
 
+/// The addresses a server is told this Mac has; a test changes them by hand.
+final class LinkAddresses: @unchecked Sendable {
+    private let lock = NSLock()
+    private var addresses = ["127.0.0.1"]
+
+    var all: [String] { lock.withLock { addresses } }
+
+    func set(_ new: [String]) {
+        lock.withLock { addresses = new }
+    }
+}
+
+/// Watches nothing: a test says when the Mac's network connections changed.
+final class LinkPaths: @unchecked Sendable {
+    private final class Watch: PathWatch, @unchecked Sendable {
+        let onCancel: @Sendable () -> Void
+        init(onCancel: @escaping @Sendable () -> Void) { self.onCancel = onCancel }
+        func cancel() { onCancel() }
+    }
+
+    private let lock = NSLock()
+    private var actions: [Int: @Sendable () -> Void] = [:]
+    private var started = 0
+    private var ended = 0
+
+    /// How many watches have been started, and how many of them cancelled.
+    var startCount: Int { lock.withLock { started } }
+    var cancelCount: Int { lock.withLock { ended } }
+
+    var watcher: PathWatcher {
+        { [self] action in
+            let id = lock.withLock { () -> Int in
+                started += 1
+                actions[started] = action
+                return started
+            }
+            return Watch { [self] in
+                lock.withLock {
+                    if actions.removeValue(forKey: id) != nil { ended += 1 }
+                }
+            }
+        }
+    }
+
+    /// The connections changed: every watch that has not been cancelled is told.
+    func change() {
+        let now = lock.withLock { Array(actions.values) }
+        now.forEach { $0() }
+    }
+}
+
 /// What a server reported, with a way to wait for a report.
 @MainActor
 final class LinkEvents {

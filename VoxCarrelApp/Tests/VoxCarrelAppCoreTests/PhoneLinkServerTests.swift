@@ -30,7 +30,8 @@ private final class Link {
 
     init(
         bytes: [UInt8] = LinkProbe.contents(10_000), name: String = "Dune.m4b",
-        settings: PhoneLinkServer.Settings = Link.patient, clock: LinkClock = LinkClock()
+        settings: PhoneLinkServer.Settings = Link.patient, clock: LinkClock = LinkClock(),
+        addresses: LinkAddresses = LinkAddresses(), paths: LinkPaths = LinkPaths()
     ) throws {
         folder = try makeTempDir()
         file = folder.appendingPathComponent("served.bin")
@@ -42,7 +43,8 @@ private final class Link {
         self.timers = timers
         self.events = events
         let server = PhoneLinkServer(
-            addresses: { ["127.0.0.1"] }, schedule: timers.schedule, clock: { clock.now }, settings: settings)
+            addresses: { addresses.all }, schedule: timers.schedule, clock: { clock.now }, watchPath: paths.watcher,
+            settings: settings)
         self.server = server
         offer = try server.start(file: file, fileName: name, now: Self.now) { events.note($0) }
     }
@@ -892,15 +894,55 @@ private func readHead(_ connection: RawConnection) async -> String {
 
     // MARK: PH7 Connections
 
-    @Test func ph7_atMostFourConnectionsAtATime() async throws {
+    @Test func ph7_aFifthCallerTakesThePlaceOfTheOldestThatHasAskedForNothing() async throws {
         let link = try Link()
         #expect(PhoneLinkServer.Settings().maxConnections == 4)
 
+        // Four callers hold a connection each and say nothing.
         var waiting: [RawConnection] = []
-        for _ in 0..<4 { waiting.append(try #require(RawConnection(port: link.port))) }
+        for _ in 0..<4 {
+            waiting.append(try #require(RawConnection(port: link.port)))
+            try await Task.sleep(for: .milliseconds(50))
+        }
 
-        // A fifth is turned away without a word, even with a good request.
-        // And at once: it is not left waiting for an answer that will not come.
+        // A fifth is served all the same, and at once: whoever holds the four cannot
+        // keep the phone out.
+        let fifth = try #require(RawConnection(port: link.port))
+        let answer = await fifth.exchange(link.request("HEAD"))
+        #expect(answer.bytes == link.headers)
+        #expect(answer.seconds < 15)
+        fifth.close()
+
+        // The oldest of the four made way for it, without a word.
+        let oldest = await waiting[0].readToEnd()
+        #expect(oldest.bytes.isEmpty)
+        waiting[0].close()
+        await link.events.settle()
+        #expect(link.events.all == [])
+
+        // The other three are still there, and are served when they ask.
+        for caller in waiting.dropFirst() {
+            await caller.send(link.request("HEAD"))
+            #expect(await caller.readToEnd().bytes == link.headers)
+            caller.close()
+        }
+        #expect(link.server?.isServing == true)
+        await link.end()
+    }
+
+    @Test func ph7_aCallerBeingSentTheFileIsNeverDroppedForAnother() async throws {
+        let link = try Link(bytes: largeContents(megabytes: 24))
+        // Four fetches under way, none of them being read: each stands still part-way.
+        var fetching: [RawConnection] = []
+        for _ in 0..<4 {
+            let connection = try #require(RawConnection(port: link.port))
+            await connection.send(link.request())
+            #expect(await readHead(connection).hasPrefix("HTTP/1.1 200 OK\r\n"))
+            fetching.append(connection)
+        }
+
+        // A fifth is turned away without a word, even with a good request, and at
+        // once: it is not left waiting for an answer that will not come.
         for _ in 0..<3 {
             if let fifth = RawConnection(port: link.port) {
                 let answer = await fifth.exchange(link.request())
@@ -909,27 +951,105 @@ private func readHead(_ connection: RawConnection) async -> String {
                 fifth.close()
             }
         }
+        #expect(!link.events.all.contains(.interrupted))
+
+        // The four were left alone: the first of them takes the whole file.
+        let whole = await fetching[0].readToEnd()
+        #expect(whole.closedCleanly)
+        #expect(Bytes(whole.bytes) == Bytes(link.bytes))
+        #expect(await link.events.wait(for: .finished))
+        fetching.forEach { $0.close() }
+        await link.end()
+    }
+
+    /// One caller is being sent the file and three say nothing: the fifth takes the
+    /// place of one of the three.
+    @Test func ph7_theFetchUnderWayIsNotTheOneThatMakesWay() async throws {
+        let link = try Link(bytes: largeContents(megabytes: 24))
+        let fetch = try #require(RawConnection(port: link.port))
+        await fetch.send(link.request())
+        #expect(await readHead(fetch).hasPrefix("HTTP/1.1 200 OK\r\n"))
+        try await Task.sleep(for: .milliseconds(50))
+        var waiting: [RawConnection] = []
+        for _ in 0..<3 {
+            waiting.append(try #require(RawConnection(port: link.port)))
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        let fifth = try #require(RawConnection(port: link.port))
+        #expect(await fifth.exchange(link.request("HEAD")).bytes == link.headers)
+        fifth.close()
+        #expect(await waiting[0].readToEnd().bytes.isEmpty)
+
+        let whole = await fetch.readToEnd()
+        #expect(Bytes(whole.bytes) == Bytes(link.bytes))
+        #expect(await link.events.wait(for: .finished))
+        #expect(!link.events.all.contains(.interrupted))
+        fetch.close()
+        waiting.forEach { $0.close() }
+        await link.end()
+    }
+
+    // MARK: The network changing
+
+    @Test func ph6_theLinkEndsWhenItsAddressIsNoLongerThisMacs() async throws {
+        let addresses = LinkAddresses()
+        let paths = LinkPaths()
+        let link = try Link(addresses: addresses, paths: paths)
+        #expect(paths.startCount == 1)
+
+        // A change that leaves the address this Mac's is nothing to the link.
+        addresses.set(["10.0.0.9", "127.0.0.1"])
+        paths.change()
         await link.events.settle()
         #expect(link.events.all == [])
+        #expect(link.server?.isServing == true)
+        let head = try await LinkProbe.exchange(link.request("HEAD"), port: link.port)
+        #expect(head.raw == link.headers)
 
-        // The four are still served: the first of them asks now.
-        await waiting[0].send(link.request("HEAD"))
-        let head = await waiting[0].readToEnd()
-        #expect(head.bytes == link.headers)
-        waiting[0].close()
+        // The Mac leaves that network: the link is over, and says why.
+        addresses.set(["10.0.0.9"])
+        paths.change()
+        #expect(await link.events.wait(for: .failed("The network changed.")))
+        #expect(link.events.all == [.failed("The network changed.")])
+        #expect(link.server?.isServing == false)
+        #expect(await LinkProbe.portIsClosed(link.port))
+        #expect(paths.cancelCount == 1)
+        await link.end()
+    }
 
-        // With one gone there is room again.
-        var served = false
-        for _ in 0..<200 where !served {
-            if let next = RawConnection(port: link.port) {
-                await next.send(link.request("HEAD"))
-                served = await next.readToEnd().bytes == link.headers
-                next.close()
-            }
-            if !served { try await Task.sleep(for: .milliseconds(25)) }
-        }
-        #expect(served)
-        waiting.forEach { $0.close() }
+    @Test func ph6_aLinkThatIsStoppedOrReplacedWatchesTheNetworkNoLonger() async throws {
+        let addresses = LinkAddresses()
+        let paths = LinkPaths()
+        let link = try Link(addresses: addresses, paths: paths)
+        try link.restart()
+        #expect(paths.startCount == 2)
+        #expect(paths.cancelCount == 1)
+
+        link.server?.stop()
+        #expect(paths.cancelCount == 2)
+        addresses.set([])
+        paths.change()
+        await link.events.settle()
+        #expect(link.events.all == [])
+        await link.end()
+    }
+
+    @Test func ph6_aTransferUnderWayIsCutWhenTheNetworkChanges() async throws {
+        let addresses = LinkAddresses()
+        let paths = LinkPaths()
+        let link = try Link(bytes: largeContents(megabytes: 24), addresses: addresses, paths: paths)
+        let fetch = try #require(RawConnection(port: link.port))
+        await fetch.send(link.request())
+        #expect(await readHead(fetch).hasPrefix("HTTP/1.1 200 OK\r\n"))
+
+        addresses.set([])
+        paths.change()
+
+        #expect(await link.events.wait(for: .failed("The network changed.")))
+        #expect(!link.events.all.contains(.finished))
+        #expect(await fetch.readToEnd().bytes.count < link.bytes.count)
+        fetch.close()
         await link.end()
     }
 
@@ -956,6 +1076,49 @@ private func readHead(_ connection: RawConnection) async -> String {
 
         let answer = try await LinkProbe.exchange(link.request(), port: link.port)
         #expect(Bytes(answer.raw) == Bytes(link.headers + link.bytes))
+        await link.end()
+    }
+
+    /// What is served may be a file of the library. One that something else wrote to
+    /// while it was being fetched is not what was checked: it does not count as sent.
+    @Test(arguments: ["rewritten", "touched", "longer"])
+    func ph10_aFileChangedWhileItWasServedIsNotCountedAsSent(how: String) async throws {
+        let link = try Link()
+        let fm = FileManager.default
+        let handle = try FileHandle(forWritingTo: link.file)
+        switch how {
+        case "rewritten":
+            // In place: the same length, other bytes.
+            try handle.write(contentsOf: Data(repeating: 7, count: 200))
+        case "longer":
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(repeating: 7, count: 200))
+        default:
+            break
+        }
+        try handle.close()
+        try fm.setAttributes([.modificationDate: Date().addingTimeInterval(120)], ofItemAtPath: link.file.path)
+
+        let answer = try await LinkProbe.exchange(link.request(), port: link.port)
+
+        #expect(answer.body.count == link.bytes.count)
+        #expect(await link.events.wait(for: .failed("The file changed while it was being sent.")))
+        #expect(!link.events.all.contains(.finished))
+        #expect(link.server?.isServing == false)
+        await link.end()
+    }
+
+    /// Moved, or with another file put where it was, it is still the file that was
+    /// checked, whole: that is sent.
+    @Test func ph10_aFileMovedAwayWhileItWasServedIsStillSentWhole() async throws {
+        let link = try Link()
+        try FileManager.default.moveItem(at: link.file, to: link.folder.appendingPathComponent("moved.bin"))
+        try Data("another".utf8).write(to: link.file)
+
+        let answer = try await LinkProbe.exchange(link.request(), port: link.port)
+
+        #expect(Bytes(answer.body) == Bytes(link.bytes))
+        #expect(await link.events.wait(for: .finished))
         await link.end()
     }
 
