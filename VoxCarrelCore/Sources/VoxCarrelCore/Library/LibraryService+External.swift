@@ -135,7 +135,8 @@ extension LibraryService {
     /// `copy`: an item ID it already has is never replaced, and no second copy of the
     /// same thing is added.
     /// - Returns: True when the book already had such a copy.
-    private static func give(_ copy: ExternalCopy, to book: inout Book) -> Bool {
+    @discardableResult
+    static func give(_ copy: ExternalCopy, to book: inout Book) -> Bool {
         var copies = book.externalCopies
         guard let index = copies.firstIndex(where: { $0.kind == copy.kind && $0.form == copy.form }) else {
             book.externalCopies.append(copy)
@@ -156,7 +157,7 @@ extension LibraryService {
     ///
     /// No file is opened for this, so for a book with files the ASIN it takes is in
     /// the app only until its tags are next written: it is listed as such.
-    private static func fillASIN(of book: inout Book, hasFiles: Bool) {
+    static func fillASIN(of book: inout Book, hasFiles: Bool) {
         let current = (book.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard current.isEmpty, let asin = audibleId(of: book.externalCopies) else { return }
         book.asin = asin

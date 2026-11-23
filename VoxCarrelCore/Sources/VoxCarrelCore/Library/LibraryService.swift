@@ -408,12 +408,68 @@ public final class LibraryService {
             to: URL(fileURLWithPath: path))
     }
 
+    /// Keeps a file whole, as it is now, among the operation's undo data, so that it
+    /// can be put back byte for byte once its tags have been written. On the library's
+    /// own (APFS) volume the copy shares the file's storage until one of them changes.
+    func saveOriginal(of url: URL, token: String) throws -> SavedOriginal {
+        let fm = FileManager.default
+        guard let before = FileStamp(fileAt: url) else { throw OrganiserError.sourceMissing(url.path) }
+        let folder = undoFolder(token)
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let name = "\(UUID().uuidString).orig"
+        let copy = folder.appendingPathComponent(name)
+        try fm.copyItem(at: url, to: copy)
+        // The copy is the library's own: a lock copied with it would stop it being
+        // put back or cleared away. Its date is the file's, so that the file put back
+        // is the file that was.
+        var info = stat()
+        if lstat(copy.path, &info) == 0, info.st_flags & UInt32(UF_IMMUTABLE) != 0 {
+            _ = chflags(copy.path, info.st_flags & ~UInt32(UF_IMMUTABLE))
+        }
+        if FileStamp(fileAt: copy) != before { before.setTime(ofFileAt: copy) }
+        return SavedOriginal(fileName: name, before: before, written: nil)
+    }
+
+    /// Puts a file back as it was before the operation wrote into it.
+    ///
+    /// When the operation kept the file whole (`FileState.original`) and the file is
+    /// still exactly what the operation left, the kept file takes its place, in one
+    /// step: it is then byte for byte what it was. A file that has already been put
+    /// back so is left alone. Otherwise (nothing was kept, the kept file has gone, or
+    /// something else has changed the file since) its earlier tags are written back
+    /// into it (`restoreTags`).
+    /// - Parameter path: Where the file is now.
+    func restoreFile(_ state: FileState, at path: String, token: String) throws {
+        if let original = state.original {
+            let url = URL(fileURLWithPath: path)
+            let now = FileStamp(fileAt: url)
+            let kept = undoFolder(token).appendingPathComponent(original.fileName)
+            if let written = original.written, now == written, FileManager.default.fileExists(atPath: kept.path) {
+                // On one volume, a rename: the file is the old one or the new, never neither.
+                if rename(kept.path, path) == 0 { return }
+                // On another, a copy beside the file first, under a working copy's name.
+                let beside = url.deletingLastPathComponent()
+                    .appendingPathComponent(".voxcarrel-\(UUID().uuidString).\(url.pathExtension)")
+                if (try? FileManager.default.copyItem(at: kept, to: beside)) != nil {
+                    original.before.setTime(ofFileAt: beside)
+                    if rename(beside.path, path) == 0 { return }
+                    try? FileManager.default.removeItem(at: beside)
+                }
+            }
+            // Put back by an earlier attempt. (Only where the disk tells the file as it
+            // was from the file as written.)
+            if now == original.before, original.written != original.before { return }
+        }
+        try restoreTags(state, at: path, token: token)
+    }
+
     /// Reverses one set of transfers and then puts the earlier tags back into the files,
     /// each where it then is.
     ///
     /// The transfers are reversed first, all or nothing (`Organiser.undo`): if that
     /// throws, nothing has been changed and no tag is touched. Restoring tags afterwards
-    /// is best effort: a failure there is ignored. A copy that is deleted is skipped; a
+    /// is best effort: a failure there is ignored. A file the operation kept whole is put
+    /// back whole (`restoreFile`). A copy that is deleted is skipped; a
     /// copy that takes the place of an original that has gone gets the original's tags back.
     /// Safe to repeat.
     func undoFiles(_ records: [MoveRecord], states: [FileState], token: String) throws {
@@ -435,7 +491,7 @@ public final class LibraryService {
         for state in states where !deleted.contains(state.pathAfter) {
             let path = movedBack[state.pathAfter] ?? state.pathAfter
             guard fm.fileExists(atPath: path) else { continue }
-            try? restoreTags(state, at: path, token: token)
+            try? restoreFile(state, at: path, token: token)
         }
     }
 
@@ -455,6 +511,12 @@ public final class LibraryService {
         var itemRecords: [[MoveRecord]] = []
         /// Every completed transfer, in the order made.
         var records: [MoveRecord] { itemRecords.flatMap { $0 } }
+        /// For a merge: what undoing it needs besides the kept book's snapshot.
+        var merge: MergeSnapshot?
+        /// For a merge: the sent records that become the kept book's.
+        var sentRecordMoves: [LibraryChange.SentRecordMove] = []
+        /// For a merge: the collections the kept book joins.
+        var membershipsAdded: [LibraryChange.Membership] = []
 
         mutating func add(
             _ write: LibraryChange.BookWrite, snapshot: BookSnapshot, storedCover: CoverChange,
@@ -479,6 +541,8 @@ public final class LibraryService {
         var change = LibraryChange()
         change.writes = operation.writes
         change.deletedBookIds = operation.deletedBookIds
+        change.sentRecordMoves = operation.sentRecordMoves
+        change.membershipsAdded = operation.membershipsAdded
         change.batch = .init(label: label, moves: operation.records, snapshot: nil)
 
         let books: [Book]
@@ -486,6 +550,7 @@ public final class LibraryService {
             try beforeCommit?()
             books = try store.apply(change) { written in
                 var snapshot = OperationSnapshot(token: operation.token, books: operation.snapshots)
+                snapshot.merge = operation.merge
                 for (index, book) in written.enumerated() {
                     if let id = book.id { snapshot.books[index].bookId = id }
                 }
@@ -548,7 +613,7 @@ public final class LibraryService {
                 let copies = Set(records.filter(\.wasCopy).map(\.to))
                 for state in states
                 where !copies.contains(state.pathAfter) && fm.fileExists(atPath: state.pathAfter) {
-                    try? restoreTags(state, at: state.pathAfter, token: operation.token)
+                    try? restoreFile(state, at: state.pathAfter, token: operation.token)
                 }
                 stranded += records.filter { fm.fileExists(atPath: $0.to) }.map { "\($0.to) (from \($0.from))" }
             }
@@ -611,9 +676,26 @@ public final class LibraryService {
                     + "else can be changed"
             case .layoutChangeFailed(let book, let reason):
                 return "The folder of \(book) could not be moved, so the folder layout was not changed: \(reason)"
+            case .mergeRefused(let blocker): return describe(blocker)
             }
         default:
             return error.localizedDescription
+        }
+    }
+
+    /// Why entries cannot be merged, as a sentence.
+    public static func describe(_ blocker: MergeBlocker) -> String {
+        switch blocker {
+        case .needsTwoBooks:
+            return "Merging needs two or more entries that are in the library"
+        case .bothHaveAudio:
+            return "More than one of these entries has audio files, and two recordings cannot be merged into one book"
+        case .fileMissing(let name):
+            return "The file \"\(name)\" could not be found, so it cannot be moved"
+        case .nameClash(let name):
+            return "Something else is already where \"\(name)\" would go, and nothing is ever replaced"
+        case .layoutChangeInterrupted:
+            return describe(LibraryError.layoutChangeInterrupted)
         }
     }
 }

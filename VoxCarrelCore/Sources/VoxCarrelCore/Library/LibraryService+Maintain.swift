@@ -254,7 +254,8 @@ extension LibraryService {
         guard let batch = try store.lastBatch() else { return false }
         if let data = batch.snapshot, let snapshot = OperationSnapshot.usable(from: data),
            snapshot.books.contains(where: { $0.bookId == bookId })
-            || snapshot.layoutChange?.books.contains(where: { $0.bookId == bookId }) == true {
+            || snapshot.layoutChange?.books.contains(where: { $0.bookId == bookId }) == true
+            || snapshot.merge?.removed.contains(where: { $0.book.id == bookId }) == true {
             return true
         }
         let paths = Set(files.map { Self.comparablePath($0) })

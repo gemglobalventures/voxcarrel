@@ -523,7 +523,7 @@ import VoxCarrelFixtures
         // An edit needs nothing that the first version does not know, and says so:
         // only a change of folder layout is marked as needing the second.
         #expect(try f.snapshot().version == 1)
-        #expect(OperationSnapshot.currentVersion == 2)
+        #expect(OperationSnapshot.currentVersion == 3)
         let batch = try #require(try f.store.lastBatch())
         let data = try #require(batch.snapshot)
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

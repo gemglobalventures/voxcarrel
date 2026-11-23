@@ -44,6 +44,32 @@ public struct LibraryChange: Sendable {
         var path: String
     }
 
+    /// For undo of a merge: entries the merge removed, put back under the ids they
+    /// carry, and their file rows under theirs. The ids must be free. They are put
+    /// back before anything else is done.
+    var restoredBooks: [BookWrite] = []
+
+    /// Sent records that become another book's, by their row ids. Made after
+    /// `restoredBooks` and before any book is deleted, so that a record never goes
+    /// with a book that is removed. A row that is no longer there is passed over.
+    var sentRecordMoves: [SentRecordMove] = []
+
+    struct SentRecordMove: Sendable {
+        var recordIds: [Int64]
+        var toBookId: Int64
+    }
+
+    /// Books put in collections. A membership that is already there stays, and one in
+    /// a collection that no longer exists is passed over.
+    var membershipsAdded: [Membership] = []
+    /// Books taken out of collections.
+    var membershipsRemoved: [Membership] = []
+
+    struct Membership: Sendable {
+        var collectionId: Int64
+        var bookId: Int64
+    }
+
     public struct Batch: Sendable {
         public var label: String
         public var moves: [MoveRecord]
@@ -64,7 +90,9 @@ extension LibraryStore {
     /// Applies the change atomically. Returns the written books (with ids) in the
     /// order of `writes`, and the new batch id if a batch was recorded.
     ///
-    /// Deletions are made first, then the writes, then the journal change. Deleting an id
+    /// Entries a merge removed are put back first (undo only), then sent records and
+    /// collection memberships change hands; then
+    /// deletions are made, then the writes, then the journal change. Deleting an id
     /// that is not in the database does nothing; updating one throws, and then nothing at
     /// all is changed.
     @discardableResult
@@ -82,6 +110,34 @@ extension LibraryStore {
         _ change: LibraryChange, snapshot makeSnapshot: (([Book]) throws -> Data?)?
     ) throws -> (books: [Book], batchId: Int64?) {
         try dbQueue.write { db in
+            for restored in change.restoredBooks {
+                var book = restored.book
+                try book.insert(db)
+                for var file in restored.files {
+                    file.bookId = book.id
+                    try file.insert(db)
+                }
+            }
+            for move in change.sentRecordMoves {
+                for id in move.recordIds {
+                    try db.execute(
+                        sql: "UPDATE sentRecord SET bookId = ? WHERE id = ?", arguments: [move.toBookId, id])
+                }
+            }
+            for membership in change.membershipsAdded {
+                try db.execute(
+                    sql: """
+                        INSERT OR IGNORE INTO collectionBook (collectionId, bookId)
+                        SELECT ?, ? WHERE EXISTS (SELECT 1 FROM collection WHERE id = ?)
+                        """,
+                    arguments: [membership.collectionId, membership.bookId, membership.collectionId])
+            }
+            for membership in change.membershipsRemoved {
+                try db.execute(
+                    sql: "DELETE FROM collectionBook WHERE collectionId = ? AND bookId = ?",
+                    arguments: [membership.collectionId, membership.bookId])
+            }
+
             if !change.deletedBookIds.isEmpty {
                 try Book.deleteAll(db, keys: change.deletedBookIds)
             }

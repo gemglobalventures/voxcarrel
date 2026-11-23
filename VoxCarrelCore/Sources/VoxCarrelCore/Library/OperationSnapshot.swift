@@ -9,7 +9,9 @@ import Foundation
 struct OperationSnapshot: Codable, Equatable {
     /// The newest snapshot layout this code understands. 2 added `layoutChange`: code
     /// that does not know it would put the folders back and leave the new pattern.
-    static let currentVersion = 2
+    /// 3 added `merge`: code that does not know it would put the files back and leave
+    /// the entries that were merged away out of the catalogue.
+    static let currentVersion = 3
 
     /// The oldest layout whose code can act on this snapshot safely: 1, unless it
     /// carries something only newer code knows what to do with. A snapshot with a
@@ -24,6 +26,12 @@ struct OperationSnapshot: Codable, Equatable {
         didSet { if layoutChange != nil { version = max(version, 2) } }
     }
 
+    /// Set when the operation merged entries into one: what undoing that needs besides
+    /// the kept book's own snapshot, which is the one in `books`.
+    var merge: MergeSnapshot? {
+        didSet { if merge != nil { version = max(version, 3) } }
+    }
+
     init(token: String, books: [BookSnapshot]) {
         self.token = token
         self.books = books
@@ -35,6 +43,7 @@ struct OperationSnapshot: Codable, Equatable {
         token = try c.decode(String.self, forKey: .token)
         books = try c.decodeIfPresent([BookSnapshot].self, forKey: .books) ?? []
         layoutChange = try c.decodeIfPresent(LayoutChangeSnapshot.self, forKey: .layoutChange)
+        merge = try c.decodeIfPresent(MergeSnapshot.self, forKey: .merge)
     }
 
     /// The snapshot in `data`, or nil when it cannot be read or was written by newer code.
@@ -61,6 +70,57 @@ struct LayoutChangeSnapshot: Codable, Equatable {
         var folderBefore: String?
         var folderAfter: String?
         var needsAttentionBefore: Bool
+    }
+}
+
+/// What undoing a merge of entries needs, besides the kept book's own snapshot.
+struct MergeSnapshot: Codable, Equatable {
+    /// The entries the merge removed, in the order they were chosen.
+    var removed: [RemovedBook]
+    /// The collections the kept book was put in by the merge: it was in none of them before.
+    var collectionsJoined: [Int64]
+
+    /// One entry that was merged away, with everything that was attached to it.
+    struct RemovedBook: Codable, Equatable {
+        /// The entry as it was, with its id.
+        var book: Book
+        /// Its file rows as they were, with their ids.
+        var files: [BookFile]
+        /// Its stored cover: a file name in the undo folder, or nil for "had none".
+        var storedCover: String?
+        /// The collections it was in.
+        var collectionIds: [Int64]
+        /// The rows of its sent records, which the merge gave to the kept book.
+        var sentRecordIds: [Int64]
+
+        init(book: Book, files: [BookFile], storedCover: String?, collectionIds: [Int64], sentRecordIds: [Int64]) {
+            self.book = book
+            self.files = files
+            self.storedCover = storedCover
+            self.collectionIds = collectionIds
+            self.sentRecordIds = sentRecordIds
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            // Required: without the entry there is nothing to put back.
+            book = try c.decode(Book.self, forKey: .book)
+            files = try c.decodeIfPresent([BookFile].self, forKey: .files) ?? []
+            storedCover = try c.decodeIfPresent(String.self, forKey: .storedCover)
+            collectionIds = try c.decodeIfPresent([Int64].self, forKey: .collectionIds) ?? []
+            sentRecordIds = try c.decodeIfPresent([Int64].self, forKey: .sentRecordIds) ?? []
+        }
+    }
+
+    init(removed: [RemovedBook], collectionsJoined: [Int64]) {
+        self.removed = removed
+        self.collectionsJoined = collectionsJoined
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        removed = try c.decodeIfPresent([RemovedBook].self, forKey: .removed) ?? []
+        collectionsJoined = try c.decodeIfPresent([Int64].self, forKey: .collectionsJoined) ?? []
     }
 }
 
@@ -114,6 +174,9 @@ struct FileState: Codable, Equatable {
     var trackBefore: TrackTags?
     /// Set only when the operation changed the cover inside the file.
     var coverBefore: CoverBefore?
+    /// Set when the operation kept the file as it was before its tags were written, so
+    /// that it can be put back byte for byte.
+    var original: SavedOriginal?
 
     init(
         pathAfter: String, metadataBefore: BookMetadata, part: PartPosition?, trackBefore: TrackTags?,
@@ -134,6 +197,45 @@ struct FileState: Codable, Equatable {
         part = try c.decodeIfPresent(PartPosition.self, forKey: .part)
         trackBefore = try c.decodeIfPresent(TrackTags.self, forKey: .trackBefore)
         coverBefore = try c.decodeIfPresent(CoverBefore.self, forKey: .coverBefore)
+        original = try? c.decodeIfPresent(SavedOriginal.self, forKey: .original)
+    }
+}
+
+/// A file as it was before an operation wrote into it, kept whole among the
+/// operation's undo data.
+struct SavedOriginal: Codable, Equatable {
+    /// The kept file's name in the operation's undo folder.
+    var fileName: String
+    /// What the file was then.
+    var before: FileStamp
+    /// What the file was once the operation had written it; nil when it never was.
+    var written: FileStamp?
+}
+
+/// A file's size and modification time, to the nanosecond as the disk keeps it: enough
+/// to tell whether it is still the file it was at some moment.
+struct FileStamp: Codable, Equatable {
+    var size: Int64
+    var seconds: Int64
+    var nanoseconds: Int64
+
+    /// The stamp of the file at `url` itself (a link is not followed); nil when there
+    /// is nothing there.
+    init?(fileAt url: URL) {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        size = Int64(info.st_size)
+        seconds = Int64(info.st_mtimespec.tv_sec)
+        nanoseconds = Int64(info.st_mtimespec.tv_nsec)
+    }
+
+    /// Gives the file at `url` this stamp's modification time.
+    func setTime(ofFileAt url: URL) {
+        var times = [
+            timespec(tv_sec: 0, tv_nsec: Int(UTIME_OMIT)),
+            timespec(tv_sec: Int(seconds), tv_nsec: Int(nanoseconds)),
+        ]
+        _ = utimensat(AT_FDCWD, url.path, &times, 0)
     }
 }
 
