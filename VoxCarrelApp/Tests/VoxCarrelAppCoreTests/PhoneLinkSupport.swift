@@ -36,7 +36,7 @@ final class FakePhoneLinking: PhoneLinking {
         offer = nil
         if let startError { throw startError }
         tokenCount += 1
-        let token = "fake-token-\(tokenCount)"
+        let token = "fake_token-\(tokenCount)"
         guard let offer = PhoneLinkText.offer(
             file: file, fileName: fileName, token: token, address: address, port: port, now: now)
         else { throw PhoneLinkError.badFileName }

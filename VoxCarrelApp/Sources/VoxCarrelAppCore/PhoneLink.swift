@@ -6,25 +6,28 @@ import Security
 public struct PhoneLinkOffer: Equatable, Sendable {
     /// What will be served.
     public var file: URL
-    /// The name in the address.
+    /// The file's real name: what the phone is told to call what it fetched.
     public var fileName: String
+    /// The name in the address: a plain stand-in for `fileName` (`PhoneLinkText.alias`).
+    public var alias: String
     /// The secret in the address: whoever has it can fetch the file.
     public var token: String
     /// This Mac's address on the local network, as "192.168.1.20".
     public var address: String
     public var port: Int
     public var expiresAt: Date
-    /// `http://address:port/token/fileName`.
+    /// `http://address:port/token/alias`.
     public var httpURL: URL
-    /// `bookplayer://download?url=` followed by the whole of `httpURL`, percent-encoded.
+    /// `bookplayer://download?url=` followed by `httpURL` exactly as it stands.
     public var bookPlayerLink: URL
 
     public init(
-        file: URL, fileName: String, token: String, address: String, port: Int, expiresAt: Date, httpURL: URL,
-        bookPlayerLink: URL
+        file: URL, fileName: String, alias: String, token: String, address: String, port: Int, expiresAt: Date,
+        httpURL: URL, bookPlayerLink: URL
     ) {
         self.file = file
         self.fileName = fileName
+        self.alias = alias
         self.token = token
         self.address = address
         self.port = port
@@ -166,26 +169,60 @@ public enum PhoneLinkText {
         String(UnicodeScalar(nibble < 10 ? UInt8(ascii: "0") + nibble : UInt8(ascii: "A") + nibble - 10))
     }
 
-    /// The address the file is fetched from: `http://address:port/token/fileName`.
-    static func httpURL(address: String, port: Int, token: String, fileName: String) -> URL? {
-        URL(string: "http://\(address):\(port)/\(percentEncoded(token))/\(percentEncoded(fileName))")
+    /// The name a file goes under in the address: only ASCII letters, digits, `.`, `-`
+    /// and `_`, made from the file's own name (at most 60 characters and its extension),
+    /// or "book" when nothing of the name is left. BookPlayer takes the address out of
+    /// the link as text and does not decode it, so nothing in it may need encoding.
+    static func alias(for fileName: String) -> String {
+        let name = fileName as NSString
+        let ext = String(plain(name.pathExtension).filter { $0 != "-" && $0 != "." && $0 != "_" }.prefix(8)).lowercased()
+        let stem = trimmed(String(plain(ext.isEmpty ? fileName : name.deletingPathExtension).prefix(60)))
+        return (stem.isEmpty ? "book" : stem) + (ext.isEmpty ? "" : "." + ext)
     }
 
-    /// The link that makes BookPlayer fetch `httpURL`: the whole address is the value of
-    /// `url`, percent-encoded, so that nothing in it is taken for a part of this link.
+    /// `text` in Latin letters without accents where it can be put so, everything that
+    /// is still not a letter, digit, `.` or `_` as `-`, and no two `-` together.
+    private static func plain(_ text: String) -> String {
+        let latin = text.applyingTransform(.toLatin, reverse: false)?
+            .applyingTransform(.stripDiacritics, reverse: false) ?? text
+        var out = ""
+        for scalar in latin.unicodeScalars {
+            let keeps = scalar.isASCII && isUnreserved(UInt8(scalar.value)) && scalar != "~" && scalar != "-"
+            if keeps {
+                out.unicodeScalars.append(scalar)
+            } else if out.last != "-" {
+                out.append("-")
+            }
+        }
+        return trimmed(out)
+    }
+
+    private static func trimmed(_ text: String) -> String {
+        text.trimmingCharacters(in: CharacterSet(charactersIn: "-._"))
+    }
+
+    /// The address the file is fetched from: `http://address:port/token/alias`.
+    static func httpURL(address: String, port: Int, token: String, alias: String) -> URL? {
+        URL(string: "http://\(address):\(port)/\(percentEncoded(token))/\(percentEncoded(alias))")
+    }
+
+    /// The link that makes BookPlayer fetch `httpURL`. BookPlayer takes everything after
+    /// the last "url=" as it stands, removes every quotation mark and "%22", and uses
+    /// the rest as the address without decoding it: so the address goes in unchanged.
     static func bookPlayerLink(for httpURL: URL) -> URL? {
-        URL(string: "bookplayer://download?url=" + percentEncoded(httpURL.absoluteString))
+        URL(string: "bookplayer://download?url=" + httpURL.absoluteString)
     }
 
     /// The offer for a link that is listening.
     static func offer(
         file: URL, fileName: String, token: String, address: String, port: Int, now: Date
     ) -> PhoneLinkOffer? {
-        guard let http = httpURL(address: address, port: port, token: token, fileName: fileName),
+        let alias = alias(for: fileName)
+        guard let http = httpURL(address: address, port: port, token: token, alias: alias),
               let link = bookPlayerLink(for: http)
         else { return nil }
         return PhoneLinkOffer(
-            file: file, fileName: fileName, token: token, address: address, port: port,
+            file: file, fileName: fileName, alias: alias, token: token, address: address, port: port,
             expiresAt: now.addingTimeInterval(lifetime), httpURL: http, bookPlayerLink: link)
     }
 }

@@ -258,11 +258,14 @@ import Testing
     @Test func ph2_theHostMustBeThisLinksAddress() {
         let line = "GET /\(Self.token)/Dune.m4b HTTP/1.1"
         for host in [
-            "evil.example", "evil.example:50123", "192.168.1.20", "192.168.1.20:80", "192.168.1.21:50123", "localhost:50123",
+            "evil.example", "evil.example:50123", "192.168.1.2", "192.168.1.20:", "192.168.1.20:80", "192.168.1.21:50123", "localhost:50123",
             "", "192.168.1.20:50123.", "192.168.1.20:50123@evil.example", "x@192.168.1.20:50123",
         ] {
             #expect(answer(Self.request(line, host: host)) == .notFound, "\(host)")
         }
+        // The address alone, without the port, is this link too.
+        #expect(answer(Self.request(line, host: "192.168.1.20")) == .serve(headOnly: false, rangeFrom: nil))
+        #expect(answer(Self.request(line, host: "192.168.1.20:50123")) == .serve(headOnly: false, rangeFrom: nil))
         // Two of them, even when both are right.
         #expect(answer(Self.request(line, ["Host: \(Self.host)"])) == .notFound)
         #expect(answer(Self.request(line, ["Host: evil.example"])) == .notFound)

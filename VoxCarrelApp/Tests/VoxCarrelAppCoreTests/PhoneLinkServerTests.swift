@@ -49,7 +49,7 @@ private final class Link {
     var port: Int { offer.port }
     var host: String { "127.0.0.1:\(offer.port)" }
     /// The path of the one resource, as a client sends it.
-    var path: String { "/\(offer.token)/\(PhoneLinkText.percentEncoded(name))" }
+    var path: String { "/\(offer.token)/\(offer.alias)" }
 
     func request(_ method: String = "GET", path: String? = nil, headers: [String] = []) -> String {
         (["\(method) \(path ?? self.path) HTTP/1.1", "Host: \(host)"] + headers).joined(separator: "\r\n") + "\r\n\r\n"
@@ -375,13 +375,10 @@ private func readHead(_ connection: RawConnection) async -> String {
         await link.end()
     }
 
-    @Test(arguments: ["Dune Messiah (Unabridged).zip", "say \"hi\" & go #1?.m4b", "名前 – Café 🎧.mp3", "100%2Fsure.m4b"])
-    func ph3_ph9_aNameWithAwkwardCharactersIsFetchedThroughTheLink(name: String) async throws {
+    @Test(arguments: PhoneLinkTextTests.awkwardNames)
+    func ph9_theLinkAsBookPlayerReadsItFetchesTheFileUnderItsRealName(name: String) async throws {
         let link = try Link(name: name)
-        // What BookPlayer would fetch: everything after "url=", decoded once.
-        let text = link.offer.bookPlayerLink.absoluteString
-        let value = try #require(text.range(of: "url=").map { String(text[$0.upperBound...]) }?.removingPercentEncoding)
-        let url = try #require(URL(string: value))
+        let url = try #require(PhoneLinkTextTests.asBookPlayerReadsIt(link.offer.bookPlayerLink))
         #expect(url == link.offer.httpURL)
 
         let session = session()
@@ -391,8 +388,16 @@ private func readHead(_ connection: RawConnection) async -> String {
         #expect(http.statusCode == 200)
         #expect(Bytes(Array(data)) == Bytes(link.bytes))
         #expect(http.value(forHTTPHeaderField: "Content-Disposition") == PhoneLinkRequest.contentDisposition(name))
+        // What BookPlayer names the download: Foundation's reading of the header.
+        #expect(http.suggestedFilename == Self.suggested(name), "\(name)")
         #expect(await link.events.wait(for: .finished))
         await link.end()
+    }
+
+    /// What Foundation makes of the real name: it honours `filename*` in full (spaces,
+    /// quotation marks, accents, other scripts, emoji), and puts "_" for a colon.
+    nonisolated static func suggested(_ name: String) -> String {
+        name.replacingOccurrences(of: ":", with: "_")
     }
 
     @Test func ph3_headGivesTheHeadersOnlyAndDoesNotUseTheLinkUp() async throws {
@@ -579,24 +584,69 @@ private func readHead(_ connection: RawConnection) async -> String {
         await link.end()
     }
 
-    @Test func ph4_aCallerThatCutsTheConnectionInsteadOfClosingItHasNotFinished() async throws {
-        let link = try Link()
+    @Test func ph9a_theTransferIsCompleteWithoutTheCallerClosing() async throws {
+        let link = try Link(bytes: LinkProbe.contents(300_000))
+        let connection = try #require(RawConnection(port: link.port))
+        await connection.send(link.request(headers: ["Connection: keep-alive"]))
+
+        // The caller has read nothing yet and closes nothing: every byte has been taken
+        // by the connection, and that is the transfer.
+        #expect(await link.events.wait(for: .finished))
+        #expect(RawConnection(port: link.port) == nil)
+        #expect(link.server?.isServing == false)
+        // The server closed its side itself, and what it sent is all there to be read.
+        let head = await readHead(connection)
+        #expect(head.hasPrefix("HTTP/1.1 200 OK\r\n"))
+        #expect(head.contains("\r\nConnection: close\r\n"))
+        let body = await connection.readToEnd()
+        #expect(body.closedCleanly)
+        #expect(Bytes(body.bytes) == Bytes(link.bytes))
+        connection.close()
+        await link.end()
+    }
+
+    @Test func ph9a_aSessionThatKeepsItsConnectionsOpenSeesTheLinkFinish() async throws {
+        let link = try Link(bytes: LinkProbe.contents(300_000))
+        // A default session: connections kept alive, as the system's downloader keeps them.
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = nil
+        configuration.connectionProxyDictionary = [:]
+        configuration.httpShouldUsePipelining = false
+        let session = URLSession(configuration: configuration)
+
+        // It asks about the file first, then fetches it, on connections of its own choosing.
+        var head = URLRequest(url: link.offer.httpURL)
+        head.httpMethod = "HEAD"
+        let (nothing, headResponse) = try await session.data(for: head)
+        #expect(nothing.isEmpty)
+        #expect((headResponse as? HTTPURLResponse)?.statusCode == 200)
+        await link.events.settle()
+        #expect(link.events.all == [])
+
+        let (file, response) = try await session.download(from: link.offer.httpURL)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        #expect(Bytes(Array(try Data(contentsOf: file))) == Bytes(link.bytes))
+        try? FileManager.default.removeItem(at: file)
+
+        // The session is still alive and has closed nothing of its own accord.
+        #expect(await link.events.wait(for: .finished))
+        #expect(link.server?.isServing == false)
+        session.invalidateAndCancel()
+        await link.end()
+    }
+
+    @Test func ph4_aCallerCutOffBeforeTheLastByteHasNotFinished() async throws {
+        let link = try Link(bytes: largeContents(megabytes: 32))
         let connection = try #require(RawConnection(port: link.port))
         await connection.send(link.request())
         _ = await readHead(connection)
-        // Every byte arrives, and then the connection is cut, not closed: from the Mac's
-        // side this is no different from the last of them never having arrived.
-        let got = await connection.read(link.bytes.count)
-        #expect(Bytes(got) == Bytes(link.bytes))
+        // All but the last megabytes are read, and then the connection is cut.
+        _ = await connection.read(link.bytes.count - 20_000_000)
         connection.abort()
 
         #expect(await link.events.wait(for: .interrupted))
         #expect(!link.events.all.contains(.finished))
         #expect(link.server?.isServing == true)
-        // Fetched again and closed properly, it is done.
-        let answer = try await LinkProbe.exchange(link.request(), port: link.port)
-        #expect(Bytes(answer.body) == Bytes(link.bytes))
-        #expect(await link.events.wait(for: .finished))
         await link.end()
     }
 
@@ -916,7 +966,7 @@ private func readHead(_ connection: RawConnection) async -> String {
         #expect(fake.isServing)
         #expect(fake.offer == offer)
         #expect(fake.starts == [FakePhoneLinking.Start(file: file, fileName: "Dune.m4b", now: now)])
-        #expect(offer.httpURL.absoluteString == "http://192.168.1.20:50123/fake-token-1/Dune.m4b")
+        #expect(offer.httpURL.absoluteString == "http://192.168.1.20:50123/fake_token-1/Dune.m4b")
         #expect(offer.bookPlayerLink == PhoneLinkText.bookPlayerLink(for: offer.httpURL))
         #expect(offer.expiresAt == now.addingTimeInterval(600))
 

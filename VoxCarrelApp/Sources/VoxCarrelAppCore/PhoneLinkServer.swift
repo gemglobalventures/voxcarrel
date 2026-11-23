@@ -17,8 +17,8 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
         var requestTimeout: TimeInterval = 10
         /// How long a refused caller is listened to (and ignored) so that it can read the refusal.
         var lingerTimeout: TimeInterval = 2
-        /// How long the caller has to close the connection once the last byte has gone.
-        var closeTimeout: TimeInterval = 30
+        /// How long the connection has to take the goodbye once the last byte has gone.
+        var closeTimeout: TimeInterval = 5
         /// How long a fetch may make no headway before it is given up.
         var stallTimeout: TimeInterval = 60
         /// How long `start` waits for the system to say it is listening.
@@ -239,7 +239,7 @@ private final class LinkSession: @unchecked Sendable {
             case .ready:
                 if let self, let port = self.listener?.port?.rawValue, port != 0, self.resource == nil {
                     self.resource = PhoneLinkResource(
-                        token: self.token, fileName: self.fileName, size: self.size,
+                        token: self.token, fileName: PhoneLinkText.alias(for: self.fileName), size: self.size,
                         authority: "\(self.address):\(port)")
                     chosen.set(Int(port))
                 }
@@ -463,10 +463,8 @@ private final class LinkSession: @unchecked Sendable {
     /// The connection failed or was closed under us.
     private func lost(_ caller: Caller) {
         guard !ended, caller.phase != .done else { return }
-        // Once every byte has gone and the caller is being waited for, a connection that
-        // both sides have closed is reported here as failed, before or after the read that
-        // is waiting says how it ended. That read decides (cleanly or not), or the timer.
-        if caller.phase == .closing { return }
+        // Every byte had been reported sent: that is the file, however the goodbye went.
+        if caller.phase == .closing { return stopTransfer(caller, complete: true) }
         if caller.transfer != nil { stopTransfer(caller, complete: false) } else { drop(caller) }
     }
 
@@ -542,21 +540,19 @@ private final class LinkSession: @unchecked Sendable {
         relay.report(.progress(bytesSent: position))
     }
 
-    /// Every byte has been reported sent: say so to the caller, and wait for it to close
-    /// its side, which it does once it has read them all.
+    /// Every byte has been reported sent without error: that is the whole transfer. The
+    /// connection is closed from this side, without waiting for the caller, which may
+    /// well mean to keep it open.
     private func sendEnd(_ caller: Caller) {
         caller.phase = .closing
         setTimer(caller, after: settings.closeTimeout) { [weak self] in
-            self?.stopTransfer(caller, complete: false)
+            self?.stopTransfer(caller, complete: true)
         }
         caller.connection.send(
             content: nil, contentContext: .finalMessage, isComplete: true,
-            completion: .contentProcessed { [weak self] error in
+            completion: .contentProcessed { [weak self] _ in
                 guard let self, !self.ended, caller.phase == .closing else { return }
-                if error != nil { return self.stopTransfer(caller, complete: false) }
-                self.discard(caller) { [weak self] closedCleanly in
-                    self?.stopTransfer(caller, complete: closedCleanly)
-                }
+                self.stopTransfer(caller, complete: true)
             })
     }
 

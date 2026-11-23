@@ -93,69 +93,103 @@ import Testing
 
     // MARK: PH9 The link
 
-    /// What BookPlayer makes of a link: everything after "url=", percent-decoded once.
-    func asBookPlayerReadsIt(_ link: URL) throws -> String {
-        let text = link.absoluteString
-        let range = try #require(text.range(of: "url="))
-        return try #require(String(text[range.upperBound...]).removingPercentEncoding)
-    }
-
     static let awkwardNames = [
-        "Dune.m4b", "Dune Messiah.m4b", "Dune – “Messiah” (Unabridged).zip", "Tom & Jerry.mp3", "Chapter #1.mp3",
-        "Who? What?.m4b", "say \"hello\".m4b", "it's 100% true.m4b", "a+b=c.m4b", "名前のない本.m4b",
-        "Caf\u{00E9} cr\u{0065}\u{0301}me.m4b", "x;y,z@home:8080.m4b", "url=http%3A%2F%2Fevil.example.m4b",
-        "a\\b.m4b", "%2F%2e%2e%00.m4b", "emoji 🎧.m4b", "[brackets] {braces} <angles> |pipe| ^caret^ `tick`.m4b",
+        "Dune.m4b", "Dune Messiah.m4b", "The Hitchhiker's Guide.m4b", "say \"hello\".m4b", "Tom & Jerry.mp3",
+        "Chapter #1.mp3", "Who? What?.m4b", "it's 100% true.m4b", "a+b=c.m4b", "my url=http:evil.example book.zip",
+        "url=.m4b", "%22quoted%22.m4b", "名前のない本.m4b", "Caf\u{00E9} cr\u{0065}\u{0301}me.m4b", "emoji 🎧.m4b",
+        "🎧.m4b", "Dune – “Messiah” (Unabridged).zip", "x;y,z@home:8080.m4b", "a\\b.m4b", "no extension",
+        "[brackets] {braces} <angles> |pipe| ^caret^ `tick`.M4B", String(repeating: "Long Title ", count: 20) + ".zip",
     ]
 
     @Test(arguments: awkwardNames)
-    func ph9_theWholeAddressSurvivesAsTheValueOfUrl(name: String) throws {
+    func ph9_theAliasIsPlainAndKeepsTheExtension(name: String) {
+        let alias = PhoneLinkText.alias(for: name)
+        #expect(!alias.isEmpty)
+        #expect(alias.utf8.allSatisfy { PhoneLinkText.isUnreserved($0) && $0 != UInt8(ascii: "~") }, "\(alias)")
+        #expect(alias.first != "." && alias.first != "-" && !alias.contains(".."))
+        let ext = (name as NSString).pathExtension
+        if ["m4b", "mp3", "zip", "M4B"].contains(ext) {
+            #expect(alias.hasSuffix("." + ext.lowercased()), "\(alias)")
+            #expect((alias as NSString).deletingPathExtension.count <= 60)
+        } else {
+            #expect(alias.count <= 60)
+        }
+        for forbidden in ["url=", "'", "\"", "%22", "%", "#", "?", " ", "/", "=", "&"] {
+            #expect(!alias.contains(forbidden), "\(alias)")
+        }
+        #expect(PhoneLinkText.alias(for: alias) == alias)
+    }
+
+    @Test func ph9_theAliasIsMadeFromTheNameAsFarAsPlainLettersGo() {
+        #expect(PhoneLinkText.alias(for: "Dune.m4b") == "Dune.m4b")
+        #expect(PhoneLinkText.alias(for: "Dune Messiah.m4b") == "Dune-Messiah.m4b")
+        #expect(PhoneLinkText.alias(for: "The Hitchhiker's Guide.M4B") == "The-Hitchhiker-s-Guide.m4b")
+        #expect(PhoneLinkText.alias(for: "Caf\u{00E9} cr\u{0065}\u{0301}me.mp3") == "Cafe-creme.mp3")
+        #expect(PhoneLinkText.alias(for: "my url=x.zip") == "my-url-x.zip")
+        #expect(PhoneLinkText.alias(for: "Vol. 2_final.zip") == "Vol.-2_final.zip")
+        // Nothing left of the name.
+        #expect(PhoneLinkText.alias(for: "🎧.m4b") == "book.m4b")
+        #expect(PhoneLinkText.alias(for: "???") == "book")
+        #expect(PhoneLinkText.alias(for: "...") == "book")
+        #expect(PhoneLinkText.alias(for: "") == "book")
+        // Sixty characters of the name at most, and the real extension.
+        let long = PhoneLinkText.alias(for: String(repeating: "a", count: 200) + ".zip")
+        #expect(long == String(repeating: "a", count: 60) + ".zip")
+    }
+
+    /// What BookPlayer makes of a link, step for step: the query as it stands, split on
+    /// "url=", the last piece, every `'`, `"` and `%22` removed, and that as the address.
+    static func asBookPlayerReadsIt(_ link: URL) -> URL? {
+        guard let query = link.query, let last = query.components(separatedBy: "url=").last else { return nil }
+        let stripped = last.replacingOccurrences(of: "'", with: "").replacingOccurrences(of: "\"", with: "")
+            .replacingOccurrences(of: "%22", with: "")
+        return URL(string: stripped)
+    }
+
+    @Test(arguments: awkwardNames)
+    func ph9_bookPlayersOwnStepsGiveTheAddressBack(name: String) throws {
         let token = try #require(PhoneLinkText.makeToken())
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
-        let file = URL(fileURLWithPath: "/tmp/somewhere/\(name)")
+        let file = URL(fileURLWithPath: "/tmp/somewhere/served.bin")
         let offer = try #require(PhoneLinkText.offer(
             file: file, fileName: name, token: token, address: "192.168.1.20", port: 50123, now: now))
 
         #expect(offer.file == file)
         #expect(offer.fileName == name)
+        #expect(offer.alias == PhoneLinkText.alias(for: name))
         #expect(offer.token == token)
         #expect(offer.address == "192.168.1.20")
         #expect(offer.port == 50123)
         #expect(offer.expiresAt == now.addingTimeInterval(600))
 
-        // The http address: this host, this port, and a path of exactly the token and the name.
-        let http = offer.httpURL
-        #expect(http.scheme == "http")
-        #expect(http.host == "192.168.1.20")
-        #expect(http.port == 50123)
-        #expect(http.query == nil)
-        #expect(http.fragment == nil)
-        #expect(http.user == nil)
-        let text = http.absoluteString
-        #expect(text.hasPrefix("http://192.168.1.20:50123/\(token)/"))
-        let encodedName = String(text.dropFirst("http://192.168.1.20:50123/\(token)/".count))
-        #expect(!encodedName.contains("/"))
-        #expect(encodedName.removingPercentEncoding == name)
-        #expect(encodedName.utf8.allSatisfy { PhoneLinkText.isUnreserved($0) || $0 == UInt8(ascii: "%") })
-        // The server, given what a client sends for that address, finds the file.
-        let resource = PhoneLinkResource(token: token, fileName: name, size: 10, authority: "192.168.1.20:50123")
-        let request = "GET /\(token)/\(encodedName) HTTP/1.1\r\nHost: 192.168.1.20:50123\r\n\r\n"
-        #expect(PhoneLinkRequest.answer(Array(request.utf8), for: resource) == .serve(headOnly: false, rangeFrom: nil))
+        // The address: this host, this port, the token and the alias, and nothing to decode.
+        let text = offer.httpURL.absoluteString
+        #expect(text == "http://192.168.1.20:50123/\(token)/\(offer.alias)")
+        #expect(offer.httpURL.lastPathComponent == offer.alias)
+        for forbidden in ["url=", "'", "\"", "%", "#", "?", " "] {
+            #expect(!text.contains(forbidden), "\(text)")
+        }
+        // The link: the address after "url=", unchanged.
+        #expect(offer.bookPlayerLink.absoluteString == "bookplayer://download?url=" + text)
+        #expect(offer.bookPlayerLink.scheme == "bookplayer")
+        #expect(offer.bookPlayerLink.host == "download")
+        #expect(Self.asBookPlayerReadsIt(offer.bookPlayerLink) == offer.httpURL)
+        #expect(Self.asBookPlayerReadsIt(offer.bookPlayerLink)?.absoluteString == text)
 
-        // The link: BookPlayer's scheme and command, and the address whole as the one value.
-        let link = offer.bookPlayerLink
-        #expect(link.scheme == "bookplayer")
-        #expect(link.host == "download")
-        #expect(link.absoluteString.hasPrefix("bookplayer://download?url=http%3A%2F%2F192.168.1.20%3A50123%2F"))
-        let value = String(link.absoluteString.dropFirst("bookplayer://download?url=".count))
-        #expect(value.utf8.allSatisfy { PhoneLinkText.isUnreserved($0) || $0 == UInt8(ascii: "%") })
-        // Read the way BookPlayer reads it, it is the http address again, to the letter.
-        let read = try asBookPlayerReadsIt(link)
-        #expect(read == text)
-        #expect(!read.contains("\""))
-        #expect(URL(string: read) == http)
-        // Read as an ordinary query, it is one item and the same address.
-        let items = URLComponents(url: link, resolvingAgainstBaseURL: false)?.queryItems
-        #expect(items == [URLQueryItem(name: "url", value: text)])
+        // The server, given what a client sends for that address, finds the file.
+        let resource = PhoneLinkResource(token: token, fileName: offer.alias, size: 10, authority: "192.168.1.20:50123")
+        let request = "GET \(offer.httpURL.path) HTTP/1.1\r\nHost: 192.168.1.20:50123\r\n\r\n"
+        #expect(PhoneLinkRequest.answer(Array(request.utf8), for: resource) == .serve(headOnly: false, rangeFrom: nil))
+    }
+
+    @Test func ph9_everyTokenSurvivesBookPlayersSteps() throws {
+        for _ in 0..<500 {
+            let token = try #require(PhoneLinkText.makeToken())
+            let offer = try #require(PhoneLinkText.offer(
+                file: URL(fileURLWithPath: "/tmp/x"), fileName: "Dune.m4b", token: token, address: "10.0.0.2", port: 49152,
+                now: Date()))
+            #expect(Self.asBookPlayerReadsIt(offer.bookPlayerLink) == offer.httpURL)
+        }
     }
 
     @Test func ph9_aNameThatCannotGoInALinkIsNotUsable() {
@@ -166,17 +200,6 @@ import Testing
         for name in ["a", "...", ".hidden", "a b", String(repeating: "x", count: 255), String(repeating: "é", count: 127)] {
             #expect(PhoneLinkText.isUsableFileName(name), "\(name.prefix(12))")
         }
-    }
-
-    @Test func ph9_theLongestNameStillFitsInARequest() throws {
-        let name = String(repeating: "é", count: 127)
-        let token = try #require(PhoneLinkText.makeToken())
-        let offer = try #require(PhoneLinkText.offer(
-            file: URL(fileURLWithPath: "/tmp/x"), fileName: name, token: token, address: "192.168.100.200", port: 65535,
-            now: Date()))
-        let path = offer.httpURL.absoluteString.dropFirst("http://192.168.100.200:65535".count)
-        #expect(path.utf8.count < 1024)
-        #expect(PhoneLinkRequest.maxHeadBytes >= 8 * path.utf8.count)
     }
 
     @Test func ph2_errorsAndEventsNeverCarryTheToken() {

@@ -4,12 +4,20 @@ import Foundation
 struct PhoneLinkResource: Equatable, Sendable {
     /// The secret, as the bytes of its text.
     var token: [UInt8]
-    /// The file's name as UTF-8, not percent-encoded.
+    /// The name the file goes under in the address (`PhoneLinkText.alias`), as UTF-8.
     var fileName: [UInt8]
     /// The file's size in bytes.
     var size: Int64
     /// The address and port the link listens on, as "192.168.1.20:50123".
     var authority: String
+
+    /// Whether a `Host` header names this link: its address, with or without the port.
+    func isNamed(by host: String) -> Bool {
+        let host = host.lowercased()
+        let whole = authority.lowercased()
+        guard let colon = whole.lastIndex(of: ":") else { return host == whole }
+        return host == whole || host == whole[..<colon]
+    }
 
     init(token: String, fileName: String, size: Int64, authority: String) {
         self.token = Array(token.utf8)
@@ -191,7 +199,7 @@ enum PhoneLinkRequest {
         let hostIsRight: Bool
         switch hosts.count {
         case 0: hostIsRight = head.isHTTP10
-        case 1: hostIsRight = hosts[0].lowercased() == resource.authority.lowercased()
+        case 1: hostIsRight = resource.isNamed(by: hosts[0])
         default: hostIsRight = false
         }
         // No request for the file has a body.
