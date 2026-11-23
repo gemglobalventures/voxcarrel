@@ -24,6 +24,22 @@ public enum SelectionLogic {
         _ id: Int64, modifiers: Modifiers, order: [Int64],
         selection: Set<Int64>, anchor: Int64?
     ) -> (selection: Set<Int64>, anchor: Int64?) {
+        clicked(id, modifiers: modifiers, order: order, selection: selection, anchor: anchor)
+    }
+
+    /// The same among the items of a list that is grouped by series, where an item is
+    /// a book or a series group.
+    public static func click(
+        _ id: ItemID, modifiers: Modifiers, among order: [ItemID],
+        selection: Set<ItemID>, anchor: ItemID?
+    ) -> (selection: Set<ItemID>, anchor: ItemID?) {
+        clicked(id, modifiers: modifiers, order: order, selection: selection, anchor: anchor)
+    }
+
+    private static func clicked<ID: Hashable>(
+        _ id: ID, modifiers: Modifiers, order: [ID],
+        selection: Set<ID>, anchor: ID?
+    ) -> (selection: Set<ID>, anchor: ID?) {
         if modifiers.contains(.shift), let anchor,
            let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {
             let range = Set(order[min(from, to)...max(from, to)])
@@ -50,6 +66,19 @@ public enum SelectionLogic {
     public static func move(
         _ direction: Direction, columns: Int, order: [Int64], selection: Set<Int64>, anchor: Int64?
     ) -> Int64? {
+        moved(direction, columns: columns, order: order, selection: selection, anchor: anchor)
+    }
+
+    /// The same among the items of a list that is grouped by series: a group is one cell.
+    public static func move(
+        _ direction: Direction, columns: Int, among order: [ItemID], selection: Set<ItemID>, anchor: ItemID?
+    ) -> ItemID? {
+        moved(direction, columns: columns, order: order, selection: selection, anchor: anchor)
+    }
+
+    private static func moved<ID: Hashable>(
+        _ direction: Direction, columns: Int, order: [ID], selection: Set<ID>, anchor: ID?
+    ) -> ID? {
         guard let first = order.first, let last = order.last else { return nil }
         let forwards = direction == .right || direction == .down
 

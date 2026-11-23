@@ -90,6 +90,8 @@ public final class AppModel {
             key: defaults.string(forKey: Keys.sortKey).flatMap(BookSortKey.init) ?? .title,
             ascending: defaults.object(forKey: Keys.sortAscending) as? Bool ?? true)
         storedCopyOnImport = defaults.object(forKey: Keys.copyOnImport) as? Bool ?? false
+        // GS10
+        storedGroupsBySeries = defaults.object(forKey: Keys.groupsBySeries) as? Bool ?? false
     }
 
     private enum Keys {
@@ -100,6 +102,7 @@ public final class AppModel {
         static let audibleStore = "audibleStore"
         static let lookupSources = "lookupSources"
         static let audibleStores = "audibleStores"
+        static let groupsBySeries = "groupsBySeries"
     }
 
     // MARK: Library
@@ -227,6 +230,9 @@ public final class AppModel {
         rowsGeneration += 1
         inspectorGeneration += 1
         shown = (storedSidebarSelection, storedSearchText)
+        seriesReturn = nil
+        returnSelection = nil
+        refreshItems()
 
         status = location.status()
         guard case .available(let folder) = status else { return }
@@ -288,6 +294,8 @@ public final class AppModel {
         set {
             guard newValue != storedSidebarSelection else { return }
             storedSidebarSelection = newValue
+            // GS19: chosen by the owner, not by going back from a series.
+            if !isGoingBack { forgetSeriesReturn() }
             browseChanged()
         }
     }
@@ -322,6 +330,18 @@ public final class AppModel {
         }
     }
 
+    /// GS10: whether the books of a series are shown as one group. Remembered; off to
+    /// begin with. Setting it changes `items` at once.
+    public var groupsBySeries: Bool {
+        get { storedGroupsBySeries }
+        set {
+            guard newValue != storedGroupsBySeries else { return }
+            storedGroupsBySeries = newValue
+            defaults.set(newValue, forKey: Keys.groupsBySeries)
+            refreshItems()
+        }
+    }
+
     /// Whether an import copies files and leaves the originals. Remembered.
     public var copyOnImport: Bool {
         get { storedCopyOnImport }
@@ -335,6 +355,7 @@ public final class AppModel {
     public private(set) var rows: [BookRow] = [] {
         didSet {
             if !RowsChange.isSmall(from: oldValue.map(\.id), to: rows.map(\.id)) { rowsVersion += 1 }
+            refreshItems()
         }
     }
     /// Changes whenever `rows` becomes a very different list (`RowsChange`): the list
@@ -343,7 +364,56 @@ public final class AppModel {
     /// False until the open library's books have been read once: `rows` is empty before
     /// then because nothing is known yet, not because there are no books.
     private(set) var rowsLoaded = false
-    public internal(set) var selection: Set<Int64> = []
+    public internal(set) var selection: Set<Int64> = [] {
+        didSet {
+            // GS13a: no selected book is left out of sight in a closed group.
+            if selection != oldValue { openPartlySelectedGroups() }
+        }
+    }
+
+    // MARK: Grouping by series
+
+    private var storedGroupsBySeries: Bool
+    /// GS11: `rows` as the list and the grid draw them: each a book, or, while
+    /// `isGrouping`, a series with its books. Follows `rows`, `sort`, `groupsBySeries`
+    /// and what the rows are the books of.
+    public private(set) var items: [LibraryItem] = []
+    /// GS11: whether the items are grouped: `groupsBySeries` is on, and the rows are
+    /// not the books of a single series, nor the Inbox's, nor the results of a search.
+    public private(set) var isGrouping = false
+    /// Changes whenever `rowsVersion` does, and whenever the items become grouped or
+    /// stop being: when the list view should make its table again.
+    public private(set) var itemsVersion = 0
+    @ObservationIgnored private var itemsRowsVersion = 0
+    /// GS13: the names of the groups that are open. None at first; not remembered.
+    public internal(set) var openGroups: Set<String> = []
+    /// GS19: where Back goes from the series that was opened from a group; nil when
+    /// no series was, or the owner has chosen in the sidebar since.
+    var seriesReturn: SeriesReturn?
+    /// GS19: the series whose group is to be selected when the list that was gone
+    /// back to has been read; nil when none is waiting.
+    @ObservationIgnored var returnSelection: SeriesReturn?
+    /// GS19: true while `goBackFromSeries` sets the sidebar selection.
+    @ObservationIgnored var isGoingBack = false
+    /// GS16: the group the last click that set the anchor was on, with the book that
+    /// stands for it as `anchor`: the group is where a shift-click starts from for as
+    /// long as that book is still the anchor.
+    @ObservationIgnored var groupAnchor: (name: String, book: Int64)?
+
+    /// GS11: works `items` out again. GS13: forgets the open groups that are no longer
+    /// there. GS13a: opens any closed group that now holds some selected books, not all.
+    private func refreshItems() {
+        let grouping = storedGroupsBySeries && Self.allowsGrouping(shown.item, search: shown.search)
+        if grouping != isGrouping || itemsRowsVersion != rowsVersion {
+            itemsVersion += 1
+            itemsRowsVersion = rowsVersion
+        }
+        if grouping != isGrouping { isGrouping = grouping }
+        items = SeriesGrouping.items(from: rows, sort: storedSort, grouped: grouping)
+        let names = Set(groups.map(\.name))
+        if !openGroups.isSubset(of: names) { openGroups.formIntersection(names) }
+        openPartlySelectedGroups()
+    }
 
     /// The book the list should scroll to when it has been made again (`rowsVersion`):
     /// the first of the selected books that is shown; nil when none is.
@@ -415,10 +485,10 @@ public final class AppModel {
     private var storedSort: BookSort
     private var storedCopyOnImport: Bool
     /// Where a shift-click's range starts.
-    @ObservationIgnored private var anchor: Int64?
+    @ObservationIgnored var anchor: Int64?
     /// What `rows` holds the books of. Differs from the stored values while a reload is
     /// on its way, or is waiting for an answer about unsaved changes.
-    @ObservationIgnored private var shown: (item: SidebarItem, search: String) = (.allBooks, "")
+    @ObservationIgnored var shown: (item: SidebarItem, search: String) = (.allBooks, "")
     @ObservationIgnored private var rowsGeneration = 0
     @ObservationIgnored var inspectorGeneration = 0
 
@@ -432,6 +502,7 @@ public final class AppModel {
         let search = storedSearchText
         guard let worker else {
             shown = (item, search)
+            refreshItems()
             return
         }
         rowsGeneration += 1
@@ -451,9 +522,12 @@ public final class AppModel {
                 return
             }
             shownSeries = read.series
+            // Before the rows: the items are worked out from the rows and what they are of.
+            shown = (item, search)
             rows = storedSort.sorted(fetched, showing: item)
             rowsLoaded = true
-            shown = (item, search)
+            // GS19
+            selectReturnedSeries()
             if !selection.isSubset(of: ids) {
                 setSelection(selection.intersection(ids), anchor: anchor)
                 await refreshInspector()
@@ -491,12 +565,14 @@ public final class AppModel {
                     // SV13: the series' list is read again with its books, from the catalogue.
                     let fetched = withMissingRows(read, search: search)
                     shownSeries = read.series
+                    shown = (item, search)
                     rows = storedSort.sorted(fetched, showing: item)
                     rowsLoaded = true
-                    shown = (item, search)
                     if !(keepEdits && hasUnsavedChanges) {
                         selection.formIntersection(fetched.map(\.id))
                     }
+                    // GS19
+                    selectReturnedSeries(orWait: true)
                 }
             }
         } catch {
@@ -575,7 +651,7 @@ public final class AppModel {
     @ObservationIgnored var pending: PendingChange?
 
     /// A8
-    private func requestSelection(_ ids: Set<Int64>, anchor: Int64?) {
+    func requestSelection(_ ids: Set<Int64>, anchor: Int64?) {
         guard ids != selection else {
             self.anchor = anchor
             return
@@ -612,6 +688,7 @@ public final class AppModel {
         if storedPrompt == .unsavedChanges, case .browse = pending { return }
         storedSidebarSelection = shown.item
         storedSearchText = shown.search
+        returnSelection = nil
     }
 
     /// Selects, shows what is already known about the selection, and fetches the rest.
@@ -651,6 +728,7 @@ public final class AppModel {
         if case .browse = pending {
             storedSidebarSelection = shown.item
             storedSearchText = shown.search
+            returnSelection = nil
         }
         if case .quit = pending { answerQuit(false) }
         pending = nil

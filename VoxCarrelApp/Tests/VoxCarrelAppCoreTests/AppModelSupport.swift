@@ -161,6 +161,12 @@ final class Harness {
         // nothing in the user's Preferences folder.
         let suite = try makeTempDir().appendingPathComponent("preferences").path
         defaults = try #require(UserDefaults(suiteName: suite))
+        // Plan 10, GS12: with VOXCARREL_TEST_GROUPED=1 every model has Group by Series
+        // on from the start, so the suites can be run to show that nothing but the
+        // grouping depends on it. (The grouping suite itself expects it off at first.)
+        if ProcessInfo.processInfo.environment["VOXCARREL_TEST_GROUPED"] == "1" {
+            defaults.set(true, forKey: "groupsBySeries")
+        }
         let location = LibraryLocation(defaults: defaults)
         if choose { location.url = root }
         let lookup = FakeLookup()
