@@ -578,3 +578,35 @@ struct SeriesEntryRecord: Codable, Equatable, Sendable, FetchableRecord, Mutable
             asins: asins, titles: titles.isEmpty ? [title] : titles)
     }
 }
+
+/// One sending of a book to the phone, as it is stored. The date is kept as a number, so
+/// that it comes back exactly as it went in.
+struct SentRecordRow: Codable, Equatable, Sendable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "sentRecord"
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSinceReferenceDate
+    }
+
+    var id: Int64?
+    var bookId: Int64
+    var sentAt: Date
+    /// A `SendMethod` raw value.
+    var method: String
+    /// A `SendFingerprint` as JSON.
+    var fingerprint: String
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+
+    /// The send this row holds; nil when it cannot be read.
+    var record: SentRecord? {
+        guard let method = SendMethod(rawValue: method),
+              let fingerprint = try? JSONDecoder().decode(SendFingerprint.self, from: Data(fingerprint.utf8))
+        else { return nil }
+        return SentRecord(bookId: bookId, sentAt: sentAt, method: method, fingerprint: fingerprint)
+    }
+}

@@ -82,6 +82,9 @@ public final class LibraryService {
     /// written the catalogue, before it tidies up after itself.
     var afterLayoutCommit: (() throws -> Void)?
 
+    /// The size in bytes over which a send to the phone is warned of as large. A test seam.
+    var sendLargeOver = LibraryService.largeSendBytes
+
     /// The stored folder pattern last logged as unreadable, so it is said once.
     var unreadablePatternLogged: String?
 

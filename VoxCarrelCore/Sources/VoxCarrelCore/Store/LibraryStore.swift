@@ -202,6 +202,18 @@ public final class LibraryStore: Sendable {
                 t.column("value", .text).notNull()
             }
         }
+        migrator.registerMigration("v11") { db in
+            // Each sending of a book to the phone, with what was sent as JSON. A book
+            // that is removed takes its rows with it.
+            try db.create(table: "sentRecord") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("bookId", .integer).notNull().indexed()
+                    .references("book", onDelete: .cascade)
+                t.column("sentAt", .double).notNull()
+                t.column("method", .text).notNull()
+                t.column("fingerprint", .text).notNull()
+            }
+        }
         return migrator
     }
 
@@ -854,5 +866,29 @@ extension LibraryStore {
             try db.execute(sql: "UPDATE seriesEntry SET isHidden = ? WHERE id = ?", arguments: [hidden, id])
             return db.changesCount > 0
         }
+    }
+}
+
+// MARK: - Sends to the phone
+
+extension LibraryStore {
+    func insertSentRecord(_ record: SentRecord) throws {
+        let fingerprint = String(decoding: try JSONEncoder().encode(record.fingerprint), as: UTF8.self)
+        try dbQueue.write { db in
+            var row = SentRecordRow(
+                id: nil, bookId: record.bookId, sentAt: record.sentAt, method: record.method.rawValue,
+                fingerprint: fingerprint)
+            try row.insert(db)
+        }
+    }
+
+    /// A book's sends, newest first; of two at one moment, the one recorded last first.
+    /// A row this code cannot read (a way of sending added by a newer version, say) is
+    /// left out.
+    func sentRecords(bookId: Int64) throws -> [SentRecord] {
+        try dbQueue.read { db in
+            try SentRecordRow.filter(Column("bookId") == bookId)
+                .order(Column("sentAt").desc, Column("id").desc).fetchAll(db)
+        }.compactMap(\.record)
     }
 }
