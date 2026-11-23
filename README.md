@@ -26,6 +26,7 @@ The books in these pictures are generated samples from the demo library.
 - Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
 - Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
+- Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
 - Checks a series against Audible's own list of it and shows the books you do not have, in order, so you can see what is missing.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
 - Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
