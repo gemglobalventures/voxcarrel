@@ -66,10 +66,22 @@ extension Harness {
         (try? FileManager.default.contentsOfDirectory(at: sendParent, includingPropertiesForKeys: nil)) ?? []
     }
 
-    /// Whether `folder` is the folder of one attempt: named by a UUID, directly in `sendParent`.
+    /// Whether `folder` is the folder of one attempt of this process: named by its id
+    /// and a UUID, directly in `sendParent`.
     func isSendFolder(_ folder: URL) -> Bool {
-        UUID(uuidString: folder.lastPathComponent) != nil
+        let prefix = "\(ProcessInfo.processInfo.processIdentifier)-"
+        let name = folder.lastPathComponent
+        return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
             && folder.deletingLastPathComponent().resolvingSymlinksInPath() == sendParent.resolvingSymlinksInPath()
+    }
+
+    /// The name of a send folder as a copy of the app whose process has ended made it.
+    func endedSendFolderName() throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try process.run()
+        process.waitUntilExit()
+        return "\(process.processIdentifier)-\(UUID().uuidString)"
     }
 
     /// Waits for the clean-up that `start()` leaves running behind it.

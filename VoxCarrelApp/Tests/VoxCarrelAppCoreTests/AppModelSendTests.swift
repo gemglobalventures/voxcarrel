@@ -433,9 +433,91 @@ import VoxCarrelFixtures
 
         await h.model.cancelSendToPhone()
 
-        #expect(h.sendFolders.isEmpty)
+        // What the share that has reported was given is gone. The second share has not
+        // reported: it may still be reading what it was given, which stays until it does.
         #expect(!FileManager.default.fileExists(atPath: zip.path))
+        #expect(
+            h.sendFolders.map(\.lastPathComponent)
+                == [try #require(second.first).deletingLastPathComponent().lastPathComponent])
+        await h.model.shareFinished(completed: true, items: second)
+        #expect(h.sendFolders.isEmpty)
         #expect(FileManager.default.fileExists(atPath: h.sendTemp.path))
+        // It was not recorded: the sheet it belonged to had closed.
+        #expect(try h.sent(id).count == 1)
+    }
+
+    /// A share can go on after the sheet has closed (a message not yet sent, say): what
+    /// it was handed stays until it says how it went.
+    @Test(arguments: [true, false])
+    func ph23_whatAShareWasHandedIsKeptAfterTheSheetClosesUntilTheShareReports(wentThrough: Bool) async throws {
+        let (h, id) = try await sending(Self.train)
+        let items = await h.model.shareItems()
+        let zip = try #require(items.first)
+
+        await h.model.cancelSendToPhone()
+
+        #expect(h.model.sendSheet == nil)
+        #expect(FileManager.default.fileExists(atPath: zip.path))
+        #expect(h.sendFolders.map(\.lastPathComponent) == [zip.deletingLastPathComponent().lastPathComponent])
+        // Another send meanwhile, of another book, neither removes it nor is confused with it.
+        try await h.beginSend(Self.lighthouse)
+        await h.model.cancelSendToPhone()
+        #expect(FileManager.default.fileExists(atPath: zip.path))
+
+        await h.model.shareFinished(completed: wentThrough, items: items)
+
+        #expect(h.sendFolders.isEmpty)
+        #expect(try h.sent(id).isEmpty)
+        // Told again, nothing happens.
+        await h.model.shareFinished(completed: wentThrough, items: items)
+        #expect(FileManager.default.fileExists(atPath: h.sendParent.path))
+    }
+
+    @Test(arguments: [true, false])
+    func ph23_whatAShareWasHandedIsRemovedWhenTheAppQuits(sheetOpen: Bool) async throws {
+        let (h, _) = try await sending(Self.train)
+        let zip = try #require(await h.model.shareItems().first)
+        if !sheetOpen { await h.model.cancelSendToPhone() }
+        #expect(FileManager.default.fileExists(atPath: zip.path))
+
+        guard case .now = h.model.requestQuit(reply: { _ in }) else {
+            Issue.record("the app should quit at once")
+            return
+        }
+
+        #expect(h.sendFolders.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: h.sendParent.path))
+    }
+
+    /// Choosing another library closes the sheet, as Cancel does: the share goes on.
+    @Test func ph23_whatAShareWasHandedOutlastsAChangeOfLibrary() async throws {
+        let (h, _) = try await sending(Self.train)
+        let items = await h.model.shareItems()
+        let zip = try #require(items.first)
+
+        await h.model.chooseLibrary(try makeTempDir())
+
+        #expect(h.model.sendSheet == nil)
+        #expect(FileManager.default.fileExists(atPath: zip.path))
+        await h.model.shareFinished(completed: true, items: items)
+        #expect(h.sendFolders.isEmpty)
+    }
+
+    /// The library's own file, shared as it is, is in no folder of the app's making:
+    /// nothing is kept for it, and nothing of it is ever removed.
+    @Test func ph23_aLibraryFileHandedToAShareIsNeverRemoved() async throws {
+        let (h, id) = try await sending()
+        h.model.sendSquareCover = false
+        let items = await h.model.shareItems()
+        let file = try h.fileURLs(id)[0]
+        #expect(items.map { $0.resolvingSymlinksInPath() } == [file.resolvingSymlinksInPath()])
+
+        await h.model.cancelSendToPhone()
+        await h.model.shareFinished(completed: true, items: items)
+        _ = h.model.requestQuit { _ in }
+
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        #expect(try h.fileURLs(id).allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
     @Test func ph23_withTheTickOnACopyWithASquareCoverIsSharedAndItIsTheCopyThatIsRecorded() async throws {
@@ -637,6 +719,41 @@ import VoxCarrelFixtures
         #expect(link.canMakeNewLink)
         #expect(!link.isFinished)
         #expect(try h.sent(id).isEmpty)
+    }
+
+    @Test func ph24_aLinkEndedByAChangeOfNetworkSaysSoAndANewOneCanBeMade() async throws {
+        let (h, id) = try await sending()
+        await h.model.showPhoneLink()
+        h.phoneLink.fire(.started(bytesTotal: 100))
+
+        h.phoneLink.fire(.failed(PhoneLinkText.networkChanged))
+
+        let link = try #require(h.model.sendSheet?.link)
+        #expect(link.statusText == "The book could not be sent. The network changed.")
+        #expect(link.canMakeNewLink)
+        #expect(!link.isLive)
+        #expect(!h.sleepGuard.isActive)
+        #expect(try h.sent(id).isEmpty)
+        await h.model.showPhoneLink()
+        #expect(h.phoneLink.starts.count == 2)
+        #expect(h.model.sendSheet?.link?.isLive == true)
+    }
+
+    /// The file was written to while it was fetched: the phone has something, but not
+    /// what was checked, and nothing is recorded as sent.
+    @Test func ph24_aFileThatChangedWhileItWasFetchedIsNotRecordedAsSent() async throws {
+        let (h, id) = try await sending()
+        await h.model.showPhoneLink()
+        h.phoneLink.fire(.started(bytesTotal: 100))
+        h.phoneLink.fire(.progress(bytesSent: 100))
+
+        h.phoneLink.fire(.failed(PhoneLinkText.fileChanged))
+        await h.model.settle()
+
+        #expect(h.model.sendSheet?.link?.statusText == "The book could not be sent. The file changed while it was being sent.")
+        #expect(h.model.sendSheet?.link?.isFinished == false)
+        #expect(try h.sent(id).isEmpty)
+        #expect(h.detail?.lastSent == nil)
     }
 
     @Test func ph24_aLinkThatCannotBeStartedSaysWhyAndShowsNone() async throws {
@@ -874,35 +991,73 @@ import VoxCarrelFixtures
         let h = try await Harness.demo(start: false)
         let fm = FileManager.default
         try fm.createDirectory(at: h.sendParent, withIntermediateDirectories: true)
-        let leftover = h.sendParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
-        try Data("zip".utf8).write(to: leftover.appendingPathComponent("Book.zip"))
+        func folder(_ name: String, daysOld: Double = 0) throws -> URL {
+            let url = h.sendParent.appendingPathComponent(name, isDirectory: true)
+            try fm.createDirectory(at: url, withIntermediateDirectories: true)
+            try Data("zip".utf8).write(to: url.appendingPathComponent("Book.zip"))
+            try fm.setAttributes(
+                [.modificationDate: Date().addingTimeInterval(-daysOld * 86_400)], ofItemAtPath: url.path)
+            return url
+        }
+        // The folder of a copy of the app that is no longer running: however new it is.
+        let leftover = try folder(try h.endedSendFolderName())
+        // The folder of a copy that is running now (here, the process that runs the
+        // tests): it is that copy's, and is sending from it for all this one knows.
+        let theirs = try folder("\(getppid())-\(UUID().uuidString)", daysOld: 30)
+        // Folders named as an earlier version named them say nothing of who made them:
+        // they go once they are more than a day old.
+        let oldNaming = try folder(UUID().uuidString, daysOld: 1.5)
+        let newerOldNaming = try folder(UUID().uuidString, daysOld: 0.5)
+        // Anything named otherwise is not the app's.
+        let others = try ["Something Else", "0-\(UUID().uuidString)", "1-\(UUID().uuidString)", "-5-\(UUID().uuidString)",
+                          "\(try h.endedSendFolderName())x", "12x-\(UUID().uuidString)"].map { try folder($0, daysOld: 30) }
         // A plain file in the parent is not a folder of the app's making.
         let plain = h.sendParent.appendingPathComponent("notes.txt")
         try Data("keep".utf8).write(to: plain)
         // Nor is a link, wherever it leads: what it leads to is not touched.
         let target = try makeTempDir()
         try Data("keep".utf8).write(to: target.appendingPathComponent("file"))
-        let link = h.sendParent.appendingPathComponent(UUID().uuidString)
+        let link = h.sendParent.appendingPathComponent(try h.endedSendFolderName())
         try fm.createSymbolicLink(at: link, withDestinationURL: target)
-        // Nothing beside the parent is looked at: not another folder, and not a folder
-        // of the naming an earlier version used.
+        // Nothing beside the parent is looked at.
         let other = h.sendTemp.appendingPathComponent("Something Else", isDirectory: true)
         try fm.createDirectory(at: other, withIntermediateDirectories: true)
         try Data("keep".utf8).write(to: other.appendingPathComponent("file"))
-        let old = h.sendTemp.appendingPathComponent("VoxCarrelSend-\(UUID().uuidString)", isDirectory: true)
-        try fm.createDirectory(at: old, withIntermediateDirectories: true)
+        let beside = h.sendTemp.appendingPathComponent("VoxCarrelSend-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: beside, withIntermediateDirectories: true)
 
         await h.model.start()
         await h.sendCleanupDone()
 
         #expect(!fm.fileExists(atPath: leftover.path))
+        #expect(fm.fileExists(atPath: theirs.appendingPathComponent("Book.zip").path))
+        #expect(!fm.fileExists(atPath: oldNaming.path))
+        #expect(fm.fileExists(atPath: newerOldNaming.path))
+        for kept in others { #expect(fm.fileExists(atPath: kept.path), "\(kept.lastPathComponent)") }
         #expect(fm.fileExists(atPath: plain.path))
         #expect((try? fm.destinationOfSymbolicLink(atPath: link.path)) != nil)
         #expect(fm.fileExists(atPath: target.appendingPathComponent("file").path))
         #expect(fm.fileExists(atPath: other.appendingPathComponent("file").path))
-        #expect(fm.fileExists(atPath: old.path))
+        #expect(fm.fileExists(atPath: beside.path))
         #expect(fm.fileExists(atPath: h.sendParent.path))
+    }
+
+    /// Two copies of the app can run at once. The second to start leaves alone what
+    /// the first is sending from, and each removes its own when its sheet closes.
+    @Test func ph26_aSecondCopyOfTheAppLeavesTheFirstCopysFoldersAlone() async throws {
+        let h = try await Harness.demo()
+        try await h.beginSend(Self.train)
+        let zip = try #require(await h.model.shareItems().first)
+        #expect(h.isSendFolder(zip.deletingLastPathComponent()))
+
+        // The clean-up a second copy would run at its start, as another process.
+        AppModel.removeLeftoverSendFolders(in: h.sendTemp, keeping: SendFolderNames(), process: getppid())
+        #expect(FileManager.default.fileExists(atPath: zip.path))
+
+        // A later run that happens to be given the same process id removes what the
+        // earlier one left: it knows it did not make it.
+        AppModel.removeLeftoverSendFolders(in: h.sendTemp, keeping: SendFolderNames())
+        #expect(!FileManager.default.fileExists(atPath: zip.path))
     }
 
     /// The defect of the first real launch: the clean-up took minutes, and the library
@@ -910,7 +1065,7 @@ import VoxCarrelFixtures
     @Test func ph26_theLibraryOpensAndShowsItsBooksWhileTheCleanUpIsHeld() async throws {
         let h = try await Harness.demo(start: false)
         let fm = FileManager.default
-        let leftover = h.sendParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let leftover = h.sendParent.appendingPathComponent(try h.endedSendFolderName(), isDirectory: true)
         try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
         let gate = Gate()
         h.model.beforeSendCleanup = { await gate.wait() }
@@ -940,7 +1095,7 @@ import VoxCarrelFixtures
 
     @Test func ph26_withNoLibraryChosenTheCleanUpStillRunsAndStartDoesNotWaitForIt() async throws {
         let h = try Harness(root: try makeTempDir(), choose: false)
-        let leftover = h.sendParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let leftover = h.sendParent.appendingPathComponent(try h.endedSendFolderName(), isDirectory: true)
         try FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
         let gate = Gate()
         h.model.beforeSendCleanup = { await gate.wait() }
@@ -960,7 +1115,7 @@ import VoxCarrelFixtures
         let fm = FileManager.default
         // Someone else's folder, with a folder in it named as an attempt's is.
         let target = try makeTempDir()
-        let theirs = target.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let theirs = target.appendingPathComponent(try h.endedSendFolderName(), isDirectory: true)
         try fm.createDirectory(at: theirs, withIntermediateDirectories: true)
         try Data("keep".utf8).write(to: theirs.appendingPathComponent("file"))
         if isLink {
@@ -997,6 +1152,7 @@ import VoxCarrelFixtures
         try await h.beginSend(Self.train)
         #expect(await h.model.shareItems().count == 1)
         #expect(try mode() == 0o700)
+        await h.model.shareFinished(completed: false)
         await h.model.cancelSendToPhone()
 
         // Found open to everyone: closed to them before anything is made in it.
@@ -1005,6 +1161,7 @@ import VoxCarrelFixtures
         let zip = try #require(await h.model.shareItems().first)
         #expect(try mode() == 0o700)
         #expect(fm.fileExists(atPath: zip.path))
+        await h.model.shareFinished(completed: false)
         await h.model.cancelSendToPhone()
         #expect(h.sendFolders.isEmpty)
     }

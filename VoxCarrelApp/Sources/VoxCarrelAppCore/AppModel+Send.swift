@@ -358,11 +358,29 @@ extension AppModel {
     // MARK: PH23 Sharing
 
     /// The one folder every send's package goes under: VoxCarrel's own, inside the
-    /// temporary folder. Each attempt has a folder of its own in it, named by a UUID.
+    /// temporary folder. Each attempt has a folder of its own in it, named by the id of
+    /// the process that made it and a UUID (`sendFolderName`).
     nonisolated static let sendParentName = "VoxCarrelSend"
 
     nonisolated static func sendParent(in root: URL) -> URL {
         root.appendingPathComponent(sendParentName, isDirectory: true)
+    }
+
+    /// The name of a new folder for one attempt: "<process id>-<UUID>". The id says
+    /// whose it is, so that another copy of the app, running at the same time, never
+    /// takes it for something left behind.
+    nonisolated static func sendFolderName(process: Int32) -> String {
+        "\(process)-\(UUID().uuidString)"
+    }
+
+    /// The id of the process that made the folder of this name; nil for a name that
+    /// is not "<process id>-<UUID>".
+    nonisolated static func sendFolderProcess(_ name: String) -> Int32? {
+        let parts = name.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, parts[0].utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
+              let process = Int32(parts[0]), process > 1, UUID(uuidString: String(parts[1])) != nil
+        else { return nil }
+        return process
     }
 
     /// Whether a folder itself is at `url`: never a link to one, nor a file.
@@ -401,7 +419,7 @@ extension AppModel {
         sendIsActing = false
         guard let worker else { return nil }
         // Known to the clean-up before it exists, so that it is never taken for a leftover.
-        let name = UUID().uuidString
+        let name = Self.sendFolderName(process: getpid())
         sendFoldersMade.note(name)
         let folder = Self.sendParent(in: sendTempRoot).appendingPathComponent(name, isDirectory: true)
         var prepared: PreparedSend?
@@ -456,6 +474,8 @@ extension AppModel {
     /// A share can outlast the sheet it was begun from. Word of one that is not the
     /// share now under way changes nothing: it is not about this book.
     public func shareFinished(completed: Bool, items: [URL]) async {
+        // The sheet it was shared from has closed: what it was handed can go now.
+        guard !removeSharePackageHeld(for: items) else { return }
         guard let session = sendSession, let sharing = session.sharing,
               items.map(\.standardizedFileURL.path) == [sharing.file.standardizedFileURL.path]
         else { return }
@@ -567,16 +587,45 @@ extension AppModel {
 
     /// PH26: ends the open send at once: for Cancel, and for when the library is closed
     /// or changed or the app quits. Does nothing when no send is open.
+    ///
+    /// What was made to be sent is removed, but for what a share was handed and has not
+    /// reported on: the share may still be reading it, so it is kept until the share
+    /// reports (`shareFinished`) or the app quits (`removeSharePackagesHeld`).
     func endSend() {
         guard let session = sendSession else { return }
         if session.link != nil { phoneLink.stop() }
         keepAwake(false)
         sendSession = nil
+        let shared = session.sharing.map { $0.file.deletingLastPathComponent().standardizedFileURL.path }
         let fm = FileManager.default
         // Only ever the folders made here: what was sent may be a file of the library.
         for folder in session.folders where Self.isSendFolder(folder, in: sendTempRoot) {
-            try? fm.removeItem(at: folder)
+            if let sharing = session.sharing, folder.standardizedFileURL.path == shared {
+                sharePackagesHeld.append((file: sharing.file, folder: folder))
+            } else {
+                try? fm.removeItem(at: folder)
+            }
         }
+    }
+
+    /// PH23: removes what a share was handed and has since reported on, when the sheet
+    /// it was shared from has closed. False when `items` are not such a share's.
+    private func removeSharePackageHeld(for items: [URL]) -> Bool {
+        let paths = items.map(\.standardizedFileURL.path)
+        guard let index = sharePackagesHeld.firstIndex(where: { [$0.file.standardizedFileURL.path] == paths }) else {
+            return false
+        }
+        let held = sharePackagesHeld.remove(at: index)
+        if Self.isSendFolder(held.folder, in: sendTempRoot) { try? FileManager.default.removeItem(at: held.folder) }
+        return true
+    }
+
+    /// PH26: the app is quitting. Whatever a share was handed goes, reported on or not.
+    func removeSharePackagesHeld() {
+        for held in sharePackagesHeld where Self.isSendFolder(held.folder, in: sendTempRoot) {
+            try? FileManager.default.removeItem(at: held.folder)
+        }
+        sharePackagesHeld = []
     }
 
     /// Whether `folder` is a temporary folder of a send: a folder itself, directly in
@@ -592,7 +641,8 @@ extension AppModel {
     /// own, at low priority, and nothing the window shows depends on it.
     ///
     /// Only VoxCarrel's own parent folder is listed, never the temporary folder it is
-    /// in. Folders made by this run are left alone, whenever they are made.
+    /// in. Folders made by this run are left alone, whenever they are made, and so are
+    /// those of any other copy of the app that is running.
     func startSendCleanup() {
         let root = sendTempRoot
         let made = sendFoldersMade
@@ -603,15 +653,40 @@ extension AppModel {
         }
     }
 
-    /// Removes every folder directly inside the parent folder in `root` that this run
-    /// did not make. Does nothing when the parent is not a folder itself (a link, a
-    /// file, or not there). Files and links inside it are left as they are.
-    nonisolated static func removeLeftoverSendFolders(in root: URL, keeping made: SendFolderNames) {
+    /// How old a folder named as an earlier version named them must be to be removed.
+    nonisolated static let oldSendFolderAge: TimeInterval = 86_400
+
+    /// Whether a process of this id is running (whoever's it is).
+    nonisolated static func processIsRunning(_ process: Int32) -> Bool {
+        kill(process, 0) == 0 || errno != ESRCH
+    }
+
+    /// Removes the folders directly inside the parent folder in `root` that were left
+    /// behind: those named for a process that is no longer running (or for this one,
+    /// `process`, when this run did not make them: an earlier run had the same id),
+    /// and those named by a UUID alone, as an earlier version named them, once they
+    /// are more than a day old. A folder named for another process that is running is
+    /// that copy of the app's, and is never touched; nor is anything named otherwise.
+    ///
+    /// Does nothing when the parent is not a folder itself (a link, a file, or not
+    /// there). Files and links inside it are left as they are.
+    nonisolated static func removeLeftoverSendFolders(
+        in root: URL, keeping made: SendFolderNames, process: Int32 = getpid(), now: Date = Date()
+    ) {
         let parent = sendParent(in: root)
         guard isRealFolder(parent) else { return }
         let fm = FileManager.default
         for name in (try? fm.contentsOfDirectory(atPath: parent.path)) ?? [] {
             let folder = parent.appendingPathComponent(name, isDirectory: true)
+            if let owner = sendFolderProcess(name) {
+                guard owner == process || !processIsRunning(owner) else { continue }
+            } else if UUID(uuidString: name) != nil {
+                guard let modified = (try? fm.attributesOfItem(atPath: folder.path))?[.modificationDate] as? Date,
+                      now.timeIntervalSince(modified) > oldSendFolderAge
+                else { continue }
+            } else {
+                continue
+            }
             // Asked at the last moment: a send may have begun since the folder was listed.
             guard !made.contains(name), isSendFolder(folder, in: root) else { continue }
             try? fm.removeItem(at: folder)

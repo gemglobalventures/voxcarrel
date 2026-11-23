@@ -919,6 +919,7 @@ public final class AppModel {
         guard hasUnsavedChanges else {
             // PH26
             endSend()
+            removeSharePackagesHeld()
             return .now
         }
         guard storedPrompt == nil else { return .cancel }
@@ -933,7 +934,10 @@ public final class AppModel {
         let reply = quitReply
         quitReply = nil
         // PH26
-        if quit { endSend() }
+        if quit {
+            endSend()
+            removeSharePackagesHeld()
+        }
         reply?(quit)
     }
 
@@ -1268,6 +1272,9 @@ public final class AppModel {
     /// PH28: true while the open send runs an operation of its own (a check, a repair,
     /// a save, making the copy), which the sheet being open does not stop.
     @ObservationIgnored var sendIsActing = false
+    /// PH23: what a share was handed, and the temporary folder it is in, for each share
+    /// that had not reported when its sheet closed. Kept until it reports or the app quits.
+    @ObservationIgnored var sharePackagesHeld: [(file: URL, folder: URL)] = []
     /// The temporary folders this run has made for sends.
     @ObservationIgnored let sendFoldersMade = SendFolderNames()
     /// The clean-up of what earlier runs left behind, which `start()` leaves running. For tests.
