@@ -3,6 +3,9 @@ import VoxCarrelAppCore
 
 /// X6: what the check of the library folder found when the library was opened. Only
 /// the sections with something in them are shown.
+///
+/// First, when there is one, a change of folder layout that was interrupted and could
+/// not be put right: why, the folders in the way, and Try Again or Stop Trying….
 struct LibraryCheckSheet: View {
     @Environment(AppModel.self) private var model
     let summary: LibraryCheckSummary
@@ -17,6 +20,25 @@ struct LibraryCheckSheet: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let problem = summary.layoutProblem {
+                CheckSection(
+                    section: problem.section, symbol: "exclamationmark.octagon", id: "layoutProblem", wrapsLines: true
+                ) { line in
+                    reveal(line, id: "layoutProblem")
+                } action: {
+                    HStack {
+                        Button(problem.retryTitle) {
+                            Task { await model.retryLibraryCheck() }
+                        }
+                        .accessibilityIdentifier("check.layoutProblem.retry")
+                        Button(problem.stopTitle) {
+                            model.requestStopLayoutRecovery()
+                        }
+                        .accessibilityIdentifier("check.layoutProblem.stop")
+                    }
+                }
             }
 
             if let missing = summary.missing {
@@ -44,24 +66,28 @@ struct LibraryCheckSheet: View {
 
             if let stranded = summary.stranded {
                 CheckSection(section: stranded, symbol: "pause.circle", id: "stranded") { line in
-                    if let url = line.url {
-                        Button {
-                            model.revealInFinder(url)
-                        } label: {
-                            Label("Reveal in Finder", systemImage: "magnifyingglass.circle")
-                                .labelStyle(.iconOnly)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Reveal in Finder")
-                        .accessibilityIdentifier("check.stranded.\(line.id).reveal")
-                    }
+                    reveal(line, id: "stranded")
                 } action: {
                     EmptyView()
                 }
             }
 
-            if summary.correctedLengths != nil || summary.wrongLengthFiles != nil {
+            if let setAside = summary.setAside {
+                CheckSection(section: setAside, symbol: "folder.badge.questionmark", id: "setAside", wrapsLines: true) { line in
+                    reveal(line, id: "setAside")
+                } action: {
+                    EmptyView()
+                }
+            }
+
+            if summary.recoveredLayout != nil || summary.correctedLengths != nil || summary.wrongLengthFiles != nil {
                 Divider()
+            }
+            if let recovered = summary.recoveredLayout {
+                Label(recovered, systemImage: "arrow.uturn.backward.circle")
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("check.recoveredLayout")
             }
             if let corrected = summary.correctedLengths {
                 Label(corrected, systemImage: "clock.arrow.circlepath")
@@ -89,6 +115,21 @@ struct LibraryCheckSheet: View {
         .frame(width: 520)
         .interactiveDismissDisabled()
     }
+
+    /// Shows a line's file or folder in the Finder, when it has one that is there to show.
+    @ViewBuilder private func reveal(_ line: LibraryCheckSummary.Line, id: String) -> some View {
+        if let url = line.url {
+            Button {
+                model.revealInFinder(url)
+            } label: {
+                Label("Reveal in Finder", systemImage: "magnifyingglass.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .help("Reveal in Finder")
+            .accessibilityIdentifier("check.\(id).\(line.id).reveal")
+        }
+    }
 }
 
 /// One thing the check found: what it is, the books or files, and what can be done.
@@ -96,6 +137,9 @@ private struct CheckSection<Accessory: View, Action: View>: View {
     let section: LibraryCheckSummary.Section
     let symbol: String
     let id: String
+    /// Whether a long line is shown whole, on as many lines as it takes: for lines that
+    /// are sentences, not names.
+    var wrapsLines = false
     @ViewBuilder var accessory: (LibraryCheckSummary.Line) -> Accessory
     @ViewBuilder var action: Action
 
@@ -133,8 +177,9 @@ private struct CheckSection<Accessory: View, Action: View>: View {
                 HStack(spacing: 6) {
                     Text(line.text)
                         .font(.callout)
-                        .lineLimit(1)
+                        .lineLimit(wrapsLines ? nil : 1)
                         .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: wrapsLines)
                         .textSelection(.enabled)
                         .help(line.url?.path ?? line.text)
                         .accessibilityIdentifier("check.\(id).\(line.id)")

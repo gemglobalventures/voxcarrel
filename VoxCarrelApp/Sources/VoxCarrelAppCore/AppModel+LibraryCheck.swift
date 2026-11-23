@@ -41,11 +41,10 @@ public struct LibraryCheckSummary: Equatable, Sendable {
     public var layoutProblem: LayoutProblem?
 
     public struct LayoutProblem: Equatable, Sendable {
-        public var heading: String
-        /// Why the folders could not be put back, and what that means for now.
-        public var detail: String
-        /// The folders in the way: where each is, and where it belongs.
-        public var lines: [Line]
+        /// Its detail says why the folders could not be put back and what that means
+        /// for now; its lines are the folders in the way: where each is, and where it
+        /// belongs.
+        public var section: Section
         public var retryTitle: String
         public var stopTitle: String
     }
@@ -151,10 +150,12 @@ extension AppModel {
         // FL12
         if let reason = check.layoutChangeProblem {
             summary.layoutProblem = LibraryCheckSummary.LayoutProblem(
-                heading: "A change of folder layout was interrupted",
-                detail: Self.sentence(reason) + " Nothing was moved or deleted. "
-                    + "Importing, saving and other changes are off until this is resolved.",
-                lines: folderLines(check.strandedFolders), retryTitle: "Try Again", stopTitle: "Stop Trying…")
+                section: LibraryCheckSummary.Section(
+                    heading: "A change of folder layout was interrupted",
+                    detail: Self.sentence(reason) + " Nothing was moved or deleted. "
+                        + "Importing, saving and other changes are off until this is resolved.",
+                    lines: folderLines(check.strandedFolders)),
+                retryTitle: "Try Again", stopTitle: "Stop Trying…")
         } else if !check.strandedFolders.isEmpty {
             // FL13: folders that were set aside when the change was given up on.
             let count = check.strandedFolders.count

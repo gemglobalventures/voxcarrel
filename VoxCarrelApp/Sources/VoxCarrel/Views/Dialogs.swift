@@ -4,7 +4,8 @@ import VoxCarrelAppCore
 /// V5: the sheets, alerts and questions the model asks the window to show.
 ///
 /// One sheet at a time, in the model's order (`AppModel.windowSheet`): progress, the
-/// import review, a result, the launch check, the choice between Audible series, and a
+/// import review, a result, the launch check, the preview of a change of folder layout,
+/// the choice between Audible series, and a
 /// lookup: for the inspected book, or to add an Audible book. Which is up is
 /// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
 /// is up has closed, so each has a sheet window of its own, at its own size.
@@ -57,8 +58,9 @@ struct Dialogs: ViewModifier {
                 case .check(let summary):
                     LibraryCheckSheet(summary: summary)
                         .modifier(Questions(isActive: true))
-                case .layoutPreview:
-                    EmptyView()
+                case .layoutPreview(let preview):
+                    LayoutPreviewSheet(model: model, preview: preview)
+                        .modifier(Questions(isActive: true))
                 case .seriesChoice(let choices):
                     SeriesPickerSheet(model: model, choices: choices)
                         .modifier(Questions(isActive: true))
@@ -186,6 +188,26 @@ private struct Questions: ViewModifier {
             } message: { _ in
                 Text(model.prompt?.message ?? "")
             }
+            .confirmationDialog(
+                model.prompt?.title ?? "", isPresented: isAsking(stopLayoutRecovery), titleVisibility: .visible
+            ) {
+                Button(model.prompt?.stopLayoutRecoveryTitle ?? "", role: .destructive) {
+                    Task { await model.confirmStopLayoutRecovery() }
+                }
+                .accessibilityIdentifier("prompt.stopLayoutRecovery.stop")
+                // Return is Cancel: giving up on the folders takes a deliberate click.
+                Button("Cancel", role: .cancel) {
+                    model.prompt = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("prompt.stopLayoutRecovery.cancel")
+            } message: {
+                Text(model.prompt?.message ?? "")
+            }
+    }
+
+    private var stopLayoutRecovery: Bool {
+        model.prompt == .stopLayoutRecovery
     }
 
     private var unsavedChanges: Bool {

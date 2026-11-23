@@ -101,18 +101,18 @@ import VoxCarrelFixtures
         let reason = try #require(report.layoutChangeProblem)
         let summary = try #require(h.model.libraryCheckSummary)
         let problem = try #require(summary.layoutProblem)
-        #expect(problem.heading == "A change of folder layout was interrupted")
+        #expect(problem.section.heading == "A change of folder layout was interrupted")
         // The library's own reason, as a sentence, and what it means for now.
-        #expect(problem.detail == "\(reason). Nothing was moved or deleted. \(Self.changesOff)")
+        #expect(problem.section.detail == "\(reason). Nothing was moved or deleted. \(Self.changesOff)")
         #expect(reason.contains("Ines Calloway/Tidewater Chronicles/3 - Harbour of Glass"))
         // The folder is nowhere the change could have left it: where it belongs, and
         // where it was last seen on its way to.
-        #expect(problem.lines.map(\.text) == [
+        #expect(problem.section.lines.map(\.text) == [
             "“Ines Calloway/Tidewater Chronicles/3 - Harbour of Glass” cannot be found. "
                 + "It was being moved to “Ines Calloway/Harbour of Glass”.",
         ])
         // There is nothing there to show in the Finder.
-        #expect(problem.lines.map(\.url) == [nil])
+        #expect(problem.section.lines.map(\.url) == [nil])
         #expect(!FileManager.default.fileExists(atPath: from.path))
         #expect(problem.retryTitle == "Try Again")
         #expect(problem.stopTitle == "Stop Trying…")
@@ -131,11 +131,11 @@ import VoxCarrelFixtures
 
         #expect(h.model.layoutChangeIsUnresolved)
         let problem = try #require(h.model.libraryCheckSummary?.layoutProblem)
-        #expect(problem.lines.map(\.text) == [
+        #expect(problem.section.lines.map(\.text) == [
             "“Ines Calloway/Harbour of Glass” belongs at “Ines Calloway/Tidewater Chronicles/3 - Harbour of Glass”",
         ])
-        #expect(problem.lines.map(\.url?.lastPathComponent) == ["Harbour of Glass"])
-        #expect(problem.detail.hasSuffix("Nothing was moved or deleted. \(Self.changesOff)"))
+        #expect(problem.section.lines.map(\.url?.lastPathComponent) == ["Harbour of Glass"])
+        #expect(problem.section.detail.hasSuffix("Nothing was moved or deleted. \(Self.changesOff)"))
 
         // With the way back clear, Try Again puts the library right.
         try FileManager.default.removeItem(at: origin)

@@ -52,6 +52,7 @@ private struct FileItem: View {
                     Button("Locate…") {
                         Panels.locate(file, for: model)
                     }
+                    .disabled(!model.canChangeFiles)
                     .help("Choose the file to use in place of the missing one")
                     .accessibilityIdentifier("inspector.file.\(file.id).locate")
                 }
@@ -119,6 +120,7 @@ private struct FileItem: View {
             }
             .labelsHidden()
             .fixedSize()
+            .disabled(!model.canChangeFiles)
             .help("What this file is to the book")
             .accessibilityIdentifier("inspector.file.\(file.id).role")
         } else {

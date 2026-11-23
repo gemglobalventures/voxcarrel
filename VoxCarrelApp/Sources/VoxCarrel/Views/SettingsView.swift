@@ -2,8 +2,8 @@ import SwiftUI
 import VoxCarrelAppCore
 import VoxCarrelCore
 
-/// V7; plan 7, V3: the settings, on three tabs: General (the library folder, copying on
-/// import), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
+/// V7; plan 7, V3: the settings, on three tabs: General (the library folder, the folder
+/// layout, copying on import), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
 /// Folders (the folders watched for books that arrive).
 struct SettingsView: View {
     /// Every tab is this wide; the window takes its height from the tab that is shown.
@@ -30,7 +30,8 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings.tab.watchFolders")
                 }
         }
-        // A question or a message is shown by the main window: it comes in front of this one.
+        // A question, a message or the preview of a change of folder layout is shown by
+        // the main window: it comes in front of this one.
         .onChange(of: model.wantsToBeSeen) { _, wanted in
             if wanted { openWindow(id: "main") }
         }
@@ -41,7 +42,7 @@ struct SettingsView: View {
     }
 }
 
-/// The library folder, and whether importing copies.
+/// The library folder, how its folders are arranged, and whether importing copies.
 private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
 
@@ -72,6 +73,7 @@ private struct GeneralSettings: View {
                     .accessibilityIdentifier("settings.chooseLibrary")
                 }
             }
+            FolderLayoutSettings(model: model)
             Section("Importing") {
                 Toggle("Copy files when importing (leave originals in place)", isOn: $model.copyOnImport)
                     .accessibilityIdentifier("settings.copyOnImport")
