@@ -19,19 +19,30 @@ The books in these pictures are generated samples from the demo library.
 
 ## What it does
 
+**Organising**
+
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
 - Keeps an audiobook, its ebook and companion files together as one book, in folders arranged the way you choose: `Author/Series/Title` to begin with, or another layout or a pattern of your own.
+- Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
+- Merges entries that are really one book (an audiobook, its ebook and a companion PDF imported separately) into one, choosing which to keep and what each file is.
+- Read status, tags, ratings and collections; a check of the library at launch; undo for the last operation.
+
+**Details**
+
 - Edits details and covers for one book or many, written into the files and checked before they replace the originals.
 - Looks books up on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress, which knows many older cassette and CD editions. Results that are your exact edition are marked, as are different editions; you choose which fields to take, from one result or several, and applying them saves in one step.
 - Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
-- Tracks books you own on Audible alongside your local files, so a series shows complete.
-- Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
-- Sends an audiobook to your phone: by AirDrop, or by a QR code that makes BookPlayer download it from your Mac. A book in several parts goes as one zip, and the cover can be made square for the phone, on the copy that is sent.
-- Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
-- Checks a series against Audible's own list of it and shows the books you do not have, in order, so you can see what is missing.
-- Merges entries that are really one book (an audiobook, its ebook and a companion PDF imported separately) into one, choosing which to keep and what each file is, in one step that Undo reverses.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
-- Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
+
+**Series**
+
+- Tracks books you own on Audible alongside your local files, so a series shows complete.
+- Checks a series against Audible's own list of it and shows the books you do not have, in order.
+- Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
+
+**Your phone**
+
+- Sends an audiobook to your phone: by AirDrop, or by a QR code that makes [BookPlayer](https://github.com/TortugaPower/BookPlayer) download it from your Mac. A book in several parts goes as one zip, and the cover can be made square for the phone, on the copy that is sent.
 
 ## What it does not do
 
@@ -78,7 +89,7 @@ Book folders are arranged as `Author/Series/Title` unless you choose otherwise i
 
 Watch folders are set in Settings ▸ Watch Folders. They are watched only while VoxCarrel is open; books that arrived while it was closed appear in the Inbox shortly after it opens.
 
-Editing a book changes nothing until you press Save. Edit ▸ Undo (⌥⌘Z) reverses the last import, save or repair.
+Editing a book changes nothing until you press Save. Edit ▸ Undo (⌥⌘Z) reverses the last import, save, repair, merge or change of folder layout.
 
 ## Tests
 
@@ -87,7 +98,7 @@ VoxCarrelApp/Scripts/test-all.sh
 VoxCarrelApp/Scripts/smoke-launch.sh
 ```
 
-`test-all.sh` runs both packages' tests as debug and as optimised builds. `smoke-launch.sh` builds the app, opens it on a fresh temporary demo library, checks it stays running, and quits it. Tests never use the network; lookup tests run on recorded answers.
+`test-all.sh` runs both packages' tests as debug and as optimised builds. `smoke-launch.sh` builds the app, opens it on a fresh temporary demo library, checks it stays running, and quits it. Tests never use the outside network: lookup tests run on recorded answers, and the Send to Phone link is tested on this Mac's own loopback address. Everything a test run creates goes into one temporary folder that is removed when the run ends.
 
 ## Online lookup and privacy
 
@@ -116,7 +127,7 @@ VoxCarrel builds on these open-source libraries, each under its own licence:
 
 - [TagLib](https://taglib.org), through the [CXXTagLib](https://github.com/sbooth/CXXTagLib) package, for reading and writing audio tags: LGPL 2.1 or MPL 1.1.
 - [GRDB.swift](https://github.com/groue/GRDB.swift) for the catalogue database: MIT.
-- [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for reading and writing EPUB files: MIT.
+- [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for reading and writing EPUB files and for zipping a book in several parts: MIT.
 
 ## Support
 
