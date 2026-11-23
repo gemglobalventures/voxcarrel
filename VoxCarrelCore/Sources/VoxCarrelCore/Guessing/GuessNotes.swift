@@ -19,6 +19,10 @@ public struct GuessNotes: OptionSet, Equatable, Hashable, Sendable {
     /// The title read from a name is shaped like a person's name, and no author that is
     /// shaped like one came with it.
     public static let titleLooksLikePerson = GuessNotes(rawValue: 1 << 4)
+    /// The order of a name "A - B" was decided by the shape of its sides alone: nothing
+    /// known of an author or a title, and no tags, said which is which. Set whichever
+    /// way round it was read; never together with `.orderUnsure`.
+    public static let orderGuessedByShape = GuessNotes(rawValue: 1 << 5)
 }
 
 /// The authors and titles a library already has, as evidence for reading a name

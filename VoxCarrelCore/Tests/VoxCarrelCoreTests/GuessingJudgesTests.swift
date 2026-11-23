@@ -26,6 +26,7 @@ import Testing
         "An Unnecessarily Long Name That Goes On And On Forever",
         "Aaaaaaaaaaaaaaaaaaaaa Bbbbbbbbbbbbbbbbbbbbbbbbbb",
         "One Two Three Four Five", "King, Martin Luther, Jr.", "van der", "F. K.",
+        "The Great Courses", "The Beatles", "A Tribe", "An Author",
     ])
     func titlesAndOtherTextAreNot(_ text: String) {
         #expect(!NameShape.looksLikePerson(text))
@@ -36,6 +37,17 @@ import Testing
         #expect(NameShape.looksLikePerson("Slow Horses"))
         #expect(NameShape.looksLikePerson("Mick Herron"))
         #expect(NameShape.looksLikePerson("Dune Messiah"))
+    }
+
+    // A side that begins with an article is never a person, and may be a group's name.
+    @Test func textThatBeginsWithAnArticleIsToldApart() {
+        for text in ["The Great Courses", "The Beatles", "a tribe called quest", " An Author Collective"] {
+            #expect(NameShape.beginsWithArticle(text), "\(text)")
+            #expect(!NameShape.looksLikePerson(text), "\(text)")
+        }
+        for text in ["Theory Basics", "Ancient Greece", "Abbey Road", "Anne Tyler", "A", "The", "", "A. A. Milne"] {
+            #expect(!NameShape.beginsWithArticle(text), "\(text)")
+        }
     }
 
     // IM7

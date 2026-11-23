@@ -31,7 +31,9 @@ public enum FilenameParser {
     /// failing that, the other side from the one that is a title in `known` when only
     /// one is; failing that, the side shaped like a person's name when only one is
     /// (but shape alone does not make an author of the second side when the first is
-    /// one capitalised word, which may be a person named alone or by surname).
+    /// one capitalised word, which may be a person named alone or by surname, or
+    /// begins with an article, as the name of a group or a publisher may). An order
+    /// that shape alone decided is noted `.orderGuessedByShape`, whichever it is.
     /// With nothing to go on it is read as "Author - Title" and noted `.orderUnsure`;
     /// read the other way it is noted `.orderSwapped`. A number before the dash is a
     /// part or series number, and the rest is the title.
@@ -114,10 +116,15 @@ public enum FilenameParser {
             authorIsFirst = authors.0
         } else if titles.0 != titles.1 {
             authorIsFirst = titles.1
-        } else if shapes.0 != shapes.1, shapes.0 || !NameShape.couldBeALoneName(a) {
-            // Shape alone never turns round a first side that may be a lone name:
-            // "Aristotle - Nicomachean Ethics", "Herbert - Dune Messiah".
+        } else if shapes.0 != shapes.1,
+                  shapes.0 || !(NameShape.couldBeALoneName(a) || NameShape.beginsWithArticle(a)) {
+            // Shape alone never turns round a first side that may be a lone name
+            // ("Aristotle - Nicomachean Ethics", "Herbert - Dune Messiah"), nor one
+            // that begins with an article and may be a group's or a publisher's name
+            // ("The Great Courses - Ancient Greece", "The Beatles - Abbey Road").
             authorIsFirst = shapes.0
+            // A guess all the same, whichever way round it came out.
+            guess.notes.insert(.orderGuessedByShape)
         } else {
             guess.notes.insert(.orderUnsure)
         }

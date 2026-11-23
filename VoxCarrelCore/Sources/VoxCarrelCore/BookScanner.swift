@@ -368,7 +368,8 @@ public struct BookScanner {
             usedName = true
         }
         if usedName {
-            notes.formUnion(guess.notes.intersection([.fromFileName, .orderUnsure, .orderSwapped]))
+            notes.formUnion(
+                guess.notes.intersection([.fromFileName, .orderUnsure, .orderSwapped, .orderGuessedByShape]))
         }
         // An author from the tags is the author, whatever the title looks like.
         if needsTitle, needsAuthor, guess.notes.contains(.titleLooksLikePerson) {

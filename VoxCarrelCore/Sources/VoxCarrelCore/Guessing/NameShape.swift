@@ -51,6 +51,17 @@ public enum NameShape {
         return trimmed.count <= longest && !trimmed.contains(" ") && kind(of: trimmed) == .whole
     }
 
+    /// True when the text begins with "The", "A" or "An" and goes on: "The Beatles",
+    /// "The Great Courses". Such text is never a person's name, but it may be the name
+    /// of a group or a publisher that stands where an author would.
+    static func beginsWithArticle(_ text: String) -> Bool {
+        let words = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard words.count == 2, words[0].count <= 3 else { return false }
+        return articles.contains(words[0].lowercased())
+    }
+
+    private static let articles: Set<String> = ["the", "a", "an"]
+
     private enum Word { case whole, initial, particle }
 
     private static func isOnePerson(_ given: [String]) -> Bool {

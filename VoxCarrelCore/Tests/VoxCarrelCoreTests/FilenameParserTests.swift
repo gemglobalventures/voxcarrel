@@ -148,15 +148,15 @@ import Testing
 
     // IM11: shape decides only when exactly one side is name-shaped.
     @Test func IM11_shapeDecidesOnlyWhenOneSideIsAName() {
-        let swapped = guess("The Long Earth - Terry Pratchett.epub")
-        #expect(swapped.title == "The Long Earth")
-        #expect(swapped.author == "Terry Pratchett")
-        #expect(swapped.notes == [.fromFileName, .orderSwapped])
+        let swapped = guess("Debt of Honor - Tom Clancy.epub")
+        #expect(swapped.title == "Debt of Honor")
+        #expect(swapped.author == "Tom Clancy")
+        #expect(swapped.notes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
 
         let usual = guess("Frank Herbert - Dune.epub")
         #expect(usual.title == "Dune")
         #expect(usual.author == "Frank Herbert")
-        #expect(usual.notes == [.fromFileName])
+        #expect(usual.notes == [.fromFileName, .orderGuessedByShape])
 
         // Both name-shaped: as today, and marked unsure.
         let both = guess("Mick Herron - Slow Horses.epub")
@@ -197,19 +197,64 @@ import Testing
         // A first side that is no name at all is turned round.
         for name in ["dune - Frank Herbert", "Catch-22 - Joseph Heller", "Mind Over Markets - James F. Dalton"] {
             let g = guess("\(name).epub")
-            #expect(g.notes == [.fromFileName, .orderSwapped], "\(name)")
+            #expect(g.notes == [.fromFileName, .orderSwapped, .orderGuessedByShape], "\(name)")
         }
+    }
+
+    // Shape alone is a guess: whichever way round it reads the name, it says so, and
+    // what is known says nothing of the kind.
+    @Test func anOrderDecidedByShapeAloneIsNoted() {
+        let swapped = guess("Mind Over Markets - James F. Dalton.epub")
+        #expect(swapped.author == "James F. Dalton")
+        #expect(swapped.notes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
+
+        let usual = guess("Andy Weir - Project Hail Mary.epub")
+        #expect(usual.author == "Andy Weir")
+        #expect(usual.notes == [.fromFileName, .orderGuessedByShape])
+
+        let known = knowing(authors: ["James F. Dalton", "Andy Weir"], titles: ["Dune"])
+        #expect(guess("Mind Over Markets - James F. Dalton.epub", known: known).notes == [.fromFileName, .orderSwapped])
+        #expect(guess("Andy Weir - Project Hail Mary.epub", known: known).notes == [.fromFileName])
+        #expect(guess("Dune - Frank Herbert.epub", known: known).notes == [.fromFileName, .orderSwapped])
+        // Unsure is not a guess by shape, and a name with no dash has no order.
+        #expect(guess("Mick Herron - Slow Horses.epub").notes == [.fromFileName, .orderUnsure])
+        #expect(guess("Dune.epub").notes == [.fromFileName])
+    }
+
+    // A first side that begins with an article may be the name of a group or a
+    // publisher: shape alone never turns it round. It is left as it reads, and asked about.
+    @Test func shapeNeverSwapsAwayAFirstSideThatBeginsWithAnArticle() {
+        for (name, author, title) in [
+            ("The Great Courses - Ancient Greece", "The Great Courses", "Ancient Greece"),
+            ("The Beatles - Abbey Road", "The Beatles", "Abbey Road"),
+            ("A Tribe Called Quest - Midnight Marauders", "A Tribe Called Quest", "Midnight Marauders"),
+            ("An Author Collective - Collected Works", "An Author Collective", "Collected Works"),
+        ] {
+            let g = guess("\(name).epub")
+            #expect(g.author == author, "\(name)")
+            #expect(g.title == title, "\(name)")
+            #expect(g.notes.contains(.orderUnsure), "\(name)")
+            #expect(!g.notes.contains(.orderSwapped), "\(name)")
+            #expect(!g.notes.contains(.orderGuessedByShape), "\(name)")
+        }
+        // What is known still decides.
+        let known = guess("The Long Earth - Terry Pratchett.epub", known: knowing(authors: ["Terry Pratchett"]))
+        #expect(known.title == "The Long Earth")
+        #expect(known.author == "Terry Pratchett")
+        #expect(known.notes == [.fromFileName, .orderSwapped])
+        // A word that only begins like an article is not one.
+        #expect(guess("Theory of Games - Ann Author.epub").author == "Ann Author")
     }
 
     // IM11: when the same is known of both sides, that evidence decides nothing.
     @Test func IM11_evidenceOnBothSidesDecidesNothing() {
         let authors = knowing(authors: ["Mick Herron", "Slow Horses"])
         #expect(guess("Slow Horses - Mick Herron.epub", known: authors).notes == [.fromFileName, .orderUnsure])
-        let titles = knowing(titles: ["Dune", "Frank Herbert"])
+        let titles = knowing(titles: ["Catch-22", "Joseph Heller"])
         // Both are known titles, so shape decides.
-        let shaped = guess("The Dune - Frank Herbert.epub", known: titles)
-        #expect(shaped.author == "Frank Herbert")
-        #expect(shaped.notes == [.fromFileName, .orderSwapped])
+        let shaped = guess("Catch-22 - Joseph Heller.epub", known: titles)
+        #expect(shaped.author == "Joseph Heller")
+        #expect(shaped.notes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
         // An empty side of the known names never counts.
         let empty = KnownNames(authors: [""], titles: [""])
         #expect(guess("?! - Dune.epub", known: empty).notes == [.fromFileName, .orderUnsure])
@@ -220,7 +265,7 @@ import Testing
         let g = guess("Frank_Herbert - Dune_ Messiah.epub")
         #expect(g.title == "Dune: Messiah")
         #expect(g.author == "Frank Herbert")
-        #expect(g.notes == [.fromFileName])
+        #expect(g.notes == [.fromFileName, .orderGuessedByShape])
     }
 
     // IM12
@@ -262,7 +307,7 @@ import Testing
         #expect(dashed.asin == "B002V1OF70")
         #expect(dashed.title == "Dune")
         #expect(dashed.author == "Frank Herbert")
-        #expect(dashed.notes == [.fromFileName, .audibleIDFromName])
+        #expect(dashed.notes == [.fromFileName, .audibleIDFromName, .orderGuessedByShape])
 
         // A name that is nothing but the ID keeps it as its title.
         let bare = guess("B002V1OF70.m4b")

@@ -524,10 +524,10 @@ extension CandidateBook {
 
     // IM10, IM11: only the field the tags leave empty is guessed.
     @Test func IM10_onlyTheGapIsGuessed() throws {
-        let titled = try scanned("The Dune - Frank Herbert.m4b", tags: BookMetadata(title: "Real Title"))
+        let titled = try scanned("Catch-22 - Joseph Heller.m4b", tags: BookMetadata(title: "Real Title"))
         #expect(titled.metadata.title == "Real Title")
-        #expect(titled.metadata.authors == ["Frank Herbert"])
-        #expect(titled.guessNotes == [.fromFileName, .orderSwapped])
+        #expect(titled.metadata.authors == ["Joseph Heller"])
+        #expect(titled.guessNotes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
 
         let authored = try scanned(
             "Mick Herron - Slow Horses.m4b", tags: BookMetadata(title: "", authors: ["Real Author"]))
