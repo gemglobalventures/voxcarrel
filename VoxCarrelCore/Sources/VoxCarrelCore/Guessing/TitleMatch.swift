@@ -1,0 +1,150 @@
+import Foundation
+
+/// How two titles stand to each other.
+public enum TitleRelation: Equatable, Sendable {
+    /// The same title, edition words aside.
+    case same
+    /// One is the other with a subtitle after it: "Dune" and "Dune: Messiah".
+    case sameUpToSubtitle
+    case different
+}
+
+/// Compares titles to tell whether two things are the same book.
+public enum TitleMatch {
+    /// Words that say which edition a recording is, not what the book is called.
+    static let editionWords: [String] = [
+        "unabridged", "abridged", "audiobook", "audio book", "audio edition", "dramatized", "dramatised",
+        "full cast",
+    ]
+
+    /// The title for comparing: edition words at its end dropped, then lower-cased words
+    /// without accents, punctuation or a leading article, as the lookup compares titles.
+    ///
+    /// An edition word is dropped when it stands alone in round or square brackets at
+    /// the end, or after a final " - " or ", "; never from the middle of a title, and
+    /// never when nothing else would be left ("Unabridged" is then the title).
+    public static func core(_ title: String) -> String {
+        parts(title).core
+    }
+
+    /// `.same` when the cores are equal; `.sameUpToSubtitle` when one title, cut at its
+    /// first subtitle separator, has the other's core; otherwise `.different`. A title
+    /// with nothing to compare is different from every title, another such one included.
+    public static func relation(_ a: String, _ b: String) -> TitleRelation {
+        relation(parts(a), parts(b))
+    }
+
+    /// A title read from a file name, as it was probably written: "_ " after a word,
+    /// which is how a colon is often saved, becomes ": "; any other "_" becomes a space;
+    /// then runs of spaces are made one and those at the ends go. Text with no
+    /// underscore is returned as it is.
+    public static func tidyFromFileName(_ text: String) -> String {
+        guard text.contains("_") else { return text }
+        let characters = Array(text)
+        var out: [Character] = []
+        out.reserveCapacity(characters.count)
+        for (index, character) in characters.enumerated() {
+            guard character == "_" else {
+                out.append(character)
+                continue
+            }
+            let afterAWord = index > 0 && characters[index - 1] != " " && characters[index - 1] != "_"
+            let beforeASpace = index + 1 < characters.count && characters[index + 1] == " "
+            out.append(afterAWord && beforeASpace ? ":" : " ")
+        }
+        return String(out).split(separator: " ").joined(separator: " ")
+    }
+
+    // MARK: Compared many times
+
+    /// What of a title is compared, worked out once.
+    struct Parts: Equatable, Sendable {
+        /// `core(_:)` of the title.
+        var core: String
+        /// The core of what stands before the first subtitle separator; nil when the
+        /// title has no separator or nothing to compare stands before it.
+        var head: String?
+    }
+
+    static func parts(_ title: String) -> Parts {
+        let characters = Array(title)
+        var head: String?
+        if let cut = firstSeparator(in: characters) {
+            let before = comparable(characters[..<cut])
+            if !before.isEmpty { head = before }
+        }
+        return Parts(core: comparable(characters[...]), head: head)
+    }
+
+    static func relation(_ a: Parts, _ b: Parts) -> TitleRelation {
+        guard !a.core.isEmpty, !b.core.isEmpty else { return .different }
+        if a.core == b.core { return .same }
+        if a.head == b.core || b.head == a.core { return .sameUpToSubtitle }
+        return .different
+    }
+
+    /// Where the first of ": ", "꞉ " (the colon of file names), "_ ", " - ", " – " and
+    /// " — " begins.
+    private static func firstSeparator(in characters: [Character]) -> Int? {
+        for index in characters.indices.dropLast() {
+            let character = characters[index], next = characters[index + 1]
+            if next == " ", character == ":" || character == "\u{A789}" || character == "_" { return index }
+            if character == " ", next == "-" || next == "–" || next == "—",
+               index + 2 < characters.count, characters[index + 2] == " " {
+                return index
+            }
+        }
+        return nil
+    }
+
+    /// The text without the edition words at its end, as words for comparing.
+    private static func comparable(_ characters: ArraySlice<Character>) -> String {
+        func words(_ slice: ArraySlice<Character>) -> String {
+            LookupText.comparable(String(slice)).joined(separator: " ")
+        }
+        let kept = words(characters[characters.startIndex..<endWithoutEditionWords(characters)])
+        return kept.isEmpty ? words(characters) : kept
+    }
+
+    /// The index the text ends at once the edition words at its end are dropped. Each
+    /// step looks at no more than the few characters an edition word takes.
+    private static func endWithoutEditionWords(_ characters: ArraySlice<Character>) -> Int {
+        let start = characters.startIndex
+        var end = characters.endIndex
+        func isEditionWord(_ range: Range<Int>) -> Bool {
+            let text = String(characters[range]).trimmingCharacters(in: .whitespaces).lowercased()
+            return editionWords.contains(text)
+        }
+        let longest = (editionWords.map(\.count).max() ?? 0) + 4
+
+        while true {
+            while end > start, characters[end - 1] == " " { end -= 1 }
+            guard end > start else { return end }
+            let last = characters[end - 1]
+            if last == ")" || last == "]" {
+                // "(Unabridged)", "[ Audiobook ]"
+                let opener: Character = last == ")" ? "(" : "["
+                let from = max(start, end - 1 - longest)
+                guard let open = characters[from..<(end - 1)].lastIndex(where: { $0 == "(" || $0 == "[" }),
+                      characters[open] == opener, isEditionWord((open + 1)..<(end - 1))
+                else { return end }
+                end = open
+                continue
+            }
+            // " - Unabridged", ", Unabridged"
+            var cut: Int?
+            for word in editionWords {
+                let begins = end - word.count
+                guard begins - 2 >= start, isEditionWord(begins..<end), characters[begins - 1] == " " else { continue }
+                if characters[begins - 2] == "," {
+                    cut = begins - 2
+                } else if begins - 3 >= start, characters[begins - 2] == "-", characters[begins - 3] == " " {
+                    cut = begins - 3
+                }
+                if cut != nil { break }
+            }
+            guard let cut else { return end }
+            end = cut
+        }
+    }
+}
