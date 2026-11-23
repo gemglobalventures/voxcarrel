@@ -232,6 +232,35 @@ import VoxCarrelFixtures
             + "Open the library again to see what can be done.")
     }
 
+    /// FL12: a book waiting in the Inbox is not opened for review either, however it
+    /// is asked for (a double-click on its row does not go by the Review button).
+    @Test func fl12_aBookInTheInboxIsNotOpenedForReview() async throws {
+        let (h, _, _) = try await unrecoverable()
+        await h.model.start()
+        h.model.dismissLibraryCheck()
+        let watched = try makeTempDir()
+        await h.model.addWatchFolder(watched)
+        await h.model.settle()
+        try FileManager.default.moveItem(
+            at: try Harness.inbox().appendingPathComponent("Quiet Rivers.epub"),
+            to: watched.appendingPathComponent("Quiet Rivers.epub"))
+        h.watcher.fire()
+        await h.model.settle()
+        h.clock.now += 11
+        #expect(h.ticker.run(delay: 11))
+        await h.model.settle()
+        let arrival = try #require(h.model.inboxArrivals.first)
+        #expect(!h.model.canReviewInbox)
+
+        h.recordBusyLabels()
+        await h.model.reviewInbox(only: arrival.id)
+        await h.model.reviewInbox(opening: [arrival.id])
+        await h.model.reviewInbox()
+        #expect(h.busyLabels.isEmpty)
+        #expect(h.model.review == nil)
+        #expect(h.model.alert == nil)
+    }
+
     @Test func fl12_tryAgainRunsTheCheckAgain() async throws {
         let (h, from, away) = try await unrecoverable()
         await h.model.start()

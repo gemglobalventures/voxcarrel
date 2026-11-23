@@ -342,7 +342,9 @@ extension AppModel {
     /// The arrivals go to the review grouped as the Inbox shows them: a folder of parts
     /// is one book there, as it is here.
     private func review(_ arrivals: [InboxArrival]) async {
-        guard !arrivals.isEmpty, review == nil, let worker = await begin("Reading files…") else { return }
+        // FL12: the import itself would be refused.
+        guard !arrivals.isEmpty, review == nil, filesCanChange, let worker = await begin("Reading files…")
+        else { return }
         do {
             let seeds = try await worker.prepareImport(candidates: arrivals.map(\.candidate))
             if seeds.isEmpty {
