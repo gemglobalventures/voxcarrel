@@ -312,6 +312,27 @@ import VoxCarrelFixtures
 
     // MARK: PH23 Sharing
 
+    /// The file a link serves is the library's own when the book is one file: nothing
+    /// rewrites it while the link is showing.
+    @Test func ph22_nothingIsRepairedWhileALinkIsShowing() async throws {
+        let (h, id) = try await wrongLength()
+        try await h.beginSend("Long Book")
+        #expect(h.model.sendSheet?.canFix == true)
+        await h.model.showPhoneLink()
+        #expect(h.model.sendSheet?.link != nil)
+        let undoBefore = h.model.undoLabel
+        h.recordBusyLabels()
+
+        #expect(h.model.sendSheet?.canFix == false)
+        await h.model.sendRepair()
+
+        #expect(h.busyLabels == [])
+        #expect(h.model.undoLabel == undoBefore)
+        #expect(h.model.rows.first { $0.id == id }?.repairableLengthFiles == 2)
+        #expect(h.phoneLink.stopCount == 0)
+        #expect(h.model.sendSheet?.link?.isLive == true)
+    }
+
     @Test func ph23_aSingleFileWithNothingToChangeIsSharedAsItIsAndRecordedWhenDone() async throws {
         let (h, id) = try await sending()
         h.model.sendSquareCover = false
@@ -356,6 +377,31 @@ import VoxCarrelFixtures
         // Nor does a later word that it went, with nothing handed over since.
         await h.model.shareFinished(completed: true)
         #expect(try h.sent(id).isEmpty)
+    }
+
+    /// A share can outlast the sheet it was begun from: what it says then is about the
+    /// book it was handed, not about whatever is being shared by the time it says it.
+    @Test(arguments: [true, false])
+    func ph23_wordOfAnEarlierShareIsNotTakenForTheOneUnderWay(earlierWentThrough: Bool) async throws {
+        let (h, train) = try await sending(Self.train)
+        let earlier = await h.model.shareItems()
+        #expect(earlier.count == 1)
+        await h.model.cancelSendToPhone()
+        let lighthouse = try await h.beginSend(Self.lighthouse)
+        let present = await h.model.shareItems()
+        #expect(present.count == 1)
+        #expect(present != earlier)
+
+        await h.model.shareFinished(completed: earlierWentThrough, items: earlier)
+
+        #expect(try h.sent(lighthouse).isEmpty)
+        #expect(try h.sent(train).isEmpty)
+        #expect(h.model.sendSheet?.shareNote == nil)
+        // The share under way is still heard when it reports.
+        await h.model.shareFinished(completed: true, items: present)
+        #expect(try h.sent(lighthouse).map(\.method) == [.share])
+        #expect(try h.sent(train).isEmpty)
+        #expect(h.model.sendSheet?.shareNote == "Shared.")
     }
 
     @Test func ph23_severalFilesAreSharedAsAZipInAFreshTemporaryFolderThatLastsUntilTheSheetCloses() async throws {
@@ -495,8 +541,10 @@ import VoxCarrelFixtures
         let file = try #require(h.phoneLink.starts.first?.file)
         let bytes = try #require(try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64)
 
+        #expect(h.model.sendSheet?.showsNetwork == true)
         h.phoneLink.fire(.started(bytesTotal: 3000))
         #expect(h.model.sendSheet?.link?.statusText == "Sending… 0%")
+        #expect(h.model.sendSheet?.showsNetwork == true)
         h.phoneLink.fire(.progress(bytesSent: 1000))
         #expect(h.model.sendSheet?.link?.statusText == "Sending… 33%")
         h.phoneLink.fire(.progress(bytesSent: 2999))
@@ -511,6 +559,8 @@ import VoxCarrelFixtures
         #expect(link.isFinished)
         #expect(!link.canMakeNewLink)
         #expect(!link.isLive)
+        // Nothing more will cross the network: the warning about it has had its day.
+        #expect(h.model.sendSheet?.showsNetwork == false)
         let records = try h.sent(id)
         #expect(records.count == 1)
         #expect(records.first?.method == .link)
@@ -559,6 +609,8 @@ import VoxCarrelFixtures
         #expect(link.canMakeNewLink)
         #expect(!link.isLive)
         #expect(try h.sent(id).isEmpty)
+        // Another link can be made, over the same network.
+        #expect(h.model.sendSheet?.showsNetwork == true)
 
         await h.model.showPhoneLink()
 
@@ -932,6 +984,31 @@ import VoxCarrelFixtures
         #expect(h.model.sendSheet == nil)
     }
 
+    /// The copies made for a send are the owner's books: no other user of the Mac is
+    /// let into the folder they are made in, wherever the temporary folder is.
+    @Test func ph26_theFolderOfPackagesIsTheOwnersAlone() async throws {
+        let h = try await Harness.demo()
+        let fm = FileManager.default
+        func mode() throws -> Int? {
+            (try fm.attributesOfItem(atPath: h.sendParent.path)[.posixPermissions] as? NSNumber)?.intValue
+        }
+
+        // Made by the app: for this user only.
+        try await h.beginSend(Self.train)
+        #expect(await h.model.shareItems().count == 1)
+        #expect(try mode() == 0o700)
+        await h.model.cancelSendToPhone()
+
+        // Found open to everyone: closed to them before anything is made in it.
+        try fm.setAttributes([.posixPermissions: 0o777], ofItemAtPath: h.sendParent.path)
+        try await h.beginSend(Self.train)
+        let zip = try #require(await h.model.shareItems().first)
+        #expect(try mode() == 0o700)
+        #expect(fm.fileExists(atPath: zip.path))
+        await h.model.cancelSendToPhone()
+        #expect(h.sendFolders.isEmpty)
+    }
+
     // MARK: PH27 The network
 
     @Test func ph27_aNetworkThatIsNotMarkedGetsTheStrongerNote() async throws {
@@ -966,20 +1043,20 @@ import VoxCarrelFixtures
         await again.cancelSendToPhone()
 
         // On another network the mark does not hold.
-        h.network.network = NetworkIdentity(router: "10.0.0.1", name: "Cafe")
+        h.network.network = NetworkIdentity(router: "10.0.0.1", hardware: "00:11:22:33:44:55", name: "Cafe")
         await again.beginSendToPhone()
         #expect(again.sendSheet?.isOwnNetwork == false)
         #expect(again.sendSheet?.networkNote == SendText.otherNetwork)
         await again.cancelSendToPhone()
 
         // Nor on one that only shares the router's address.
-        h.network.network = NetworkIdentity(router: "192.168.1.1", name: "Hotel")
+        h.network.network = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Hotel")
         await again.beginSendToPhone()
         #expect(again.sendSheet?.isOwnNetwork == false)
         await again.cancelSendToPhone()
 
         // Back home, and the mark can be taken off.
-        h.network.network = NetworkIdentity(router: "192.168.1.1", name: "Home")
+        h.network.network = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Home")
         await again.beginSendToPhone()
         #expect(again.sendSheet?.isOwnNetwork == true)
         again.setOwnNetwork(false)
@@ -988,19 +1065,50 @@ import VoxCarrelFixtures
         #expect((h.defaults.array(forKey: "sendOwnNetworks") as? [String]) == [])
     }
 
+    /// Most routers of one make have the same address: "192.168.1.1" alone says little.
+    @Test func ph27_anotherNetworkWhoseRouterHasTheSameAddressIsNotTheOwners() async throws {
+        let h = try await Harness.demo()
+        h.network.network = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f")
+        try await h.beginSend(Self.lighthouse)
+        h.model.setOwnNetwork(true)
+        #expect(h.model.sendSheet?.isOwnNetwork == true)
+        await h.model.cancelSendToPhone()
+
+        // Elsewhere: the same address, another router, and no name to be read.
+        h.network.network = NetworkIdentity(router: "192.168.1.1", hardware: "00:11:22:33:44:55")
+        await h.model.beginSendToPhone()
+        #expect(h.model.sendSheet?.isOwnNetwork == false)
+        #expect(h.model.sendSheet?.networkNote == SendText.otherNetwork)
+        await h.model.cancelSendToPhone()
+
+        // At home again.
+        h.network.network = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f")
+        await h.model.beginSendToPhone()
+        #expect(h.model.sendSheet?.isOwnNetwork == true)
+    }
+
+    /// A mark kept before the router's hardware address was part of it is not honoured.
+    @Test func ph27_aMarkThatNamesOnlyTheRoutersAddressIsNotHonoured() async throws {
+        let h = try await Harness.demo()
+        h.defaults.set(["192.168.1.1", "192.168.1.1\tHome"], forKey: "sendOwnNetworks")
+        try await h.beginSend(Self.lighthouse)
+        #expect(h.model.sendSheet?.isOwnNetwork == false)
+        #expect(h.model.sendSheet?.networkNote == SendText.otherNetwork)
+    }
+
     @Test func ph27_aNetworkKnownOnlyByItsRouterIsMarkedByThat() async throws {
         let h = try await Harness.demo()
-        h.network.network = NetworkIdentity(router: "192.168.4.1")
+        h.network.network = NetworkIdentity(router: "192.168.4.1", hardware: "0c:8d:db:10:20:30")
         try await h.beginSend(Self.lighthouse)
         #expect(h.model.sendSheet?.canMarkOwnNetwork == true)
 
         h.model.setOwnNetwork(true)
 
         #expect(h.model.sendSheet?.isOwnNetwork == true)
-        #expect(h.defaults.array(forKey: "sendOwnNetworks") as? [String] == ["192.168.4.1"])
+        #expect(h.defaults.array(forKey: "sendOwnNetworks") as? [String] == ["192.168.4.1\t0c:8d:db:10:20:30"])
         // Marked twice, it is kept once.
         h.model.setOwnNetwork(true)
-        #expect(h.defaults.array(forKey: "sendOwnNetworks") as? [String] == ["192.168.4.1"])
+        #expect(h.defaults.array(forKey: "sendOwnNetworks") as? [String] == ["192.168.4.1\t0c:8d:db:10:20:30"])
     }
 
     @Test func ph27_aNetworkThatCannotBeToldApartIsNeverTreatedAsMarked() async throws {

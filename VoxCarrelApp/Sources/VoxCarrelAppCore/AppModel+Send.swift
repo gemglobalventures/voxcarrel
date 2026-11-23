@@ -41,13 +41,17 @@ public struct SendSheetState: Equatable, Sendable {
     public var isOwnNetwork: Bool
     /// Whether the network can be told from others, so that it can be marked.
     public var canMarkOwnNetwork: Bool
+    /// Whether the sentence about the network and its tick are shown: not once the
+    /// book has gone by a link, when there is nothing left for them to be about.
+    public var showsNetwork = true
     /// "Shared." once a share has gone through; nil otherwise.
     public var shareNote: String?
     /// Not nil once a link is showing.
     public var link: SendLinkState?
     /// Whether the sheet can be closed: not in the middle of something.
     public var canClose = false
-    /// Whether what the blockers and warnings offer (Save, Repair) can be begun.
+    /// Whether what the blockers and warnings offer (Save, Repair) can be begun: not
+    /// in the middle of something, and not once a link is showing.
     public var canFix = false
     /// Whether the tick for a square cover can be changed: nothing has been made to send yet
     /// that a link is showing for, and nothing is being made.
@@ -93,7 +97,13 @@ struct SendSession {
     var folders: [URL] = []
     var coversNotSquared = 0
     /// What was handed to the share sheet and has not been heard of since.
-    var sharing: SendFingerprint?
+    var sharing: Sharing?
+
+    struct Sharing {
+        var file: URL
+        var fingerprint: SendFingerprint
+    }
+
     var shared = false
     var link: Link?
 
@@ -244,10 +254,11 @@ extension AppModel {
             networkNote: SendText.networkNote(isOwn: session.isOwnNetwork),
             isOwnNetwork: session.isOwnNetwork,
             canMarkOwnNetwork: session.network != nil,
+            showsNetwork: session.link?.phase != .finished,
             shareNote: session.shared ? SendText.shared : nil,
             link: session.link.map(Self.linkState),
             canClose: busyLabel == nil,
-            canFix: busyLabel == nil,
+            canFix: busyLabel == nil && session.link == nil,
             canChangeSquareCover: free,
             closeTitle: session.shared || session.link?.phase == .finished ? SendText.done : SendText.cancel)
     }
@@ -291,9 +302,10 @@ extension AppModel {
 
     /// PH22: repairs the book's wrong length headers, as Repair Length Headers does (an
     /// operation that Undo reverses), then checks the book again. The sheet stays open.
-    /// Does nothing unless a warning offers the repair.
+    /// Does nothing unless a warning offers the repair, nor once a link is showing:
+    /// what the link serves may be the library's own file.
     public func sendRepair() async {
-        guard let session = sendSession, busyLabel == nil,
+        guard let session = sendSession, busyLabel == nil, session.link == nil,
               sendSheet?.warnings.contains(where: { $0.fix == .repair }) == true
         else { return }
         sendIsActing = true
@@ -360,7 +372,8 @@ extension AppModel {
     }
 
     /// Makes the parent folder if it is not there, for this user alone. Refuses when
-    /// something else has its name: a link (which could lead anywhere) or a file.
+    /// something else has its name: a link (which could lead anywhere) or a file, or a
+    /// folder that is another user's. One found open to other users is closed to them.
     nonisolated static func makeSendParent(in root: URL) throws {
         let parent = sendParent(in: root)
         var info = stat()
@@ -368,7 +381,13 @@ extension AppModel {
             try FileManager.default.createDirectory(
                 at: parent, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         }
-        guard isRealFolder(parent) else { throw SendFolderError.parentIsNotAFolder }
+        guard lstat(parent.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR else {
+            throw SendFolderError.parentIsNotAFolder
+        }
+        guard info.st_uid == getuid() else { throw SendFolderError.parentIsNotOurs }
+        if info.st_mode & 0o077 != 0 {
+            guard chmod(parent.path, 0o700) == 0 else { throw SendFolderError.parentIsNotOurs }
+        }
     }
 
     /// Makes what is sent for the open send's book, in a temporary folder of its own.
@@ -417,28 +436,33 @@ extension AppModel {
     /// closes, whatever the sharing does with it.
     public func shareItems() async -> [URL] {
         guard sendSheet?.canShare == true, let prepared = await prepareSend() else { return [] }
-        sendSession?.sharing = prepared.fingerprint
+        sendSession?.sharing = SendSession.Sharing(file: prepared.file, fingerprint: prepared.fingerprint)
         return [prepared.file]
     }
 
     /// PH23: the system could not share what `shareItems` gave it in the way that was
     /// asked for. Nothing is recorded.
     public func shareUnavailable(_ share: UnavailableShare) async {
-        guard sendSession?.sharing != nil else { return }
-        await shareFinished(completed: false)
+        guard let sharing = sendSession?.sharing else { return }
+        await shareFinished(completed: false, items: [sharing.file])
         switch share {
         case .airDrop: alert = SendText.airDropUnavailable
         }
     }
 
-    /// PH23: the system's sharing is done with what `shareItems` last gave it. When it
-    /// went through, the send is recorded; otherwise nothing is.
-    public func shareFinished(completed: Bool) async {
-        guard let session = sendSession, let fingerprint = session.sharing else { return }
+    /// PH23: the system's sharing is done with `items`, which `shareItems` gave it. When
+    /// it went through, the send is recorded; otherwise nothing is.
+    ///
+    /// A share can outlast the sheet it was begun from. Word of one that is not the
+    /// share now under way changes nothing: it is not about this book.
+    public func shareFinished(completed: Bool, items: [URL]) async {
+        guard let session = sendSession, let sharing = session.sharing,
+              items.map(\.standardizedFileURL.path) == [sharing.file.standardizedFileURL.path]
+        else { return }
         sendSession?.sharing = nil
         guard completed else { return }
         sendSession?.shared = true
-        await recordSend(of: session.bookId, method: .share, fingerprint: fingerprint, with: worker)
+        await recordSend(of: session.bookId, method: .share, fingerprint: sharing.fingerprint, with: worker)
     }
 
     /// Records a send, and shows its date in the inspector (PH29).
@@ -599,6 +623,8 @@ extension AppModel {
 enum SendFolderError: Error {
     /// Something that is not a folder has the name of VoxCarrel's folder of packages.
     case parentIsNotAFolder
+    /// VoxCarrel's folder of packages is another user's, or cannot be kept from others.
+    case parentIsNotOurs
 }
 
 /// The names of the temporary folders this run of the app has made for sends, shared

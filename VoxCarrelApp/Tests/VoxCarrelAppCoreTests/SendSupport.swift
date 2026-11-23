@@ -30,7 +30,7 @@ final class FakeSleepGuard: SleepGuarding {
 @MainActor
 final class FakeNetwork: LocalNetworkReading {
     var localAddresses = ["192.168.1.20"]
-    var network: NetworkIdentity? = NetworkIdentity(router: "192.168.1.1", name: "Home")
+    var network: NetworkIdentity? = NetworkIdentity(router: "192.168.1.1", hardware: "a4:5e:60:c1:02:9f", name: "Home")
 
     func addresses() -> [String] { localAddresses }
     func identity() -> NetworkIdentity? { network }
@@ -88,5 +88,13 @@ extension Harness {
     /// Every recorded sending of the book, newest first.
     func sent(_ id: Int64) throws -> [SentRecord] {
         try LibraryService(store: try store()).sentRecords(for: id)
+    }
+}
+
+extension AppModel {
+    /// The system's sharing reports on what it was last handed, as it does when nothing
+    /// else has been shared since.
+    func shareFinished(completed: Bool) async {
+        await shareFinished(completed: completed, items: sendSession?.sharing.map { [$0.file] } ?? [])
     }
 }
