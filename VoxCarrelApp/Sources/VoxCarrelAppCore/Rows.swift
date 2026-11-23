@@ -139,6 +139,9 @@ public struct BookDetail: Equatable, Sendable {
     /// PH29: when the book was last sent to the phone; nil when it never was, or that
     /// has not been read.
     public var lastSent: Date?
+    /// MG5: the other book to offer a merge with, when this one is flagged because the
+    /// folder it belongs in is that book's; nil otherwise, or when that has not been read.
+    public var mergeOffer: MergeOffer?
 
     public init(row: BookRow, files: [FileRow], chapterCount: Int, collectionIds: Set<Int64>) {
         self.row = row

@@ -138,7 +138,7 @@ extension AppModel {
         guard ids.count == 1, let id = ids.first, id > 0 else { return false }
         return isLibraryOpen && busyLabel == nil && storedPrompt == nil && sendSession == nil
             && !layoutChangeIsUnresolved && layoutPreview == nil && review == nil && result == nil
-            && libraryCheck == nil && seriesChoice == nil && lookup == nil
+            && libraryCheck == nil && seriesChoice == nil && lookup == nil && mergeSession == nil
     }
 
     // MARK: PH21 The check

@@ -52,6 +52,26 @@ extension ImportReview {
         }
     }
 
+    /// MG6: whether the entry has a title and an author to exchange.
+    public func canSwapTitleAndAuthor(of id: UUID) -> Bool {
+        guard let metadata = entry(id)?.candidate.metadata else { return false }
+        return !metadata.title.trimmed.isEmpty && metadata.authors.contains { !$0.trimmed.isEmpty }
+    }
+
+    /// MG6: exchanges the entry's title with its first author; any other authors stay
+    /// after it. The folder and the library book worked out for the entry were for
+    /// the details it had, so both are due again (`entriesNeedingDestination`,
+    /// `entriesNeedingMatch`). Nothing when either is blank.
+    public mutating func swapTitleAndAuthor(for id: UUID) {
+        guard canSwapTitleAndAuthor(of: id) else { return }
+        update(id) { entry in
+            var names = entry.candidate.metadata.authors.compactMap(\.trimmedOrNil)
+            let author = names.removeFirst()
+            entry.candidate.metadata.authors = [entry.candidate.metadata.title.trimmed] + names
+            entry.candidate.metadata.title = author
+        }
+    }
+
     /// Whether a field cannot be typed in: an entry that joins a book already in the
     /// library takes that book's details, so its own are not used. The title and the
     /// authors can always be typed, because they decide which book that is.

@@ -88,6 +88,22 @@ public struct BookDraft: Equatable, Sendable {
 
     var editionKindChanged: Bool { editionKind != original.editionKind }
 
+    /// MG6: whether there is a title and an author to exchange.
+    public var canSwapTitleAndAuthor: Bool {
+        !title.trimmed.isEmpty && !NameListText.names(from: authors).isEmpty
+    }
+
+    /// MG6: exchanges the title with the first author, for a book whose file had them
+    /// in each other's place. The old title becomes the first author; any other
+    /// authors stay after it. Nothing when either is blank.
+    public mutating func swapTitleAndAuthor() {
+        guard canSwapTitleAndAuthor else { return }
+        var names = NameListText.names(from: authors)
+        let author = names.removeFirst()
+        authors = NameListText.text(from: [title.trimmed] + names)
+        title = author
+    }
+
     public var isDirty: Bool {
         cover != .keep || ratingChanged || yearChanged || titleChanged || editionKindChanged
             || textChanged(subtitle, original.subtitle) || namesChanged(authors, original.authors)

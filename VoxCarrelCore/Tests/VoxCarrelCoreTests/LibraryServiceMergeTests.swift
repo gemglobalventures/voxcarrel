@@ -1008,6 +1008,50 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
         #expect(try book(f, a).needsAttention)
     }
 
+    // MARK: MB9 What the plan says of the flag
+
+    @Test func mb9_thePlanSaysWhetherTheKeptBookWillStillNeedAttentionAndWhy() throws {
+        // The owner's three entries: filed where the layout puts the book, unflagged.
+        var f = try F()
+        var (a, b, c) = try ownersCase(f)
+        #expect(try f.service.planMerge(bookIds: [a, b, c], keep: a).attention == nil)
+        try f.service.mergeBooks([a, b, c], keep: a, roles: [:])
+        #expect(try !book(f, a).needsAttention)
+
+        // MB8: a book that is no part of the merge has the folder.
+        f = try F()
+        (a, b, c) = try ownersCase(f)
+        #expect(try f.service.planMerge(bookIds: [a, c], keep: a).attention == .folderTaken)
+        try f.service.mergeBooks([a, c], keep: a, roles: [:])
+        #expect(try book(f, a).needsAttention)
+
+        // The layout cannot file the merged book: it has no author.
+        f = try F()
+        let result = try f.service.importItems([
+            ImportItem(candidate: f.candidate([try f.makeEPUB("loose/one.epub")], BookMetadata(title: "Loose"))),
+            ImportItem(candidate: f.candidate([try f.makePDF("loose/two.pdf")], BookMetadata(title: "Loose Notes"))),
+        ])
+        guard case .needsAttention(let kept) = result.outcomes[0], case .needsAttention(let other) = result.outcomes[1]
+        else {
+            Issue.record("expected both to be catalogued in place, got \(result.outcomes)")
+            return
+        }
+        #expect(try f.service.planMerge(bookIds: [kept, other], keep: kept).attention == .cannotBeFiled)
+        try f.service.mergeBooks([kept, other], keep: kept, roles: [:])
+        #expect(try book(f, kept).needsAttention)
+
+        // A file of the kept entry is missing.
+        f = try F()
+        let (ebook, notes) = try ebookAndNotes(f)
+        try FileManager.default.removeItem(at: f.lib("Frank Herbert/Dune/Dune.epub"))
+        #expect(try f.service.planMerge(bookIds: [ebook, notes], keep: ebook).attention == .fileMissing)
+        try f.service.mergeBooks([ebook, notes], keep: ebook, roles: [:])
+        #expect(try book(f, ebook).needsAttention)
+
+        // Fewer than two entries: there is no merge to say anything of.
+        #expect(try f.service.planMerge(bookIds: [ebook], keep: nil).attention == nil)
+    }
+
     // MARK: MB10
 
     @Test func mb10_theBookWhoseFolderThisOneBelongsInIsNamedOnlyWhenThatIsWhyItIsFlagged() throws {

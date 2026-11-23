@@ -96,8 +96,10 @@ extension AppModel {
     /// interrupted has not been put right.
     ///
     /// PH28: nor while Send to Phone is open, but for the repair and the save it offers.
+    /// MG7: nor while Merge Books is open, but for the merge itself.
     var filesCanChange: Bool {
         !layoutChangeIsUnresolved && layoutPreview == nil && (sendSession == nil || sendIsActing)
+            && (mergeSession == nil || mergeIsActing)
     }
 
     /// Whether a file's role can be changed or a missing file located now.

@@ -35,6 +35,18 @@ public enum MergeBlocker: Equatable, Sendable {
     case layoutChangeInterrupted
 }
 
+/// Why the kept book will still need attention when the entries have been merged.
+public enum MergeAttention: Equatable, Sendable {
+    /// A file of the kept entry is not on disk.
+    case fileMissing
+    /// A book that is no part of the merge has the folder the merged book belongs in.
+    case folderTaken
+    /// The library's layout cannot file the merged book: it lacks a detail the layout needs.
+    case cannotBeFiled
+    /// The entries have no files at all, so the merge leaves the kept entry's flag as it is.
+    case asBefore
+}
+
 /// What merging entries would do.
 public struct MergePlan: Equatable, Sendable {
     /// The entry that is kept.
@@ -48,11 +60,15 @@ public struct MergePlan: Equatable, Sendable {
     /// The folder the kept book is in afterwards, relative to the library; nil when it
     /// cannot be filed anywhere.
     public var resultFolder: String?
+    /// Why the kept book will still need attention afterwards; nil when it will not.
+    /// Worked out as the merge itself settles the flag, for a merge nothing blocks.
+    public var attention: MergeAttention?
 
     public init(
         keepId: Int64, suggestedKeepId: Int64, files: [MergeFilePlan], blockers: [MergeBlocker],
-        resultFolder: String?
+        resultFolder: String?, attention: MergeAttention? = nil
     ) {
+        self.attention = attention
         self.keepId = keepId
         self.suggestedKeepId = suggestedKeepId
         self.files = files
@@ -91,7 +107,8 @@ extension LibraryService {
                     fileId: $0.row.id ?? 0, bookId: $0.bookId, name: $0.name, role: $0.role,
                     guessedRole: $0.guessedRole)
             },
-            blockers: work.blockers, resultFolder: work.folder.map { store.storedPath(for: $0) })
+            blockers: work.blockers, resultFolder: work.folder.map { store.storedPath(for: $0) },
+            attention: work.attention)
     }
 
     /// Whether a file's name holds an Audible ID in brackets: "[B" followed by nine
@@ -140,6 +157,8 @@ extension LibraryService {
         var isRefiled = false
         /// Whether the book ends up where the library's layout puts it.
         var isWhereTheLayoutPutsIt = false
+        /// Why the kept book will still be flagged afterwards; nil when it will not be.
+        var attention: MergeAttention?
         var kept: MergeEntry?
         var others: [MergeEntry] = []
         /// The kept entry with the details of the merged book. The facts about its
@@ -317,7 +336,11 @@ extension LibraryService {
                 + ofRole.filter { !all[$0].isKept }
         }
         work.locations = work.order.map { all[$0].url }
-        guard !all.isEmpty else { return work }
+        guard !all.isEmpty else {
+            // MB9: with no files the flag is not this merge's to change.
+            work.attention = kept.book.needsAttention ? .asBefore : nil
+            return work
+        }
 
         // The folder: where the layout files the merged book, unless a book that is no
         // part of the merge has that folder (FP41, MB8) or a file of the kept entry is
@@ -339,6 +362,15 @@ extension LibraryService {
                 work.isRefiled = true
             }
             work.isWhereTheLayoutPutsIt = !taken && work.folder.flatMap { folderKey($0) } == folderKey(wanted)
+            // MB9, as `mergeBooks` settles the flag: every file there, and the book
+            // where the layout puts it.
+            if taken {
+                work.attention = .folderTaken
+            } else if !keptIsWhole {
+                work.attention = .fileMissing
+            }
+        } else {
+            work.attention = .cannotBeFiled
         }
         // Nowhere to file it: nothing moves, and the kept book takes the files where they are.
         guard let folder = work.folder else { return work }
