@@ -884,4 +884,32 @@ import VoxCarrelFixtures
         await h.model.retryLibrary()
         #expect(h.model.mergeSheet == nil)
     }
+
+    // MARK: MG6 A title that holds a semicolon
+
+    @Test func mg6_aTitleThatHoldsASemicolonIsStillOneAuthorOnceSwapped() {
+        // In the inspector's draft, where several authors are typed with semicolons between.
+        var draft = BookDraft(book: bareBook(title: "Mind; Markets"))
+        draft.authors = "James Dalton; Eric Jones"
+        draft.swapTitleAndAuthor()
+        #expect(draft.title == "James Dalton")
+        #expect(NameListText.names(from: draft.authors) == ["Mind, Markets", "Eric Jones"])
+        #expect(draft.makeEdit()?.metadata.authors == ["Mind, Markets", "Eric Jones"])
+
+        // And for an entry of an import being reviewed: also when its authors are typed again as shown.
+        var review = ImportReview(
+            seeds: [
+                ImportSeed(
+                    candidate: CandidateBook(
+                        files: [CandidateFile(url: URL(fileURLWithPath: "/inbox/a.epub"), role: .ebook)],
+                        metadata: BookMetadata(title: "Mind;Markets", authors: ["James Dalton", "Eric Jones"])),
+                    cover: nil, existingMatch: nil)
+            ], skipped: [], copyInsteadOfMove: false)
+        let id = review.entries[0].id
+        review.swapTitleAndAuthor(for: id)
+        #expect(review.text(for: .title, of: id) == "James Dalton")
+        #expect(review.entry(id)?.candidate.metadata.authors == ["Mind,Markets", "Eric Jones"])
+        review.setText(review.text(for: .authors, of: id), for: .authors, of: id)
+        #expect(review.entry(id)?.candidate.metadata.authors == ["Mind,Markets", "Eric Jones"])
+    }
 }
