@@ -794,10 +794,17 @@ extension LibraryFixture {
         #expect(after.books == before.books)
         #expect(after.files == before.files)
         #expect(after.pattern == before.pattern)
-        #expect(Set(after.bytes.values) == Set(before.bytes.values))
-        #expect(after.bytes.count == before.bytes.count)
-        // The launch check says which book is not where it should be.
-        #expect(try f.service.reconcile().booksWithMissingFiles == [first.bookId])
+        // (The one new file is the record of the change, kept until the folder is back.)
+        var files = after.bytes
+        #expect(files.removeValue(forKey: ".voxcarrel/\(LayoutIntent.fileName)") != nil)
+        #expect(Set(files.values) == Set(before.bytes.values))
+        #expect(files.count == before.bytes.count)
+        // The record of the change is kept, and the launch check says which folder is
+        // out of place (and, the obstacle being there still, cannot put it back).
+        #expect(f.service.hasInterruptedLayoutChange)
+        let report = try f.service.reconcile()
+        #expect(report.layoutChangeProblem != nil)
+        #expect(report.strandedFolders.map(\.belongsAt) == [first.from])
     }
 
     // MARK: FP36 Emptied folders

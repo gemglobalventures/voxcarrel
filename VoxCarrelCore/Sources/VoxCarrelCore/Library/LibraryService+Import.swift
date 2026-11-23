@@ -10,6 +10,7 @@ extension LibraryService {
     public func importItems(
         _ items: [ImportItem], options: ImportOptions = ImportOptions()
     ) throws -> ImportResult {
+        try refuseWhileLayoutChangeIsInterrupted()
         let pattern = try folderPattern()
         var operation = PendingOperation()
         // Books already changed by an earlier item of this call.

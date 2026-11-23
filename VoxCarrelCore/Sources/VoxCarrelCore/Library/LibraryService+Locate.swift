@@ -50,6 +50,7 @@ extension LibraryService {
     ///   overwritten). In each case nothing has changed. If the database cannot be
     ///   written, that error, after the file has been moved back.
     public func locateFile(fileId: Int64, at chosen: URL) throws {
+        try refuseWhileLayoutChangeIsInterrupted()
         let fm = FileManager.default
         // L1
         guard let row = try store.file(id: fileId), let bookId = row.bookId,

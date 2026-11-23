@@ -17,6 +17,7 @@ extension LibraryService {
     /// The outcome for a book lists the files that could not be repaired; an unknown id
     /// gives `.failed`. Nothing is recorded for undo when no file was changed.
     public func repairLengthHeaders(for bookIds: [Int64]) throws -> [SaveOutcome] {
+        try refuseWhileLayoutChangeIsInterrupted()
         var operation = PendingOperation()
         var handled = Set<Int64>()
         var repairedFiles = 0

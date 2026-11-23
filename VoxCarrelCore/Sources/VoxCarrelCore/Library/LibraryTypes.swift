@@ -166,6 +166,14 @@ public struct ReconcileReport: Equatable, Sendable {
     /// Book folders left set aside by a change of folder layout that was interrupted.
     /// Never deleted, and no book in the catalogue points at them.
     public var strandedFolders: [StrandedFolder] = []
+    /// True when a change of folder layout had been cut short and this check put every
+    /// folder back where it was before the change. Said once: the library is in order.
+    public var recoveredLayoutChange = false
+    /// Set when a change of folder layout had been cut short and the library could not
+    /// be put right: why, as a sentence. The folders in the way are among
+    /// `strandedFolders`. Nothing was moved or deleted; every operation that changes
+    /// the library is refused until a later check succeeds.
+    public var layoutChangeProblem: String?
     /// Books whose recorded length was wrong because an MP3 of theirs states the wrong
     /// length, now corrected to the measured one.
     public var correctedLengths: Int
@@ -225,4 +233,9 @@ public enum LibraryError: Error, Equatable {
     /// moved: `book` names it (its title in quotation marks, or "a book") and `reason`
     /// says why. Every folder already moved was put back; nothing was changed.
     case layoutChangeFailed(book: String, reason: String)
+    /// A change of folder layout was cut short (by a crash or a loss of power) and the
+    /// library has not been put right yet: folders may not be where the catalogue
+    /// says. Nothing was changed. `recoverInterruptedLayoutChange`, which the launch
+    /// check calls, puts it right or says why it cannot.
+    case layoutChangeInterrupted
 }

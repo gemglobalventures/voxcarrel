@@ -84,6 +84,7 @@ extension LibraryService {
     ///   retried.
     @discardableResult
     public func undoLast() throws -> String {
+        try refuseWhileLayoutChangeIsInterrupted()
         let batch: OperationBatch
         let snapshot: OperationSnapshot?
         switch try recordedOperation() {
@@ -97,7 +98,9 @@ extension LibraryService {
             throw LibraryError.nothingToUndo
         case .undoable(let recorded, let data):
             // A change of folder layout moved whole folders, and is undone its own way.
-            if let saved = data?.layoutChange { return try undoLayoutChange(recorded, saved) }
+            if let data, let saved = data.layoutChange {
+                return try undoLayoutChange(recorded, token: data.token, saved)
+            }
             batch = recorded
             snapshot = data
         }

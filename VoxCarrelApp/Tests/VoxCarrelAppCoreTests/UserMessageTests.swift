@@ -48,6 +48,14 @@ import VoxCarrelFixtures
             + "Something is already there (/L/Frank Herbert/Dune). Every folder is where it was.")
     }
 
+    /// Says what is wrong and what to do about it, with no talk of records or files.
+    @Test func layoutChangeInterrupted() {
+        #expect(UserMessage.text(for: LibraryError.layoutChangeInterrupted)
+            == "A change of folder layout was interrupted and has not been put right yet, so nothing else can be "
+            + "changed for now. Close the library and open it again: VoxCarrel will try once more to put "
+            + "every folder back.")
+    }
+
     /// M1: each stranded file on its own line.
     @Test func rollbackIncomplete() {
         let error = LibraryError.rollbackIncomplete(
@@ -145,6 +153,7 @@ import VoxCarrelFixtures
             LibraryError.rollbackIncomplete(cause: "the disk is full", stranded: ["/a (from /b)"]),
             LibraryError.cannotLocate("it is not a plain file"),
             LibraryError.layoutChangeFailed(book: "“Dune”", reason: "it is locked"),
+            LibraryError.layoutChangeInterrupted,
             CollectionError.blankName, CollectionError.notFound(1),
             MetadataIOError.unsupportedFormat("ogg"), MetadataIOError.unreadable("/a.m4b"),
             MetadataIOError.locked("/a.m4b"), MetadataIOError.notARegularFile("/a.m4b"),

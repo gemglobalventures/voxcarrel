@@ -95,6 +95,10 @@ public enum UserMessage {
             "That book has no files, so it must stay marked as owned somewhere. Remove it instead."
         case .invalidDetails(let reason):
             sentence(reason)
+        case .layoutChangeInterrupted:
+            "A change of folder layout was interrupted and has not been put right yet, so nothing else can be "
+                + "changed for now. Close the library and open it again: VoxCarrel will try once more to put "
+                + "every folder back."
         case .layoutChangeFailed(let book, let reason):
             joined([
                 "The folder of \(book) could not be moved, so the folder layout was not changed.", sentence(reason),

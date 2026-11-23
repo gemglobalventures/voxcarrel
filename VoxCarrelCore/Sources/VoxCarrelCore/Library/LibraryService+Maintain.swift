@@ -10,6 +10,7 @@ extension LibraryService {
     ///   are an ebook or an extra); the organiser's error when the file cannot be moved, in
     ///   which case nothing has changed.
     public func setRole(_ role: FileRole, forFile fileId: Int64) throws {
+        try refuseWhileLayoutChangeIsInterrupted()
         // M1
         guard let target = try store.file(id: fileId), let bookId = target.bookId,
               let book = try store.book(id: bookId)
@@ -133,6 +134,7 @@ extension LibraryService {
     /// could not be written; an unknown id gives `.failed`. A book for which nothing was
     /// written and nothing changed is reported as saved without being recorded.
     public func rewriteTags(for bookIds: [Int64]) throws -> [SaveOutcome] {
+        try refuseWhileLayoutChangeIsInterrupted()
         var operation = PendingOperation()
         var handled = Set<Int64>()
 
@@ -220,6 +222,7 @@ extension LibraryService {
     ///   to the Trash, that error: the book then stays in the database, and files already
     ///   in the Trash stay there.
     public func removeBook(id: Int64, moveFilesToTrash: Bool) throws {
+        try refuseWhileLayoutChangeIsInterrupted()
         guard try store.book(id: id) != nil else { throw LibraryError.bookNotFound(id) }
         let urls = try store.files(bookId: id).map { store.url(for: $0) }
 
@@ -279,6 +282,10 @@ extension LibraryService {
 
     /// Checks the library folder against the database. Run at launch.
     ///
+    /// First of all a change of folder layout that was cut short is put right
+    /// (`recoverInterruptedLayoutChange`): `recoveredLayoutChange` and
+    /// `layoutChangeProblem` say what came of that.
+    ///
     /// Looks only at names, sizes and whether files exist. No file is opened, except for
     /// what `checkLengths` does: the audio files of a book whose recorded length cannot
     /// be right for their size, or one of whose files is recorded as stating the wrong
@@ -293,6 +300,17 @@ extension LibraryService {
     public func reconcile() throws -> ReconcileReport {
         var report = ReconcileReport()
         let fm = FileManager.default
+
+        // FP43: a change of folder layout that was cut short is put right before
+        // anything is checked, so that what is checked is the library as it should be.
+        let recovery = try recoverInterruptedLayoutChange()
+        report.recoveredLayoutChange = recovery.foldersPutBack
+        report.layoutChangeProblem = recovery.problem
+        report.strandedFolders = recovery.unresolved
+        // While that could not be done the folders are known not to be where the
+        // catalogue says: checking them against it would only flag every book the
+        // change had moved. The check waits until the library has been put right.
+        if recovery.problem != nil { return report }
 
         // R1, R2
         let pattern = try folderPattern()

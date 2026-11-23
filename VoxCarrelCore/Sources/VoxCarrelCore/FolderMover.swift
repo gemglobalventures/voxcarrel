@@ -53,6 +53,20 @@ struct FolderMover {
     /// Renames a folder to a path where nothing exists; throws when something does.
     var rename: (URL, URL) throws -> Void = FolderMover.renameWithoutReplacing
 
+    /// For tests: a rename that throws this stops the move dead, with nothing put back,
+    /// as a crash or a loss of power would.
+    struct Halted: Error {}
+
+    /// What a move is about to do beyond the moves it was given, worked out before the
+    /// first folder is renamed.
+    struct Preparation {
+        /// Where each folder that is set aside on the way is set aside, by move index.
+        var parkedAt: [Int: URL] = [:]
+        /// Folders the move makes on the way to a destination: those that are not there
+        /// now, and those that are now (or are inside) a folder being moved.
+        var madeFolders: [URL] = []
+    }
+
     static let manifestName = "moves.json"
 
     /// One line of the list kept beside folders that are set aside, so that a folder
@@ -103,10 +117,19 @@ struct FolderMover {
     private func layout(of moves: [PlannedMove]) -> Layout {
         let library = LibraryLayout(root: root)
         var result = Layout()
+        // Nothing hidden is moved, with one exception: a folder that was set aside (by
+        // a move that was cut short) may be moved out of the place it was set aside in.
+        let parkingPlace = library.relativeComponents(of: parking) ?? []
+        func isHidden(_ names: [String]) -> Bool { names.contains { $0.hasPrefix(".") } }
+        func isSetAside(_ names: [String]) -> Bool {
+            names.count == parkingPlace.count + 2 && !parkingPlace.isEmpty
+                && Array(names.prefix(parkingPlace.count)) == parkingPlace
+                && !isHidden(Array(names.dropFirst(parkingPlace.count)))
+        }
         for (index, move) in moves.enumerated() {
             guard let from = library.relativeComponents(of: move.from),
                   let to = library.relativeComponents(of: move.to),
-                  !from.contains(where: { $0.hasPrefix(".") }), !to.contains(where: { $0.hasPrefix(".") })
+                  !isHidden(from) || isSetAside(from), !isHidden(to)
             else {
                 result.outside.append(index)
                 continue
@@ -223,8 +246,10 @@ struct FolderMover {
     /// Folders the moves leave empty are removed afterwards, upward to but never
     /// including the library folder; a folder still holding anything other than a
     /// `.DS_Store` is left alone.
+    /// - Parameter willBegin: Called once everything has been checked and worked out,
+    ///   just before the first folder is renamed. If it throws, nothing is moved.
     /// - Throws: `FolderMoveError`. After `.failed`, every folder is where it was.
-    func move(_ moves: [PlannedMove]) throws {
+    func move(_ moves: [PlannedMove], willBegin: ((Preparation) throws -> Void)? = nil) throws {
         guard !moves.isEmpty else { return }
         let layout = layout(of: moves)
 
@@ -266,6 +291,25 @@ struct FolderMover {
             ($0.to.count, $0.to.joined(separator: "/"), $0.index) < ($1.to.count, $1.to.joined(separator: "/"), $1.index)
         }
 
+        if let willBegin {
+            var preparation = Preparation(parkedAt: slots)
+            var seen = Set<[String]>()
+            for item in layout.items {
+                for depth in 1..<max(item.to.count, 1) {
+                    let above = Array(item.to.prefix(depth))
+                    let key = naming.key(above)
+                    guard seen.insert(key).inserted else { continue }
+                    let vacated = layout.sources.contains(key) || Self.prefixes(key).contains(where: layout.sources.contains)
+                    if vacated || !Self.exists(url(above)) { preparation.madeFolders.append(url(above)) }
+                }
+            }
+            do {
+                try willBegin(preparation)
+            } catch {
+                throw FolderMoveError.failed(index: moves.startIndex, reason: LibraryService.describe(error))
+            }
+        }
+
         var done: [Hop] = []
         var created: [URL] = []
         var failedIndex = moves.startIndex
@@ -296,6 +340,7 @@ struct FolderMover {
                 try hop(Hop(index: item.index, from: slots[item.index] ?? url(item.from), to: destination), done: &done)
             }
         } catch {
+            if error is Halted { throw error }
             let reason = (error as? Failure)?.reason ?? LibraryService.describe(error)
             let stranded = putBack(done, created: created)
             removeParking(slotFolder)

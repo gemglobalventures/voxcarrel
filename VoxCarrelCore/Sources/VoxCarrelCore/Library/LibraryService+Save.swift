@@ -9,6 +9,7 @@ extension LibraryService {
     /// pattern cannot be read, before anything is done, or when the database commit
     /// fails, in which case everything the call did is reversed.
     public func save(_ edits: [BookEdit]) throws -> [SaveOutcome] {
+        try refuseWhileLayoutChangeIsInterrupted()
         let pattern = try folderPattern()
         var operation = PendingOperation()
         // Books an earlier edit of this call has already dealt with.

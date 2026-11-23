@@ -71,6 +71,10 @@ public final class LibraryService {
     /// nothing exists, and never by copying. A test seam.
     var renameFolder: (URL, URL) throws -> Void = FolderMover.renameWithoutReplacing
 
+    /// Test seam: called once a change of folder layout (or the undoing of one) has
+    /// written the catalogue, before it tidies up after itself.
+    var afterLayoutCommit: (() throws -> Void)?
+
     /// The stored folder pattern last logged as unreadable, so it is said once.
     var unreadablePatternLogged: String?
 
@@ -588,6 +592,9 @@ public final class LibraryService {
             case .wouldLeaveNothing:
                 return "That book has no files, so it must stay marked as owned somewhere"
             case .invalidDetails(let reason): return reason
+            case .layoutChangeInterrupted:
+                return "A change of folder layout was interrupted and has not been put right yet, so nothing "
+                    + "else can be changed"
             case .layoutChangeFailed(let book, let reason):
                 return "The folder of \(book) could not be moved, so the folder layout was not changed: \(reason)"
             }

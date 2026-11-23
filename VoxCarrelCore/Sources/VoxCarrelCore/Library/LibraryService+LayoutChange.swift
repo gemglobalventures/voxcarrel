@@ -352,6 +352,7 @@ extension LibraryService {
     ///   could not all be put back; the catalogue's own error when the commit fails.
     @discardableResult
     public func applyLayoutChange(to pattern: FolderPattern) throws -> LayoutChangePlan {
+        try refuseWhileLayoutChangeIsInterrupted()
         let patternBefore = try folderPattern()
         let textBefore = try store.folderPatternText()
         let work = try layoutChange(to: pattern)
@@ -408,10 +409,19 @@ extension LibraryService {
             moves: moves.map { MoveRecord(from: $0.from.path, to: $0.to.path, wasCopy: false) },
             snapshot: try JSONEncoder().encode(snapshot))
 
-        let mover = folderMover()
+        // FP43: what is about to be done is on disk before the first folder moves, so
+        // that a crash at any point from here to the commit can be put right when the
+        // library is next opened. The record goes once the catalogue is written, or
+        // every folder is back.
+        var intent = LayoutIntent(
+            token: snapshot.token, committedWhenJournalHolds: true, patternTextBefore: textBefore,
+            patternTextAfter: pattern.text)
         do {
-            try mover.move(moves)
+            intent = try moveFolders(moves, recording: intent)
         } catch let error as FolderMoveError {
+            // Put back in full, there is nothing left to put right; if not, the record
+            // stays, and the next launch tries again.
+            if case .failed = error { removeLayoutIntent() }
             throw layoutError(error, books: work.movers.map(\.book))
         }
 
@@ -419,15 +429,22 @@ extension LibraryService {
             try beforeCommit?()
             try store.apply(change)
         } catch {
+            if error is FolderMover.Halted { throw error }
             // The catalogue is as it was; so must the folders be.
-            do {
-                try mover.move(moves.map { PlannedMove(from: $0.to, to: $0.from) })
-            } catch let moveError {
-                throw LibraryError.rollbackIncomplete(
-                    cause: Self.describe(error), stranded: Self.stranded(after: moveError, undoing: moves))
+            if !moves.isEmpty {
+                do {
+                    _ = try restoreFolders(intent)
+                } catch let failure as LayoutRestoreFailure {
+                    throw LibraryError.rollbackIncomplete(
+                        cause: Self.describe(error),
+                        stranded: failure.outOfPlace.map { "\($0.url.path) (from \($0.belongsAt ?? "?"))" })
+                }
+                removeLayoutIntent()
             }
             throw error
         }
+        try afterLayoutCommit?()
+        removeLayoutIntent()
         // The journal now holds this change: the undo data of earlier ones is of no use.
         forgetUndoData()
         return work.plan
@@ -458,21 +475,6 @@ extension LibraryService {
         }
     }
 
-    /// The folders left out of place when reversing `moves` (to put a change that
-    /// could not be committed back) failed, each as "<where it is> (from <where it was>)".
-    private static func stranded(after error: Error, undoing moves: [PlannedMove]) -> [String] {
-        // Where each folder is now, by where the change had put it. A reversal that
-        // failed cleanly was itself undone: every folder is where the change put it.
-        var now: [String: String] = [:]
-        if case FolderMoveError.rollbackIncomplete(_, _, let outstanding) = error {
-            for record in outstanding { now[record.from] = record.to }
-        }
-        return moves.compactMap { move in
-            let place = now[move.to.path] ?? move.to.path
-            return place == move.from.path ? nil : "\(place) (from \(move.from.path))"
-        }
-    }
-
     // MARK: Undoing
 
     /// Reverses a change of folder layout: every folder goes back to where it was, all
@@ -488,7 +490,7 @@ extension LibraryService {
     /// and `LibraryError.undoBlocked` says why. If the catalogue cannot be written the
     /// folders are moved to where the change put them again, so that the undo can be
     /// tried again, and the error is thrown.
-    func undoLayoutChange(_ batch: OperationBatch, _ saved: LayoutChangeSnapshot) throws -> String {
+    func undoLayoutChange(_ batch: OperationBatch, token: String, _ saved: LayoutChangeSnapshot) throws -> String {
         let fm = FileManager.default
         // Each book the change moved must still be where it was put: undoing moves
         // whole folders, and must not move a folder that is something else by now.
@@ -520,12 +522,17 @@ extension LibraryService {
                 from: URL(fileURLWithPath: $0.to, isDirectory: true),
                 to: URL(fileURLWithPath: $0.from, isDirectory: true))
         }
-        let mover = folderMover()
+        // FP43, as for the change itself: here the catalogue is written once the
+        // journal no longer holds the change being undone.
+        var intent = LayoutIntent(
+            token: token, committedWhenJournalHolds: false, patternTextBefore: try store.folderPatternText(),
+            patternTextAfter: saved.patternTextBefore)
         do {
-            try mover.move(back)
+            intent = try moveFolders(back, recording: intent)
         } catch let error as FolderMoveError {
             switch error {
             case .failed(_, let reason):
+                removeLayoutIntent()
                 throw LibraryError.undoBlocked(reason)
             case .rollbackIncomplete(_, let reason, let outstanding):
                 throw LibraryError.rollbackIncomplete(
@@ -564,10 +571,15 @@ extension LibraryService {
             try beforeCommit?()
             try store.apply(change)
         } catch {
-            // The catalogue still describes the library as the change left it.
-            try? mover.move(back.reversed().map { PlannedMove(from: $0.to, to: $0.from) })
+            if error is FolderMover.Halted { throw error }
+            // The catalogue still describes the library as the change left it: the
+            // folders go there again. If they cannot, the record stays, and the next
+            // launch tries again.
+            if !back.isEmpty, (try? restoreFolders(intent)) != nil { removeLayoutIntent() }
             throw error
         }
+        try afterLayoutCommit?()
+        removeLayoutIntent()
         forgetUndoData()
         return batch.label
     }
