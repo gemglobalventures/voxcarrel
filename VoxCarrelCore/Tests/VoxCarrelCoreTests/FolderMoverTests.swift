@@ -378,6 +378,28 @@ import VoxCarrelFixtures
         #expect(g.contents() == expected)
     }
 
+    /// On a volume that cannot refuse and rename in one step, the rename itself would
+    /// put a folder in the place of an empty one: the look just before it must refuse.
+    @Test func fp35_aDestinationThatAppearsAfterTheCheckIsNotReplacedEvenByAPlainRename() throws {
+        let g = try Ground()
+        try g.make("Ann/One")
+        let before = g.contents()
+        g.mover.rename = { from, to in
+            guard Darwin.rename(from.path, to.path) == 0 else { throw POSIXError(.EIO) }
+        }
+        let intruder = g.url("Z/One")
+        #expect(throws: FolderMoveError.self) {
+            // Everything has been checked by now; then something else makes the destination.
+            try g.mover.move(g.moves([("Ann/One", "Z/One")])) { _ in
+                try FileManager.default.createDirectory(at: intruder, withIntermediateDirectories: true)
+            }
+        }
+        var expected = before
+        expected["Z"] = "<folder>"
+        expected["Z/One"] = "<folder>"
+        #expect(g.contents() == expected)
+    }
+
     @Test func fp35_aFolderThatCannotBePutBackIsNamedAndNothingIsLost() throws {
         let g = try Ground()
         for name in ["One", "Two", "Three"] { try g.make("Ann/\(name)") }
