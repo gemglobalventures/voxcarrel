@@ -33,7 +33,8 @@ public enum FilenameParser {
     /// (but shape alone does not make an author of the second side when the first is
     /// one capitalised word, which may be a person named alone or by surname, or
     /// begins with an article, as the name of a group or a publisher may). An order
-    /// that shape alone decided is noted `.orderGuessedByShape`, whichever it is.
+    /// that shape alone decided is noted `.orderGuessedByShape`, whichever it is. A name
+    /// written all in lower case is never decided by shape.
     /// With nothing to go on it is read as "Author - Title" and noted `.orderUnsure`;
     /// read the other way it is noted `.orderSwapped`. A number before the dash is a
     /// part or series number, and the rest is the title.
@@ -116,12 +117,13 @@ public enum FilenameParser {
             authorIsFirst = authors.0
         } else if titles.0 != titles.1 {
             authorIsFirst = titles.1
-        } else if shapes.0 != shapes.1,
+        } else if shapes.0 != shapes.1, !(a + b).allSatisfy({ !$0.isUppercase }),
                   shapes.0 || !(NameShape.couldBeALoneName(a) || NameShape.beginsWithArticle(a)) {
             // Shape alone never turns round a first side that may be a lone name
             // ("Aristotle - Nicomachean Ethics", "Herbert - Dune Messiah"), nor one
             // that begins with an article and may be a group's or a publisher's name
             // ("The Great Courses - Ancient Greece", "The Beatles - Abbey Road").
+            // And a name with no capital anywhere gives shape nothing to go by.
             authorIsFirst = shapes.0
             // A guess all the same, whichever way round it came out.
             guess.notes.insert(.orderGuessedByShape)

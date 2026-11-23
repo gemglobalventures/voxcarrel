@@ -246,6 +246,30 @@ import Testing
         #expect(guess("Theory of Games - Ann Author.epub").author == "Ann Author")
     }
 
+    // A name written all in lower case has no capitals for shape to go by: its order
+    // is unsure, never swapped by shape. What is known still decides.
+    @Test func anAllLowercaseNameIsUnsureAndNeverSwappedByShape() {
+        for name in [
+            "mind over markets - james f. dalton", "dune - frank herbert", "slow horses - mick herron",
+            "debt of honor - tom clancy", "frank herbert - dune", "catch-22 - joseph heller",
+            "the outsider - albert camus", "memoirs - de la mare", "f. scott - gatsby", "j.r.r. tolkien - the hobbit",
+            "le guin, ursula k. - the dispossessed",
+        ] {
+            let g = guess("\(name).epub")
+            let sides = name.components(separatedBy: " - ")
+            #expect(g.author == sides[0], "\(name)")
+            #expect(g.title == sides[1], "\(name)")
+            #expect(g.notes.contains(.orderUnsure), "\(name)")
+            #expect(!g.notes.contains(.orderSwapped), "\(name)")
+            #expect(!g.notes.contains(.orderGuessedByShape), "\(name)")
+        }
+        let known = guess("dune - frank herbert.epub", known: knowing(authors: ["Frank Herbert"]))
+        #expect(known.author == "frank herbert")
+        #expect(known.notes == [.fromFileName, .orderSwapped])
+        // One side with capitals is still read by shape.
+        #expect(guess("dune - Frank Herbert.epub").notes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
+    }
+
     // IM11: when the same is known of both sides, that evidence decides nothing.
     @Test func IM11_evidenceOnBothSidesDecidesNothing() {
         let authors = knowing(authors: ["Mick Herron", "Slow Horses"])
