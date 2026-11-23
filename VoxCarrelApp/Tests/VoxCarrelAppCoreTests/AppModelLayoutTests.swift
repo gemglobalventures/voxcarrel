@@ -141,6 +141,42 @@ func layoutTree(_ root: URL) -> [String] {
         #expect(h.model.layoutExampleText == "Audiobooks/Marcus Lindqvist/Harbour of Glass")
     }
 
+    /// FL3, FL5, FL6: the example, the preview and the change itself agree: every book
+    /// the change moves ends up in the folder its example named, and the preview's
+    /// moves are among them.
+    @Test func fl3_theExampleIsWhereThePreviewAndTheChangePutTheBook() async throws {
+        let h = try await Harness.demo()
+        h.model.chooseLayout(Self.kindName)
+        var examples: [Int64: String] = [:]
+        var foldersBefore: [Int64: String] = [:]
+        for row in h.model.rows where row.hasFiles {
+            h.model.click(row.id, modifiers: [])
+            await h.model.settle()
+            examples[row.id] = h.model.layoutExampleText
+            foldersBefore[row.id] = try h.book(row.id).folderPath
+        }
+        h.model.select([])
+        await h.model.settle()
+
+        await h.model.previewLayoutChange()
+        let preview = try #require(h.model.layoutPreview)
+        await h.model.applyLayoutChange()
+
+        var moved: [String: String] = [:]
+        for (id, before) in foldersBefore {
+            let after = try #require(try h.book(id).folderPath)
+            guard after != before else { continue }
+            moved[before] = after
+            #expect(after == examples[id])
+        }
+        #expect(moved.count > 3)
+        #expect(!preview.examples.isEmpty)
+        for example in preview.examples {
+            #expect(moved[example.from] == example.to)
+        }
+        #expect(preview.heading == "\(moved.count) books will move")
+    }
+
     @Test func fl3_aLibraryWithNoSeriesIsShownTheBuiltInSample() async throws {
         let h = try await Harness.empty()
         #expect(h.model.layoutExampleText == "Tom Clancy/Jack Ryan/3 - Red Rabbit")

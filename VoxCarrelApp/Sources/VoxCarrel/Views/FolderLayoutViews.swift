@@ -89,10 +89,13 @@ struct FolderLayoutSettings: View {
 /// What changing the folder layout would do, before it is done: how many books move,
 /// a few of the moves, the books that stay and why. The model closes it, when the
 /// change is made or cancelled.
+///
+/// Every part has a height of its own, so the sheet is as tall as what it shows from
+/// the start: the books that stay are listed at once, in a list that scrolls when
+/// there are more than a few.
 struct LayoutPreviewSheet: View {
     let model: AppModel
     let preview: LayoutPreview
-    @State private var showsStaying = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -114,13 +117,18 @@ struct LayoutPreviewSheet: View {
                     TableColumn("Title") { example in
                         LayoutPreviewCell(text: example.title, id: "layoutPreview.example.\(example.id).title")
                     }
-                    .width(min: 100, ideal: 150)
+                    // The title is the least of it: the two paths share all the rest.
+                    .width(min: 90, ideal: 150, max: 220)
                     TableColumn("From") { example in
-                        LayoutPreviewCell(text: example.from, id: "layoutPreview.example.\(example.id).from")
+                        LayoutPreviewCell(
+                            text: example.from, id: "layoutPreview.example.\(example.id).from", keepsEnd: true)
                     }
+                    .width(min: 220)
                     TableColumn("To") { example in
-                        LayoutPreviewCell(text: example.to, id: "layoutPreview.example.\(example.id).to")
+                        LayoutPreviewCell(
+                            text: example.to, id: "layoutPreview.example.\(example.id).to", keepsEnd: true)
                     }
+                    .width(min: 220)
                 }
                 // Tall enough for the examples there are, of which there are at most eight.
                 .frame(height: CGFloat(preview.examples.count) * 26 + 34)
@@ -132,7 +140,11 @@ struct LayoutPreviewSheet: View {
             }
 
             if !preview.staying.isEmpty {
-                DisclosureGroup(isExpanded: $showsStaying) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Books that stay where they are")
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("layoutPreview.staying.label")
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
                             ForEach(preview.staying) { row in
@@ -140,14 +152,17 @@ struct LayoutPreviewSheet: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
+                        .padding(8)
                     }
-                    .frame(maxHeight: 160)
-                } label: {
-                    Text("Books that stay where they are")
-                        .accessibilityIdentifier("layoutPreview.staying.label")
+                    // A height of its own, never one squeezed out of what is left: room
+                    // for each row up to four, and the rest are scrolled to.
+                    .frame(height: CGFloat(min(preview.staying.count, 4)) * 42 + 16)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .strokeBorder(.separator, lineWidth: 1)
+                    }
+                    .accessibilityIdentifier("layoutPreview.staying")
                 }
-                .accessibilityIdentifier("layoutPreview.staying")
             }
 
             Text(model.layoutPreviewNote)
@@ -172,20 +187,26 @@ struct LayoutPreviewSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 680)
+        .frame(width: 1000)
+        .fixedSize(horizontal: false, vertical: true)
         .interactiveDismissDisabled()
     }
 }
 
 /// One cell of the table of examples. Given plain values: it is a table's cell.
+///
+/// A folder that does not fit keeps its end: the book's own folder and the levels just
+/// above it. The whole of it is in the tooltip.
 private struct LayoutPreviewCell: View {
     let text: String
     let id: String
+    var keepsEnd = false
 
     var body: some View {
         Text(text)
             .lineLimit(1)
-            .truncationMode(.middle)
+            .truncationMode(keepsEnd ? .head : .tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .help(text)
             .accessibilityIdentifier(id)
     }
