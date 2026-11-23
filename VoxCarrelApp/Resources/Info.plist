@@ -25,6 +25,9 @@
         </dict>
     </dict>
 </dict>
+<!-- Send to Phone's link is fetched by the phone over the local network. Nothing else listens. -->
+<key>NSLocalNetworkUsageDescription</key>
+<string>VoxCarrel uses your local network only when you choose Show Link, to send the book you chose to your phone.</string>
 <!-- Opening these with VoxCarrel imports them. Alternate: never the default app for any of them. -->
 <key>CFBundleDocumentTypes</key>
 <array>

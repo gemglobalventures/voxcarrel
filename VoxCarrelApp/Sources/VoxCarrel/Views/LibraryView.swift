@@ -83,6 +83,16 @@ private struct LibraryToolbar: ToolbarContent {
         }
         ToolbarItem {
             Button {
+                Task { await model.beginSendToPhone() }
+            } label: {
+                Label("Send to Phone", systemImage: "iphone")
+            }
+            .disabled(!model.canSendToPhone)
+            .help("Send the selected audiobook to your phone")
+            .accessibilityIdentifier("toolbar.sendToPhone")
+        }
+        ToolbarItem {
+            Button {
                 inspectorShown.toggle()
             } label: {
                 Label("Inspector", systemImage: "sidebar.trailing")

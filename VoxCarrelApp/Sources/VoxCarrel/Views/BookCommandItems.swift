@@ -117,6 +117,15 @@ struct BookCommandItems: View {
 
         Divider()
 
+        // Send to phone plan: for one audiobook; the sheet says what stands in the way.
+        Button("Send to Phone…") {
+            Task { await model.beginSendToPhone(for: books) }
+        }
+        .disabled(!model.canSendToPhone(books))
+        .accessibilityIdentifier("\(prefix).sendToPhone")
+
+        Divider()
+
         // No key of its own here: ⌘⌫ in a menu would take it from a text field that is
         // being typed in. The grid and the list answer Delete themselves.
         Button("Remove…") { model.requestRemove(books) }

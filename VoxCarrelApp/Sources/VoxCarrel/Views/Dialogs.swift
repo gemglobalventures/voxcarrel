@@ -5,8 +5,9 @@ import VoxCarrelAppCore
 ///
 /// One sheet at a time, in the model's order (`AppModel.windowSheet`): progress, the
 /// import review, a result, the launch check, the preview of a change of folder layout,
-/// the choice between Audible series, and a
-/// lookup: for the inspected book, or to add an Audible book. Which is up is
+/// the choice between Audible series, a
+/// lookup (for the inspected book, or to add an Audible book), and Send to Phone, which
+/// shows what it is doing itself: progress does not take its place. Which is up is
 /// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
 /// is up has closed, so each has a sheet window of its own, at its own size.
 ///
@@ -67,9 +68,9 @@ struct Dialogs: ViewModifier {
                 case .lookup(let lookup):
                     LookupSheet(shown: lookup)
                         .modifier(Questions(isActive: true))
-                case .sendToPhone:
-                    // Nothing in the window opens it yet.
-                    EmptyView()
+                case .sendToPhone(let state):
+                    SendToPhoneSheet(model: model, state: state)
+                        .modifier(Questions(isActive: true))
                 }
             }
             // While a sheet is up, or about to be, the sheet shows them.

@@ -32,4 +32,20 @@ import VoxCarrelCore
         let domains = try #require(security["NSExceptionDomains"] as? [String: Any])
         #expect(Array(domains.keys) == [InsecureOrigin.libraryOfCongress.host])
     }
+
+    /// Send to Phone's link is fetched over the local network: the system asks the owner
+    /// the first time, with this sentence.
+    @Test func theLocalNetworkIsAskedForWithAPlainReason() throws {
+        #expect(
+            try plist()["NSLocalNetworkUsageDescription"] as? String
+                == "VoxCarrel uses your local network only when you choose Show Link, to send the book you chose "
+                + "to your phone.")
+    }
+
+    /// Nothing else is asked for: no location, to read a Wi-Fi name with, and no Bonjour services.
+    @Test func noOtherPermissionIsAskedFor() throws {
+        let asked = try plist().keys.filter { $0.hasSuffix("UsageDescription") }
+        #expect(asked == ["NSLocalNetworkUsageDescription"])
+        #expect(try plist()["NSBonjourServices"] == nil)
+    }
 }

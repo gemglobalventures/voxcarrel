@@ -493,6 +493,14 @@ private struct ReadingControls: View {
                 .accessibilityIdentifier("inspector.audioSummary")
         }
 
+        // Send to phone plan, PH29.
+        if let sent = detail.sentToPhoneText() {
+            Label(sent, systemImage: "iphone")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("inspector.sentToPhone")
+        }
+
         if let ownership = model.inspectorOwnershipText {
             Label(ownership, systemImage: SidebarItem.onAudible.symbol)
                 .font(.callout)
