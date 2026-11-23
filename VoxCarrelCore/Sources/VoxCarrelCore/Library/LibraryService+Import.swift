@@ -20,10 +20,10 @@ extension LibraryService {
             if let bookId = row.bookId { owners[Self.comparablePath(store.url(for: row))] = bookId }
         }
         var seen = Set<String>()
-        // Which book has which folder, for the one case in which adding files re-files a
-        // book (the pattern files by whether a book has audio), kept up to date as this
-        // call files and moves books (FP41).
-        var folderOwners: FolderOwners? = pattern.usesKind ? try folderOwners() : nil
+        // Which book has which folder, kept up to date as this call files and moves
+        // books: a book already in the library is never filed, or re-filed, into
+        // another book's folder (FP41).
+        var folderOwners: FolderOwners? = try folderOwners()
         // Worked out for every item before anything moves: a path is resolved through
         // the folders that exist, so it would read differently once its file has gone.
         let itemPaths = items.map { $0.candidate.files.map { Self.comparablePath($0.url) } }
@@ -252,7 +252,8 @@ extension LibraryService {
         if let entry = try? store.book(id: bookId), entry.folderPath == nil, !entry.needsAttention,
            (try? store.files(bookId: bookId))?.isEmpty == true {
             return prepareFirstFiles(
-                item, book: entry, bookId: bookId, options: options, pattern: pattern, into: &operation)
+                item, book: entry, bookId: bookId, options: options, pattern: pattern, owners: &owners,
+                into: &operation)
         }
         do {
             // A1, A7
@@ -409,12 +410,12 @@ extension LibraryService {
     /// first of them becomes the book's.
     ///
     /// All or nothing: if the book cannot be filed (neither it nor its files name an
-    /// author, say) or a file cannot be transferred, the item fails and nothing has
-    /// moved. Undo takes the files back out with the tags and covers they had, and
+    /// author, say, or the folder it belongs in is another book's: FP41) or a file
+    /// cannot be transferred, the item fails and nothing has moved. Undo takes the files back out with the tags and covers they had, and
     /// leaves the book as the entry with no files it was.
     private func prepareFirstFiles(
         _ item: ImportItem, book: Book, bookId: Int64, options: ImportOptions, pattern: FolderPattern,
-        into operation: inout PendingOperation
+        owners: inout FolderOwners?, into operation: inout PendingOperation
     ) -> PreparedItem {
         var files: [WorkingFile]
         do {
@@ -444,6 +445,14 @@ extension LibraryService {
                     ? "\(name) cannot be filed under its title and author, so files cannot be added to it yet"
                     : "\(name) has no author, and neither have these files, so they cannot be filed: "
                         + "give the book an author first")
+        }
+
+        // FP41: the book has no folder yet, and is not given another book's.
+        if isAnotherBooksFolder(plan.folder, for: bookId, owners: &owners) {
+            let title = details.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failed(
+                "\(title.isEmpty ? "That book" : "“\(title)”") cannot be filed yet, so files cannot be added to it. "
+                    + Self.folderTakenReason)
         }
 
         // What undo needs is saved before anything moves, so a failure here leaves the

@@ -258,6 +258,72 @@ import VoxCarrelFixtures
         ])
     }
 
+    // MARK: The first files of a book that has none
+
+    private func ownedElsewhere(_ f: F, _ title: String, _ author: String) throws -> Int64 {
+        guard case .added(let id) = try f.service.addExternalBook(
+            metadata: F.meta(title, author), cover: nil, copy: ExternalCopy(kind: .audible, form: .audio))
+        else {
+            Issue.record("the book was not added")
+            throw F.FixtureError.unexpectedOutcome
+        }
+        return id
+    }
+
+    @Test func fp41_theFirstFilesOfABookAreNotFiledIntoAnotherBooksFolder() throws {
+        let f = try F()
+        // An ebook "Dune", and a "Dune" owned elsewhere with no files: two books.
+        let ebook = try f.importNew([try f.makeEPUB("dune.epub")], F.meta("Dune", "Frank Herbert"))
+        var stored = try book(f, ebook)
+        stored.needsAttention = true  // so that the entry is not taken for the same book
+        try f.store.update(stored)
+        let owned = try ownedElsewhere(f, "Dune", "Frank Herbert")
+        stored.needsAttention = false
+        try f.store.update(stored)
+        #expect(owned != ebook)
+        let tree = f.libraryTree()
+
+        // Its first file would be filed in the ebook's folder, where no name is in its way.
+        let audio = try f.makeM4B("dune.m4b", tags: BookMetadata())
+        let item = ImportItem(candidate: f.candidate([audio], BookMetadata()), target: .existing(bookId: owned))
+        let outcome = try #require(try f.service.importItems([item]).outcomes.first)
+        let reason = try #require(isFailed(outcome))
+        #expect(reason.contains(Self.reason))
+        #expect(reason.contains("Dune"))
+
+        // Nothing moved, and the book is as it was.
+        #expect(f.libraryTree() == tree)
+        #expect(f.inboxTree() == ["dune.m4b"])
+        #expect(try f.store.files(bookId: owned).isEmpty)
+        #expect(try book(f, owned).folderPath == nil)
+        #expect(try f.store.files(bookId: ebook).map(\.path) == ["Frank Herbert/Dune/Dune.epub"])
+
+        // Once the folder is free the same files are taken.
+        var away = BookEdit(book: try book(f, ebook))
+        away.metadata.title = "Dune Ebook"
+        _ = try f.service.save([away])
+        _ = try f.importedId(try #require(try f.service.importItems([item]).outcomes.first))
+        #expect(try book(f, owned).folderPath == "Frank Herbert/Dune")
+        #expect(try f.store.files(bookId: owned).map(\.path) == ["Frank Herbert/Dune/Dune.m4b"])
+    }
+
+    @Test func fp41_theFirstFilesOfABookAreNotFiledIntoTheFolderOfABookImportedInTheSameCall() throws {
+        let f = try F()
+        let owned = try ownedElsewhere(f, "Dune", "Frank Herbert")
+        // One call: a new ebook that is given the folder, then the first file of the entry.
+        var separate = F.meta("Dune", "Frank Herbert")
+        separate.asin = "B000000001"
+        let new = ImportItem(candidate: f.candidate([try f.makeEPUB("dune.epub")], separate))
+        let first = ImportItem(
+            candidate: f.candidate([try f.makeM4B("dune.m4b", tags: BookMetadata())], BookMetadata()),
+            target: .existing(bookId: owned))
+        let outcomes = try f.service.importItems([new, first]).outcomes
+        _ = try f.importedId(outcomes[0])
+        #expect(try #require(isFailed(outcomes[1])).contains(Self.reason))
+        #expect(f.libraryTree().filter { $0.contains(".") } == ["Frank Herbert/Dune/Dune.epub"])
+        #expect(f.inboxTree() == ["dune.m4b"])
+    }
+
     // MARK: Changing the layout
 
     @Test func fp41_aBookLeftBehindByAChangeOfLayoutIsNotMergedByALaterSave() throws {
