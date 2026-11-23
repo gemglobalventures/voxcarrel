@@ -136,6 +136,9 @@ public struct BookDetail: Equatable, Sendable {
     /// files it, as the library says it; nil when nothing stands in its way, or that
     /// has not been worked out.
     public var unfiledReason: String?
+    /// PH29: when the book was last sent to the phone; nil when it never was, or that
+    /// has not been read.
+    public var lastSent: Date?
 
     public init(row: BookRow, files: [FileRow], chapterCount: Int, collectionIds: Set<Int64>) {
         self.row = row

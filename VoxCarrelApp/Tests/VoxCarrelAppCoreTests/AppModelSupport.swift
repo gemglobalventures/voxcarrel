@@ -152,6 +152,14 @@ final class Harness {
     let ticker = FakeTicker()
     /// The time the model's inbox checks are told it is.
     let clock = FakeClock()
+    /// What the model serves a book to the phone with: nothing listens.
+    let phoneLink = FakePhoneLinking()
+    /// What the model keeps the Mac awake with: nothing is kept awake.
+    let sleepGuard = FakeSleepGuard()
+    /// The network the model is told the Mac is on.
+    let network = FakeNetwork()
+    /// Where the model makes the temporary folders of its sends: this harness's own.
+    let sendTemp: URL
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -174,8 +182,11 @@ final class Harness {
         let clock = clock
         model = AppModel(
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
-            watcher: watcher, ticker: ticker, inboxNow: { clock.now })
+            watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard)
         model.lookupLanguage = "en"
+        sendTemp = try makeTempDir()
+        model.network = network
+        model.sendTempRoot = sendTemp
     }
 
     /// What Undo would reverse in a demo library nothing has been done to yet.
@@ -233,10 +244,14 @@ final class Harness {
     /// it a watcher and a ticker to drive.
     func relaunched(watcher: FakeFolderWatcher? = nil, ticker: FakeTicker? = nil) -> AppModel {
         let clock = clock
-        return AppModel(
+        let model = AppModel(
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),
-            watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now })
+            watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now },
+            phoneLink: phoneLink, sleepGuard: sleepGuard)
+        model.network = network
+        model.sendTempRoot = sendTemp
+        return model
     }
 
     // MARK: Looking at the library directly

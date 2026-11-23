@@ -134,7 +134,9 @@ extension AppModel {
 
     var isQuietForLookup: Bool {
         // FL8: the preview of a change of folder layout is a sheet in the way.
+        // PH28: so is Send to Phone.
         isLibraryOpen && busyLabel == nil && storedPrompt == nil && lookup == nil && layoutPreview == nil
+            && sendSession == nil
     }
 
     /// The lookup when it is for the inspected book: its sheet belongs to the window.

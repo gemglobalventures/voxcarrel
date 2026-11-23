@@ -67,6 +67,9 @@ struct Dialogs: ViewModifier {
                 case .lookup(let lookup):
                     LookupSheet(shown: lookup)
                         .modifier(Questions(isActive: true))
+                case .sendToPhone:
+                    // Nothing in the window opens it yet.
+                    EmptyView()
                 }
             }
             // While a sheet is up, or about to be, the sheet shows them.

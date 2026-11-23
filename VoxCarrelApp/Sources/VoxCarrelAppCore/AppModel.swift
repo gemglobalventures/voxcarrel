@@ -77,11 +77,14 @@ public final class AppModel {
     ///     fire by hand.
     ///   - ticker: Runs the inbox's later checks. Tests give one that never waits.
     ///   - inboxNow: The time, as the inbox checks are told it. Tests move it by hand.
+    ///   - phoneLink: Serves a book to the phone by a link. Tests give one that listens to nothing.
+    ///   - sleepGuard: Keeps the Mac awake while a book is on its way. Tests give one that only counts.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
         lookupService: ((LookupConfiguration) -> LookupService)? = nil,
         watcher: FolderWatching = FSEventsFolderWatcher(), ticker: Ticking = TimerTicker(),
-        inboxNow: @escaping @MainActor () -> Date = { Date() }
+        inboxNow: @escaping @MainActor () -> Date = { Date() },
+        phoneLink: PhoneLinking = PhoneLinkServer(), sleepGuard: SleepGuarding = SystemSleepGuard()
     ) {
         self.location = location
         self.opener = opener
@@ -89,6 +92,8 @@ public final class AppModel {
         self.watcher = watcher
         self.ticker = ticker
         self.inboxNow = inboxNow
+        self.phoneLink = phoneLink
+        self.sleepGuard = sleepGuard
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
             ?? AudibleStore.forRegion(Locale.current.region?.identifier)
@@ -105,6 +110,7 @@ public final class AppModel {
         storedCopyOnImport = defaults.object(forKey: Keys.copyOnImport) as? Bool ?? false
         // GS10
         storedGroupsBySeries = defaults.object(forKey: Keys.groupsBySeries) as? Bool ?? false
+        storedSendSquareCover = defaults.object(forKey: SendKeys.squareCover) as? Bool ?? true
     }
 
     private enum Keys {
@@ -129,6 +135,8 @@ public final class AppModel {
     /// Opens the stored library and runs the launch check.
     public func start() async {
         guard busyLabel == nil else { return }
+        // PH26
+        await removeLeftoverSendFolders()
         await openLibrary()
     }
 
@@ -216,6 +224,8 @@ public final class AppModel {
             hasTriedLibrary = true
             importHeldFiles()
         }
+        // PH26: a send was of a book of the library shown before.
+        endSend()
         worker = nil
         // WF10: the inbox was the inbox of the library shown before.
         closeInbox()
@@ -906,7 +916,11 @@ public final class AppModel {
             alert = "VoxCarrel is still working. Quit when it has finished."
             return .cancel
         }
-        guard hasUnsavedChanges else { return .now }
+        guard hasUnsavedChanges else {
+            // PH26
+            endSend()
+            return .now
+        }
         guard storedPrompt == nil else { return .cancel }
         quitReply = reply
         ask(about: .quit)
@@ -918,6 +932,8 @@ public final class AppModel {
     private func answerQuit(_ quit: Bool) {
         let reply = quitReply
         quitReply = nil
+        // PH26
+        if quit { endSend() }
         reply?(quit)
     }
 
@@ -930,8 +946,12 @@ public final class AppModel {
     ///
     /// FL8: nor while a change of folder layout is being previewed, unless the
     /// operation is that change (`overLayoutPreview`).
+    ///
+    /// PH28: nor while Send to Phone is open, unless the operation is one of its own.
     func begin(_ label: String, overLayoutPreview: Bool = false) async -> LibraryWorker? {
-        guard busyLabel == nil, let worker, layoutPreview == nil || overLayoutPreview else { return nil }
+        guard busyLabel == nil, let worker, layoutPreview == nil || overLayoutPreview,
+              sendSession == nil || sendIsActing
+        else { return nil }
         busyLabel = label
         await beforeOperation?()
         return worker
@@ -1227,6 +1247,28 @@ public final class AppModel {
     /// The cover on its way for an Audible book that is being added; nil when none is.
     /// Closing the lookup cancels it and ends the add there and then.
     @ObservationIgnored var addCoverFetch: Task<CoverImage?, Never>?
+
+    // MARK: Send to Phone
+
+    enum SendKeys {
+        static let squareCover = "sendSquareCover"
+        static let ownNetworks = "sendOwnNetworks"
+    }
+
+    @ObservationIgnored let phoneLink: PhoneLinking
+    @ObservationIgnored let sleepGuard: SleepGuarding
+    /// What says which network the Mac is on. Tests give one they set by hand.
+    @ObservationIgnored var network: LocalNetworkReading = SystemLocalNetwork()
+    /// Where the temporary folders of a send are made. Tests give a folder of their own.
+    @ObservationIgnored var sendTempRoot = FileManager.default.temporaryDirectory
+    /// The send that is open; not nil shows the sheet.
+    var sendSession: SendSession?
+    var storedSendSquareCover: Bool
+    /// PH28: true while the open send runs an operation of its own (a check, a repair,
+    /// a save, making the copy), which the sheet being open does not stop.
+    @ObservationIgnored var sendIsActing = false
+    /// PH25: whether the Mac is being kept awake for a transfer.
+    @ObservationIgnored var sendKeepsAwake = false
 
     // MARK: Checking editions
 

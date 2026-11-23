@@ -41,11 +41,30 @@ public enum UserMessage {
         case let error as LookupError: text(for: error, source: nil)
         case let error as WatchFolderError: text(for: error)
         case let error as SeriesListError: text(for: error)
+        case let error as SendError: text(for: error)
         default:
             // The database's own errors are written for programmers.
             LibraryStore.isDatabaseError(error)
                 ? "The library's database could not be read. It may be damaged, or not a VoxCarrel library."
                 : error.localizedDescription
+        }
+    }
+
+    /// Why the file to send to the phone could not be made. Nothing was changed.
+    private static func text(for error: SendError) -> String {
+        switch error {
+        case .nothingToSend:
+            "There is nothing to send for this book."
+        case .folderInsideLibrary:
+            "The copy to send could not be made, because its temporary folder is inside the library folder."
+        case .badPackageName:
+            "The book's title cannot be used as a file name. Change the title, then send the book again."
+        case .nameClash(let name):
+            "Two of the book's files are named \"\(name)\", so they cannot be sent together."
+        case .notARegularFile(let name):
+            "\"\(name)\" is not an ordinary file, so the book was not sent."
+        case .packageExists(let name):
+            "The copy to send could not be made, because \"\(name)\" is already there. Try again."
         }
     }
 

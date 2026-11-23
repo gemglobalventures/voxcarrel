@@ -181,6 +181,8 @@ public actor LibraryWorker {
         detail.missingForFiling = try service.tokensMissingForFiling(book, files: files)
         // FL14
         detail.unfiledReason = try service.unfiledReason(for: bookId)
+        // PH29
+        detail.lastSent = try service.sentRecords(for: bookId).first?.sentAt
         return detail
     }
 
@@ -407,6 +409,27 @@ public actor LibraryWorker {
         let ids = self.bookIds(bookIds)
         guard !ids.isEmpty else { return [] }
         return try service.repairLengthHeaders(for: ids)
+    }
+
+    // MARK: Send to Phone
+
+    /// Whether the book can be sent to the phone, what to warn of, and which files
+    /// would go. Only reads: it may read an MP3 through to measure it.
+    public func sendCheck(for bookId: Int64) throws -> SendCheck {
+        guard isBookId(bookId) else { throw LibraryError.bookNotFound(bookId) }
+        return try service.sendCheck(for: bookId)
+    }
+
+    /// The one file to send for a checked book, made in `folder` when it is a copy or
+    /// a zip: a folder outside the library, new for this send. No library file is changed.
+    public func prepareSend(for check: SendCheck, options: SendOptions, in folder: URL) throws -> PreparedSend {
+        try service.prepareSend(for: check, options: options, in: folder)
+    }
+
+    /// Records that the book was sent. Not something Undo reverses.
+    public func recordSent(bookId: Int64, method: SendMethod, fingerprint: SendFingerprint, at date: Date) throws {
+        guard isBookId(bookId) else { return }
+        try service.recordSent(bookId: bookId, method: method, fingerprint: fingerprint, at: date)
     }
 
     public func setRole(_ role: FileRole, forFile fileId: Int64) throws {

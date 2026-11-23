@@ -371,4 +371,28 @@ import VoxCarrelFixtures
         let unreadable: any Error = LookupError.unreadable
         #expect(UserMessage.text(for: unreadable) == "The lookup service sent an answer VoxCarrel could not read.")
     }
+
+    // MARK: Send to Phone
+
+    /// PH21: every reason the file to send could not be made is a plain sentence.
+    @Test func sendErrors() {
+        #expect(UserMessage.text(for: SendError.nothingToSend) == "There is nothing to send for this book.")
+        #expect(UserMessage.text(for: SendError.folderInsideLibrary)
+            == "The copy to send could not be made, because its temporary folder is inside the library folder.")
+        #expect(UserMessage.text(for: SendError.badPackageName)
+            == "The book's title cannot be used as a file name. Change the title, then send the book again.")
+        #expect(UserMessage.text(for: SendError.nameClash("Part 1.mp3"))
+            == "Two of the book's files are named \"Part 1.mp3\", so they cannot be sent together.")
+        #expect(UserMessage.text(for: SendError.notARegularFile("Part 1.mp3"))
+            == "\"Part 1.mp3\" is not an ordinary file, so the book was not sent.")
+        #expect(UserMessage.text(for: SendError.packageExists("Book.zip"))
+            == "The copy to send could not be made, because \"Book.zip\" is already there. Try again.")
+    }
+
+    /// PH24: the link server's own errors are said as it words them.
+    @Test func phoneLinkErrors() {
+        #expect(UserMessage.text(for: PhoneLinkError.noLocalAddress) == "This Mac has no address on a local network.")
+        #expect(UserMessage.text(for: PhoneLinkError.cannotListen)
+            == "This Mac could not start listening for the phone.")
+    }
 }

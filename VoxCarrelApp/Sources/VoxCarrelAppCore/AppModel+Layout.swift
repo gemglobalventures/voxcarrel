@@ -94,8 +94,10 @@ extension AppModel {
     /// FL8, FL12: whether anything that moves or rewrites the library's files may be
     /// begun: not while a change of layout is being previewed, nor while one that was
     /// interrupted has not been put right.
+    ///
+    /// PH28: nor while Send to Phone is open, but for the repair and the save it offers.
     var filesCanChange: Bool {
-        !layoutChangeIsUnresolved && layoutPreview == nil
+        !layoutChangeIsUnresolved && layoutPreview == nil && (sendSession == nil || sendIsActing)
     }
 
     /// Whether a file's role can be changed or a missing file located now.

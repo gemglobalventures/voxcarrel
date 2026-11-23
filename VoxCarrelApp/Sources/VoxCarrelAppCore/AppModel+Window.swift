@@ -137,7 +137,8 @@ extension AppModel {
         // Showing a book in the Finder changes nothing, so it does not wait for an operation.
         commands.reveal = someHaveFiles
         // FL8: nor does anything else while a change of folder layout is previewed.
-        guard busyLabel == nil, layoutPreview == nil else { return commands }
+        // PH28: nor while Send to Phone is open.
+        guard busyLabel == nil, layoutPreview == nil, sendSession == nil else { return commands }
         commands.mark = true
         commands.addToCollection = !sidebar.collections.isEmpty
         commands.removeFromCollection = shownCollection != nil
