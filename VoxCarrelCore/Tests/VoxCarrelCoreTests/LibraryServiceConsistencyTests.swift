@@ -350,14 +350,17 @@ import VoxCarrelFixtures
         #expect(try f.store.book(id: id)?.durationSeconds == duration)
     }
 
-    // A library whose folder is given through /private/tmp, or with ".." in it, is like any other.
+    // A library whose folder is given through /private (as /private/var/… is for /var/…),
+    // or with ".." in it, is like any other.
     @Test(arguments: [false, true])
     func libraryUnderPrivateTmpBehavesLikeAnyOther(dotDot: Bool) throws {
-        let name = "voxcarrel-\(UUID().uuidString)"
-        let real = URL(fileURLWithPath: "/private/tmp/\(name)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: real) }
+        // In this run's own temporary folder, spelled by the longer of its two names.
+        let made = try makeTempDir().path
+        let longer = made.hasPrefix("/private/") ? made : "/private" + made
+        let path = FileManager.default.fileExists(atPath: longer) ? longer : made
+        let real = URL(fileURLWithPath: path, isDirectory: true)
         let base = dotDot
-            ? URL(fileURLWithPath: "/private/tmp/\(name)/sub/../", isDirectory: true)
+            ? URL(fileURLWithPath: "\(path)/sub/../", isDirectory: true)
             : real
         try FileManager.default.createDirectory(at: real.appendingPathComponent("sub"), withIntermediateDirectories: true)
         let f = try F(base: base)
@@ -387,7 +390,7 @@ import VoxCarrelFixtures
             "andy weir/Second", "andy weir/Second/Second.m4b",
         ])
         // A file inside the library, however its path is spelled, is known to be inside it.
-        let spelled = URL(fileURLWithPath: "/private/tmp/\(name)/Library/andy weir/Second/Second.m4b")
+        let spelled = URL(fileURLWithPath: "\(path)/Library/andy weir/Second/Second.m4b")
         #expect(f.store.storedPath(for: spelled) == "andy weir/Second/Second.m4b")
         #expect(try f.service.reconcile() == ReconcileReport())
 

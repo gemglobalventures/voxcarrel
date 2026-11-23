@@ -5,8 +5,10 @@ import Foundation
 /// It is made the first time it is needed, named with the process id so that a run's
 /// folder can be told from another's, and removed with all that is in it when the
 /// process ends: a run of the tests leaves nothing behind in the temporary folder,
-/// whether its tests pass or fail. Folders that tests make beside one of their own
-/// (a sibling of a library, say) are inside it too, and go with it.
+/// whether its tests pass or fail. A run that is killed, or crashes, cannot remove its
+/// folder; the next run of any of the tests removes it (`removeFoldersOfEndedRuns`).
+/// Folders that tests make beside one of their own (a sibling of a library, say) are
+/// inside it too, and go with it.
 public enum TemporaryRunFolder {
     /// What the name of every run's folder starts with.
     public static let prefix = "voxcarrel-run-"
@@ -22,11 +24,45 @@ public enum TemporaryRunFolder {
         atexit {
             TemporaryRunFolder.remove()
         }
+        // What runs that ended without getting that far left behind goes now, on the side.
+        DispatchQueue.global(qos: .utility).async {
+            TemporaryRunFolder.removeFoldersOfEndedRuns(in: parent)
+        }
         return folder
     }()
 
     /// The folder's path once it has been made; nil before.
     nonisolated(unsafe) private static var path: String?
+
+    /// The id of the process whose folder has this name ("voxcarrel-run-<id>-<UUID>");
+    /// nil for any other name.
+    static func processOfRun(named name: String) -> Int32? {
+        guard name.hasPrefix(prefix) else { return nil }
+        let parts = name.dropFirst(prefix.count).split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, !parts[0].isEmpty, parts[0].utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }),
+              let process = Int32(parts[0]), process > 1, UUID(uuidString: String(parts[1])) != nil
+        else { return nil }
+        return process
+    }
+
+    /// Removes, from `parent`, the folders of runs whose process has ended: a run that
+    /// crashed or was stopped never removed its own. Only a folder itself (never a link
+    /// or a file) that is named as a run's is taken, and only when no process has the
+    /// id in its name any more; this run's own is left, like any other that is going.
+    static func removeFoldersOfEndedRuns(in parent: URL) {
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: parent.path)) ?? [] {
+            guard let process = processOfRun(named: name), process != ProcessInfo.processInfo.processIdentifier,
+                  kill(process, 0) == -1, errno == ESRCH
+            else { continue }
+            let folder = parent.appendingPathComponent(name, isDirectory: true)
+            var info = stat()
+            guard lstat(folder.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == getuid() else {
+                continue
+            }
+            try? fm.removeItem(at: folder)
+        }
+    }
 
     /// Removes the folder, if it was made.
     static func remove() {

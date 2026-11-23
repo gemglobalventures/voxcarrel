@@ -159,4 +159,48 @@ import VoxCarrelFixtures
         #expect(!LibraryLayout.samePathIgnoringCase(
             URL(fileURLWithPath: "/Library/Andy Weir"), URL(fileURLWithPath: "/Library/Andy  Weir")))
     }
+
+    /// A library may sit directly in a folder that holds a great many other things
+    /// (a temporary folder, a downloads folder): finding the folder's one spelling asks
+    /// the disk about the names on the way down and never lists what is beside them.
+    /// Shown with folders that cannot be listed at all.
+    @Test func theCanonicalFolderIsFoundWithoutListingTheFoldersAboveIt() throws {
+        let fm = FileManager.default
+        let base = try makeRoot()
+        let outer = base.appendingPathComponent("Outer", isDirectory: true)
+        let inner = outer.appendingPathComponent("Inner", isDirectory: true)
+        let library = inner.appendingPathComponent("Library", isDirectory: true)
+        try mkdir(library)
+        let link = base.appendingPathComponent("Link")
+        try fm.createSymbolicLink(at: link, withDestinationURL: library)
+        // They can be passed through, and cannot be read.
+        try fm.setAttributes([.posixPermissions: 0o300], ofItemAtPath: inner.path)
+        try fm.setAttributes([.posixPermissions: 0o300], ofItemAtPath: outer.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: outer.path)
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: inner.path)
+        }
+        #expect((try? fm.contentsOfDirectory(atPath: outer.path)) == nil)
+        #expect((try? fm.contentsOfDirectory(atPath: inner.path)) == nil)
+
+        #expect(LibraryLayout.canonicalFolder(library).path == library.path)
+        // Through a link, with "..", and in other capitals where the disk does not tell them apart.
+        #expect(LibraryLayout.canonicalFolder(link).path == library.path)
+        #expect(LibraryLayout.canonicalFolder(inner.appendingPathComponent("Library/../Library")).path == library.path)
+        if fm.fileExists(atPath: inner.appendingPathComponent("LIBRARY").path) {
+            #expect(LibraryLayout.canonicalFolder(inner.appendingPathComponent("LIBRARY")).path == library.path)
+            #expect(
+                LibraryLayout.canonicalFolder(base.appendingPathComponent("outer/INNER/library")).path == library.path)
+        }
+        // A folder that is not there yet, below ones that cannot be listed.
+        #expect(
+            LibraryLayout.canonicalFolder(library.appendingPathComponent("New/Deeper")).path
+                == library.path + "/New/Deeper")
+        // And a library there opens.
+        let layout = LibraryLayout(root: link)
+        #expect(layout.relativeComponents(of: library.appendingPathComponent("A/b.m4b")) == ["A", "b.m4b"])
+        let store = try LibraryStore(libraryRoot: link)
+        #expect(store.libraryRoot.path == library.path)
+        #expect(fm.fileExists(atPath: library.appendingPathComponent(LibraryStore.databaseFileName).path))
+    }
 }
