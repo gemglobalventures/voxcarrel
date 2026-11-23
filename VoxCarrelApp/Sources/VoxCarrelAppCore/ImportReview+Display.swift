@@ -61,13 +61,15 @@ extension ImportReview {
     /// MG6: exchanges the entry's title with its first author; any other authors stay
     /// after it. The folder and the library book worked out for the entry were for
     /// the details it had, so both are due again (`entriesNeedingDestination`,
-    /// `entriesNeedingMatch`). Nothing when either is blank.
+    /// `entriesNeedingMatch`). A title that holds a semicolon is still one author, also
+    /// when the authors are typed again as they are shown (`NameListText.oneName`).
+    /// Nothing when either is blank.
     public mutating func swapTitleAndAuthor(for id: UUID) {
         guard canSwapTitleAndAuthor(of: id) else { return }
         update(id) { entry in
             var names = entry.candidate.metadata.authors.compactMap(\.trimmedOrNil)
             let author = names.removeFirst()
-            entry.candidate.metadata.authors = [entry.candidate.metadata.title.trimmed] + names
+            entry.candidate.metadata.authors = [NameListText.oneName(entry.candidate.metadata.title.trimmed)] + names
             entry.candidate.metadata.title = author
         }
     }

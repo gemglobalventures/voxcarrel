@@ -95,12 +95,13 @@ public struct BookDraft: Equatable, Sendable {
 
     /// MG6: exchanges the title with the first author, for a book whose file had them
     /// in each other's place. The old title becomes the first author; any other
-    /// authors stay after it. Nothing when either is blank.
+    /// authors stay after it. A title that holds a semicolon is still one author
+    /// (`NameListText.oneName`). Nothing when either is blank.
     public mutating func swapTitleAndAuthor() {
         guard canSwapTitleAndAuthor else { return }
         var names = NameListText.names(from: authors)
         let author = names.removeFirst()
-        authors = NameListText.text(from: [title.trimmed] + names)
+        authors = NameListText.text(from: [NameListText.oneName(title.trimmed)] + names)
         title = author
     }
 

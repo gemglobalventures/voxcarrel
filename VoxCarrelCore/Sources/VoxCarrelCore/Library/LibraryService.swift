@@ -427,7 +427,8 @@ public final class LibraryService {
             _ = chflags(copy.path, info.st_flags & ~UInt32(UF_IMMUTABLE))
         }
         if FileStamp(fileAt: copy) != before { before.setTime(ofFileAt: copy) }
-        return SavedOriginal(fileName: name, before: before, written: nil)
+        return SavedOriginal(
+            fileName: name, before: before, written: nil, keptFileNumber: FileStamp.fileNumber(at: copy))
     }
 
     /// Puts a file back as it was before the operation wrote into it.
@@ -444,6 +445,11 @@ public final class LibraryService {
             let url = URL(fileURLWithPath: path)
             let now = FileStamp(fileAt: url)
             let kept = undoFolder(token).appendingPathComponent(original.fileName)
+            // Put back by an earlier attempt: the file is the kept one itself.
+            if let number = original.keptFileNumber, now == original.before,
+               FileStamp.fileNumber(at: url) == number, !FileManager.default.fileExists(atPath: kept.path) {
+                return
+            }
             if let written = original.written, now == written, FileManager.default.fileExists(atPath: kept.path) {
                 // On one volume, a rename: the file is the old one or the new, never neither.
                 if rename(kept.path, path) == 0 { return }

@@ -21,6 +21,12 @@ public enum NameListText {
     public static func text(from names: [String]) -> String {
         names.joined(separator: "; ")
     }
+
+    /// Text that is to be one name among several: a semicolon in it would end the name
+    /// there, so each becomes a comma.
+    public static func oneName(_ text: String) -> String {
+        text.replacingOccurrences(of: ";", with: ",")
+    }
 }
 
 /// What a year field holds.
