@@ -20,7 +20,7 @@ The books in these pictures are generated samples from the demo library.
 ## What it does
 
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
-- Keeps an audiobook, its ebook and companion files together as one book, in `Author/Series/Title` folders.
+- Keeps an audiobook, its ebook and companion files together as one book, in folders arranged the way you choose: `Author/Series/Title` to begin with, or another layout or a pattern of your own.
 - Edits details and covers for one book or many, written into the files and checked before they replace the originals.
 - Looks books up on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress, which knows many older cassette and CD editions. Results that are your exact edition are marked, as are different editions; you choose which fields to take, from one result or several, and applying them saves in one step.
 - Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
@@ -71,6 +71,8 @@ open build/VoxCarrel.app --args -libraryPath ~/VoxCarrelDemo/Library
 ## First run on real books
 
 Create a new, empty folder for the library, outside any synced folder such as iCloud Drive: the catalogue database lives in the library folder and should not be synced while in use. Import a handful of books with "Copy files, leave originals in place" ticked, and check the result before importing more.
+
+Book folders are arranged as `Author/Series/Title` unless you choose otherwise in Settings ▸ General ▸ Folder Layout. Changing the layout shows what will move, then re-files the whole library in one step; only folders move, and Edit ▸ Undo puts them back.
 
 Watch folders are set in Settings ▸ Watch Folders. They are watched only while VoxCarrel is open; books that arrived while it was closed appear in the Inbox shortly after it opens.
 
