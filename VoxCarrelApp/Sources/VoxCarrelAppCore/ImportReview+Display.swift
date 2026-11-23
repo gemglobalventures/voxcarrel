@@ -13,9 +13,15 @@ extension ImportReview {
     }
 
     /// Q1: changes the entry with this id; nothing when it is no longer there.
+    ///
+    /// IH2–IH4: what the change means is taken account of: a title, authors or Audible
+    /// ID that were changed are no longer guesses, a changed switch is the owner's choice,
+    /// and the roles of the entry's PDFs follow the switch.
     public mutating func update(_ id: UUID, _ change: (inout Entry) -> Void) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let before = entries[index]
         change(&entries[index])
+        entries[index].noteChanges(since: before)
     }
 
     // MARK: Q2 The fields
@@ -96,6 +102,74 @@ extension ImportReview {
         let title = match.title.trimmedOrNil.map { "\"\($0)\"" } ?? "the existing book"
         return "These files join \(title), which keeps its own details. "
             + "Change the title or author to import them as a different book."
+    }
+
+
+    // MARK: IH1, IH2 The switch
+
+    /// IH2: the owner sets the switch that adds the entry's files to the book already in
+    /// the library. It is their choice for that book from then on: looking the book up
+    /// again does not undo it. IH3: the roles of the entry's PDFs follow.
+    public mutating func setAddToExisting(_ add: Bool, for id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index].addToExisting = add
+        if let book = entries[index].existingMatch?.id { entries[index].switchChoices[book] = add }
+        entries[index].applyRoleGuess()
+    }
+
+    // MARK: IH4 What was guessed
+
+    /// IH4: one line for under the title and the authors, saying what of them was read
+    /// from a file's name; nil when nothing was, or once they have been changed by hand.
+    public func guessNote(of id: UUID) -> String? {
+        entry(id)?.guessNote
+    }
+
+    /// IH4: "Audible ID B09WXN61GL", for an ID that was read from a file's name; nil
+    /// for any other.
+    public func guessedAudibleIDText(of id: UUID) -> String? {
+        guard let entry = entry(id), entry.guessNotes.contains(.audibleIDFromName),
+              let asin = entry.candidate.metadata.asin?.trimmedOrNil
+        else { return nil }
+        return "Audible ID \(asin)"
+    }
+
+    /// IH4: what to say beside that ID; nil when `guessedAudibleIDText` is.
+    public func audibleIDNote(of id: UUID) -> String? {
+        guessedAudibleIDText(of: id) == nil ? nil : "The Audible ID was read from the file name."
+    }
+
+    // MARK: IH5 Swap
+
+    /// IH5: whether Swap Title and Author is to stand out: the title and the author may
+    /// be in each other's place, and there are two to exchange.
+    public func offersProminentSwap(of id: UUID) -> Bool {
+        guard let entry = entry(id) else { return false }
+        return !entry.guessNotes.isDisjoint(with: ImportReview.Entry.orderQuestions.union(.titleLooksLikePerson))
+            && canSwapTitleAndAuthor(of: id)
+    }
+
+    // MARK: IH6 Questions
+
+    /// IH6: the caution mark of an entry that has a question: the one a status that
+    /// does not stop the import has.
+    public static let questionSymbol = Status(text: "", isBlocking: false).symbol
+
+    /// IH6: what the owner is asked to check about an entry, for the tooltip of its
+    /// caution mark; nil when there is nothing to check.
+    public func question(of id: UUID) -> String? {
+        entry(id)?.question
+    }
+
+    /// "2 books have a question to check."; nil when no book that will be imported has
+    /// one. A question never stops the import.
+    public var questionsText: String? {
+        let count = entries.filter { $0.included && $0.question != nil }.count
+        switch count {
+        case 0: return nil
+        case 1: return "1 book has a question to check."
+        default: return "\(count) books have a question to check."
+        }
     }
 
     // MARK: Q3 Status
@@ -349,11 +423,48 @@ extension ImportReview.Entry {
         PlaceholderCover.hue(for: candidate.metadata.title)
     }
 
+
+    // MARK: IH4 What was guessed
+
+    /// The notes that leave the order of the title and the author in question.
+    static let orderQuestions: GuessNotes = [.orderUnsure, .orderGuessedByShape]
+
+    /// IH4: the one line about the title and the authors: the question of their order
+    /// first, then a title that looks like a person, then how the name was read.
+    var guessNote: String? {
+        if !guessNotes.isDisjoint(with: Self.orderQuestions) {
+            return "Read from the file name; check the title and author are the right way round."
+        }
+        if guessNotes.contains(.titleLooksLikePerson) { return "This title looks like a person's name." }
+        if guessNotes.contains(.orderSwapped) { return "Read from the file name as “Title - Author”." }
+        if guessNotes.contains(.fromFileName) { return "Read from the file name." }
+        return nil
+    }
+
+    // MARK: IH6 Questions
+
+    /// IH6: what there is to check about the entry, each thing once; nil when nothing.
+    public var question: String? {
+        var asked: [String] = []
+        if !guessNotes.isDisjoint(with: Self.orderQuestions) {
+            asked.append("Check that the title and author are the right way round.")
+        }
+        if guessNotes.contains(.titleLooksLikePerson) { asked.append("This title looks like a person's name.") }
+        if isPossibleMatchUnanswered, let match = existingMatch {
+            asked.append("This may be “\(match.title)”, which is already in your library.")
+        }
+        return asked.isEmpty ? nil : asked.joined(separator: " ")
+    }
+
     /// Q8: the switch that adds the files to a book already in the library; nil when
     /// no such book was found. R9: a book that is there only as owned on Audible is
-    /// named as that.
+    /// named as that. IH1: a possible match is asked about.
     public var existingMatchText: String? {
         guard let match = existingMatch, match.id != nil else { return nil }
+        // IH1
+        if matchStrength == .possible {
+            return "Looks like “\(match.title)”, which is already in your library. Add these files to it?"
+        }
         // R9
         if matchHasNoFiles, match.isOwned(on: .audible) {
             return "Add to “\(match.title)”, which is on Audible"

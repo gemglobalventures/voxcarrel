@@ -133,12 +133,11 @@ extension AppModel {
         guard let worker else { return }
         for id in review?.entriesNeedingMatch ?? [] {
             guard let metadata = review?.entries.first(where: { $0.id == id })?.candidate.metadata else { continue }
-            guard let match = try? await worker.existingMatch(for: metadata) else {
-                review?.setExistingMatch(nil, for: id, matchingMetadata: metadata)
-                continue
-            }
-            // Ignored by the review if the entry's details have changed again meanwhile.
-            review?.setExistingMatch(match, for: id, matchingMetadata: metadata)
+            // IH2: a possible match is offered too, and the review decides where the
+            // switch stands. Ignored by the review if the entry's details have changed
+            // again meanwhile.
+            let match = try? await worker.importMatch(for: metadata)
+            review?.setMatch(match, for: id, matchingMetadata: metadata)
         }
         for id in review?.entriesNeedingDestination ?? [] {
             guard let entry = review?.entries.first(where: { $0.id == id }) else { continue }
