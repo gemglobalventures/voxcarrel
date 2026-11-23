@@ -83,6 +83,9 @@ extension AppModel {
 
     /// Shows a review that has just been made, and works out where its books would be filed.
     func openReview(_ opened: ImportReview) async {
+        var opened = opened
+        // FP20: the review marks and words its books by the library's own folder pattern.
+        if let pattern = try? await worker?.folderPattern() { opened.folderPattern = pattern }
         review = opened
         reviewBeganCopying = opened.copyInsteadOfMove
         await fillDestinations()
@@ -124,10 +127,12 @@ extension AppModel {
             review?.setExistingMatch(match, for: id, matchingMetadata: metadata)
         }
         for id in review?.entriesNeedingDestination ?? [] {
-            guard let metadata = review?.entries.first(where: { $0.id == id })?.candidate.metadata else { continue }
-            let folder = await worker.plannedFolder(for: metadata)
-            // Ignored by the review if the entry's details have changed again meanwhile.
-            review?.setDestination(folder, for: id, matchingMetadata: metadata)
+            guard let entry = review?.entries.first(where: { $0.id == id }) else { continue }
+            let metadata = entry.candidate.metadata
+            let hasAudio = entry.hasAudio
+            let folder = await worker.plannedFolder(for: metadata, hasAudio: hasAudio)
+            // Ignored by the review if the entry's details or files have changed again meanwhile.
+            review?.setDestination(folder, for: id, matchingMetadata: metadata, hasAudio: hasAudio)
         }
         for id in review?.entriesNeedingMatchDestination ?? [] {
             guard let entry = review?.entries.first(where: { $0.id == id }), let match = entry.existingMatch

@@ -51,6 +51,9 @@ public final class LibraryService {
     /// Test seam: how the inbox check reads a file's tags, in place of `metadataIO`.
     var readInboxTags: ((URL) throws -> BookMetadata)?
 
+    /// The stored folder pattern last logged as unreadable, so it is said once.
+    var unreadablePatternLogged: String?
+
     /// What the inbox checks so far have seen of each file, to tell when it has settled.
     var inboxTracker = SettleTracker()
 

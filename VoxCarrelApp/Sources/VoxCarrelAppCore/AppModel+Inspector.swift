@@ -72,8 +72,13 @@ extension BookDetail {
         var reasons: [String] = []
         // R7: a book with no files is never filed, and has no file to miss.
         guard row.hasFiles else { return [] }
-        if row.book.needsAttention, row.firstAuthorText.isEmpty {
-            reasons.append("Add an author to file this book")
+        if row.book.needsAttention {
+            // What the library's folder layout needs, when that is known; otherwise the
+            // standard layout's need of an author.
+            let lacksAuthor = missingForFiling?.contains(.author) ?? row.firstAuthorText.isEmpty
+            if lacksAuthor { reasons.append("Add an author to file this book") }
+            let others = (missingForFiling ?? []).filter { $0 != .author }
+            if !others.isEmpty { reasons.append(FolderPattern.unfiledReason(missing: others)) }
         }
         if files.contains(where: \.isMissing) {
             reasons.append("Some files are missing")

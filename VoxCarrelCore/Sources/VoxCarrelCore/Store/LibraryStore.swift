@@ -194,6 +194,14 @@ public final class LibraryStore: Sendable {
                 t.column("isHidden", .boolean).notNull().defaults(to: false)
             }
         }
+        migrator.registerMigration("v10") { db in
+            // What the owner has chosen for the library as a whole. A key that is absent
+            // has its default.
+            try db.create(table: "librarySetting") { t in
+                t.primaryKey("key", .text)
+                t.column("value", .text).notNull()
+            }
+        }
         return migrator
     }
 
@@ -326,6 +334,37 @@ public final class LibraryStore: Sendable {
             } else {
                 try db.execute(sql: "DELETE FROM libraryNote WHERE key = ?", arguments: [key])
             }
+        }
+    }
+
+    /// The setting that holds the library's folder pattern.
+    static let folderPatternSetting = "folderPattern"
+
+    /// The folder pattern as it is stored: its text, which may be one this code cannot
+    /// read. Nil when none is stored, which means the standard pattern.
+    public func folderPatternText() throws -> String? {
+        try dbQueue.read { db in try Self.folderPatternText(db) }
+    }
+
+    static func folderPatternText(_ db: Database) throws -> String? {
+        try String.fetchOne(
+            db, sql: "SELECT value FROM librarySetting WHERE key = ?", arguments: [folderPatternSetting])
+    }
+
+    /// Stores the folder pattern's text; nil stores none. Nothing is moved: this is
+    /// only the record of how the library files.
+    func setFolderPatternText(_ text: String?) throws {
+        try dbQueue.write { db in try Self.setFolderPatternText(db, text) }
+    }
+
+    static func setFolderPatternText(_ db: Database, _ text: String?) throws {
+        if let text {
+            try db.execute(
+                sql: "INSERT INTO librarySetting (key, value) VALUES (?, ?) "
+                    + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                arguments: [folderPatternSetting, text])
+        } else {
+            try db.execute(sql: "DELETE FROM librarySetting WHERE key = ?", arguments: [folderPatternSetting])
         }
     }
 

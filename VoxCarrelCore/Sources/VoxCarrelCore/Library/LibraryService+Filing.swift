@@ -49,15 +49,28 @@ extension LibraryService {
         return plan
     }
 
-    /// As `filingPlan(for:title:folder:)`, in the folder a book with this metadata is
-    /// filed in. Nil when the metadata cannot be filed (no usable title or first author).
-    func filingPlan(for files: [FilingSource], metadata: BookMetadata) -> FilingPlan? {
-        guard let relative = PathBuilder.bookFolder(metadata: metadata) else { return nil }
+    /// The one place a book's folder is decided: where `pattern` files a book with this
+    /// metadata, in the capitalisation of the folders that already exist. Nil when the
+    /// book lacks something the pattern needs (under the standard pattern, a usable
+    /// title or first author).
+    /// - Parameter hasAudio: Whether the book has any audio file once the operation
+    ///   asking is done: what `{Kind}` goes by.
+    func bookFolder(for metadata: BookMetadata, hasAudio: Bool, pattern: FolderPattern) -> URL? {
+        let values = FolderPatternValues(metadata: metadata, hasAudio: hasAudio)
+        guard let relative = PathBuilder.bookFolder(values: values, pattern: pattern) else { return nil }
         // The folder is the last component of nothing that is moved, so it is adopted
         // as the parent of a stand-in file name.
-        let folder = layout.adoptingExistingCapitalisation(
+        return layout.adoptingExistingCapitalisation(
             layout.root.appendingPathComponent(relative, isDirectory: true).appendingPathComponent("x")
         ).deletingLastPathComponent()
+    }
+
+    /// As `filingPlan(for:title:folder:)`, in the folder `pattern` files a book with
+    /// this metadata and these files in (`files` is the whole book as it will be, so it
+    /// says whether the book has audio). Nil when the book cannot be filed.
+    func filingPlan(for files: [FilingSource], metadata: BookMetadata, pattern: FolderPattern) -> FilingPlan? {
+        let hasAudio = files.contains { $0.role == .audio }
+        guard let folder = bookFolder(for: metadata, hasAudio: hasAudio, pattern: pattern) else { return nil }
         return filingPlan(for: files, title: metadata.title, folder: folder)
     }
 

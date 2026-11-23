@@ -168,13 +168,23 @@ public actor LibraryWorker {
                 collectionIds.insert(id)
             }
         }
-        return BookDetail(
+        var detail = BookDetail(
             row: row(for: book, id: bookId, files: files), files: fileRows, chapterCount: chapters.count,
             collectionIds: collectionIds)
+        detail.missingForFiling = try service.tokensMissingForFiling(book, files: files)
+        return detail
     }
 
-    public func plannedFolder(for metadata: BookMetadata) -> String? {
-        service.plannedFolder(for: metadata)
+    /// The pattern the library files its books by.
+    public func folderPattern() throws -> FolderPattern {
+        try service.folderPattern()
+    }
+
+    /// The folder a new book with these details would be filed in under the library's
+    /// folder pattern; nil when it cannot be filed.
+    /// - Parameter hasAudio: Whether the book's files include any audio file.
+    public func plannedFolder(for metadata: BookMetadata, hasAudio: Bool) -> String? {
+        service.plannedFolder(for: metadata, hasAudio: hasAudio)
     }
 
     /// The folder a book that has no files yet would be filed in if these were its

@@ -31,25 +31,12 @@ public enum PathBuilder {
         return s
     }
 
-    /// Folder for a book, relative to the library root:
-    /// `Author/Title` or `Author/Series/N - Title`.
-    /// Returns nil when the book has no usable title or first author.
-    public static func bookFolder(metadata: BookMetadata) -> String? {
-        let title = sanitise(metadata.title)
-        let author = sanitise(metadata.authors.first ?? "")
-        guard !title.isEmpty, !author.isEmpty else { return nil }
-
-        var parts = [author]
-        let series = sanitise(metadata.series ?? "")
-        if series.isEmpty {
-            parts.append(title)
-        } else {
-            parts.append(series)
-            let number = sanitise(metadata.seriesNumber ?? "")
-            parts.append(
-                number.isEmpty ? title : capped("\(number) - \(title)", to: maxComponentLength))
-        }
-        return parts.joined(separator: "/")
+    /// Folder for a book, relative to the library root, under a folder pattern: with
+    /// the standard one, `Author/Title` or `Author/Series/N - Title`.
+    /// Returns nil when the book lacks something the pattern needs (for the standard
+    /// one, a usable title or first author).
+    public static func bookFolder(values: FolderPatternValues, pattern: FolderPattern) -> String? {
+        pattern.folder(for: values)
     }
 
     /// File names for a book's files, relative to the book folder, in the same

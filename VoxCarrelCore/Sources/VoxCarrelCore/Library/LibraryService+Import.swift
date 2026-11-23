@@ -4,11 +4,13 @@ extension LibraryService {
     /// Imports reviewed candidates. One undoable operation.
     ///
     /// Items are handled in order and independently: one that cannot be imported gets
-    /// `.failed` and is left exactly as it was. Throws only when the database commit
+    /// `.failed` and is left exactly as it was. Throws only when the library's folder
+    /// pattern cannot be read, before anything is done, or when the database commit
     /// fails, in which case everything the call did is reversed.
     public func importItems(
         _ items: [ImportItem], options: ImportOptions = ImportOptions()
     ) throws -> ImportResult {
+        let pattern = try folderPattern()
         var operation = PendingOperation()
         // Books already changed by an earlier item of this call.
         var targets = Set<Int64>()
@@ -28,12 +30,13 @@ extension LibraryService {
             }
             switch item.target {
             case .newBook:
-                return prepareNewBook(item, options: options, into: &operation)
+                return prepareNewBook(item, options: options, pattern: pattern, into: &operation)
             case .existing(let bookId):
                 guard !targets.contains(bookId) else {
                     return .failed("Another item of this import already adds files to that book")
                 }
-                let result = prepareExistingBook(item, bookId: bookId, options: options, into: &operation)
+                let result = prepareExistingBook(
+                    item, bookId: bookId, options: options, pattern: pattern, into: &operation)
                 if case .imported = result { targets.insert(bookId) }
                 return result
             }
@@ -132,7 +135,7 @@ extension LibraryService {
     // MARK: A new book
 
     private func prepareNewBook(
-        _ item: ImportItem, options: ImportOptions, into operation: inout PendingOperation
+        _ item: ImportItem, options: ImportOptions, pattern: FolderPattern, into operation: inout PendingOperation
     ) -> PreparedItem {
         let candidate = item.candidate
         var files: [WorkingFile]
@@ -157,7 +160,7 @@ extension LibraryService {
         }
 
         let sources = candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
-        guard let plan = filingPlan(for: sources, metadata: candidate.metadata) else {
+        guard let plan = filingPlan(for: sources, metadata: candidate.metadata, pattern: pattern) else {
             // I2: cannot be filed. Catalogued where it is; no file is moved or written,
             // so the reviewed text lives in the database only.
             if case .set = item.cover {
@@ -219,11 +222,12 @@ extension LibraryService {
     // MARK: Into an existing book
 
     private func prepareExistingBook(
-        _ item: ImportItem, bookId: Int64, options: ImportOptions, into operation: inout PendingOperation
+        _ item: ImportItem, bookId: Int64, options: ImportOptions, pattern: FolderPattern,
+        into operation: inout PendingOperation
     ) -> PreparedItem {
         let book: Book
         let rows: [BookFile]
-        let folder: URL
+        var folder: URL
         var files: [WorkingFile]
         let storedCoverBefore: String?
         let hadStoredCover = covers.url(for: bookId) != nil
@@ -231,7 +235,8 @@ extension LibraryService {
         // first files are filed from its own details, as a new book's would be.
         if let entry = try? store.book(id: bookId), entry.folderPath == nil, !entry.needsAttention,
            (try? store.files(bookId: bookId))?.isEmpty == true {
-            return prepareFirstFiles(item, book: entry, bookId: bookId, options: options, into: &operation)
+            return prepareFirstFiles(
+                item, book: entry, bookId: bookId, options: options, pattern: pattern, into: &operation)
         }
         do {
             // A1, A7
@@ -260,8 +265,26 @@ extension LibraryService {
             return .failed(Self.reason(for: error))
         }
 
-        // A2: names are planned over the whole book, in its present folder. A file whose
-        // planned name differs from the one it has only in capitalisation is left alone.
+        // The folder pattern may file a book by whether it has audio. When these files
+        // change that, the pattern files the book somewhere else, and the whole book
+        // goes there as part of this item: its own files are moved with the new ones.
+        let hadAudio = rows.contains { $0.role == .audio }
+        let hasAudio = files.contains { $0.role == .audio }
+        var refiledFolder: URL?
+        if hadAudio != hasAudio {
+            func filed(_ audio: Bool) -> String? {
+                PathBuilder.bookFolder(
+                    values: FolderPatternValues(metadata: book.metadata, hasAudio: audio), pattern: pattern)
+            }
+            if let now = filed(hasAudio), now != filed(hadAudio) {
+                refiledFolder = bookFolder(for: book.metadata, hasAudio: hasAudio, pattern: pattern)
+            }
+        }
+        if let refiledFolder { folder = refiledFolder }
+
+        // A2: names are planned over the whole book, in its present folder (or the one
+        // it is re-filed in). A file whose planned name differs from the one it has only
+        // in capitalisation is left alone.
         let plan = filingPlan(
             for: files.map { FilingSource(url: $0.url, role: $0.role) }, title: book.title, folder: folder)
         let moves = plan.moves.map(\.move)
@@ -321,6 +344,7 @@ extension LibraryService {
         // A5. The duration is only recomputed when every audio file could be read: a
         // sum over some of the parts would be wrong, so the previous value is kept.
         var updated = book
+        if refiledFolder != nil { updated.folderPath = store.storedPath(for: plan.folder) }
         let audio = files.filter { $0.role == .audio }
         if audio.allSatisfy({ $0.before?.metadata.durationSeconds != nil }),
            let duration = Self.totalDuration(files) {
@@ -364,7 +388,7 @@ extension LibraryService {
     /// moved. Undo takes the files back out with the tags and covers they had, and
     /// leaves the book as the entry with no files it was.
     private func prepareFirstFiles(
-        _ item: ImportItem, book: Book, bookId: Int64, options: ImportOptions,
+        _ item: ImportItem, book: Book, bookId: Int64, options: ImportOptions, pattern: FolderPattern,
         into operation: inout PendingOperation
     ) -> PreparedItem {
         var files: [WorkingFile]
@@ -378,9 +402,17 @@ extension LibraryService {
         let details = Self.filledIn(book.metadata, from: files)
 
         let sources = item.candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
-        guard let plan = filingPlan(for: sources, metadata: details) else {
+        guard let plan = filingPlan(for: sources, metadata: details, pattern: pattern) else {
             let title = details.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let name = title.isEmpty ? "That book" : "“\(title)”"
+            // What the folder pattern needs beyond a title and an author is said in its own words.
+            let missing = pattern.missingTokens(
+                for: FolderPatternValues(metadata: details, hasAudio: sources.contains { $0.role == .audio }))
+            guard !missing.isEmpty, Set(missing).isSubset(of: [.author, .title]) else {
+                return .failed(
+                    "\(name) cannot be filed yet, so files cannot be added to it. "
+                        + FolderPattern.unfiledReason(missing: missing))
+            }
             let hasAuthor = !(details.authors.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             return .failed(
                 hasAuthor

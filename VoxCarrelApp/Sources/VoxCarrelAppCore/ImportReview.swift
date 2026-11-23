@@ -65,24 +65,44 @@ public struct ImportReview: Equatable, Sendable {
         }
 
         /// True when the folder of this new book has not been worked out for its
-        /// details as they are now.
-        var needsDestination: Bool {
-            !isAddedToExisting && computedFor != DestinationDetails(candidate.metadata)
+        /// details and files as they are now.
+        func needsDestination(under pattern: FolderPattern) -> Bool {
+            !isAddedToExisting
+                && computedFor != DestinationDetails(candidate.metadata, hasAudio: hasAudio, pattern: pattern)
+        }
+
+        /// What the entry's book gives a folder pattern (`hasAudio` is what `{Kind}` goes by).
+        var patternValues: FolderPatternValues {
+            FolderPatternValues(metadata: candidate.metadata, hasAudio: hasAudio)
         }
     }
 
-    /// The details that decide which folder a new book is filed in.
+    /// The details that decide which folder a new book is filed in under a folder
+    /// pattern: the text of each detail the pattern names, as it is written, and
+    /// whether the book has audio when the pattern files by that. Under the standard
+    /// pattern: the title, the first author, the series and the series number.
     struct DestinationDetails: Equatable, Sendable {
-        var title: String
-        var firstAuthor: String?
-        var series: String?
-        var seriesNumber: String?
+        var texts: [FolderToken: String?] = [:]
 
-        init(_ metadata: BookMetadata) {
-            title = metadata.title
-            firstAuthor = metadata.authors.first
-            series = metadata.series
-            seriesNumber = metadata.seriesNumber
+        init(_ metadata: BookMetadata, hasAudio: Bool, pattern: FolderPattern) {
+            var used = pattern.usedTokens
+            // A number only counts inside its series.
+            if used.contains(.number) { used.insert(.series) }
+            for token in used {
+                texts[token] =
+                    switch token {
+                    case .title: metadata.title
+                    case .author: metadata.authors.first
+                    case .series: metadata.series
+                    case .number: metadata.seriesNumber
+                    case .narrator: metadata.narrators.first
+                    case .year: metadata.year.map(String.init)
+                    case .genre: metadata.genre
+                    case .publisher: metadata.publisher
+                    case .language: metadata.language
+                    case .kind: hasAudio ? "audio" : "no audio"
+                    }
+            }
         }
     }
 
@@ -103,7 +123,8 @@ public struct ImportReview: Equatable, Sendable {
 
     public enum Readiness: Equatable, Sendable {
         case ready
-        /// No title or no author: catalogued, left in place.
+        /// Lacks something the library's folder pattern needs (under the standard
+        /// pattern, a title or an author): catalogued, left in place.
         case willNeedAttention
         /// Cannot be imported as it stands.
         case blocked(String)
@@ -112,6 +133,9 @@ public struct ImportReview: Equatable, Sendable {
     public var entries: [Entry]
     public var skipped: [URL]
     public var copyInsteadOfMove: Bool
+    /// How the library the books are going into files its books. The review reads
+    /// nothing, so whoever makes it for a library gives it that library's pattern.
+    public var folderPattern: FolderPattern = .standard
     /// True when every file is inside the library folder already. Such files are
     /// always moved into place: a copy would leave the original loose in the library,
     /// to be found again and imported twice.
@@ -153,10 +177,10 @@ public struct ImportReview: Equatable, Sendable {
         guard let entry = entries.first(where: { $0.id == id }) else {
             return .blocked("Not in this import")
         }
-        return Self.readiness(of: entry)
+        return readiness(of: entry)
     }
 
-    private static func readiness(of entry: Entry) -> Readiness {
+    private func readiness(of entry: Entry) -> Readiness {
         // The engine refuses an item with no files, whatever it is added to.
         guard !entry.candidate.files.isEmpty else { return .blocked("No files") }
         // Extras may join a book that is already there, and that book has its own details.
@@ -166,7 +190,8 @@ public struct ImportReview: Equatable, Sendable {
             return .blocked("A book needs at least one audiobook or ebook file")
         }
         // Exactly the engine's test for a book it catalogues without filing.
-        return PathBuilder.bookFolder(metadata: entry.candidate.metadata) == nil ? .willNeedAttention : .ready
+        return PathBuilder.bookFolder(values: entry.patternValues, pattern: folderPattern) == nil
+            ? .willNeedAttention : .ready
     }
 
     public var includedCount: Int {
@@ -176,7 +201,7 @@ public struct ImportReview: Equatable, Sendable {
     public var canImport: Bool {
         let included = entries.filter(\.included)
         return !included.isEmpty && !included.contains {
-            if case .blocked = Self.readiness(of: $0) { return true } else { return false }
+            if case .blocked = readiness(of: $0) { return true } else { return false }
         }
     }
 
@@ -249,18 +274,25 @@ public struct ImportReview: Equatable, Sendable {
 
     /// Entries whose details changed since `destination` was computed.
     public var entriesNeedingDestination: [UUID] {
-        entries.filter(\.needsDestination).map(\.id)
+        entries.filter { $0.needsDestination(under: folderPattern) }.map(\.id)
     }
 
     /// Records where a new book would be filed. Ignored when the details that decide
     /// the folder are no longer the ones the answer was worked out for, and for an
     /// entry that is added to an existing book.
-    public mutating func setDestination(_ folder: String?, for id: UUID, matchingMetadata: BookMetadata) {
+    /// - Parameter hasAudio: Whether the answer was worked out for a book with audio;
+    ///   nil when it was worked out for the entry's files as they are now.
+    public mutating func setDestination(
+        _ folder: String?, for id: UUID, matchingMetadata: BookMetadata, hasAudio: Bool? = nil
+    ) {
         guard let entry = entries.firstIndex(where: { $0.id == id }),
               !entries[entry].isAddedToExisting
         else { return }
-        let details = DestinationDetails(matchingMetadata)
-        guard details == DestinationDetails(entries[entry].candidate.metadata) else { return }
+        let current = entries[entry].hasAudio
+        let details = DestinationDetails(matchingMetadata, hasAudio: hasAudio ?? current, pattern: folderPattern)
+        guard details == DestinationDetails(
+            entries[entry].candidate.metadata, hasAudio: current, pattern: folderPattern)
+        else { return }
         entries[entry].computedDestination = folder
         entries[entry].computedFor = details
     }

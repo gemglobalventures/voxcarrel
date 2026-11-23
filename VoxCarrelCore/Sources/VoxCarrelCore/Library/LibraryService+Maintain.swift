@@ -17,6 +17,7 @@ extension LibraryService {
         let allowed: Set<FileRole> = target.format.defaultRole == .audio ? [.audio] : [.ebook, .extra]
         guard allowed.contains(role) else { throw LibraryError.invalidRole }
         guard role != target.role else { return }
+        let pattern = try folderPattern()
 
         // M2: audio, then ebooks, then extras. Each group keeps its order, and the file
         // that changed joins the end of its new group.
@@ -63,8 +64,12 @@ extension LibraryService {
                 url: file.url, role: file.role,
                 extraName: offset == index && role == .extra ? file.originalName : nil)
         }
-        if book.folderPath != nil, let plan = filingPlan(for: sources, metadata: book.metadata) {
+        var folderPath = book.folderPath
+        if book.folderPath != nil,
+           let plan = filingPlan(for: sources, metadata: book.metadata, pattern: pattern) {
             moves = plan.moves
+            // As a save (E3): the folder the files are moved into is the book's folder.
+            if !moves.isEmpty { folderPath = store.storedPath(for: plan.folder) }
         }
         let records: [MoveRecord]
         do {
@@ -83,6 +88,7 @@ extension LibraryService {
         }
 
         var updated = book
+        updated.folderPath = folderPath
         updated.appOnlyFields = keepingCoverMembership(
             of: book, in: Self.appOnlyFields(files: files, hasStoredCover: false))
         operation.add(
@@ -276,6 +282,7 @@ extension LibraryService {
         let fm = FileManager.default
 
         // R1, R2
+        let pattern = try folderPattern()
         let books = try store.books()
         let rowsByBook = Dictionary(grouping: try store.allFiles(), by: \.bookId)
         var tracked = Set<String>()
@@ -283,9 +290,9 @@ extension LibraryService {
         var newlyFlagged: [Int64] = []
         for book in books.sorted(by: { ($0.id ?? 0) < ($1.id ?? 0) }) {
             guard let id = book.id else { continue }
-            let urls = (rowsByBook[id] ?? []).map { store.url(for: $0) }
-            for url in urls { tracked.insert(Self.comparablePath(url)) }
-            switch fileCheck(of: book, files: urls) {
+            let rows = rowsByBook[id] ?? []
+            for row in rows { tracked.insert(Self.comparablePath(store.url(for: row))) }
+            switch fileCheck(of: book, files: rows, pattern: pattern) {
             case .missing(let newly):
                 report.booksWithMissingFiles.append(id)
                 if newly { newlyFlagged.append(id) }
@@ -474,20 +481,24 @@ extension LibraryService {
     /// R1, R2 for one book, by whether its files exist: none is opened.
     ///
     /// A flagged book counts as flagged only for missing files when it is filed and can
-    /// still be filed; one that was never filed, or no longer can be, stays flagged.
+    /// still be filed under the library's folder pattern; one that was never filed, or
+    /// no longer can be, stays flagged.
     ///
     /// A book with no files (owned elsewhere) has none to miss and none to come back: it
     /// is never reported missing, flagged or recovered, and a flag it has stays.
-    /// - Parameter urls: Where each of the book's files is recorded to be.
-    func fileCheck(of book: Book, files urls: [URL]) -> FileCheck {
-        guard !urls.isEmpty else { return .asItWas }
+    /// - Parameters:
+    ///   - rows: The book's files, as recorded.
+    ///   - pattern: The library's folder pattern, when the caller has it already. If it
+    ///     has to be read here and cannot be, a flag is left as it is.
+    func fileCheck(of book: Book, files rows: [BookFile], pattern: FolderPattern? = nil) -> FileCheck {
+        guard !rows.isEmpty else { return .asItWas }
         let fm = FileManager.default
-        if urls.contains(where: { !fm.fileExists(atPath: $0.path) }) {
+        if rows.contains(where: { !fm.fileExists(atPath: store.url(for: $0).path) }) {
             return .missing(newlyFlagged: !book.needsAttention)
         }
-        if book.needsAttention, book.folderPath != nil,
-           PathBuilder.bookFolder(metadata: book.metadata) != nil {
-            return .recovered
+        if book.needsAttention, book.folderPath != nil, let pattern = pattern ?? (try? folderPattern()) {
+            let values = FolderPatternValues(metadata: book.metadata, hasAudio: rows.contains { $0.role == .audio })
+            if PathBuilder.bookFolder(values: values, pattern: pattern) != nil { return .recovered }
         }
         return .asItWas
     }

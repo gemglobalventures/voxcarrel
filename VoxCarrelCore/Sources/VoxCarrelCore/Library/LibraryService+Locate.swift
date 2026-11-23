@@ -4,13 +4,17 @@ extension LibraryService {
     // MARK: Where a book would be filed
 
     /// The folder, relative to the library, that a book with these details would be
-    /// filed in; nil when it cannot be filed (no title or no author). Uses the same
-    /// planner as import, so an existing folder's capitalisation is adopted.
+    /// filed in under the library's folder pattern; nil when it cannot be filed (under
+    /// the standard pattern: no title or no author). Uses the same planner as import,
+    /// so an existing folder's capitalisation is adopted.
     ///
     /// Only looks at folder names: nothing is created.
-    public func plannedFolder(for metadata: BookMetadata) -> String? {
+    /// - Parameter hasAudio: Whether the book's files include any audio file.
+    public func plannedFolder(for metadata: BookMetadata, hasAudio: Bool) -> String? {
+        // Without the pattern there is no saying where: nil, as for a book that cannot be filed.
+        guard let pattern = try? folderPattern() else { return nil }
         // C3: exactly what `importItems` records as a new book's `folderPath`.
-        filingPlan(for: [], metadata: metadata).map { store.storedPath(for: $0.folder) }
+        return bookFolder(for: metadata, hasAudio: hasAudio, pattern: pattern).map { store.storedPath(for: $0) }
     }
 
     /// The folder a book that has no files yet would be filed in if it were given these
@@ -23,7 +27,8 @@ extension LibraryService {
         let files = firstFiles.compactMap { file in
             FileFormat(url: file.url).map { workingFile(at: file.url, format: $0, role: file.role) }
         }
-        return plannedFolder(for: Self.filledIn(metadata, from: files))
+        return plannedFolder(
+            for: Self.filledIn(metadata, from: files), hasAudio: firstFiles.contains { $0.role == .audio })
     }
 
     // MARK: Putting a missing file back
@@ -99,7 +104,7 @@ extension LibraryService {
 
         // L8: the launch check's verdict on this book, with the file where it now is.
         var updated = book
-        switch fileCheck(of: book, files: updatedRows.map { store.url(for: $0) }) {
+        switch fileCheck(of: book, files: updatedRows) {
         case .missing: updated.needsAttention = true
         case .recovered: updated.needsAttention = false
         case .asItWas: break

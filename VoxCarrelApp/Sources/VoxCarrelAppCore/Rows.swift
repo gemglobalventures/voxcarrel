@@ -129,6 +129,9 @@ public struct BookDetail: Equatable, Sendable {
     /// Of the first audio file; 0 when there is none or it cannot be read.
     public var chapterCount: Int
     public var collectionIds: Set<Int64>
+    /// What the library's folder pattern needs and the book lacks, so that it cannot be
+    /// filed; empty when it lacks nothing. Nil when that has not been worked out.
+    public var missingForFiling: [FolderToken]?
 
     public init(row: BookRow, files: [FileRow], chapterCount: Int, collectionIds: Set<Int64>) {
         self.row = row

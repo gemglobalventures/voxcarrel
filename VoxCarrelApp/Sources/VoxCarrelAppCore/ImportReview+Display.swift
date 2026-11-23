@@ -103,12 +103,12 @@ extension ImportReview {
         case .ready:
             return nil
         case .willNeedAttention:
-            let lacks = entry(id).map { Self.lacks($0.candidate.metadata) } ?? (title: false, author: false)
+            let names = (entry(id).map(lacks) ?? []).map(\.noun)
             let what =
-                switch (lacks.title, lacks.author) {
-                case (true, true): "no title or author"
-                case (true, false): "no title"
-                default: "no author"
+                switch names.count {
+                case 0: "the folder layout leaves it no folder name"
+                case 1: "no \(names[0])"
+                default: "no \(names.dropLast().joined(separator: ", ")) or \(names[names.count - 1])"
                 }
             return Status(text: "Needs attention: \(what)", isBlocking: false)
         case .blocked(let why):
@@ -116,13 +116,13 @@ extension ImportReview {
         }
     }
 
-    /// Which of the two details a book is filed by are unusable, judged as the engine
-    /// judges them.
-    private static func lacks(_ metadata: BookMetadata) -> (title: Bool, author: Bool) {
-        (
-            title: PathBuilder.sanitise(metadata.title).isEmpty,
-            author: PathBuilder.sanitise(metadata.authors.first ?? "").isEmpty
-        )
+    /// What the library's folder pattern needs and the entry's book lacks, judged as
+    /// the engine judges it: the title first, then the author, then the rest in the
+    /// pattern's order.
+    private func lacks(_ entry: Entry) -> [FolderToken] {
+        let missing = folderPattern.missingTokens(for: entry.patternValues)
+        let first: [FolderToken] = [.title, .author]
+        return first.filter(missing.contains) + missing.filter { !first.contains($0) }
     }
 
     // MARK: Q4 Where it will go
@@ -135,21 +135,33 @@ extension ImportReview {
         case .blocked(let why):
             return "Cannot be imported: \(why)"
         case .willNeedAttention:
-            let lacks = Self.lacks(entry.candidate.metadata)
-            let what =
-                switch (lacks.title, lacks.author) {
-                case (true, true): "a title and an author"
-                case (true, false): "a title"
-                default: "an author"
-                }
-            return "Will stay where it is until it has \(what)"
+            let names = lacks(entry).map { ($0 == .author ? "an " : "a ") + $0.noun }
+            switch names.count {
+            case 0: return "Will stay where it is: the folder layout leaves it no folder name"
+            case 1: return "Will stay where it is until it has \(names[0])"
+            default:
+                return "Will stay where it is until it has "
+                    + "\(names.dropLast().joined(separator: ", ")) and \(names[names.count - 1])"
+            }
         case .ready:
             if entry.isAddedToExisting, entry.matchHasNoFiles {
                 // R9: the book is filed now, from its own details, as a new book would be.
                 if let folder = entry.destination { return "Will be filed in: \(folder)" }
                 guard entry.matchDestinationFor != nil else { return "Working out where it will be filed…" }
                 let title = entry.existingMatch?.title.trimmedOrNil.map { "“\($0)”" } ?? "The book"
-                return "Cannot be added yet: \(title) has no author in the library, and neither have these files"
+                // What the library's folder pattern needs and the book lacks. The files
+                // have been read by now, and did not supply it either.
+                let names = (entry.existingMatch.map { match in
+                    folderPattern.missingTokens(
+                        for: FolderPatternValues(metadata: match.metadata, hasAudio: entry.hasAudio))
+                } ?? []).map(\.noun)
+                let what =
+                    switch names.count {
+                    case 0: "author"
+                    case 1: names[0]
+                    default: "\(names.dropLast().joined(separator: ", ")) or \(names[names.count - 1])"
+                    }
+                return "Cannot be added yet: \(title) has no \(what) in the library, and neither have these files"
             }
             if entry.isAddedToExisting {
                 return entry.destination.map { "Will be added to: \($0)" } ?? "Will be added to the existing book"

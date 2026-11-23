@@ -357,7 +357,10 @@ public enum DemoContent {
             // Two to thirty hours for something to listen to.
             metadata.durationSeconds = hasAudio ? Double(7200 + (number * 9973) % 100_800) : nil
 
-            guard let folderPath = PathBuilder.bookFolder(metadata: metadata) else { continue }
+            // FP25: the demo library is filed by the standard pattern.
+            guard let folderPath = PathBuilder.bookFolder(
+                values: FolderPatternValues(metadata: metadata, hasAudio: hasAudio), pattern: .standard)
+            else { continue }
             let names = PathBuilder.fileNames(
                 title: metadata.title,
                 files: template.files.map { CandidateFile(url: store.url(for: $0), role: $0.role) })

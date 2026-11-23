@@ -40,12 +40,14 @@ public struct Organiser {
     /// For tests: a file manager whose operations can be made to fail.
     init(fileManager: FileManager) { fm = fileManager }
 
-    /// Destinations for a book's files inside the library, or nil when the book
-    /// has no usable title or author and so cannot be filed.
+    /// Destinations for a book's files inside a library that files by `pattern`, or
+    /// nil when the book lacks something the pattern needs and so cannot be filed.
+    /// `{Kind}` goes by whether any of `files` is audio.
     public static func plan(
-        files: [CandidateFile], metadata: BookMetadata, libraryRoot: URL
+        files: [CandidateFile], metadata: BookMetadata, pattern: FolderPattern, libraryRoot: URL
     ) -> [PlannedMove]? {
-        guard let folder = PathBuilder.bookFolder(metadata: metadata) else { return nil }
+        let values = FolderPatternValues(metadata: metadata, hasAudio: files.contains { $0.role == .audio })
+        guard let folder = PathBuilder.bookFolder(values: values, pattern: pattern) else { return nil }
         let names = PathBuilder.fileNames(title: metadata.title, files: files)
         let base = libraryRoot.appendingPathComponent(folder, isDirectory: true)
         return zip(files, names).map {

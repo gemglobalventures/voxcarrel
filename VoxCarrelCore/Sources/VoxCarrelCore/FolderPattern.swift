@@ -7,6 +7,16 @@ public enum FolderToken: String, CaseIterable, Sendable {
          language = "Language", kind = "Kind"
 }
 
+extension FolderToken {
+    /// What the token stands for, in words: "series number".
+    public var noun: String {
+        switch self {
+        case .number: "series number"
+        default: rawValue.lowercased()
+        }
+    }
+}
+
 /// Why a text cannot be used as a folder pattern.
 public enum FolderPatternProblem: Error, Equatable, Sendable {
     /// Nothing but spaces, in the whole pattern or in one of its alternatives.
@@ -182,12 +192,22 @@ public struct FolderPattern: Equatable, Hashable, Sendable {
         return common
     }
 
+    /// Every token that appears anywhere in the pattern, inside brackets or out, in any
+    /// alternative: all that a book's folder can depend on.
+    public var usedTokens: Set<FolderToken> {
+        var used = Set<FolderToken>()
+        for alternative in alternatives {
+            for piece in alternative.pieces {
+                if case .token(let token) = piece.kind { used.insert(token) }
+            }
+        }
+        return used
+    }
+
     /// Whether `{Kind}` appears anywhere, so that a book's folder depends on whether
     /// it has audio.
     public var usesKind: Bool {
-        alternatives.contains { alternative in
-            alternative.pieces.contains { if case .token(.kind) = $0.kind { true } else { false } }
-        }
+        usedTokens.contains(.kind)
     }
 
     /// The name of the preset this pattern is, if it is one.
@@ -206,6 +226,27 @@ public struct FolderPattern: Equatable, Hashable, Sendable {
     public func missingTokens(for values: FolderPatternValues) -> [FolderToken] {
         guard folder(for: values) == nil else { return [] }
         return alternatives.last?.missing(for: values) ?? []
+    }
+
+    // MARK: Why a book cannot be filed
+
+    /// Why a book with these values has no folder under this pattern, as a sentence:
+    /// "No narrator, which the folder layout needs." Nil when it can be filed.
+    public func unfiledReason(for values: FolderPatternValues) -> String? {
+        guard folder(for: values) == nil else { return nil }
+        return Self.unfiledReason(missing: missingTokens(for: values))
+    }
+
+    /// The sentence for a book that lacks these: "No narrator or year, which the folder
+    /// layout needs." With none named (every value is there, and still no name is left
+    /// for the folder), a sentence saying that.
+    public static func unfiledReason(missing: [FolderToken]) -> String {
+        guard !missing.isEmpty else { return "The folder layout leaves no name for its folder." }
+        let names = missing.map(\.noun)
+        let list = names.count == 1
+            ? names[0]
+            : names.dropLast().joined(separator: ", ") + " or " + names[names.count - 1]
+        return "No \(list), which the folder layout needs."
     }
 
     // MARK: Reading

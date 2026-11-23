@@ -5,9 +5,11 @@ extension LibraryService {
     ///
     /// Edits are handled in order and independently: one that cannot be saved gets
     /// `.failed` and its book is left exactly as it was. An edit that changes nothing is
-    /// reported as saved without being written. Throws only when the database commit
+    /// reported as saved without being written. Throws only when the library's folder
+    /// pattern cannot be read, before anything is done, or when the database commit
     /// fails, in which case everything the call did is reversed.
     public func save(_ edits: [BookEdit]) throws -> [SaveOutcome] {
+        let pattern = try folderPattern()
         var operation = PendingOperation()
         // Books an earlier edit of this call has already dealt with.
         var handled = Set<Int64>()
@@ -16,7 +18,7 @@ extension LibraryService {
             guard !handled.contains(edit.bookId) else {
                 return .failed("Another edit in the same save already changes that book")
             }
-            let result = prepareEdit(edit, into: &operation)
+            let result = prepareEdit(edit, pattern: pattern, into: &operation)
             switch result {
             case .failed: break
             case .unchanged: handled.insert(edit.bookId)
@@ -60,7 +62,9 @@ extension LibraryService {
         case saved(writeIndex: Int, refiled: Bool, problems: [FileProblem])
     }
 
-    private func prepareEdit(_ edit: BookEdit, into operation: inout PendingOperation) -> PreparedEdit {
+    private func prepareEdit(
+        _ edit: BookEdit, pattern: FolderPattern, into operation: inout PendingOperation
+    ) -> PreparedEdit {
         let book: Book
         let rows: [BookFile]
         do {
@@ -87,7 +91,7 @@ extension LibraryService {
         let current = rows.map { FilingSource(url: store.url(for: $0), role: $0.role) }
         var moves: [(index: Int, move: PlannedMove)] = []
         var folderPath = book.folderPath
-        let plan = filingPlan(for: current, metadata: metadata)
+        let plan = filingPlan(for: current, metadata: metadata, pattern: pattern)
         if let plan {
             // E5: a book catalogued in place is only filed while all its files are there.
             let canFile = book.folderPath != nil
