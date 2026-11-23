@@ -91,7 +91,7 @@ extension AppModel {
     /// running, and at least one of the books is an audiobook.
     public func canCheckEdition(for ids: Set<Int64>) -> Bool {
         // SV7: not when any of them is a book the library does not have.
-        isLibraryOpen && busyLabel == nil && storedPrompt == nil && !holdsMissing(ids)
+        isLibraryOpen && busyLabel == nil && storedPrompt == nil && !holdsMissing(ids) && layoutPreview == nil
             && rows.contains { ids.contains($0.id) && $0.hasAudio }
     }
 

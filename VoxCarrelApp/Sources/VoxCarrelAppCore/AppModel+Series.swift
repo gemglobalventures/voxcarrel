@@ -35,11 +35,14 @@ extension AppModel {
         guard let shown = shownSeries, shown.name == name else {
             return SeriesRows.loadingHeader(showsHidden: showsHiddenMissing)
         }
-        return SeriesRows.header(
+        var header = SeriesRows.header(
             shown.completeness, canCheck: isQuietForSeries && lookupSources.contains(.audible),
             canChange: isQuietForSeries,
             // SV10
             hasEdits: !editedBookIds.isDisjoint(with: shown.bookIds), showsHidden: showsHiddenMissing)
+        // FL12: using Audible's numbers is a save, which the library refuses for now.
+        if layoutChangeIsUnresolved { header.canUseAudibleNumbers = false }
+        return header
     }
 
     /// SV3: the Audible series to choose between; not nil while the owner is being asked.

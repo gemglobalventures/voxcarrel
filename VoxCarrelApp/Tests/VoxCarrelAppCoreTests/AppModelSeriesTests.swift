@@ -1231,6 +1231,23 @@ private let notChecked = "Not checked against Audible"
         #expect(h.lookup.catalogue.requests.count == sent)
     }
 
+    /// FL12: not while a change of folder layout that was interrupted is unresolved:
+    /// the save would be refused.
+    @Test func audiblesNumbersAreNotOfferedWhileALayoutChangeIsUnresolved() async throws {
+        let h = try await checked(numberedDifferently())
+        #expect(h.model.seriesHeader?.canUseAudibleNumbers == true)
+        h.model.layoutChangeIsUnresolved = true
+        let header = try #require(h.model.seriesHeader)
+        #expect(!header.canUseAudibleNumbers)
+        // What touches no file is still offered.
+        #expect(header.canCheck)
+        #expect(header.canUnlink)
+        h.recordBusyLabels()
+        await h.model.useAudibleNumbers()
+        #expect(h.busyLabels.isEmpty)
+        #expect(h.model.alert == nil)
+    }
+
     /// SV10: not while a book of the series has unsaved edits.
     @Test func audiblesNumbersWaitForUnsavedEdits() async throws {
         let h = try await checked(numberedDifferently())

@@ -31,6 +31,25 @@ public struct LibraryCheckSummary: Equatable, Sendable {
     static let nothingChanged = "VoxCarrel looked over the library folder as it opened. Nothing has been changed."
     static let noFileChanged = "VoxCarrel looked over the library folder as it opened. No file has been changed."
 
+    /// FL13: book folders left set aside by a change of folder layout that was
+    /// interrupted and then given up on.
+    public var setAside: Section?
+    /// FL11: said when a change of folder layout had been interrupted and the folders
+    /// were put back; nil otherwise.
+    public var recoveredLayout: String?
+    /// FL12: a change of folder layout was interrupted and could not be put right.
+    public var layoutProblem: LayoutProblem?
+
+    public struct LayoutProblem: Equatable, Sendable {
+        public var heading: String
+        /// Why the folders could not be put back, and what that means for now.
+        public var detail: String
+        /// The folders in the way: where each is, and where it belongs.
+        public var lines: [Line]
+        public var retryTitle: String
+        public var stopTitle: String
+    }
+
     /// A line saying how many books had their length corrected, because their files
     /// stated the wrong one; nil when none had.
     public var correctedLengths: String?
@@ -40,10 +59,120 @@ public struct LibraryCheckSummary: Equatable, Sendable {
 }
 
 extension AppModel {
+    static let checkingLabel = "Checking the library…"
+
+    /// A2: runs the launch check and keeps what it found worth telling.
+    ///
+    /// FL11: the check first puts right a change of folder layout that was interrupted,
+    /// and says so when folders were put back. FL12: when it cannot, it says why, and
+    /// `layoutChangeIsUnresolved` switches off everything the library would refuse
+    /// until a later check succeeds or the owner gives up (FL13).
+    ///
+    /// - Parameter reloads: False when the caller reads everything again itself.
+    func runLibraryCheck(with worker: LibraryWorker, reloads: Bool = true) async {
+        do {
+            let report = try await worker.reconcile()
+            // FL12: set before the check is shown, so that nothing is offered that is off.
+            layoutChangeIsUnresolved = report.layoutChangeProblem != nil
+            // The check flags books with missing files and clears the flag of books that are whole
+            // again, corrects the length of books whose files stated the wrong one, and marks
+            // files it finds to state the wrong length.
+            if reloads,
+               !report.booksWithMissingFiles.isEmpty || !report.booksRecovered.isEmpty
+                || report.correctedLengths > 0 || report.filesWithWrongLength > 0 {
+                await reloadAll()
+            }
+            // A2
+            let worthTelling = !report.booksWithMissingFiles.isEmpty || !report.untrackedFiles.isEmpty
+                || !report.strandedFiles.isEmpty || report.correctedLengths > 0
+                || report.filesWithWrongLength > 0
+                // FL11, FL12, and folders still set aside after FL13.
+                || report.recoveredLayoutChange || report.layoutChangeProblem != nil
+                || !report.strandedFolders.isEmpty
+            var titles: [String] = []
+            if !report.booksWithMissingFiles.isEmpty {
+                // Q10: named now, so that the check can list them whatever the window shows later.
+                let missing = Set(report.booksWithMissingFiles)
+                titles = try await worker.rows(for: .needsAttention, search: "")
+                    .filter { missing.contains($0.id) }
+                    .map(\.book.title)
+                    .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            }
+            missingFileTitles = titles
+            strandedNames = try await worker.likelyNames(ofStranded: report.strandedFiles)
+            // FL12: a folder that is nowhere the change could have left it is said to
+            // be missing, not to be at the place it was last expected.
+            missingStrandedFolders = Set(
+                report.strandedFolders.map(\.url).filter { !FileManager.default.fileExists(atPath: $0.path) })
+            libraryCheck = worthTelling ? report : nil
+        } catch {
+            show(error)
+            // FL12: the check said nothing, so the library is asked.
+            layoutChangeIsUnresolved = await worker.hasInterruptedLayoutChange()
+        }
+    }
+
+    /// FL12: "Try Again": runs the check again, which tries once more to put the
+    /// folders back. Does nothing unless a change of layout is unresolved.
+    public func retryLibraryCheck() async {
+        guard layoutChangeIsUnresolved, let worker = await begin(Self.checkingLabel) else { return }
+        await runLibraryCheck(with: worker, reloads: false)
+        await finish()
+    }
+
+    /// FL13: "Stop Trying…": asks whether to give up on putting the folders back.
+    public func requestStopLayoutRecovery() {
+        guard layoutChangeIsUnresolved, busyLabel == nil, worker != nil else { return }
+        raise(.stopLayoutRecovery)
+    }
+
+    /// FL13: the answer "stop trying" to `.stopLayoutRecovery`. The record of the
+    /// interrupted change is removed; no folder is touched and nothing is deleted. The
+    /// ordinary check then runs, and tells of the books whose folders are not where
+    /// the library has them.
+    public func confirmStopLayoutRecovery() async {
+        guard storedPrompt == .stopLayoutRecovery else { return }
+        storedPrompt = nil
+        guard layoutChangeIsUnresolved, let worker = await begin(Self.checkingLabel) else { return }
+        do {
+            try await worker.discardInterruptedLayoutChange()
+            await runLibraryCheck(with: worker, reloads: false)
+        } catch {
+            show(error)
+        }
+        await finish()
+    }
+
     /// Q10: what the launch-check sheet shows; nil when there is nothing to tell.
     public var libraryCheckSummary: LibraryCheckSummary? {
         guard let check = libraryCheck else { return nil }
         var summary = LibraryCheckSummary()
+
+        // FL12
+        if let reason = check.layoutChangeProblem {
+            summary.layoutProblem = LibraryCheckSummary.LayoutProblem(
+                heading: "A change of folder layout was interrupted",
+                detail: Self.sentence(reason) + " Nothing was moved or deleted. "
+                    + "Importing, saving and other changes are off until this is resolved.",
+                lines: folderLines(check.strandedFolders), retryTitle: "Try Again", stopTitle: "Stop Trying…")
+        } else if !check.strandedFolders.isEmpty {
+            // FL13: folders that were set aside when the change was given up on.
+            let count = check.strandedFolders.count
+            summary.setAside = LibraryCheckSummary.Section(
+                heading: count == 1 ? "1 book folder was left set aside" : "\(count) book folders were left set aside",
+                detail: "A change of folder layout was interrupted before it finished. VoxCarrel has left "
+                    + (count == 1 ? "this folder" : "these folders")
+                    + " untouched; nothing was deleted. Move "
+                    + (count == 1 ? "it back to where it belongs" : "them back to where they belong")
+                    + " in the Finder: press ⌘⇧. (Command-Shift-full stop) there to show hidden folders.",
+                lines: folderLines(check.strandedFolders))
+        }
+        // FL11
+        if check.recoveredLayoutChange {
+            summary.intro = LibraryCheckSummary.noFileChanged
+            summary.recoveredLayout =
+                "A change of folder layout was interrupted. The folders have been put back as they were."
+        }
 
         let missing = check.booksWithMissingFiles.count
         if missing > 0 {
@@ -96,6 +225,7 @@ extension AppModel {
 
         let isEmpty = summary.missing == nil && summary.untracked == nil && summary.stranded == nil
             && summary.correctedLengths == nil && summary.wrongLengthFiles == nil
+            && summary.recoveredLayout == nil && summary.layoutProblem == nil && summary.setAside == nil
         return isEmpty ? nil : summary
     }
 
@@ -121,6 +251,27 @@ extension AppModel {
             if let name = strandedNames[url] { text += ", probably \"\(name)\"" }
             return LibraryCheckSummary.Line(id: index, text: text, url: url)
         }
+    }
+
+    /// FL12: where each folder is and where it belongs; for one that is not there, where
+    /// it belongs and where it was being moved.
+    private func folderLines(_ folders: [StrandedFolder]) -> [LibraryCheckSummary.Line] {
+        folders.enumerated().map { index, folder in
+            if missingStrandedFolders.contains(folder.url), let belongs = folder.belongsAt {
+                var text = "“\(belongs)” cannot be found."
+                if let destination = folder.wasMovingTo { text += " It was being moved to “\(destination)”." }
+                return LibraryCheckSummary.Line(id: index, text: text, url: nil)
+            }
+            let place = placeInLibrary(folder.url)
+            let text = folder.belongsAt.map { "“\(place)” belongs at “\($0)”" } ?? "A folder at “\(place)”"
+            return LibraryCheckSummary.Line(id: index, text: text, url: folder.url)
+        }
+    }
+
+    /// The library's reasons are not always whole sentences: gives one a full stop.
+    private static func sentence(_ text: String) -> String {
+        let text = text.trimmed
+        return ".!?".contains(text.last ?? ".") ? text : text + "."
     }
 
     /// A file's path from the library folder down; its whole path when it is not inside it.

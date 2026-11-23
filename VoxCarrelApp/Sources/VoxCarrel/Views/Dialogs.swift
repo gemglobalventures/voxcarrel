@@ -57,6 +57,8 @@ struct Dialogs: ViewModifier {
                 case .check(let summary):
                     LibraryCheckSheet(summary: summary)
                         .modifier(Questions(isActive: true))
+                case .layoutPreview:
+                    EmptyView()
                 case .seriesChoice(let choices):
                     SeriesPickerSheet(model: model, choices: choices)
                         .modifier(Questions(isActive: true))

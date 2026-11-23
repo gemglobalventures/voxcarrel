@@ -106,8 +106,9 @@ extension AppModel {
     /// question or other sheet is in the way.
     public var canLookUp: Bool {
         guard case .one = inspecting else { return false }
+        // FL12: what a lookup finds is saved, which the library refuses for now.
         return isQuietForLookup && canAskLookupSources && review == nil && result == nil && libraryCheck == nil
-            && seriesChoice == nil
+            && seriesChoice == nil && !layoutChangeIsUnresolved
     }
 
     /// A8b: why Look Up cannot be used whatever is selected: every lookup source is
@@ -132,7 +133,8 @@ extension AppModel {
     }
 
     var isQuietForLookup: Bool {
-        isLibraryOpen && busyLabel == nil && storedPrompt == nil && lookup == nil
+        // FL8: the preview of a change of folder layout is a sheet in the way.
+        isLibraryOpen && busyLabel == nil && storedPrompt == nil && lookup == nil && layoutPreview == nil
     }
 
     /// The lookup when it is for the inspected book: its sheet belongs to the window.

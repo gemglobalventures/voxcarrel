@@ -148,6 +148,8 @@ extension ImportReview {
                 // R9: the book is filed now, from its own details, as a new book would be.
                 if let folder = entry.destination { return "Will be filed in: \(folder)" }
                 guard entry.matchDestinationFor != nil else { return "Working out where it will be filed…" }
+                // FL14: the folder it belongs in is another book's.
+                if let refusal = entry.matchRefusal { return "Cannot be added yet. \(refusal)" }
                 let title = entry.existingMatch?.title.trimmedOrNil.map { "“\($0)”" } ?? "The book"
                 // What the library's folder pattern needs and the book lacks. The files
                 // have been read by now, and did not supply it either.

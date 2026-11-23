@@ -50,7 +50,7 @@ extension AppModel {
     /// The same for these books: for a context menu.
     public func canMarkOnAudible(for ids: Set<Int64>) -> Bool {
         // SV7
-        isLibraryOpen && busyLabel == nil && !ids.isEmpty && !holdsMissing(ids)
+        isLibraryOpen && busyLabel == nil && !ids.isEmpty && !holdsMissing(ids) && layoutPreview == nil
     }
 
     /// R8: what the menu item says: "Unmark as on Audible" when every selected book is

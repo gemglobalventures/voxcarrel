@@ -132,6 +132,10 @@ public struct BookDetail: Equatable, Sendable {
     /// What the library's folder pattern needs and the book lacks, so that it cannot be
     /// filed; empty when it lacks nothing. Nil when that has not been worked out.
     public var missingForFiling: [FolderToken]?
+    /// Why the book is not, and cannot now be, filed where the library's folder layout
+    /// files it, as the library says it; nil when nothing stands in its way, or that
+    /// has not been worked out.
+    public var unfiledReason: String?
 
     public init(row: BookRow, files: [FileRow], chapterCount: Int, collectionIds: Set<Int64>) {
         self.row = row

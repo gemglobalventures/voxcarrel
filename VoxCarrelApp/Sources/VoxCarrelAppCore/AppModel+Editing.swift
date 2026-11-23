@@ -21,8 +21,11 @@ extension AppModel {
     }
 
     /// Whether Save applies: there is something to save and nothing is running.
+    ///
+    /// FL8, FL12: not while a change of folder layout is previewed, or one that was
+    /// interrupted has not been put right.
     public var canSave: Bool {
-        isLibraryOpen && busyLabel == nil && hasUnsavedChanges
+        isLibraryOpen && busyLabel == nil && hasUnsavedChanges && filesCanChange
     }
 
     public var hasUnsavedChanges: Bool {
@@ -32,7 +35,7 @@ extension AppModel {
     /// A10: writes the draft. A draft with a problem is not written; `alert` says what
     /// the first problem is.
     public func save() async {
-        guard busyLabel == nil, worker != nil else { return }
+        guard busyLabel == nil, worker != nil, filesCanChange else { return }
         let edits: [BookEdit]
         switch inspecting {
         case .nothing, .missing:
@@ -229,6 +232,8 @@ extension AppModel {
     // MARK: Changes made at once
 
     public func setRole(_ role: FileRole, forFile id: Int64) async {
+        // FL12
+        guard filesCanChange else { return }
         await perform("Changing file…") { worker in
             try await worker.setRole(role, forFile: id)
         }
@@ -241,8 +246,8 @@ extension AppModel {
 
     /// The same for these books, which need not be the selection.
     public func rewriteTags(for ids: Set<Int64>) async {
-        // SV7
-        guard !holdsMissing(ids) else { return }
+        // SV7, FL12
+        guard !holdsMissing(ids), filesCanChange else { return }
         let ids = ordered(ids)
         guard !ids.isEmpty else { return }
         let titles = Dictionary(rows.map { ($0.id, $0.book.title) }) { first, _ in first }
@@ -260,8 +265,8 @@ extension AppModel {
     /// The same for these books, which need not be the selection. Does nothing when
     /// none of them has a file that can be repaired.
     public func repairLengthHeaders(for ids: Set<Int64>) async {
-        // SV7
-        guard !holdsMissing(ids) else { return }
+        // SV7, FL12
+        guard !holdsMissing(ids), filesCanChange else { return }
         let ids = ordered(ids)
         let files = rows.filter { ids.contains($0.id) }.map(\.repairableLengthFiles).reduce(0, +)
         guard !ids.isEmpty, files > 0 else { return }
@@ -275,6 +280,8 @@ extension AppModel {
 
     /// Uses the file at `url` in place of a file that has gone missing.
     public func locate(fileId: Int64, at url: URL) async {
+        // FL12
+        guard filesCanChange else { return }
         await perform("Locating file…") { worker in
             try await worker.locateFile(fileId: fileId, at: url)
         }
@@ -296,7 +303,8 @@ extension AppModel {
     /// A15: asks whether to remove these books (those of them that are shown).
     public func requestRemove(_ ids: Set<Int64>) {
         // SV7: a book the library does not have cannot be removed from it.
-        guard busyLabel == nil, worker != nil, !holdsMissing(ids) else { return }
+        // FL8, FL12: nor while the library's files are not to be changed.
+        guard busyLabel == nil, worker != nil, !holdsMissing(ids), filesCanChange else { return }
         let books = rows.filter { ids.contains($0.id) }
         guard !books.isEmpty else { return }
         raise(

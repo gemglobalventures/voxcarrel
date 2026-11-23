@@ -95,12 +95,15 @@ extension AppModel {
 
     /// Whether an import can be begun: a library is open, nothing is running and no
     /// import is being reviewed.
+    ///
+    /// FL8, FL12: nor while a change of folder layout is previewed, or one that was
+    /// interrupted has not been put right.
     public var canImport: Bool {
-        isLibraryOpen && busyLabel == nil && review == nil
+        isLibraryOpen && busyLabel == nil && review == nil && filesCanChange
     }
 
     public var canUndo: Bool {
-        isLibraryOpen && busyLabel == nil && undoLabel != nil
+        isLibraryOpen && busyLabel == nil && undoLabel != nil && filesCanChange
     }
 
     /// The Undo menu item's title: "Undo Import 12 books".
@@ -133,10 +136,13 @@ extension AppModel {
         let someHaveFiles = chosen.count < ids.count || chosen.contains(where: \.hasFiles)
         // Showing a book in the Finder changes nothing, so it does not wait for an operation.
         commands.reveal = someHaveFiles
-        guard busyLabel == nil else { return commands }
+        // FL8: nor does anything else while a change of folder layout is previewed.
+        guard busyLabel == nil, layoutPreview == nil else { return commands }
         commands.mark = true
         commands.addToCollection = !sidebar.collections.isEmpty
         commands.removeFromCollection = shownCollection != nil
+        // FL12: what the library refuses while an interrupted change of layout is unresolved.
+        guard !layoutChangeIsUnresolved else { return commands }
         commands.rewriteTags = someHaveFiles
         commands.repairLengthHeaders = chosen.contains { $0.repairableLengthFiles > 0 }
         // Only books that are shown can be removed, and removing asks first: not while
@@ -272,6 +278,12 @@ extension PendingPrompt {
         return withoutFiles < ids.count ? "Remove from Library Only" : "Remove from Library"
     }
 
+    /// FL13: what the button that gives up on an interrupted change of folder layout
+    /// says; nil for any other question.
+    public var stopLayoutRecoveryTitle: String? {
+        self == .stopLayoutRecovery ? "Stop Trying" : nil
+    }
+
     /// The question, as the dialog's heading.
     public var title: String {
         switch self {
@@ -283,6 +295,8 @@ extension PendingPrompt {
             return "Remove “\(title)” from the library?"
         case .chooseFolderWithFiles(let folder, _, _):
             return "Use \"\(folder.lastPathComponent)\" as your library?"
+        case .stopLayoutRecovery:
+            return "Stop trying to put the folders back?"
         }
     }
 
@@ -325,6 +339,9 @@ extension PendingPrompt {
             return "This folder already holds \(items), including \(files). VoxCarrel will list those files when "
                 + "the library opens and, only if you then choose Import, move and rename them into its own "
                 + "layout. To keep them as they are, choose an empty folder instead and import with Copy."
+        case .stopLayoutRecovery:
+            return "VoxCarrel will stop trying to put the folders back. Books whose folders moved will show as "
+                + "missing until you move the folders back or locate the files yourself. Nothing is deleted."
         }
     }
 }

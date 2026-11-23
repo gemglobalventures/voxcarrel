@@ -35,6 +35,9 @@ public struct ImportReview: Equatable, Sendable {
         /// for. `matchDestinationFor` is nil until there has been an answer.
         var matchDestination: String?
         var matchDestinationFor: Book?
+        /// FL14: why the import would refuse to file that book's first files, when it
+        /// would: the folder it belongs in is another book's.
+        var matchRefusal: String?
 
         /// True when the files will go into `existingMatch` and not into a new book.
         public var isAddedToExisting: Bool {
@@ -304,14 +307,18 @@ public struct ImportReview: Equatable, Sendable {
     }
 
     /// R9: records where a matched book that has no files will be filed (nil when it
-    /// cannot be: it has no author). Ignored when `matchedBook` is no longer the entry's
+    /// cannot be: it has no author). FL14: `refusal` says why the import would refuse
+    /// to file it there, when it would: the folder is another book's. Ignored when `matchedBook` is no longer the entry's
     /// match as it is now, and for a match that has files.
-    public mutating func setMatchDestination(_ folder: String?, for id: UUID, matchedBook: Book) {
+    public mutating func setMatchDestination(
+        _ folder: String?, for id: UUID, matchedBook: Book, refusal: String? = nil
+    ) {
         guard let entry = entries.firstIndex(where: { $0.id == id }),
               entries[entry].matchHasNoFiles, entries[entry].existingMatch == matchedBook
         else { return }
         entries[entry].matchDestination = folder
         entries[entry].matchDestinationFor = matchedBook
+        entries[entry].matchRefusal = folder == nil ? refusal : nil
     }
 
     // MARK: The book already in the library

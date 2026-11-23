@@ -36,6 +36,10 @@ public enum PendingPrompt: Equatable {
     case removeBooks(ids: [Int64], titles: [String], outsideFiles: [String] = [], withoutFiles: Int = 0)
     /// Answered with `AppModel.confirmChooseLibrary`, or dismissed by setting `prompt` to nil.
     case chooseFolderWithFiles(URL, count: Int, bookFiles: Int)
+    /// FL13: whether to stop trying to put right a change of folder layout that was
+    /// interrupted. Answered with `AppModel.confirmStopLayoutRecovery`, or dismissed by
+    /// setting `prompt` to nil.
+    case stopLayoutRecovery
 }
 
 public enum UnsavedChoice: Sendable {
@@ -147,7 +151,7 @@ public final class AppModel {
     /// Whether a library folder can be chosen now: nothing is running and no question
     /// is waiting for an answer.
     public var canChooseLibrary: Bool {
-        busyLabel == nil && storedPrompt == nil
+        busyLabel == nil && storedPrompt == nil && layoutPreview == nil
     }
 
     /// Makes `folder` the library. A folder that already holds other files is not taken
@@ -162,6 +166,11 @@ public final class AppModel {
         }
         guard storedPrompt == nil else {
             alert = "Answer the question in the VoxCarrel window first, then choose the library folder again."
+            return
+        }
+        // FL8
+        guard layoutPreview == nil else {
+            alert = "Finish or cancel the change of folder layout first, then choose the library folder again."
             return
         }
         // A4
@@ -222,6 +231,14 @@ public final class AppModel {
         undoLabel = nil
         libraryCheck = nil
         missingFileTitles = []
+        missingStrandedFolders = []
+        // FL9: the layout, its draft and its preview were those of the library shown before.
+        layoutPreview = nil
+        layoutChangeIsUnresolved = false
+        libraryPattern = .standard
+        layoutPatternRead = false
+        layoutSample = nil
+        showLibraryLayout()
         review = nil
         reviewIsOfUntracked = false
         // A5: a lookup was for a book or an import of the library shown before.
@@ -266,32 +283,7 @@ public final class AppModel {
         await reloadAll()
 
         guard let worker else { return }
-        do {
-            let report = try await worker.reconcile()
-            // The check flags books with missing files and clears the flag of books that are whole
-            // again, corrects the length of books whose files stated the wrong one, and marks
-            // files it finds to state the wrong length.
-            if !report.booksWithMissingFiles.isEmpty || !report.booksRecovered.isEmpty
-                || report.correctedLengths > 0 || report.filesWithWrongLength > 0 {
-                await reloadAll()
-            }
-            // A2
-            let worthTelling = !report.booksWithMissingFiles.isEmpty || !report.untrackedFiles.isEmpty
-                || !report.strandedFiles.isEmpty || report.correctedLengths > 0
-                || report.filesWithWrongLength > 0
-            if !report.booksWithMissingFiles.isEmpty {
-                // Q10: named now, so that the check can list them whatever the window shows later.
-                let missing = Set(report.booksWithMissingFiles)
-                missingFileTitles = try await worker.rows(for: .needsAttention, search: "")
-                    .filter { missing.contains($0.id) }
-                    .map(\.book.title)
-                    .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-            }
-            strandedNames = try await worker.likelyNames(ofStranded: report.strandedFiles)
-            libraryCheck = worthTelling ? report : nil
-        } catch {
-            show(error)
-        }
+        await runLibraryCheck(with: worker)
         // WF10: the launch check is over.
         await openInbox()
     }
@@ -580,6 +572,15 @@ public final class AppModel {
         do {
             sidebar = try await worker.sidebar()
             undoLabel = try await worker.undoLabel()
+            // FL9: the layout setting follows the library's pattern whenever that has
+            // changed; a draft is otherwise left as it was typed.
+            let pattern = try await worker.folderPattern()
+            layoutSample = try await worker.layoutSample()
+            if !layoutPatternRead || pattern.text != libraryPattern.text {
+                libraryPattern = pattern
+                layoutPatternRead = true
+                showLibraryLayout()
+            }
             if generation == rowsGeneration {
                 // A browse value or a collection that no longer exists has no books to show.
                 if !sidebar.contains(storedSidebarSelection) { storedSidebarSelection = .allBooks }
@@ -816,6 +817,8 @@ public final class AppModel {
     /// A18: reverses the last import or edit. When the files cannot be put back nothing
     /// is changed, `alert` says why, and Undo can be tried again.
     public func undo() async {
+        // FL12
+        guard filesCanChange else { return }
         await perform("Undoing…") { worker in
             _ = try await worker.undoLast()
         }
@@ -831,6 +834,9 @@ public final class AppModel {
     /// The titles of the books the launch check found files missing from, in
     /// alphabetical order.
     var missingFileTitles: [String] = []
+    /// Of the folders the launch check named as left out of place, those that were not
+    /// on the disk where it said when it ran.
+    var missingStrandedFolders: Set<URL> = []
     /// For the launch check's half-moved files, the name each very likely had.
     var strandedNames: [URL: String] = [:]
 
@@ -844,11 +850,32 @@ public final class AppModel {
 
     var storedPrompt: PendingPrompt?
 
+    // MARK: Folder layout
+
+    /// The pattern the open library files its books by, as last read from it.
+    var libraryPattern = FolderPattern.standard
+    /// What the pattern field of the settings holds.
+    var layoutDraft = FolderPattern.standard.text
+    /// Whether Custom was chosen, or has to be because no preset is the draft.
+    var layoutCustomChosen = false
+    /// The book of the library that a layout is shown with when none is selected.
+    var layoutSample: LayoutSample?
+    /// False until the open library's pattern has been read once.
+    @ObservationIgnored var layoutPatternRead = false
+    /// FL5: what the change of layout being previewed would do; not nil shows the sheet.
+    public internal(set) var layoutPreview: LayoutPreview?
+    /// FL12: true while a change of folder layout that was interrupted has not been put
+    /// right: nothing that moves or rewrites files can be done.
+    public internal(set) var layoutChangeIsUnresolved = false
+
     /// True while there is a question or a message for the user: the window that shows
     /// them must be brought in front of whatever else is open (Settings, say), and
     /// opened again if it was closed.
+    ///
+    /// The same while a change of folder layout is being worked out or previewed: it is
+    /// asked for in Settings, and shown by the library window.
     public var wantsToBeSeen: Bool {
-        storedPrompt != nil || alert != nil
+        storedPrompt != nil || alert != nil || layoutPreview != nil || busyLabel == LayoutText.planningLabel
     }
 
     // MARK: Quitting
@@ -895,8 +922,11 @@ public final class AppModel {
     }
 
     /// Starts an operation: nil when one is already running or no library is open (A16).
-    func begin(_ label: String) async -> LibraryWorker? {
-        guard busyLabel == nil, let worker else { return nil }
+    ///
+    /// FL8: nor while a change of folder layout is being previewed, unless the
+    /// operation is that change (`overLayoutPreview`).
+    func begin(_ label: String, overLayoutPreview: Bool = false) async -> LibraryWorker? {
+        guard busyLabel == nil, let worker, layoutPreview == nil || overLayoutPreview else { return nil }
         busyLabel = label
         await beforeOperation?()
         return worker

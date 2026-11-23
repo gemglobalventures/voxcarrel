@@ -79,6 +79,9 @@ extension BookDetail {
             if lacksAuthor { reasons.append("Add an author to file this book") }
             let others = (missingForFiling ?? []).filter { $0 != .author }
             if !others.isEmpty { reasons.append(FolderPattern.unfiledReason(missing: others)) }
+            // FL14: whatever else the library says stands in the way: the folder the
+            // book belongs in is another book's. (What the layout needs is said above.)
+            if !lacksAuthor, others.isEmpty, let unfiledReason { reasons.append(unfiledReason) }
         }
         if files.contains(where: \.isMissing) {
             reasons.append("Some files are missing")

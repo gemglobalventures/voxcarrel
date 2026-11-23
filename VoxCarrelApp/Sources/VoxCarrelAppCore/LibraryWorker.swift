@@ -2,6 +2,13 @@ import Foundation
 import os
 import VoxCarrelCore
 
+/// Where the first files of a book that has none would be filed: the folder, or why
+/// the import would refuse them. Both nil when the book cannot be filed at all.
+public struct PlannedFirstFiling: Equatable, Sendable {
+    public var folder: String?
+    public var refusal: String?
+}
+
 /// Owns the library engine and runs it off the main thread, one call at a time.
 ///
 /// `LibraryService` blocks while it moves and re-tags files and must never be called by
@@ -172,6 +179,8 @@ public actor LibraryWorker {
             row: row(for: book, id: bookId, files: files), files: fileRows, chapterCount: chapters.count,
             collectionIds: collectionIds)
         detail.missingForFiling = try service.tokensMissingForFiling(book, files: files)
+        // FL14
+        detail.unfiledReason = try service.unfiledReason(for: bookId)
         return detail
     }
 
@@ -191,6 +200,52 @@ public actor LibraryWorker {
     /// first files: from its details, with what they lack read from the files.
     public func plannedFolder(for metadata: BookMetadata, firstFiles: [CandidateFile]) -> String? {
         service.plannedFolder(for: metadata, firstFiles: firstFiles)
+    }
+
+    /// FL14: where the first files of a book that has none would be filed, or why the
+    /// import would refuse them: a book is never filed into another book's folder.
+    public func plannedFirstFiling(for book: Book, firstFiles: [CandidateFile]) -> PlannedFirstFiling {
+        guard let folder = service.plannedFolder(for: book.metadata, firstFiles: firstFiles) else {
+            return PlannedFirstFiling(folder: nil, refusal: nil)
+        }
+        if service.isFolderOfAnotherBook(folder, than: book.id) {
+            return PlannedFirstFiling(folder: nil, refusal: LibraryService.folderTakenReason)
+        }
+        return PlannedFirstFiling(folder: folder, refusal: nil)
+    }
+
+    /// FL3: the first book of the library, by title, that is in a series: what a
+    /// layout is shown with. Nil when no book is in one. Reads the catalogue only.
+    public func layoutSample() throws -> LayoutSample? {
+        guard let book = try store.books().first(where: { $0.series?.trimmedOrNil != nil }), let id = book.id
+        else { return nil }
+        return LayoutSample(
+            metadata: book.metadata, hasAudio: try store.files(bookId: id).contains { $0.role == .audio })
+    }
+
+    // MARK: Folder layout
+
+    /// What changing the library's folder pattern would do. Changes nothing.
+    public func planLayoutChange(to pattern: FolderPattern) throws -> LayoutChangePlan {
+        try service.planLayoutChange(to: pattern)
+    }
+
+    /// Changes the library's folder pattern and moves its book folders, as one
+    /// operation that Undo reverses. Returns what was done.
+    public func applyLayoutChange(to pattern: FolderPattern) throws -> LayoutChangePlan {
+        try service.applyLayoutChange(to: pattern)
+    }
+
+    /// FL12: whether a change of folder layout that was interrupted is still to be put
+    /// right: while it is, the library refuses everything that changes its files.
+    public func hasInterruptedLayoutChange() -> Bool {
+        service.hasInterruptedLayoutChange
+    }
+
+    /// FL13: gives up on putting right a change of folder layout that was interrupted
+    /// (`LibraryService.discardInterruptedLayoutChange`).
+    public func discardInterruptedLayoutChange() throws {
+        try service.discardInterruptedLayoutChange()
     }
 
     private func books(for item: SidebarItem) throws -> [Book] {

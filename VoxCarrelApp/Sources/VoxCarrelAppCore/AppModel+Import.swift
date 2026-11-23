@@ -21,7 +21,8 @@ extension AppModel {
         // Q13
         let files = urls.filter(\.isFileURL)
         guard !files.isEmpty else { return }
-        guard hasTriedLibrary, busyLabel == nil else {
+        // FL8: nor while a change of folder layout is previewed.
+        guard hasTriedLibrary, busyLabel == nil, layoutPreview == nil else {
             heldFiles += files
             return
         }
@@ -33,6 +34,11 @@ extension AppModel {
             alert = Self.openedDuringReview
             return
         }
+        // FL12
+        guard !layoutChangeIsUnresolved else {
+            alert = Self.openedWhileLayoutUnresolved
+            return
+        }
         await beginImport(files)
     }
 
@@ -40,6 +46,9 @@ extension AppModel {
         "Choose a library folder first, then open the files with VoxCarrel again."
     static let openedWithLibraryNotOpen =
         "The library is not open, so nothing was imported. Open the files with VoxCarrel again when it is."
+    static let openedWhileLayoutUnresolved =
+        "Nothing can be imported until the interrupted change of folder layout is resolved. "
+        + "Open the library again to see what can be done."
     static let openedDuringReview =
         "Finish or cancel the import you are reviewing, then open the files with VoxCarrel again."
 
@@ -57,7 +66,10 @@ extension AppModel {
     /// - Parameter untracked: True when the files are those the launch check found
     ///   loose in the library folder.
     private func beginImport(_ urls: [URL], untracked: Bool) async {
-        guard !urls.isEmpty, review == nil, let worker = await begin("Reading files…") else { return }
+        // FL12: the import itself would be refused.
+        guard !urls.isEmpty, review == nil, !layoutChangeIsUnresolved,
+              let worker = await begin("Reading files…")
+        else { return }
         do {
             let scan = try await untracked ? worker.prepareImport(untracked: urls) : worker.prepareImport(urls)
             if scan.seeds.isEmpty {
@@ -138,9 +150,10 @@ extension AppModel {
             guard let entry = review?.entries.first(where: { $0.id == id }), let match = entry.existingMatch
             else { continue }
             // What the book lacks (an author, a series) it takes from these files.
-            let folder = await worker.plannedFolder(for: match.metadata, firstFiles: entry.candidate.files)
+            // FL14: a folder that is another book's is not named: the import would refuse it.
+            let planned = await worker.plannedFirstFiling(for: match, firstFiles: entry.candidate.files)
             // Ignored by the review if the entry has another match by now.
-            review?.setMatchDestination(folder, for: id, matchedBook: match)
+            review?.setMatchDestination(planned.folder, for: id, matchedBook: match, refusal: planned.refusal)
         }
     }
 
@@ -222,7 +235,7 @@ extension AppModel {
         guard var check = libraryCheck else { return }
         check.untrackedFiles.removeAll(where: isTaken)
         let nothingLeft = check.untrackedFiles.isEmpty && check.booksWithMissingFiles.isEmpty
-            && check.strandedFiles.isEmpty
+            && check.strandedFiles.isEmpty && check.strandedFolders.isEmpty
         libraryCheck = nothingLeft ? nil : check
     }
 }
