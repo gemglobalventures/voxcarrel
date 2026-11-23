@@ -345,7 +345,31 @@ extension AppModel {
 
     // MARK: PH23 Sharing
 
-    nonisolated static let sendFolderPrefix = "VoxCarrelSend-"
+    /// The one folder every send's package goes under: VoxCarrel's own, inside the
+    /// temporary folder. Each attempt has a folder of its own in it, named by a UUID.
+    nonisolated static let sendParentName = "VoxCarrelSend"
+
+    nonisolated static func sendParent(in root: URL) -> URL {
+        root.appendingPathComponent(sendParentName, isDirectory: true)
+    }
+
+    /// Whether a folder itself is at `url`: never a link to one, nor a file.
+    nonisolated static func isRealFolder(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+    }
+
+    /// Makes the parent folder if it is not there, for this user alone. Refuses when
+    /// something else has its name: a link (which could lead anywhere) or a file.
+    nonisolated static func makeSendParent(in root: URL) throws {
+        let parent = sendParent(in: root)
+        var info = stat()
+        if lstat(parent.path, &info) != 0 {
+            try FileManager.default.createDirectory(
+                at: parent, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        }
+        guard isRealFolder(parent) else { throw SendFolderError.parentIsNotAFolder }
+    }
 
     /// Makes what is sent for the open send's book, in a temporary folder of its own.
     /// An operation. Nil, with `alert` saying why, when it cannot be made.
@@ -357,12 +381,22 @@ extension AppModel {
         let worker = await begin(SendText.preparingLabel)
         sendIsActing = false
         guard let worker else { return nil }
-        let folder = sendTempRoot.appendingPathComponent(
-            Self.sendFolderPrefix + UUID().uuidString, isDirectory: true)
+        // Known to the clean-up before it exists, so that it is never taken for a leftover.
+        let name = UUID().uuidString
+        sendFoldersMade.note(name)
+        let folder = Self.sendParent(in: sendTempRoot).appendingPathComponent(name, isDirectory: true)
         var prepared: PreparedSend?
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Self.makeSendParent(in: sendTempRoot)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
             sendSession?.folders.append(folder)
+        } catch {
+            // Said plainly, not as the system says it.
+            alert = SendText.noTemporaryFolder
+            busyLabel = nil
+            return nil
+        }
+        do {
             let options = SendOptions(squareCover: storedSendSquareCover && check.coverIsSquare == false)
             let made = try await worker.prepareSend(for: check, options: options, in: folder)
             sendSession?.coversNotSquared = made.coversNotSquared
@@ -521,30 +555,64 @@ extension AppModel {
         }
     }
 
-    /// Whether `folder` is a temporary folder of a send, made directly in `root`.
+    /// Whether `folder` is a temporary folder of a send: a folder itself, directly in
+    /// the parent folder in `root`, which is a folder itself too.
     nonisolated static func isSendFolder(_ folder: URL, in root: URL) -> Bool {
-        let name = folder.lastPathComponent
-        guard name.hasPrefix(sendFolderPrefix), UUID(uuidString: String(name.dropFirst(sendFolderPrefix.count))) != nil,
-              folder.deletingLastPathComponent().standardizedFileURL.path == root.standardizedFileURL.path
-        else { return false }
-        // A folder itself: never a link to one, nor a file.
-        var info = stat()
-        return lstat(folder.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+        let parent = sendParent(in: root)
+        return folder.deletingLastPathComponent().standardizedFileURL.path == parent.standardizedFileURL.path
+            && isRealFolder(parent) && isRealFolder(folder)
     }
 
-    /// PH26: removes the temporary folders an earlier run of the app left behind (it
-    /// crashed, or was stopped, with a send open). Nothing else in the temporary folder
-    /// is touched.
-    func removeLeftoverSendFolders() async {
+    /// PH26: starts removing the temporary folders an earlier run of the app left behind
+    /// (it crashed, or was stopped, with a send open), and does not wait: it runs on its
+    /// own, at low priority, and nothing the window shows depends on it.
+    ///
+    /// Only VoxCarrel's own parent folder is listed, never the temporary folder it is
+    /// in. Folders made by this run are left alone, whenever they are made.
+    func startSendCleanup() {
         let root = sendTempRoot
-        let inUse = Set(sendSession?.folders.map(\.lastPathComponent) ?? [])
-        await Task.detached {
-            let fm = FileManager.default
-            for name in (try? fm.contentsOfDirectory(atPath: root.path)) ?? [] where !inUse.contains(name) {
-                let folder = root.appendingPathComponent(name, isDirectory: true)
-                if Self.isSendFolder(folder, in: root) { try? fm.removeItem(at: folder) }
-            }
-        }.value
+        let made = sendFoldersMade
+        let before = beforeSendCleanup
+        sendCleanup = Task.detached(priority: .utility) {
+            await before?()
+            Self.removeLeftoverSendFolders(in: root, keeping: made)
+        }
+    }
+
+    /// Removes every folder directly inside the parent folder in `root` that this run
+    /// did not make. Does nothing when the parent is not a folder itself (a link, a
+    /// file, or not there). Files and links inside it are left as they are.
+    nonisolated static func removeLeftoverSendFolders(in root: URL, keeping made: SendFolderNames) {
+        let parent = sendParent(in: root)
+        guard isRealFolder(parent) else { return }
+        let fm = FileManager.default
+        for name in (try? fm.contentsOfDirectory(atPath: parent.path)) ?? [] {
+            let folder = parent.appendingPathComponent(name, isDirectory: true)
+            // Asked at the last moment: a send may have begun since the folder was listed.
+            guard !made.contains(name), isSendFolder(folder, in: root) else { continue }
+            try? fm.removeItem(at: folder)
+        }
+    }
+}
+
+/// Why no temporary folder could be made for a send.
+enum SendFolderError: Error {
+    /// Something that is not a folder has the name of VoxCarrel's folder of packages.
+    case parentIsNotAFolder
+}
+
+/// The names of the temporary folders this run of the app has made for sends, shared
+/// with the clean-up of earlier runs' leftovers so that it never takes one of them.
+final class SendFolderNames: @unchecked Sendable {
+    private let lock = NSLock()
+    private var names = Set<String>()
+
+    func note(_ name: String) {
+        lock.withLock { _ = names.insert(name) }
+    }
+
+    func contains(_ name: String) -> Bool {
+        lock.withLock { names.contains(name) }
     }
 }
 

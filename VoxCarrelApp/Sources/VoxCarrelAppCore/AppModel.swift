@@ -135,9 +135,9 @@ public final class AppModel {
     /// Opens the stored library and runs the launch check.
     public func start() async {
         guard busyLabel == nil else { return }
-        // PH26
-        await removeLeftoverSendFolders()
         await openLibrary()
+        // PH26: on its own, once the library has been asked for. Nothing waits for it.
+        startSendCleanup()
     }
 
     /// As `start()` the first time it is called, and nothing after that: for the window,
@@ -1259,7 +1259,8 @@ public final class AppModel {
     @ObservationIgnored let sleepGuard: SleepGuarding
     /// What says which network the Mac is on. Tests give one they set by hand.
     @ObservationIgnored var network: LocalNetworkReading = SystemLocalNetwork()
-    /// Where the temporary folders of a send are made. Tests give a folder of their own.
+    /// The temporary folder that VoxCarrel's own folder of send packages is made in
+    /// (`sendParent(in:)`). It is never listed. Tests give a folder of their own.
     @ObservationIgnored var sendTempRoot = FileManager.default.temporaryDirectory
     /// The send that is open; not nil shows the sheet.
     var sendSession: SendSession?
@@ -1267,6 +1268,12 @@ public final class AppModel {
     /// PH28: true while the open send runs an operation of its own (a check, a repair,
     /// a save, making the copy), which the sheet being open does not stop.
     @ObservationIgnored var sendIsActing = false
+    /// The temporary folders this run has made for sends.
+    @ObservationIgnored let sendFoldersMade = SendFolderNames()
+    /// The clean-up of what earlier runs left behind, which `start()` leaves running. For tests.
+    @ObservationIgnored var sendCleanup: Task<Void, Never>?
+    /// Awaited by that clean-up before it looks at anything. A test holds it here.
+    @ObservationIgnored var beforeSendCleanup: (@Sendable () async -> Void)?
     /// PH25: whether the Mac is being kept awake for a transfer.
     @ObservationIgnored var sendKeepsAwake = false
 

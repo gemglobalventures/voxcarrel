@@ -56,10 +56,25 @@ func libraryState(_ root: URL) throws -> [String: String] {
 }
 
 extension Harness {
-    /// The temporary folders of sends that are in the model's own temporary folder now.
+    /// The one folder, in the model's own temporary folder, that every send's package goes under.
+    var sendParent: URL {
+        sendTemp.appendingPathComponent("VoxCarrelSend", isDirectory: true)
+    }
+
+    /// The temporary folders of sends that are there now: one for each attempt.
     var sendFolders: [URL] {
-        ((try? FileManager.default.contentsOfDirectory(at: sendTemp, includingPropertiesForKeys: nil)) ?? [])
-            .filter { $0.lastPathComponent.hasPrefix("VoxCarrelSend-") }
+        (try? FileManager.default.contentsOfDirectory(at: sendParent, includingPropertiesForKeys: nil)) ?? []
+    }
+
+    /// Whether `folder` is the folder of one attempt: named by a UUID, directly in `sendParent`.
+    func isSendFolder(_ folder: URL) -> Bool {
+        UUID(uuidString: folder.lastPathComponent) != nil
+            && folder.deletingLastPathComponent().resolvingSymlinksInPath() == sendParent.resolvingSymlinksInPath()
+    }
+
+    /// Waits for the clean-up that `start()` leaves running behind it.
+    func sendCleanupDone() async {
+        await model.sendCleanup?.value
     }
 
     /// Selects the book and opens Send to Phone on it.

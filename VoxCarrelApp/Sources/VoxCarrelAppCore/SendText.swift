@@ -107,6 +107,7 @@ public enum SendText {
     public static let sent = "Sent."
     public static let expired = "The link has expired."
     public static let shared = "Shared."
+    public static let noTemporaryFolder = "VoxCarrel could not make a temporary folder for the copy to send."
     public static let cancel = "Cancel"
     public static let done = "Done"
     public static let airDropUnavailable =

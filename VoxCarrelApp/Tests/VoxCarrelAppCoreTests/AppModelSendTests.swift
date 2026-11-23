@@ -368,8 +368,10 @@ import VoxCarrelFixtures
         #expect(zip.lastPathComponent == "Night Train to Vostok.zip")
         #expect(FileManager.default.fileExists(atPath: zip.path))
         let folder = zip.deletingLastPathComponent()
-        #expect(folder.lastPathComponent.hasPrefix("VoxCarrelSend-"))
-        #expect(folder.deletingLastPathComponent().resolvingSymlinksInPath() == h.sendTemp.resolvingSymlinksInPath())
+        #expect(h.isSendFolder(folder))
+        // The one parent is the app's own, and nobody else's to look into.
+        let mode = try #require(try FileManager.default.attributesOfItem(atPath: h.sendParent.path)[.posixPermissions] as? Int)
+        #expect(mode == 0o700)
 
         // The share sheet may still be reading it when it reports.
         await h.model.shareFinished(completed: true)
@@ -400,7 +402,7 @@ import VoxCarrelFixtures
         let copy = try #require(items.first)
         #expect(items.count == 1)
         #expect(copy.lastPathComponent == original.lastPathComponent)
-        #expect(copy.deletingLastPathComponent().lastPathComponent.hasPrefix("VoxCarrelSend-"))
+        #expect(h.isSendFolder(copy.deletingLastPathComponent()))
         #expect(copy.resolvingSymlinksInPath() != original.resolvingSymlinksInPath())
         let cover = try #require(try FileMetadataIO().read(copy).cover)
         #expect(CoverSquaring.isSquare(cover) == true)
@@ -459,7 +461,7 @@ import VoxCarrelFixtures
         #expect(h.phoneLink.starts.count == 1)
         #expect(start.fileName == "Night Train to Vostok.zip")
         #expect(start.file.lastPathComponent == "Night Train to Vostok.zip")
-        #expect(start.file.deletingLastPathComponent().lastPathComponent.hasPrefix("VoxCarrelSend-"))
+        #expect(h.isSendFolder(start.file.deletingLastPathComponent()))
         #expect(FileManager.default.fileExists(atPath: start.file.path))
         #expect(start.now == h.clock.now)
 
@@ -816,31 +818,118 @@ import VoxCarrelFixtures
         #expect(h.model.sendSheet == nil)
     }
 
-    @Test func ph26_whatAnEarlierRunLeftBehindIsRemovedAtTheStartAndNothingElseIs() async throws {
+    @Test func ph26_whatAnEarlierRunLeftBehindIsRemovedAfterTheStartAndNothingElseIs() async throws {
         let h = try await Harness.demo(start: false)
         let fm = FileManager.default
-        let leftover = h.sendTemp.appendingPathComponent("VoxCarrelSend-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: h.sendParent, withIntermediateDirectories: true)
+        let leftover = h.sendParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
         try Data("zip".utf8).write(to: leftover.appendingPathComponent("Book.zip"))
+        // A plain file in the parent is not a folder of the app's making.
+        let plain = h.sendParent.appendingPathComponent("notes.txt")
+        try Data("keep".utf8).write(to: plain)
+        // Nor is a link, wherever it leads: what it leads to is not touched.
+        let target = try makeTempDir()
+        try Data("keep".utf8).write(to: target.appendingPathComponent("file"))
+        let link = h.sendParent.appendingPathComponent(UUID().uuidString)
+        try fm.createSymbolicLink(at: link, withDestinationURL: target)
+        // Nothing beside the parent is looked at: not another folder, and not a folder
+        // of the naming an earlier version used.
         let other = h.sendTemp.appendingPathComponent("Something Else", isDirectory: true)
         try fm.createDirectory(at: other, withIntermediateDirectories: true)
         try Data("keep".utf8).write(to: other.appendingPathComponent("file"))
-        // A plain file of the same kind of name is not a folder of the app's making.
-        let plain = h.sendTemp.appendingPathComponent("VoxCarrelSend-notes.txt")
-        try Data("keep".utf8).write(to: plain)
-        // Nor is a link of that name, wherever it leads: what it leads to is not touched.
-        let target = try makeTempDir()
-        try Data("keep".utf8).write(to: target.appendingPathComponent("file"))
-        let link = h.sendTemp.appendingPathComponent("VoxCarrelSend-link")
-        try fm.createSymbolicLink(at: link, withDestinationURL: target)
+        let old = h.sendTemp.appendingPathComponent("VoxCarrelSend-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: old, withIntermediateDirectories: true)
+
+        await h.model.start()
+        await h.sendCleanupDone()
+
+        #expect(!fm.fileExists(atPath: leftover.path))
+        #expect(fm.fileExists(atPath: plain.path))
+        #expect((try? fm.destinationOfSymbolicLink(atPath: link.path)) != nil)
+        #expect(fm.fileExists(atPath: target.appendingPathComponent("file").path))
+        #expect(fm.fileExists(atPath: other.appendingPathComponent("file").path))
+        #expect(fm.fileExists(atPath: old.path))
+        #expect(fm.fileExists(atPath: h.sendParent.path))
+    }
+
+    /// The defect of the first real launch: the clean-up took minutes, and the library
+    /// waited for it.
+    @Test func ph26_theLibraryOpensAndShowsItsBooksWhileTheCleanUpIsHeld() async throws {
+        let h = try await Harness.demo(start: false)
+        let fm = FileManager.default
+        let leftover = h.sendParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: leftover, withIntermediateDirectories: true)
+        let gate = Gate()
+        h.model.beforeSendCleanup = { await gate.wait() }
 
         await h.model.start()
 
+        // The clean-up has not got anywhere, and the library is open all the same.
+        #expect(h.model.isLibraryOpen)
+        #expect(h.model.rows.count == 12)
+        #expect(h.model.sidebar.counts[.allBooks] == 12)
+        #expect(h.model.busyLabel == nil)
+        #expect(h.model.canImport)
+        await gate.arrival()
+        #expect(fm.fileExists(atPath: leftover.path))
+
+        // A send begun meanwhile makes its folder, which the clean-up then leaves alone.
+        try await h.beginSend(Self.train)
+        let zip = try #require(await h.model.shareItems().first)
+
+        await gate.release()
+        await h.sendCleanupDone()
+
         #expect(!fm.fileExists(atPath: leftover.path))
-        #expect(fm.fileExists(atPath: other.appendingPathComponent("file").path))
-        #expect(fm.fileExists(atPath: plain.path))
-        #expect(fm.fileExists(atPath: target.appendingPathComponent("file").path))
-        #expect(fm.fileExists(atPath: h.sendTemp.path))
+        #expect(fm.fileExists(atPath: zip.path))
+        #expect(h.sendFolders.count == 1)
+    }
+
+    @Test func ph26_withNoLibraryChosenTheCleanUpStillRunsAndStartDoesNotWaitForIt() async throws {
+        let h = try Harness(root: try makeTempDir(), choose: false)
+        let leftover = h.sendParent.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: leftover, withIntermediateDirectories: true)
+        let gate = Gate()
+        h.model.beforeSendCleanup = { await gate.wait() }
+
+        await h.model.start()
+        #expect(!h.model.isLibraryOpen)
+        #expect(FileManager.default.fileExists(atPath: leftover.path))
+
+        await gate.release()
+        await h.sendCleanupDone()
+        #expect(!FileManager.default.fileExists(atPath: leftover.path))
+    }
+
+    @Test(arguments: [true, false])
+    func ph26_aParentThatIsALinkOrAFileIsNeverCleanedThroughOrWrittenThrough(isLink: Bool) async throws {
+        let h = try await Harness.demo(start: false)
+        let fm = FileManager.default
+        // Someone else's folder, with a folder in it named as an attempt's is.
+        let target = try makeTempDir()
+        let theirs = target.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fm.createDirectory(at: theirs, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: theirs.appendingPathComponent("file"))
+        if isLink {
+            try fm.createSymbolicLink(at: h.sendParent, withDestinationURL: target)
+        } else {
+            try Data("a file".utf8).write(to: h.sendParent)
+        }
+
+        await h.model.start()
+        await h.sendCleanupDone()
+        #expect(fm.fileExists(atPath: theirs.appendingPathComponent("file").path))
+
+        // Nor is a package made there: the send says it could not be, and nothing is written.
+        try await h.beginSend(Self.train)
+        #expect(await h.model.shareItems().isEmpty)
+        #expect(h.model.alert == "VoxCarrel could not make a temporary folder for the copy to send.")
+        #expect(h.model.busyLabel == nil)
+        #expect(try fm.contentsOfDirectory(atPath: target.path) == [theirs.lastPathComponent])
+        if !isLink { #expect(try Data(contentsOf: h.sendParent) == Data("a file".utf8)) }
+        await h.model.cancelSendToPhone()
+        #expect(h.model.sendSheet == nil)
     }
 
     // MARK: PH27 The network
