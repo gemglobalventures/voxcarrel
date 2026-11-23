@@ -26,6 +26,7 @@ The books in these pictures are generated samples from the demo library.
 - Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
 - Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
+- Sends an audiobook to your phone: by AirDrop, or by a QR code that makes BookPlayer download it from your Mac. A book in several parts goes as one zip, and the cover can be made square for the phone, on the copy that is sent.
 - Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
 - Checks a series against Audible's own list of it and shows the books you do not have, in order, so you can see what is missing.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
@@ -97,6 +98,8 @@ Each source can be switched on or off in Settings ▸ Lookup. A source that is o
 
 - **Open Library** and **Audible** are on by default and use encrypted connections. The Audible catalogue search is an unofficial interface and may change.
 - **The Library of Congress** is off by default. Its catalogue search is only offered over an unencrypted connection, so the title, author or ISBN you look up there can be seen on your network. It is the one exception to the app's rule of encrypted connections only.
+
+Send to Phone's link serves only the one book you chose, only to your local network, for at most ten minutes or one download, and it is not encrypted, so use it on a network you trust. Nothing is sent to any outside service.
 
 VoxCarrel does not sign in to any account.
 
