@@ -142,6 +142,19 @@ import Testing
         #expect(TitleMatch.relation("Mind Over Markets", "Mind Over Markets (Unabridged)") == .same)
     }
 
+    // IM3, IM4: a sign written on to a word is part of the title: "C" is not "C++" or "C#".
+    @Test func titlesThatDifferInASignWrittenOnToAWordAreDifferent() {
+        #expect(TitleMatch.relation("C How to Program", "C++ How to Program") == .different)
+        #expect(TitleMatch.relation("Programming in C", "Programming in C#") == .different)
+        #expect(TitleMatch.relation("Programming in C++", "Programming in C#") == .different)
+        #expect(TitleMatch.relation("Programming in C", "Programming in C++: A Primer") == .different)
+        #expect(TitleMatch.relation("A Tour of C++", "a tour of c++ (Unabridged)") == .same)
+        #expect(TitleMatch.relation("Programming in C#", "Programming in C#: A Primer") == .sameUpToSubtitle)
+        // A sign that stands apart from the words is punctuation, as before.
+        #expect(TitleMatch.relation("Batman #1", "Batman 1") == .same)
+        #expect(TitleMatch.relation("One + One", "One One") == .same)
+    }
+
     // IM4: nothing is the same as nothing.
     @Test func emptyTitlesAreNeverTheSame() {
         #expect(TitleMatch.relation("", "") == .different)

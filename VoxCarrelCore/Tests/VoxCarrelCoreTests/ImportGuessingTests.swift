@@ -210,6 +210,16 @@ import VoxCarrelFixtures
         #expect(try match(f, "", []) == nil)
     }
 
+    // IM16: two books of one author whose titles differ only in a sign are not one book.
+    @Test func IM16_aTitleThatDiffersInASignWrittenOnToAWordIsNoMatch() throws {
+        let f = try F()
+        let c = try add(f, "C How to Program", ["Paul Deitel"])
+        #expect(try match(f, "C++ How to Program", ["Paul Deitel"]) == nil)
+        #expect(try match(f, "C# How to Program", ["Paul Deitel"]) == nil)
+        #expect(try match(f, "C++ How to Program", []) == nil)
+        #expect(try match(f, "c how to program (Unabridged)", ["Paul Deitel"]) == "\(c):sure")
+    }
+
     // IM16: of several of one strength the earliest added; a sure match before a possible one.
     @Test func IM16_theBestAndEarliestMatchIsGiven() throws {
         let f = try F()

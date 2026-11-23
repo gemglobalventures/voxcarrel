@@ -19,6 +19,7 @@ public enum TitleMatch {
 
     /// The title for comparing: edition words at its end dropped, then lower-cased words
     /// without accents, punctuation or a leading article, as the lookup compares titles.
+    /// A "+" or "#" written on to a word is kept, as a word: "C++" is not "C".
     ///
     /// An edition word is dropped when it stands alone in round or square brackets at
     /// the end, or after a final " - " or ", "; never from the middle of a title, and
@@ -111,10 +112,29 @@ public enum TitleMatch {
     /// The text without the edition words at its end, as words for comparing.
     private static func comparable(_ characters: ArraySlice<Character>) -> String {
         func words(_ slice: ArraySlice<Character>) -> String {
-            LookupText.comparable(String(slice)).joined(separator: " ")
+            LookupText.comparable(spellingOutSigns(slice)).joined(separator: " ")
         }
         let kept = words(characters[characters.startIndex..<endWithoutEditionWords(characters)])
         return kept.isEmpty ? words(characters) : kept
+    }
+
+    /// The text with a "+" or "#" that is written on to a word spelled out, so that it
+    /// is compared and not dropped as punctuation: "C++" and "C#" are not "C". A sign
+    /// that stands apart ("Batman #1", "One + One") is left to be dropped.
+    private static func spellingOutSigns(_ characters: ArraySlice<Character>) -> String {
+        guard characters.contains(where: { $0 == "+" || $0 == "#" }) else { return String(characters) }
+        var out = ""
+        var onAWord = false
+        for character in characters {
+            if onAWord, character == "+" || character == "#" {
+                out += character == "+" ? " plus " : " sharp "
+                // "++" is two of them; nothing but another sign carries on from a sign.
+                continue
+            }
+            onAWord = character.isLetter || character.isNumber
+            out.append(character)
+        }
+        return out
     }
 
     /// The index the text ends at once the edition words at its end are dropped. Each
