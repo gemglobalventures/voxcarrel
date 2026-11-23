@@ -11,6 +11,33 @@ import Testing
         #expect(PathBuilder.sanitise("AC/DC: Live") == "AC-DC- Live")
     }
 
+    /// FP42: a "/" or ":" is replaced even when a combining mark follows it, where the
+    /// two read as one character. Otherwise the "/" would reach the disk and make a level.
+    @Test func fp42_sanitiseReplacesSlashAndColonBeforeACombiningMark() {
+        #expect(PathBuilder.sanitise("a/\u{301}b").unicodeScalars.map(\.value) == [0x61, 0x2D, 0x301, 0x62])
+        #expect(PathBuilder.sanitise("a:\u{308}b").unicodeScalars.map(\.value) == [0x61, 0x2D, 0x308, 0x62])
+        for value in ["a/\u{301}b", "/\u{301}", "x:\u{20DD}y/\u{301}/\u{301}z", "naïve/\u{308}x", "\u{301}/\u{301}:\u{301}"] {
+            let safe = PathBuilder.sanitise(value)
+            #expect(!safe.unicodeScalars.contains("/"), "\(value.debugDescription)")
+            #expect(!safe.unicodeScalars.contains(":"), "\(value.debugDescription)")
+            #expect(!safe.utf8.contains(UInt8(ascii: "/")))
+        }
+    }
+
+    @Test func fp42_aSlashBeforeACombiningMarkInAValueMakesNoFolderLevel() throws {
+        var m = BookMetadata(title: "a/\u{301}b", authors: ["Ann:\u{301} Author"])
+        m.series = "S/\u{308}"
+        m.seriesNumber = "1/\u{301}2"
+        for pattern in FolderPattern.presets.map(\.pattern) {
+            let folder = try #require(pattern.folder(for: FolderPatternValues(metadata: m, hasAudio: true)))
+            // Counted as the disk counts them: by the "/" bytes.
+            let levels = folder.utf8.split(separator: UInt8(ascii: "/")).count
+            let expected = pattern.text.split(separator: "|")[0].filter { $0 == "/" }.count + 1
+            #expect(levels == expected, "\(pattern.text): \(folder.debugDescription)")
+            #expect(!folder.unicodeScalars.contains(":"))
+        }
+    }
+
     @Test func sanitiseStripsLeadingDotsAndTrailingDotsAndSpaces() {
         #expect(PathBuilder.sanitise("..hidden. ") == "hidden")
         #expect(PathBuilder.sanitise("  Dune  ") == "Dune")

@@ -4,17 +4,19 @@ import Testing
 
 /// The fixed filing rule as it was before folders followed a pattern, kept word for
 /// word so that the standard pattern can be held to it (FP7). Not to be "improved".
+///
+/// One correction has been made to it, the same one made to `PathBuilder.sanitise`
+/// (FP42): "/" and ":" are replaced one Unicode scalar at a time, so that one followed
+/// by a combining mark is replaced too.
 enum FixedRuleReference {
     static let maxComponentLength = 200
 
     static func sanitise(_ raw: String) -> String {
         var scalars = String.UnicodeScalarView()
-        scalars.append(contentsOf: raw.unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0)
-        })
+        for scalar in raw.unicodeScalars where !CharacterSet.controlCharacters.contains(scalar) {
+            scalars.append(scalar == "/" || scalar == ":" ? "-" : scalar)
+        }
         var s = String(scalars)
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
         s = String(s.prefix(maxComponentLength))
         while let first = s.first, first == "." || first == " " { s.removeFirst() }
         while let last = s.last, last == "." || last == " " { s.removeLast() }
@@ -322,13 +324,16 @@ struct SeededGenerator: RandomNumberGenerator {
         "::/", "../..", "../../etc/passwd", ".hidden", "..hidden. ", "  spaced  ", "ends in dot.", "ends in dots...",
         "ends in space ", ". leading", " . . both . . ", "Du\u{0}ne\nPart\tOne\r", "\u{0}", "\u{7}\u{8}", "line\nbreak",
         "1", "2.5", "1-3", "10", "Book 1", "0", "- -", "Über", "Émile Zola", "e\u{301}cole", "\u{301}start", "naïve/\u{308}x",
+        "a/\u{301}b", "/\u{301}", ":\u{301}", "x:\u{20DD}y/\u{301}z", "\u{301}/\u{301}:\u{301}",
         "日本語のタイトル", "👩‍👩‍👧‍👦 family", "🇳🇱🇧🇪 flags", "zero\u{200B}width", "soft\u{AD}hyphen", "\u{FEFF}bom",
         "Tolkien, J.R.R.", "J.R.R. Tolkien", "The Hobbit, or There and Back Again", "a  b", "a - b", " - ",
     ]
 
     /// One value: usually from the list, sometimes long, sometimes random characters.
     static func value(using rng: inout SeededGenerator) -> String {
-        let pieces: [String] = ["a", "B", " ", ".", "/", ":", "-", "\u{0}", "\n", "é", "\u{301}", "字", "🙂", "1", "t"]
+        let pieces: [String] = [
+            "a", "B", " ", ".", "/", ":", "-", "\u{0}", "\n", "é", "\u{301}", "字", "🙂", "1", "t", "/\u{301}", ":\u{308}",
+        ]
         switch Int.random(in: 0..<10, using: &rng) {
         case 0...5:
             return oddValues.randomElement(using: &rng) ?? ""
@@ -389,6 +394,26 @@ struct SeededGenerator: RandomNumberGenerator {
         #expect(inSeries > 500)
         #expect(numbered > 200)
         #expect(capped > 20)
+    }
+
+    /// FP42: no generated book is filed with more levels than the standard pattern has,
+    /// counted as the disk counts them, and the generator does make the case that matters.
+    @Test func fp42_noGeneratedValueAddsALevel() {
+        let books = Self.generatedBooks(count: 6000, seed: 0x5EED_F01D_E12A_2026)
+        var slashBeforeMark = 0
+        for m in books {
+            let scalars = Array(m.title.unicodeScalars)
+            if zip(scalars, scalars.dropFirst()).contains(where: {
+                ($0 == "/" || $0 == ":") && $1.properties.canonicalCombiningClass != .notReordered
+            }) { slashBeforeMark += 1 }
+            guard let folder = FolderPattern.standard.folder(for: FolderPatternValues(metadata: m, hasAudio: true))
+            else { continue }
+            let levels = folder.utf8.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+            #expect(levels.count == 2 || levels.count == 3, "\(folder.debugDescription)")
+            #expect(!levels.contains { $0.isEmpty })
+            #expect(!folder.unicodeScalars.contains(":"))
+        }
+        #expect(slashBeforeMark > 100)
     }
 
     @Test func fp7_theReferenceIsStillTodaysSanitise() {

@@ -9,14 +9,15 @@ public enum PathBuilder {
     public static let maxComponentLength = 200
 
     /// Makes a string safe to use as one path component.
+    ///
+    /// "/" and ":" are replaced one Unicode scalar at a time: followed by a combining
+    /// mark either reads as a single character, but the disk still sees the "/".
     public static func sanitise(_ raw: String) -> String {
         var scalars = String.UnicodeScalarView()
-        scalars.append(contentsOf: raw.unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0)
-        })
+        for scalar in raw.unicodeScalars where !CharacterSet.controlCharacters.contains(scalar) {
+            scalars.append(scalar == "/" || scalar == ":" ? "-" : scalar)
+        }
         var s = String(scalars)
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
         s = String(s.prefix(maxComponentLength))
         while let first = s.first, first == "." || first == " " { s.removeFirst() }
         while let last = s.last, last == "." || last == " " { s.removeLast() }
