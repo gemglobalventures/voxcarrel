@@ -33,6 +33,7 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
 
     private let addresses: @Sendable () -> [String]
     private let schedule: Scheduler
+    private let clock: @Sendable () -> Date
     private let settings: Settings
     private let lock = NSLock()
     private var session: LinkSession?
@@ -41,16 +42,24 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
         self.init(
             addresses: { LocalAddress.current() },
             schedule: { seconds, action in
-                DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { MainActor.assumeIsolated { action() } }
+                // By the time of day: a timer that counts only the time the Mac is awake
+                // would let a link outlast a sleep.
+                DispatchQueue.main.asyncAfter(wallDeadline: .now() + seconds) { MainActor.assumeIsolated { action() } }
             })
     }
 
     /// - Parameters:
     ///   - addresses: The local addresses to choose from; the first is listened on.
     ///   - schedule: How the link's expiry is timed.
-    init(addresses: @escaping @Sendable () -> [String], schedule: @escaping Scheduler, settings: Settings = Settings()) {
+    ///   - clock: The time of day, by which a link is over ten minutes after it began
+    ///     even if the timer has not said so (the Mac slept meanwhile, say).
+    init(
+        addresses: @escaping @Sendable () -> [String], schedule: @escaping Scheduler,
+        clock: @escaping @Sendable () -> Date = { Date() }, settings: Settings = Settings()
+    ) {
         self.addresses = addresses
         self.schedule = schedule
+        self.clock = clock
         self.settings = settings
     }
 
@@ -68,8 +77,11 @@ public final class PhoneLinkServer: PhoneLinking, @unchecked Sendable {
         }
         guard let token = PhoneLinkText.makeToken() else { throw PhoneLinkError.cannotListen }
 
+        let clock = clock
+        let endsAt = clock().addingTimeInterval(PhoneLinkText.lifetime)
         let new = try LinkSession(
-            file: file, fileName: fileName, token: token, address: address, settings: settings, onEvent: onEvent)
+            file: file, fileName: fileName, token: token, address: address, settings: settings,
+            isPastItsTime: { clock() >= endsAt }, onEvent: onEvent)
         let port: Int
         do {
             port = try new.listen()
@@ -174,6 +186,8 @@ private final class LinkSession: @unchecked Sendable {
     private let address: String
     private let size: Int64
     private let token: String
+    /// Whether the link's ten minutes are over, by the time of day.
+    private let isPastItsTime: @Sendable () -> Bool
     private let listenerCancelled = DispatchSemaphore(value: 0)
 
     // Touched on the queue only.
@@ -197,7 +211,7 @@ private final class LinkSession: @unchecked Sendable {
     /// file is refused.
     init(
         file: URL, fileName: String, token: String, address: String, settings: PhoneLinkServer.Settings,
-        onEvent: @escaping @MainActor (PhoneLinkEvent) -> Void
+        isPastItsTime: @escaping @Sendable () -> Bool, onEvent: @escaping @MainActor (PhoneLinkEvent) -> Void
     ) throws {
         let opened = open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard opened >= 0 else { throw PhoneLinkError.fileUnreadable }
@@ -212,6 +226,7 @@ private final class LinkSession: @unchecked Sendable {
         self.token = token
         self.address = address
         self.settings = settings
+        self.isPastItsTime = isPastItsTime
         relay = EventRelay(onEvent: onEvent)
     }
 
@@ -304,15 +319,18 @@ private final class LinkSession: @unchecked Sendable {
 
     /// The link's time is up. A fetch under way is allowed to finish; nothing new is.
     func expire() {
-        queue.async {
-            guard !self.ended else { return }
-            if self.transfers > 0 {
-                self.expiring = true
-                self.stopListening()
-                for caller in Array(self.callers.values) where caller.transfer == nil { self.drop(caller) }
-            } else {
-                self.finish(.expired)
-            }
+        queue.async { self.timeIsUp() }
+    }
+
+    /// On the queue: the same.
+    private func timeIsUp() {
+        guard !ended else { return }
+        if transfers > 0 {
+            expiring = true
+            stopListening()
+            for caller in Array(callers.values) where caller.transfer == nil { drop(caller) }
+        } else {
+            finish(.expired)
         }
     }
 
@@ -349,6 +367,11 @@ private final class LinkSession: @unchecked Sendable {
     // MARK: Connections
 
     private func accept(_ connection: NWConnection) {
+        // Its timer may not have fired (the Mac slept): nobody is served past the time.
+        if !ended, isPastItsTime() {
+            connection.cancel()
+            return timeIsUp()
+        }
         guard !ended, !listenerStopped, callers.count < settings.maxConnections else {
             connection.cancel()
             return

@@ -30,7 +30,7 @@ private final class Link {
 
     init(
         bytes: [UInt8] = LinkProbe.contents(10_000), name: String = "Dune.m4b",
-        settings: PhoneLinkServer.Settings = Link.patient
+        settings: PhoneLinkServer.Settings = Link.patient, clock: LinkClock = LinkClock()
     ) throws {
         folder = try makeTempDir()
         file = folder.appendingPathComponent("served.bin")
@@ -41,7 +41,8 @@ private final class Link {
         let events = LinkEvents()
         self.timers = timers
         self.events = events
-        let server = PhoneLinkServer(addresses: { ["127.0.0.1"] }, schedule: timers.schedule, settings: settings)
+        let server = PhoneLinkServer(
+            addresses: { ["127.0.0.1"] }, schedule: timers.schedule, clock: { clock.now }, settings: settings)
         self.server = server
         offer = try server.start(file: file, fileName: name, now: Self.now) { events.note($0) }
     }
@@ -708,6 +709,32 @@ private func readHead(_ connection: RawConnection) async -> String {
         await link.end()
     }
 
+    /// A timer does not run while the Mac sleeps: the link is over by the time of day
+    /// all the same.
+    @Test func ph5_aLinkWhoseTimeHasPassedServesNothingThoughItsTimerHasNotFired() async throws {
+        let clock = LinkClock()
+        let link = try Link(clock: clock)
+
+        // A moment before its time is up it is served as ever.
+        clock.advance(599)
+        let head = try await LinkProbe.exchange(link.request("HEAD"), port: link.port)
+        #expect(head.raw == link.headers)
+        #expect(link.server?.isServing == true)
+
+        // Past it, a good request gets nothing, and the link says it has expired.
+        clock.advance(2)
+        if let late = RawConnection(port: link.port) {
+            await late.send(link.request())
+            #expect(await late.readToEnd().bytes.isEmpty)
+            late.close()
+        }
+        #expect(await link.events.wait(for: .expired))
+        #expect(link.events.all == [.expired])
+        #expect(link.server?.isServing == false)
+        #expect(await LinkProbe.portIsClosed(link.port))
+        await link.end()
+    }
+
     @Test func ph5_aTransferInProgressAtExpiryIsAllowedToFinish() async throws {
         let link = try Link(bytes: largeContents(megabytes: 32))
         let connection = try #require(RawConnection(port: link.port))
@@ -874,13 +901,11 @@ private func readHead(_ connection: RawConnection) async -> String {
 
         // A fifth is turned away without a word, even with a good request.
         // And at once: it is not left waiting for an answer that will not come.
-        let clock = ContinuousClock()
         for _ in 0..<3 {
             if let fifth = RawConnection(port: link.port) {
-                let began = clock.now
-                await fifth.send(link.request())
-                #expect(await fifth.readToEnd().bytes.isEmpty)
-                #expect(clock.now - began < .seconds(15))
+                let answer = await fifth.exchange(link.request())
+                #expect(answer.bytes.isEmpty)
+                #expect(answer.seconds < 15)
                 fifth.close()
             }
         }

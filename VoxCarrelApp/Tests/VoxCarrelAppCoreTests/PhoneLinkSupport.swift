@@ -85,6 +85,18 @@ final class LinkTimers {
     }
 }
 
+/// The time of day a server is told it is; a test moves it on by hand.
+final class LinkClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    var now: Date { lock.withLock { date } }
+
+    func advance(_ seconds: TimeInterval) {
+        lock.withLock { date = date.addingTimeInterval(seconds) }
+    }
+}
+
 /// What a server reported, with a way to wait for a report.
 @MainActor
 final class LinkEvents {
@@ -206,15 +218,34 @@ final class RawConnection: @unchecked Sendable {
     @discardableResult
     func send(_ bytes: [UInt8]) async -> Bool {
         let descriptor = descriptor
+        return await onWorkQueue { Self.send(bytes, on: descriptor) }
+    }
+
+    private static func send(_ bytes: [UInt8], on descriptor: Int32) -> Bool {
+        var sent = 0
+        while sent < bytes.count {
+            let wrote = bytes.withUnsafeBytes { Darwin.send(descriptor, $0.baseAddress! + sent, bytes.count - sent, 0) }
+            if wrote < 0, errno == EINTR { continue }
+            guard wrote > 0 else { return false }
+            sent += wrote
+        }
+        return true
+    }
+
+    /// Sends `text` and reads until the other side closes, and says how long the two
+    /// took together. Both are done on one thread of their own, so that the time is the
+    /// other side's: none of it is spent waiting for the test's actor, which a busy
+    /// suite can keep for many seconds.
+    func exchange(_ text: String) async -> (bytes: [UInt8], seconds: Double) {
+        let descriptor = descriptor
+        let port = port
         return await onWorkQueue {
-            var sent = 0
-            while sent < bytes.count {
-                let wrote = bytes.withUnsafeBytes { Darwin.send(descriptor, $0.baseAddress! + sent, bytes.count - sent, 0) }
-                if wrote < 0, errno == EINTR { continue }
-                guard wrote > 0 else { return false }
-                sent += wrote
-            }
-            return true
+            let clock = ContinuousClock()
+            let began = clock.now
+            _ = Self.send(Array(text.utf8), on: descriptor)
+            let bytes = Self.read(upTo: .max, on: descriptor, port: port).bytes
+            let took = clock.now - began
+            return (bytes, Double(took.components.seconds) + Double(took.components.attoseconds) / 1e18)
         }
     }
 
@@ -238,22 +269,24 @@ final class RawConnection: @unchecked Sendable {
     private func read(upTo count: Int) async -> (bytes: [UInt8], closedCleanly: Bool) {
         let descriptor = descriptor
         let port = port
-        return await onWorkQueue {
-            var all: [UInt8] = []
-            var buffer = [UInt8](repeating: 0, count: 65536)
-            while all.count < count {
-                let want = min(buffer.count, count - all.count)
-                let got = recv(descriptor, &buffer, want, 0)
-                if got < 0, errno == EINTR { continue }
-                if got == 0 { return (all, true) }
-                guard got > 0 else {
-                    if errno == EAGAIN || errno == EWOULDBLOCK { _ = Self.silent.withLock { $0.insert(port) } }
-                    return (all, false)
-                }
-                all.append(contentsOf: buffer[0..<got])
+        return await onWorkQueue { Self.read(upTo: count, on: descriptor, port: port) }
+    }
+
+    private static func read(upTo count: Int, on descriptor: Int32, port: Int) -> (bytes: [UInt8], closedCleanly: Bool) {
+        var all: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 65536)
+        while all.count < count {
+            let want = min(buffer.count, count - all.count)
+            let got = recv(descriptor, &buffer, want, 0)
+            if got < 0, errno == EINTR { continue }
+            if got == 0 { return (all, true) }
+            guard got > 0 else {
+                if errno == EAGAIN || errno == EWOULDBLOCK { _ = silent.withLock { $0.insert(port) } }
+                return (all, false)
             }
-            return (all, true)
+            all.append(contentsOf: buffer[0..<got])
         }
+        return (all, true)
     }
 
     /// Says that nothing more will be sent, and goes on reading.
