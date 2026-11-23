@@ -49,7 +49,11 @@ enum PDFIO {
         doc.documentAttributes = attributes
 
         try SafeFileUpdate.update(url) { copy in
-            guard doc.write(to: copy) else { throw MetadataIOError.unreadable(name) }
+            // Straight into the working copy, which is beside the file. (PDFKit's own
+            // `write(to:)` goes by way of the system's temporary folder, and leaves a
+            // whole copy of the document there when that folder is on another disk.)
+            guard let data = doc.dataRepresentation() else { throw MetadataIOError.unreadable(name) }
+            try data.write(to: copy)
         } verify: { copy in
             let check = try read(copy)
             guard check.metadata.pageCount == pagesBefore,
