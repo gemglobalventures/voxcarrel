@@ -411,6 +411,10 @@ public final class AppModel {
     /// GS19: the series whose group is to be selected when the list that was gone
     /// back to has been read; nil when none is waiting.
     @ObservationIgnored var returnSelection: SeriesReturn?
+    /// GS19, GS20: one more each time the model has gone back from a series and
+    /// selected its books: when the grid should scroll to `itemScrollTarget`. (The
+    /// list is made again then, and scrolls for that.)
+    public internal(set) var seriesReturnCount = 0
     /// GS19: true while `goBackFromSeries` sets the sidebar selection.
     @ObservationIgnored var isGoingBack = false
     /// GS16: the group the last click that set the anchor was on, with the book that

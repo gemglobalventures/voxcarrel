@@ -296,15 +296,21 @@ extension AppModel {
     /// few columns the grid has.
     @discardableResult
     public func moveItemSelection(_ direction: SelectionLogic.Direction, columns: Int) -> ItemID? {
-        let order = columns <= 1 && viewMode != .grid ? listOrder : items.map(\.id)
+        let asList = columns <= 1 && viewMode != .grid
+        let order = asList ? listOrder : items.map(\.id)
         var from = itemAnchor
         // A book of an open group is not a cell of the grid: its group is.
         if let start = from, case .book(let book) = start, !order.contains(start) {
             from = group(holding: book)?.id
         }
+        var selected = itemSelection
+        if !asList {
+            // A stack that is selected only in part is a selected cell all the same.
+            for group in groups where isPartlySelected(group) { selected.insert(group.id) }
+        }
         guard
             let target = SelectionLogic.move(
-                direction, columns: columns, among: order, selection: itemSelection, anchor: from)
+                direction, columns: columns, among: order, selection: selected, anchor: from)
         else { return nil }
         let wanted: Set<Int64>
         switch target {
@@ -459,5 +465,6 @@ extension AppModel {
         } else {
             applySelection(Set(books), anchor: first)
         }
+        seriesReturnCount += 1
     }
 }

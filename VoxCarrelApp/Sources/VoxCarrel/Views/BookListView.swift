@@ -194,7 +194,11 @@ private struct ItemStatusCell: View {
     var body: some View {
         switch item {
         case .book(let row): StatusCell(status: row.shownReadStatus)
-        case .series(let group): TextCell(text: group.statusText)
+        case .series(let group):
+            // The whole phrase ("2 of 5 finished") does not fit the column.
+            TextCell(text: group.statusColumnText)
+                .help(group.statusText)
+                .accessibilityLabel(group.statusText)
         }
     }
 }

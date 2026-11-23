@@ -299,6 +299,21 @@ import VoxCarrelCore
         #expect(try status([.unread, .inProgress]) == "0 of 2 finished")
     }
 
+    /// What the Status column of the list says of a group: short enough to fit the
+    /// column beside a book's "In Progress"; the whole phrase is `statusText`.
+    @Test func aGroupsStatusIsShortInTheColumn() throws {
+        func status(_ statuses: [ReadStatus]) throws -> String {
+            let rows = statuses.enumerated().map { index, status in
+                row(Int64(index + 1), "Book \(index)", series: "Saga", number: "\(index)", status: status)
+            }
+            return try group("Saga", in: rows).statusColumnText
+        }
+        #expect(try status([.finished, .finished, .unread, .inProgress, .unread]) == "2 of 5")
+        #expect(try status([.unread, .inProgress]) == "0 of 2")
+        #expect(try status([.finished, .finished]) == "All finished")
+        #expect(try status([.unread, .unread, .unread]) == "None started")
+    }
+
     /// GS6
     @Test func aGroupHasTheFormatsOfAllItsBooks() throws {
         let rows = [

@@ -1056,7 +1056,7 @@ import VoxCarrelFixtures
 
     /// GS18: in the grid a group is one cell.
     @Test func arrowKeysMoveAmongItemsInTheGrid() async throws {
-        let h = try await grouped()
+        let h = try await groupedGrid()
         let ids = try seriesIds(h)
         let items = h.model.items.map(\.id)
         let at = try groupIndex(h)
@@ -1504,6 +1504,191 @@ import VoxCarrelFixtures
         #expect(h.model.items.count == 10)
         #expect(h.model.windowSubtitle == "12 books")
         #expect(h.model.windowTitle == "All Books")
+    }
+
+    // MARK: Further cases
+
+    /// GS18: in the grid a stack that is selected only in part (unsaved edits stand in
+    /// the way of the rest) is still the cell the arrow keys start from.
+    @Test func inTheGridArrowKeysStartFromAPartlySelectedGroup() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        let items = h.model.items.map(\.id)
+        let at = try groupIndex(h)
+        h.model.setGroup(Self.series, open: true)
+        h.model.clickItem(.book(ids[1]), modifiers: [])
+        await h.model.settle()
+        h.model.updateDraft { $0.title = "The Drowned Bells" }
+        h.model.viewMode = .grid
+        #expect(h.model.isPartlySelected(try group(h)))
+
+        #expect(h.model.moveItemSelection(.right, columns: 4) == nil)
+        #expect(h.model.prompt == .unsavedChanges)
+        await h.model.resolveUnsaved(.discard)
+        #expect(h.model.itemSelection == [items[at + 1]])
+    }
+
+    /// GS14, GS15: what the table is told is selected, given back to the model
+    /// unchanged, changes nothing: whatever is open, and whatever part is selected.
+    @Test func theItemSelectionGivenBackChangesNothing() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        let other = try h.id("Quiet Rivers")
+        let selections: [Set<Int64>] = [
+            [], [other], Set(ids), Set(ids + [other]), [ids[0]], [ids[0], ids[2], other],
+            Set(h.model.rows.map(\.id)),
+        ]
+        for open in [false, true] {
+            for wanted in selections {
+                h.model.select([])
+                h.model.setGroup(Self.series, open: open)
+                h.model.select(wanted)
+                #expect(h.model.selection == wanted)
+                let wasOpen = h.model.openGroups
+                h.model.selectItems(h.model.itemSelection)
+                #expect(h.model.selection == wanted)
+                #expect(h.model.openGroups == wasOpen)
+                #expect(h.model.prompt == nil)
+            }
+        }
+    }
+
+    /// GS15: what a table reports for a shift-click, a drag and the arrow keys with
+    /// Shift is a run of the rows it shows; the books selected are the books of those
+    /// rows, and a closed group is never left with only some of its books selected.
+    @Test func aRunOfRowsSelectsTheBooksOfThoseRows() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        let items = h.model.items.map(\.id)
+        let at = try groupIndex(h)
+        let before = try bookId(h, at: at - 1)
+        let after = try bookId(h, at: at + 1)
+
+        // Closed: the run names the group's row.
+        h.model.selectItems([.book(before), Self.seriesItem, .book(after)])
+        #expect(h.model.selection == Set(ids + [before, after]))
+        #expect(h.model.itemSelection == [.book(before), Self.seriesItem, .book(after)])
+        // The run shrinks to the row before the group.
+        h.model.selectItems([.book(before)])
+        #expect(h.model.selection == [before])
+
+        // Open: a run from the row before, down to the group's second book.
+        h.model.setGroup(Self.series, open: true)
+        h.model.selectItems([.book(before), Self.seriesItem, .book(ids[0]), .book(ids[1])])
+        #expect(h.model.selection == Set(ids + [before]))
+        // A run from the group's last book to the row after: the group's row is not in it.
+        h.model.selectItems([.book(ids[2]), .book(after)])
+        #expect(h.model.selection == [ids[2], after])
+        #expect(h.model.itemSelection == [.book(ids[2]), .book(after)])
+        // Every row at once.
+        h.model.selectItems(Set(items).union(books(ids)))
+        #expect(h.model.selection.count == 12)
+        // A click on empty space.
+        h.model.selectItems([])
+        #expect(h.model.selection.isEmpty)
+    }
+
+    /// GS19, GS20: the grid is told when the model has gone back from a series, so that
+    /// it can scroll to the series' stack; nothing else tells it so.
+    @Test func goingBackTellsTheGridToScrollToTheStack() async throws {
+        let h = try await groupedGrid()
+        let count = h.model.seriesReturnCount
+        h.model.openSeries(Self.series)
+        await h.model.settle()
+        h.model.sort = BookSort(key: .author)
+        h.model.searchText = "salt"
+        await h.model.settle()
+        #expect(h.model.seriesReturnCount == count)
+
+        h.model.goBackFromSeries()
+        await h.model.settle()
+        #expect(h.model.seriesReturnCount == count + 1)
+        #expect(h.model.itemScrollTarget == Self.seriesItem)
+
+        // Reading the same list again is not going back.
+        h.model.sidebarSelection = .audiobooks
+        await h.model.settle()
+        await h.model.setReadStatus(.finished, for: h.model.selection)
+        #expect(h.model.seriesReturnCount == count + 1)
+    }
+
+    /// GS19: when the list a series was opened from is no longer there (a collection
+    /// that has been deleted), Back says All Books and goes there.
+    @Test func goingBackFromACollectionThatHasGoneLeadsToAllBooks() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        await h.model.createCollection(name: "Shelf", adding: Set(ids))
+        let shelf = try #require(h.model.sidebar.collections.first { $0.name == "Shelf" }?.id)
+        h.model.sidebarSelection = .collection(shelf)
+        await h.model.settle()
+        #expect(h.model.rows.map(\.id).sorted() == ids.sorted())
+
+        h.model.openItems([Self.seriesItem])
+        await h.model.settle()
+        #expect(h.model.seriesBackTitle == "Shelf")
+
+        await h.model.deleteCollection(id: shelf)
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .browse(.series, Self.series))
+        #expect(h.model.seriesBackTitle == "All Books")
+
+        h.model.goBackFromSeries()
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .allBooks)
+        #expect(h.model.rows.count == 12)
+        #expect(h.model.selection == Set(ids))
+        #expect(h.model.itemSelection == [Self.seriesItem])
+        #expect(h.model.seriesBackTitle == nil)
+    }
+
+    /// GS19: a series that is renamed in its own view is no longer what the sidebar
+    /// shows: there is no way back from where the model goes, the books stay selected
+    /// under their new name, and a series opened afterwards has its own way back.
+    @Test func renamingTheSeriesInItsOwnViewLeavesNoWayBack() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        h.model.sidebarSelection = .audiobooks
+        await h.model.settle()
+        h.model.openSeries(Self.series)
+        await h.model.settle()
+        #expect(h.model.seriesBackTitle == "Audiobooks")
+
+        h.model.selectAll()
+        await h.model.settle()
+        h.model.updateBulkDraft { $0.values[.series] = "Tidewater" }
+        await h.model.save()
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .allBooks)
+        #expect(h.model.seriesBackTitle == nil)
+        #expect(h.model.selection == Set(ids))
+        #expect(h.model.itemSelection == [.series("Tidewater")])
+        h.model.goBackFromSeries()
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .allBooks)
+
+        h.model.sidebarSelection = .unread
+        await h.model.settle()
+        h.model.openSeries("Tidewater")
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .browse(.series, "Tidewater"))
+        #expect(h.model.seriesBackTitle == "Unread")
+    }
+
+    /// GS13a: a save that puts selected books into a series whose group is closed
+    /// leaves that group open: the books that were saved are in sight, and the rest of
+    /// the group is not selected.
+    @Test func aSaveThatMovesBooksIntoAClosedGroupOpensIt() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        let moved = try await h.select(["Quiet Rivers", "Night Train to Vostok"])
+        h.model.updateBulkDraft { $0.values[.series] = Self.series }
+        await h.model.save()
+        await h.model.settle()
+        #expect(try group(h).books.count == 5)
+        #expect(h.model.selection == moved)
+        #expect(h.model.openGroups == [Self.series])
+        #expect(h.model.itemSelection == Set(moved.map(ItemID.book)))
+        #expect(!h.model.selection.contains(ids[0]))
     }
 }
 

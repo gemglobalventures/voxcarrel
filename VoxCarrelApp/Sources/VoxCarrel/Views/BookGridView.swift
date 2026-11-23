@@ -88,6 +88,11 @@ struct BookGridView: View {
                 .onCommand(#selector(NSResponder.selectAll(_:))) {
                     model.selectAll()
                 }
+                // Plan 10: back from a series' own view, to the stack it was opened from.
+                .onChange(of: model.seriesReturnCount) {
+                    guard let id = model.itemScrollTarget else { return }
+                    Task { @MainActor in scroller.scrollTo(id, anchor: .center) }
+                }
             }
         }
         .accessibilityIdentifier("books.grid")

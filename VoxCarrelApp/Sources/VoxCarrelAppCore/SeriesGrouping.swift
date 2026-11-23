@@ -67,6 +67,14 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
         return "\(finished) of \(books.count) finished"
     }
 
+    /// The same for the Status column of the list, which has no room for the last
+    /// word: "2 of 5", "All finished", "None started". `statusText` is its tooltip.
+    public var statusColumnText: String {
+        let finished = books.filter { $0.book.readStatus == .finished }.count
+        if finished == books.count || books.allSatisfy({ $0.book.readStatus == .unread }) { return statusText }
+        return "\(finished) of \(books.count)"
+    }
+
     public var hasAudio: Bool { books.contains(where: \.hasAudio) }
     public var hasEbook: Bool { books.contains(where: \.hasEbook) }
     public var isOnAudible: Bool { books.contains(where: \.isOnAudible) }
