@@ -79,15 +79,21 @@ struct ImportReviewSheet: View {
 // MARK: - The list
 
 private struct EntryList: View {
+    @Environment(AppModel.self) private var model
     let review: ImportReview
     @Binding var selection: Set<UUID>
 
     var body: some View {
+        // A row in the list does not read the model itself: it is handed what it does.
+        let model = model
         List(selection: $selection) {
             ForEach(Array(review.entries.enumerated()), id: \.element.id) { index, entry in
                 EntryRow(
                     entry: entry, status: review.status(of: entry.id), question: review.question(of: entry.id),
-                    index: index, isSelected: selection.contains(entry.id))
+                    index: index, isSelected: selection.contains(entry.id),
+                    setIncluded: { included in
+                        model.updateReview { $0.update(entry.id) { $0.included = included } }
+                    })
             }
         }
         .listStyle(.inset)
@@ -97,7 +103,6 @@ private struct EntryList: View {
 
 /// X2: the checkbox, the cover, and what the book is.
 private struct EntryRow: View {
-    @Environment(AppModel.self) private var model
     let entry: ImportReview.Entry
     let status: ImportReview.Status?
     /// IH6: what there is to check about the book; nil when nothing.
@@ -105,6 +110,8 @@ private struct EntryRow: View {
     let index: Int
     /// Whether the list shows this row as selected, on its highlight.
     let isSelected: Bool
+    /// Ticks or unticks the book for import.
+    let setIncluded: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -182,13 +189,7 @@ private struct EntryRow: View {
     }
 
     private var included: Binding<Bool> {
-        let model = model
-        let id = entry.id
-        return Binding(
-            get: { entry.included },
-            set: { included in
-                model.updateReview { $0.update(id) { $0.included = included } }
-            })
+        Binding(get: { entry.included }, set: setIncluded)
     }
 }
 
