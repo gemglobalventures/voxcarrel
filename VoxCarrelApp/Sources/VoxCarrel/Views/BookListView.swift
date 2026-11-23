@@ -2,8 +2,15 @@ import SwiftUI
 import VoxCarrelAppCore
 import VoxCarrelCore
 
-/// G3, G4, G5: the books as a table. The rows are the model's, already in order: a click
-/// on a column header only tells the model which sort is wanted.
+/// One row of the list: the app's item, a book or a series. (The engine has a type of the
+/// same name, which is something else.)
+private typealias ListItem = VoxCarrelAppCore.LibraryItem
+
+/// G3, G4, G5: the books as a table. The rows are the model's items, already in order: a
+/// click on a column header only tells the model which sort is wanted.
+///
+/// Plan 10: an item is a book or, when the list is grouped by series, a series: a row
+/// that opens to show its books, each drawn as any book's row is.
 struct BookListView: View {
     @Environment(AppModel.self) private var model
 
@@ -18,44 +25,57 @@ struct BookListView: View {
             // insets: the room beside the sidebar and the inspector in a window of the
             // default size is about 630. Title's is much the largest, and only Title has
             // no greatest width: it takes the room the rest leave.
-            Table(model.rows, selection: selection, sortOrder: $model.tableSortOrder) {
-                TableColumn("Title", value: \.titleSortKey) { row in
-                    TitleCell(model: model, row: row)
+            Table(of: ListItem.self, selection: Self.selection(in: model), sortOrder: $model.itemTableSortOrder) {
+                TableColumn("Title", value: \.titleSortKey) { item in
+                    ItemTitleCell(model: model, item: item)
                 }
                 .width(min: 136, ideal: 280)
-                TableColumn("Author", value: \.authorSortKey) { row in
-                    TextCell(text: row.authorsText)
+                TableColumn("Author", value: \.authorSortKey) { item in
+                    ItemAuthorCell(item: item)
                 }
                 .width(min: 70, ideal: 140, max: 240)
-                TableColumn("Series", value: \.seriesSortKey) { row in
-                    TextCell(text: row.seriesText)
+                TableColumn("Series", value: \.seriesSortKey) { item in
+                    ItemSeriesCell(item: item)
                 }
                 .width(min: 50, ideal: 120, max: 200)
-                TableColumn("Formats", value: \.formatsSortKey) { row in
-                    FormatsCell(row: row)
+                TableColumn("Formats", value: \.formatsSortKey) { item in
+                    ItemFormatsCell(item: item)
                 }
                 .width(min: 54, ideal: 58, max: 70)
-                TableColumn("Length", value: \.lengthSortKey) { row in
-                    TextCell(text: row.lengthText)
-                        .monospacedDigit()
+                TableColumn("Length", value: \.lengthSortKey) { item in
+                    ItemLengthCell(item: item)
                 }
                 .width(min: 50, ideal: 60, max: 70)
-                TableColumn("Added", value: \.dateAddedSortKey) { row in
-                    AddedCell(date: row.addedDate)
+                TableColumn("Added", value: \.dateAddedSortKey) { item in
+                    ItemAddedCell(item: item)
                 }
                 .width(min: 60, ideal: 66, max: 80)
-                TableColumn("Status", value: \.statusSortKey) { row in
-                    StatusCell(status: row.shownReadStatus)
+                TableColumn("Status", value: \.statusSortKey) { item in
+                    ItemStatusCell(item: item)
                 }
                 .width(min: 52, ideal: 90, max: 100)
+            } rows: {
+                ForEach(model.items) { item in
+                    if case .series(let group) = item {
+                        DisclosureTableRow(item, isExpanded: Self.isOpen(group.name, in: model)) {
+                            ForEach(group.books) { row in
+                                TableRow(ListItem.book(row))
+                            }
+                        }
+                    } else {
+                        TableRow(item)
+                    }
+                }
             }
-            .contextMenu(forSelectionType: Int64.self) { ids in
+            .contextMenu(forSelectionType: ItemID.self) { ids in
                 if !ids.isEmpty {
-                    BookContextMenu(model: model, ids: ids)
+                    // The row the menu was opened on, or the selection when that row is
+                    // part of it: a series' row stands for its books.
+                    BookContextMenu(model: model, ids: model.bookIds(of: ids))
                 }
             } primaryAction: { ids in
-                // G4: a double-click, or Return.
-                model.openOne(of: ids)
+                // G4: a double-click, or Return. On a series' row, its own view.
+                model.openItems(ids)
             }
             // G5: Delete and ⌘⌫, only while the list has the keys.
             .onDeleteCommand {
@@ -65,19 +85,117 @@ struct BookListView: View {
                 model.requestRemoveSelection()
                 return .handled
             }
-            // G8: made again when the rows are a very different list; see `RowsChange`.
-            .id(model.rowsVersion)
+            // G8: made again when the rows are a very different list (see `RowsChange`),
+            // and when they become grouped or stop being.
+            .id(model.itemsVersion)
             .accessibilityIdentifier("books.table")
             // A list that has been made again starts at the top: back to what is selected.
-            .onChange(of: model.rowsVersion) {
-                guard let id = model.scrollTarget else { return }
+            .onChange(of: model.itemsVersion) {
+                guard let id = model.itemScrollTarget else { return }
                 Task { @MainActor in scroller.scrollTo(id, anchor: .center) }
             }
         }
     }
 
-    private var selection: Binding<Set<Int64>> {
-        Binding(get: { model.selection }, set: { model.select($0) })
+    // Both are given the model itself, as a table's cells are: the table reads them
+    // when it pleases, and not only while this view is being drawn.
+
+    private static func selection(in model: AppModel) -> Binding<Set<ItemID>> {
+        Binding(get: { model.itemSelection }, set: { model.selectItems($0) })
+    }
+
+    /// Whether the series' row is open. The model can refuse to close one, so what is
+    /// shown is always read from the model.
+    private static func isOpen(_ name: String, in model: AppModel) -> Binding<Bool> {
+        Binding(get: { model.openGroups.contains(name) }, set: { model.setGroup(name, open: $0) })
+    }
+}
+
+// One cell of each column, for a book's row or a series' row. Like every view a table
+// draws, they are handed what they show, and the model where they need it: none reads
+// the model from the environment (see `EditedBadge`).
+
+private struct ItemTitleCell: View {
+    let model: AppModel
+    let item: ListItem
+
+    var body: some View {
+        switch item {
+        case .book(let row): TitleCell(model: model, row: row)
+        case .series(let group): SeriesGroupTitleCell(model: model, group: group)
+        }
+    }
+}
+
+private struct ItemAuthorCell: View {
+    let item: ListItem
+
+    var body: some View {
+        switch item {
+        case .book(let row): TextCell(text: row.authorsText)
+        case .series(let group): TextCell(text: group.authorsText)
+        }
+    }
+}
+
+/// Nothing for a series' row: its name is its title.
+private struct ItemSeriesCell: View {
+    let item: ListItem
+
+    var body: some View {
+        if case .book(let row) = item {
+            TextCell(text: row.seriesText)
+        }
+    }
+}
+
+private struct ItemFormatsCell: View {
+    let item: ListItem
+
+    var body: some View {
+        switch item {
+        case .book(let row): FormatsCell(row: row)
+        case .series(let group):
+            SeriesGroupFormatBadges(group: group)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct ItemLengthCell: View {
+    let item: ListItem
+
+    var body: some View {
+        switch item {
+        case .book(let row):
+            TextCell(text: row.lengthText)
+                .monospacedDigit()
+        case .series(let group):
+            TextCell(text: group.lengthText)
+                .monospacedDigit()
+        }
+    }
+}
+
+private struct ItemAddedCell: View {
+    let item: ListItem
+
+    var body: some View {
+        switch item {
+        case .book(let row): AddedCell(date: row.addedDate)
+        case .series(let group): AddedCell(date: group.newestAdded)
+        }
+    }
+}
+
+private struct ItemStatusCell: View {
+    let item: ListItem
+
+    var body: some View {
+        switch item {
+        case .book(let row): StatusCell(status: row.shownReadStatus)
+        case .series(let group): TextCell(text: group.statusText)
+        }
     }
 }
 

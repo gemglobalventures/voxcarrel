@@ -61,10 +61,14 @@ private struct LibraryToolbar: ToolbarContent {
                         .accessibilityIdentifier("toolbar.sort.descending")
                 }
                 .pickerStyle(.inline)
+                Divider()
+                // Plan 10: each series as one row of the list, or one stack in the grid.
+                Toggle("Group by Series", isOn: $model.groupsBySeries)
+                    .accessibilityIdentifier("toolbar.sort.groupBySeries")
             } label: {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
             }
-            .help("Choose how books are sorted")
+            .help("Choose how books are sorted, and whether a series is shown as one")
             .accessibilityIdentifier("toolbar.sort")
         }
         ToolbarItem {

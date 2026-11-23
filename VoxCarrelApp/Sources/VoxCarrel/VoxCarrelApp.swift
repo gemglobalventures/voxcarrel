@@ -94,7 +94,8 @@ private struct ImportCommand: View {
     }
 }
 
-/// View ▸ as Grid, as List: the one in use is ticked.
+/// View ▸ as Grid, as List: the one in use is ticked. Under them, Group by Series,
+/// ticked while it is on.
 private struct ViewModeCommands: View {
     let model: AppModel
 
@@ -106,6 +107,13 @@ private struct ViewModeCommands: View {
             .keyboardShortcut("2", modifiers: .command)
             .accessibilityIdentifier("menu.view.asList")
         Divider()
+        Toggle("Group by Series", isOn: groupsBySeries)
+            .accessibilityIdentifier("menu.view.groupBySeries")
+        Divider()
+    }
+
+    private var groupsBySeries: Binding<Bool> {
+        Binding(get: { model.groupsBySeries }, set: { model.groupsBySeries = $0 })
     }
 
     /// Choosing an item switches to its mode; choosing the one in use changes nothing.

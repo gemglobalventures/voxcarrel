@@ -25,7 +25,8 @@ enum GridMetrics {
     }
 }
 
-/// G1, G2, G4, G5: the books as covers.
+/// G1, G2, G4, G5: the books as covers. Plan 10: each of the model's items is a cell: a
+/// book, or a series as a stack of covers.
 struct BookGridView: View {
     @Environment(AppModel.self) private var model
     @FocusState private var isFocused: Bool
@@ -37,8 +38,13 @@ struct BookGridView: View {
             ScrollViewReader { scroller in
                 ScrollView {
                     LazyVGrid(columns: GridMetrics.columns, spacing: GridMetrics.spacing) {
-                        ForEach(model.rows) { row in
-                            BookGridItem(row: row, isGridFocused: $isFocused)
+                        ForEach(model.items) { item in
+                            switch item {
+                            case .book(let row):
+                                BookGridItem(model: model, row: row, isGridFocused: $isFocused)
+                            case .series(let group):
+                                SeriesGridItem(model: model, group: group, isGridFocused: $isFocused)
+                            }
                         }
                     }
                     .onGeometryChange(for: Int.self) { grid in
@@ -61,13 +67,14 @@ struct BookGridView: View {
                 .focused($isFocused)
                 .focusEffectDisabled()
                 .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
-                    if let id = model.moveSelection(Self.direction(of: press.key), columns: columnCount) {
+                    if let id = model.moveItemSelection(Self.direction(of: press.key), columns: columnCount) {
                         scroller.scrollTo(id)
                     }
                     return .handled
                 }
                 .onKeyPress(.return) {
-                    model.openSelection()
+                    // G4: one book is opened; one series is shown in its own view.
+                    model.openItems(model.itemSelection)
                     return .handled
                 }
                 // G5: Delete and ⌘⌫, only while the grid has the keys.
@@ -99,7 +106,7 @@ struct BookGridView: View {
 /// One book in the grid with what clicking it does: a view of its own, so that it is
 /// drawn again when the selection changes, whenever the grid made it.
 private struct BookGridItem: View {
-    @Environment(AppModel.self) private var model
+    let model: AppModel
     let row: BookRow
     var isGridFocused: FocusState<Bool>.Binding
 
@@ -108,32 +115,35 @@ private struct BookGridItem: View {
         BookGridCell(model: model, row: row, isSelected: isSelected)
             .overlay {
                 ClickCatcher(toolTip: row.summaryText) {
-                    model.contextClick(row.id)
+                    model.contextClickItem(.book(row.id))
                 } onClick: { modifiers, clickCount in
                     isGridFocused.wrappedValue = true
                     clicked(modifiers: modifiers, clickCount: clickCount)
                 }
             }
             .contextMenu {
-                BookContextMenu(model: model, ids: model.contextTarget(for: row.id))
+                BookContextMenu(model: model, ids: model.contextTarget(forItem: .book(row.id)))
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(row.summaryText)
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-            .accessibilityAction { model.click(row.id, modifiers: []) }
+            .accessibilityAction { model.clickItem(.book(row.id), modifiers: []) }
             .accessibilityIdentifier("books.cell.\(row.id)")
     }
 
     /// The first press of a click selects (G2); the second of a double-click opens (G4).
     private func clicked(modifiers: NSEvent.ModifierFlags, clickCount: Int) {
         switch clickCount {
-        case 1: model.click(row.id, modifiers: Self.selectionModifiers(modifiers))
-        case 2: model.open(row.id)
+        case 1: model.clickItem(.book(row.id), modifiers: GridClicks.selectionModifiers(modifiers))
+        case 2: model.openItems([.book(row.id)])
         default: break
         }
     }
+}
 
-    private static func selectionModifiers(_ flags: NSEvent.ModifierFlags) -> SelectionLogic.Modifiers {
+/// The keys held at a click in the grid, as the model takes them.
+enum GridClicks {
+    static func selectionModifiers(_ flags: NSEvent.ModifierFlags) -> SelectionLogic.Modifiers {
         var modifiers: SelectionLogic.Modifiers = []
         if flags.contains(.command) { modifiers.insert(.command) }
         if flags.contains(.shift) { modifiers.insert(.shift) }

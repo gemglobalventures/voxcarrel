@@ -14,6 +14,7 @@ struct SeriesHeaderStrip: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            backButton
             VStack(alignment: .leading, spacing: 2) {
                 Text(header.summary)
                     .font(.headline)
@@ -59,6 +60,21 @@ struct SeriesHeaderStrip: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("series.header")
+    }
+
+    /// Plan 10: back to the list the series was opened from, by a double-click on its
+    /// row or its stack there; nothing when it was reached any other way.
+    @ViewBuilder private var backButton: some View {
+        if let title = model.seriesBackTitle {
+            Button {
+                model.goBackFromSeries()
+            } label: {
+                Label(title, systemImage: "chevron.backward")
+            }
+            .buttonStyle(.link)
+            .help("Go back to the list this series was opened from")
+            .accessibilityIdentifier("series.back")
+        }
     }
 
     private var checkButton: some View {
