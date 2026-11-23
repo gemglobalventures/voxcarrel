@@ -1528,6 +1528,22 @@ import VoxCarrelFixtures
         #expect(h.model.itemSelection == [items[at + 1]])
     }
 
+    /// GS20: in the grid a stack that is selected only in part is what is scrolled to
+    /// all the same: its books are no cells of the grid.
+    @Test func inTheGridTheScrollTargetIsAPartlySelectedStack() async throws {
+        let h = try await grouped()
+        let ids = try seriesIds(h)
+        h.model.setGroup(Self.series, open: true)
+        h.model.clickItem(.book(ids[1]), modifiers: [])
+        await h.model.settle()
+        h.model.updateDraft { $0.title = "The Drowned Bells" }
+        #expect(h.model.itemScrollTarget == .book(ids[1]))
+
+        h.model.viewMode = .grid
+        #expect(h.model.isPartlySelected(try group(h)))
+        #expect(h.model.itemScrollTarget == Self.seriesItem)
+    }
+
     /// GS14, GS15: what the table is told is selected, given back to the model
     /// unchanged, changes nothing: whatever is open, and whatever part is selected.
     @Test func theItemSelectionGivenBackChangesNothing() async throws {
