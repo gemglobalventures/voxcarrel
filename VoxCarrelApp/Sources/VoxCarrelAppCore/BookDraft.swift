@@ -88,21 +88,25 @@ public struct BookDraft: Equatable, Sendable {
 
     var editionKindChanged: Bool { editionKind != original.editionKind }
 
-    /// MG6: whether there is a title and an author to exchange.
+    /// MG6: whether there is a title or an author to put in the other's place.
     public var canSwapTitleAndAuthor: Bool {
-        !title.trimmed.isEmpty && !NameListText.names(from: authors).isEmpty
+        !title.trimmed.isEmpty || !NameListText.names(from: authors).isEmpty
     }
 
     /// MG6: exchanges the title with the first author, for a book whose file had them
     /// in each other's place. The old title becomes the first author; any other
     /// authors stay after it. A title that holds a semicolon is still one author
-    /// (`NameListText.oneName`). Nothing when either is blank.
+    /// (`NameListText.oneName`).
+    ///
+    /// With no title, the first author becomes the title and is an author no more;
+    /// with no author, the title becomes the author and the title is left empty, to
+    /// be filled in before the book is saved. Nothing when both are blank.
     public mutating func swapTitleAndAuthor() {
         guard canSwapTitleAndAuthor else { return }
         var names = NameListText.names(from: authors)
-        let author = names.removeFirst()
-        authors = NameListText.text(from: [NameListText.oneName(title.trimmed)] + names)
-        title = author
+        let old = title.trimmed
+        title = names.isEmpty ? "" : names.removeFirst()
+        authors = NameListText.text(from: (old.isEmpty ? [] : [NameListText.oneName(old)]) + names)
     }
 
     public var isDirty: Bool {

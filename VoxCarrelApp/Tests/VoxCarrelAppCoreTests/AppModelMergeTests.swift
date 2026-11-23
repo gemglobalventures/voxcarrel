@@ -584,11 +584,6 @@ import VoxCarrelFixtures
 
     @Test func mg6_swappingExchangesTheDraftsTitleWithItsFirstAuthor() {
         var draft = BookDraft(book: bareBook(title: "James Dalton"))
-        #expect(!draft.canSwapTitleAndAuthor)
-        let untouched = draft
-        draft.swapTitleAndAuthor()
-        #expect(draft == untouched)
-
         // The title was the whole of what was in authors: the old title is the only author.
         draft.authors = "Mind Over Markets"
         #expect(draft.canSwapTitleAndAuthor)
@@ -611,16 +606,82 @@ import VoxCarrelFixtures
         #expect(several.title == "Terry Pratchett")
         #expect(several.authors == "Good Omens; Neil Gaiman; Eric Jones")
 
-        // Nothing to exchange with: no title, or no author.
+        // Neither a title nor an author: nothing to put anywhere.
         var blank = BookDraft(book: fullBook())
         blank.title = "  "
-        #expect(!blank.canSwapTitleAndAuthor)
-        blank.title = "Good Omens"
         blank.authors = " ; "
         #expect(!blank.canSwapTitleAndAuthor)
         let before = blank
         blank.swapTitleAndAuthor()
         #expect(blank == before)
+    }
+
+    @Test func mg6_withOnlyATitleOrOnlyAnAuthorTheOneGoesToTheOthersPlace() {
+        // No title: the first author becomes the title, and is an author no more.
+        var untitled = BookDraft(book: fullBook())
+        untitled.title = "  "
+        untitled.authors = "Good Omens; Neil Gaiman"
+        #expect(untitled.canSwapTitleAndAuthor)
+        untitled.swapTitleAndAuthor()
+        #expect(untitled.title == "Good Omens")
+        #expect(untitled.authors == "Neil Gaiman")
+        #expect(untitled.makeEdit()?.metadata.title == "Good Omens")
+        #expect(untitled.makeEdit()?.metadata.authors == ["Neil Gaiman"])
+
+        var onlyAuthor = BookDraft(book: fullBook())
+        onlyAuthor.title = ""
+        onlyAuthor.authors = "Good Omens"
+        onlyAuthor.swapTitleAndAuthor()
+        #expect(onlyAuthor.title == "Good Omens")
+        #expect(onlyAuthor.authors == "")
+
+        // No author: the title becomes the author, and the title is left to be filled in,
+        // which it must be before the book can be saved.
+        var authorless = BookDraft(book: bareBook(title: "James Dalton"))
+        #expect(authorless.authors == "")
+        #expect(authorless.canSwapTitleAndAuthor)
+        authorless.swapTitleAndAuthor()
+        #expect(authorless.title == "")
+        #expect(authorless.authors == "James Dalton")
+        #expect(!authorless.problems.isEmpty)
+        #expect(authorless.makeEdit() == nil)
+        authorless.title = "Mind Over Markets"
+        #expect(authorless.problems.isEmpty)
+        #expect(authorless.makeEdit()?.metadata.authors == ["James Dalton"])
+
+        // The same for an entry of an import being reviewed.
+        func file(_ name: String) -> CandidateFile {
+            CandidateFile(url: URL(fileURLWithPath: "/inbox/\(name)"), role: .ebook)
+        }
+        var review = ImportReview(
+            seeds: [
+                ImportSeed(
+                    candidate: CandidateBook(
+                        files: [file("a.epub")], metadata: BookMetadata(title: " ", authors: ["Good Omens", "Neil Gaiman"])),
+                    cover: nil, existingMatch: nil),
+                ImportSeed(
+                    candidate: CandidateBook(files: [file("b.epub")], metadata: BookMetadata(title: "James Dalton")),
+                    cover: nil, existingMatch: nil),
+                ImportSeed(
+                    candidate: CandidateBook(files: [file("c.epub")], metadata: BookMetadata(title: " ")),
+                    cover: nil, existingMatch: nil),
+            ], skipped: [], copyInsteadOfMove: false)
+        let untitledEntry = review.entries[0].id
+        let authorlessEntry = review.entries[1].id
+        let blankEntry = review.entries[2].id
+        #expect(review.canSwapTitleAndAuthor(of: untitledEntry))
+        #expect(review.canSwapTitleAndAuthor(of: authorlessEntry))
+        #expect(!review.canSwapTitleAndAuthor(of: blankEntry))
+
+        review.swapTitleAndAuthor(for: untitledEntry)
+        #expect(review.text(for: .title, of: untitledEntry) == "Good Omens")
+        #expect(review.entry(untitledEntry)?.candidate.metadata.authors == ["Neil Gaiman"])
+        review.swapTitleAndAuthor(for: authorlessEntry)
+        #expect(review.text(for: .title, of: authorlessEntry) == "")
+        #expect(review.entry(authorlessEntry)?.candidate.metadata.authors == ["James Dalton"])
+        let unchanged = review
+        review.swapTitleAndAuthor(for: blankEntry)
+        #expect(review == unchanged)
     }
 
     @Test func mg6_swappingInTheInspectorMarksTheBookEditedAndIsSavedLikeAnyChange() async throws {
@@ -667,7 +728,7 @@ import VoxCarrelFixtures
                         metadata: BookMetadata(title: "Terry Pratchett", authors: ["Good Omens", "Neil Gaiman"])),
                     cover: nil, existingMatch: nil),
                 ImportSeed(
-                    candidate: CandidateBook(files: [file("b.epub")], metadata: BookMetadata(title: "No Author")),
+                    candidate: CandidateBook(files: [file("b.epub")], metadata: BookMetadata(title: " ")),
                     cover: nil, existingMatch: nil),
             ], skipped: [], copyInsteadOfMove: false)
         let first = review.entries[0].id
