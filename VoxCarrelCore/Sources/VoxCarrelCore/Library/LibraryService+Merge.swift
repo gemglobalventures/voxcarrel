@@ -581,7 +581,12 @@ extension LibraryService {
             updated.durationSeconds = work.others.lazy.compactMap(\.book.durationSeconds).first
         }
         if updated.pageCount == nil {
-            updated.pageCount = work.others.lazy.compactMap(\.book.pageCount).first
+            // The pages are the ebook's: an entry whose files all become something
+            // else (a companion PDF that is now an extra) says nothing of them.
+            let givesAnEbook = Set(ordered.filter { $0.role == .ebook }.map(\.bookId))
+            updated.pageCount = work.others.lazy
+                .filter { $0.rows.isEmpty || givesAnEbook.contains($0.book.id ?? 0) }
+                .compactMap(\.book.pageCount).first
                 ?? files.first { $0.role == .ebook && $0.format == .pdf }?.before?.metadata.pageCount
         }
         // MB9. A book with no files is never filed, so its flag is not this merge's to change.
