@@ -170,9 +170,20 @@ import VoxCarrelFixtures
 
     @Test func fp41_aBookAlreadySharingItsFolderIsLeftAsItWas() throws {
         let f = try F()
-        // Two books in one folder, as two imports of one title can leave them.
+        // Two books in one folder, as two imports of one title could leave them before
+        // a new book was kept out of another book's folder: made here by hand.
         let ebook = try f.importNew([try f.makeEPUB("dune.epub")], F.meta("Dune", "Frank Herbert"))
-        let audio = try f.importNew([try f.makeM4B("dune.m4b", tags: BookMetadata())], F.meta("Dune", "Frank Herbert"))
+        let audio = try f.importNew([try f.makeM4B("dune.m4b", tags: BookMetadata())], F.meta("Dune Audio", "Frank Herbert"))
+        try FileManager.default.moveItem(
+            at: f.lib("Frank Herbert/Dune Audio/Dune Audio.m4b"), to: f.lib("Frank Herbert/Dune/Dune.m4b"))
+        try FileManager.default.removeItem(at: f.lib("Frank Herbert/Dune Audio"))
+        var shared = try book(f, audio)
+        shared.metadata.title = "Dune"
+        shared.folderPath = "Frank Herbert/Dune"
+        try f.store.update(shared)
+        var rows = try f.store.files(bookId: audio)
+        rows[0].path = "Frank Herbert/Dune/Dune.m4b"
+        try f.store.replaceFiles(bookId: audio, files: rows)
         #expect(try book(f, ebook).folderPath == book(f, audio).folderPath)
         var edit = BookEdit(book: try book(f, audio))
         edit.rating = 3

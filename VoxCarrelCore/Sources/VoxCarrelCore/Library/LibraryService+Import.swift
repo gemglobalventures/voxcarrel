@@ -35,7 +35,8 @@ extension LibraryService {
             }
             switch item.target {
             case .newBook:
-                let result = prepareNewBook(item, options: options, pattern: pattern, into: &operation)
+                let result = prepareNewBook(
+                    item, options: options, pattern: pattern, owners: &folderOwners, into: &operation)
                 // A book of this call has no id yet: it holds its folder under a stand-in.
                 if case .imported(let index, _) = result, let path = operation.writes[index].book.folderPath {
                     folderOwners?.set(folderKey(store.url(forFolder: path)), for: Int64(-1 - index))
@@ -152,7 +153,8 @@ extension LibraryService {
     // MARK: A new book
 
     private func prepareNewBook(
-        _ item: ImportItem, options: ImportOptions, pattern: FolderPattern, into operation: inout PendingOperation
+        _ item: ImportItem, options: ImportOptions, pattern: FolderPattern, owners: inout FolderOwners?,
+        into operation: inout PendingOperation
     ) -> PreparedItem {
         let candidate = item.candidate
         var files: [WorkingFile]
@@ -193,6 +195,12 @@ extension LibraryService {
                     bookId: 0, bookBefore: nil, filesBefore: [], fileStates: [], storedCoverBefore: nil),
                 storedCover: storedCover.map { .set($0) } ?? .keep, records: [])
             return .needsAttention(writeIndex: operation.writes.count - 1)
+        }
+
+        // FP41: a new book is not filed into the folder of another book, one already
+        // in the library or one imported earlier in this call. Nothing has moved.
+        if isAnotherBooksFolder(plan.folder, for: nil, owners: &owners) {
+            return .failed(Self.newBookFolderTakenReason)
         }
 
         // Covers about to be replaced or removed inside the files are saved for undo
@@ -433,8 +441,12 @@ extension LibraryService {
             let title = details.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let name = title.isEmpty ? "That book" : "“\(title)”"
             // What the folder pattern needs beyond a title and an author is said in its own words.
-            let missing = pattern.missingTokens(
-                for: FolderPatternValues(metadata: details, hasAudio: sources.contains { $0.role == .audio }))
+            let hasAudio = sources.contains { $0.role == .audio }
+            let missing = pattern.missingTokens(for: FolderPatternValues(metadata: details, hasAudio: hasAudio))
+            // The pattern can file it, but under one of the library's own names.
+            if missing.isEmpty, let reason = unfiledReason(for: details, hasAudio: hasAudio, pattern: pattern) {
+                return .failed("\(name) cannot be filed yet, so files cannot be added to it. \(reason)")
+            }
             guard !missing.isEmpty, Set(missing).isSubset(of: [.author, .title]) else {
                 return .failed(
                     "\(name) cannot be filed yet, so files cannot be added to it. "

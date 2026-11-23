@@ -22,6 +22,14 @@ extension LibraryService {
         }
     }
 
+    /// Whether the library has a folder pattern stored that this code cannot read
+    /// (written by a newer version, or damaged). Its books are then filed by the
+    /// standard pattern (`folderPattern`), until a pattern that can be read is stored.
+    public func storedFolderPatternIsUnreadable() throws -> Bool {
+        guard let text = try store.folderPatternText() else { return false }
+        return (try? FolderPattern(text)) == nil
+    }
+
     private static let layoutLog = Logger(subsystem: "VoxCarrelCore", category: "FolderLayout")
 
     /// What the library's folder pattern needs and this book lacks, in pattern order;
@@ -43,7 +51,10 @@ extension LibraryService {
         let files = try store.files(bookId: bookId)
         guard !files.isEmpty else { return nil }
         let pattern = try folderPattern()
-        if let reason = pattern.unfiledReason(for: Self.patternValues(of: book, files: files)) { return reason }
+        if let reason = unfiledReason(
+            for: book.metadata, hasAudio: files.contains { $0.role == .audio }, pattern: pattern) {
+            return reason
+        }
         // FP41
         var owners: FolderOwners?
         guard let folder = bookFolder(

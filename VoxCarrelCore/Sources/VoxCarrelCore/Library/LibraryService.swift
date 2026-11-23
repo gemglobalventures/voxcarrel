@@ -71,6 +71,13 @@ public final class LibraryService {
     /// nothing exists, and never by copying. A test seam.
     var renameFolder: (URL, URL) throws -> Void = FolderMover.renameWithoutReplacing
 
+    /// Which disk a folder is on (`FolderMover.volume`). A test seam.
+    var volumeOfFolder: (URL) -> UInt64? = FolderMover.volumeOf
+
+    /// How the folder renames of a change of folder layout are forced out to the disk
+    /// before the catalogue is written. A test seam.
+    var forceFoldersToDisk: (() -> Void)?
+
     /// Test seam: called once a change of folder layout (or the undoing of one) has
     /// written the catalogue, before it tidies up after itself.
     var afterLayoutCommit: (() throws -> Void)?

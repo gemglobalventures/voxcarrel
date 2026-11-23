@@ -52,6 +52,10 @@ struct FolderMover {
     let naming: VolumeNaming
     /// Renames a folder to a path where nothing exists; throws when something does.
     var rename: (URL, URL) throws -> Void = FolderMover.renameWithoutReplacing
+    /// Which disk a folder is on: its device number, or nil when nothing is there. A
+    /// folder is only ever renamed, so one on another disk than the library (reached
+    /// through a link, say) cannot be moved. A test seam.
+    var volume: (URL) -> UInt64? = FolderMover.volumeOf
 
     /// For tests: a rename that throws this stops the move dead, with nothing put back,
     /// as a crash or a loss of power would.
@@ -86,6 +90,8 @@ struct FolderMover {
         /// Something is at the destination and the moves do not take it away.
         case destinationExists
         case outsideLibrary
+        /// The folder, or the place it would go, is on another disk than the library.
+        case otherVolume
     }
 
     // MARK: The moves, worked out
@@ -177,6 +183,14 @@ struct FolderMover {
         withPath(url) { rmdir($0) } == 0
     }
 
+    /// The device number of whatever is at `url` (through any links on the way to it
+    /// and at it); nil when nothing is there.
+    static func volumeOf(_ url: URL) -> UInt64? {
+        var info = stat()
+        guard withPath(url, { stat($0, &info) }) == 0 else { return nil }
+        return UInt64(UInt32(bitPattern: info.st_dev))
+    }
+
     private static func removeFile(_ url: URL) {
         _ = withPath(url) { unlink($0) }
     }
@@ -207,9 +221,18 @@ struct FolderMover {
         let layout = layout(of: moves)
         var found: [Int: Blocker] = [:]
         for index in layout.outside { found[index] = .outsideLibrary }
+        let home = volume(root)
         for item in layout.items {
             if !Self.isFolder(url(item.from)) {
                 found[item.index] = .sourceMissing
+                continue
+            }
+            // The folder itself, and the nearest folder above where it is going that
+            // is there now, must be on the library's own disk.
+            var nearest = Array(item.to.dropLast())
+            while !nearest.isEmpty, !Self.exists(url(nearest)) { nearest.removeLast() }
+            if volume(url(item.from)) != home || (!nearest.isEmpty && volume(url(nearest)) != home) {
+                found[item.index] = .otherVolume
                 continue
             }
             let above = Self.prefixes(item.toKey)
@@ -371,6 +394,7 @@ struct FolderMover {
         case .sourceMissing: "The folder could not be found (\(move.from.path))"
         case .destinationExists: "Something is already there (\(move.to.path))"
         case .outsideLibrary: "The folder is not inside the library (\(move.from.path) to \(move.to.path))"
+        case .otherVolume: "The folder is on another disk than the library (\(move.from.path) to \(move.to.path))"
         }
     }
 

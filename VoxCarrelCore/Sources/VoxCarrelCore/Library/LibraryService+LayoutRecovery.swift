@@ -179,7 +179,25 @@ extension LibraryService {
             written.madeFolders = preparation.madeFolders.map(self.relativePath)
             try self.writeLayoutIntent(written)
         }
+        // Every folder is in place: the renames are forced out to the disk before the
+        // caller writes the catalogue, so that after a loss of power the catalogue
+        // never says more than the disk shows. (The other way round is put right from
+        // the record.)
+        if let forceFoldersToDisk { forceFoldersToDisk() } else { Self.forceToDisk(layout.root) }
         return written
+    }
+
+    /// Forces what has been done to the folders of the volume `folder` is on out to
+    /// the disk itself, in one call: `F_FULLFSYNC` on the folder makes the file system
+    /// write its whole journal, every rename so far included, and has the drive empty
+    /// its cache. Where the volume cannot do that, the folder's own entries are
+    /// flushed (`fsync`), which is as much as such a volume offers. Never fails: a
+    /// folder that cannot be opened is passed over.
+    static func forceToDisk(_ folder: URL) {
+        let descriptor = open(folder.path, O_RDONLY)
+        guard descriptor >= 0 else { return }
+        if fcntl(descriptor, F_FULLFSYNC) != 0 { _ = fsync(descriptor) }
+        close(descriptor)
     }
 
     /// Why the folders an interrupted change moved could not be put back.
@@ -339,7 +357,17 @@ extension LibraryService {
         let journalToken = try store.lastBatch()?.snapshot
             .flatMap { try? JSONDecoder().decode(Token.self, from: $0) }?.token
         if (journalToken == intent.token) == intent.committedWhenJournalHolds {
-            // The catalogue was written: every folder is where it says.
+            // The catalogue was written, so every folder should be where it says. That
+            // is looked at all the same (a rename can fail to reach the disk when the
+            // power goes): while a folder is not there, the record is kept and said.
+            let astray = intent.moves.filter { Self.folderIdentity(libraryURL($0.to)) != $0.identity }
+            guard astray.isEmpty else {
+                let names = astray.map { "\"\($0.to)\"" }.joined(separator: ", ")
+                return LayoutRecovery(
+                    unresolved: astray.map { StrandedFolder(url: libraryURL($0.to), belongsAt: $0.to) },
+                    problem: "A change of folder layout was interrupted after the catalogue was written, and a "
+                        + "folder is not where the catalogue says: " + names)
+            }
             clearEmptyParking()
             removeLayoutIntent()
             return LayoutRecovery()

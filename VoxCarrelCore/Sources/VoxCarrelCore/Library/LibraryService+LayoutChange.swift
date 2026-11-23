@@ -68,10 +68,17 @@ extension LibraryService {
         static let wouldBeInside = "Its folder would be inside another book's folder."
         static let wouldHoldAnother = "Another book's folder would be inside its folder."
         static let tooLong = "Its folder's name or path would be too long."
+        static let otherDisk = "Its folder is on another disk."
     }
 
     /// FP41: why a book that could be filed is not where the pattern files it.
     public static let folderTakenReason = "Another book uses the folder this book belongs in."
+
+    /// FP41: why a new book is not imported when the folder it belongs in is another
+    /// book's, and what to do about it.
+    public static let newBookFolderTakenReason =
+        "Another book already uses the folder this book belongs in. Add these files to that book instead, "
+        + "or change one book's details."
 
     // MARK: Planning
 
@@ -139,7 +146,8 @@ extension LibraryService {
             guard let folderPath = book.folderPath else {
                 // Catalogued where it was found: filing it means moving its files one
                 // by one, which a change of layout does not do.
-                if let reason = pattern.unfiledReason(for: values) {
+                if let reason = unfiledReason(
+                    for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern) {
                     stays[id] = reason
                     flagged.insert(id)
                 } else {
@@ -159,7 +167,9 @@ extension LibraryService {
                 for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern, names: names),
                   var to = layout.relativeComponents(of: destination)
             else {
-                stays[id] = pattern.unfiledReason(for: values) ?? FolderPattern.unfiledReason(missing: [])
+                stays[id] = unfiledReason(
+                    for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern)
+                    ?? FolderPattern.unfiledReason(missing: [])
                 flagged.insert(id)
                 continue
             }
@@ -286,6 +296,7 @@ extension LibraryService {
                 case .sourceMissing: stay(remaining[index], LayoutReason.folderMissing)
                 case .destinationExists: stay(remaining[index], LayoutReason.folderExists)
                 case .outsideLibrary: stay(remaining[index], LayoutReason.outsideLibrary)
+                case .otherVolume: stay(remaining[index], LayoutReason.otherDisk)
                 }
             }
             settled = movers.count == before
@@ -328,7 +339,9 @@ extension LibraryService {
     }
 
     func folderMover() -> FolderMover {
-        FolderMover(root: layout.root, parking: layout.movingFolder, naming: volumeNaming, rename: renameFolder)
+FolderMover(
+            root: layout.root, parking: layout.movingFolder, naming: volumeNaming, rename: renameFolder,
+            volume: volumeOfFolder)
     }
 
     // MARK: Changing
@@ -361,8 +374,10 @@ extension LibraryService {
         let patternBefore = try folderPattern()
         let textBefore = try store.folderPatternText()
         let work = try layoutChange(to: pattern)
-        // FP38
-        if work.movers.isEmpty, work.flagged.isEmpty, pattern == patternBefore { return work.plan }
+        // FP38. A stored pattern that cannot be read is replaced all the same: the
+        // pattern asked for is then stored, though it is the one already in use.
+        let storedIsReadable = textBefore.map { (try? FolderPattern($0)) != nil } ?? true
+        if work.movers.isEmpty, work.flagged.isEmpty, pattern == patternBefore, storedIsReadable { return work.plan }
 
         // What the catalogue is to say afterwards is worked out before any folder
         // moves, so that nothing can fail between the moves and the commit but the

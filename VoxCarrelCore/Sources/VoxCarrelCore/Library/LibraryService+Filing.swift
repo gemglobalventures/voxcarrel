@@ -62,7 +62,9 @@ extension LibraryService {
         for metadata: BookMetadata, hasAudio: Bool, pattern: FolderPattern, names: FolderNames? = nil
     ) -> URL? {
         let values = FolderPatternValues(metadata: metadata, hasAudio: hasAudio)
-        guard let relative = PathBuilder.bookFolder(values: values, pattern: pattern) else { return nil }
+        guard let relative = PathBuilder.bookFolder(values: values, pattern: pattern),
+              !isNeededByTheLibrary(relative)
+        else { return nil }
         // The folder is the last component of nothing that is moved, so it is adopted
         // as the parent of a stand-in file name.
         return layout.adoptingExistingCapitalisation(
@@ -78,6 +80,36 @@ extension LibraryService {
         let hasAudio = files.contains { $0.role == .audio }
         guard let folder = bookFolder(for: metadata, hasAudio: hasAudio, pattern: pattern) else { return nil }
         return filingPlan(for: files, title: metadata.title, folder: folder)
+    }
+
+    // MARK: Names the library needs for itself
+
+    /// Why a book cannot be filed in a folder whose first name is one the library needs.
+    public static let ownFilesReason = "Its folder would have the same name as the library's own files."
+
+    /// Whether the first folder of `relative` (a book's folder, relative to the
+    /// library) has a name the library needs for itself: the catalogue file, one of
+    /// the files the database keeps beside it, or the hidden folder. Names are
+    /// compared as the library's volume compares them. A book is never filed there:
+    /// a folder of that name would stop the catalogue being written.
+    func isNeededByTheLibrary(_ relative: String) -> Bool {
+        guard let first = (relative as NSString).pathComponents.first else { return false }
+        let naming = volumeNaming
+        let catalogue = LibraryStore.databaseFileName
+        let needed = [catalogue, catalogue + "-journal", catalogue + "-wal", catalogue + "-shm",
+                      layout.hiddenFolder.lastPathComponent]
+        return needed.map(naming.key).contains(naming.key(first))
+    }
+
+    /// Why a book with these details cannot be filed under `pattern`, as a sentence:
+    /// what the pattern needs and the book lacks, or that its folder would have one of
+    /// the library's own names. Nil when it can be filed.
+    func unfiledReason(for metadata: BookMetadata, hasAudio: Bool, pattern: FolderPattern) -> String? {
+        let values = FolderPatternValues(metadata: metadata, hasAudio: hasAudio)
+        guard let relative = PathBuilder.bookFolder(values: values, pattern: pattern) else {
+            return pattern.unfiledReason(for: values) ?? FolderPattern.unfiledReason(missing: [])
+        }
+        return isNeededByTheLibrary(relative) ? Self.ownFilesReason : nil
     }
 
     // MARK: Whose folder is whose
