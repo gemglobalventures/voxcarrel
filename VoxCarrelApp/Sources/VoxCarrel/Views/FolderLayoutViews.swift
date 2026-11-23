@@ -42,6 +42,13 @@ struct FolderLayoutSettings: View {
                         .accessibilityIdentifier("settings.layout.example")
                 }
             }
+            if let unreadable = model.layoutUnreadableText {
+                Label(unreadable, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.layout.unreadable")
+            }
             if let problem = model.layoutProblemText {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.callout)

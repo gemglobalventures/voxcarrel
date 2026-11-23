@@ -105,13 +105,19 @@ extension AppModel {
 
     /// FL4: whether the draft can be previewed: a library is open, nothing is running,
     /// no question, sheet or unsaved edit is in the way, and the draft is a usable
-    /// pattern other than the library's own.
+    /// pattern. It may be the library's own: the preview then says which books are not
+    /// where it files them, and the change re-files those.
     public var canChangeLayout: Bool {
-        guard isLibraryOpen, busyLabel == nil, storedPrompt == nil, filesCanChange, review == nil, result == nil,
-              libraryCheck == nil, seriesChoice == nil, lookup == nil, !hasUnsavedChanges,
-              let pattern = try? FolderPattern(layoutDraft)
-        else { return false }
-        return pattern != libraryPattern
+        isLibraryOpen && busyLabel == nil && storedPrompt == nil && filesCanChange && review == nil && result == nil
+            && libraryCheck == nil && seriesChoice == nil && lookup == nil && !hasUnsavedChanges
+            && (try? FolderPattern(layoutDraft)) != nil
+    }
+
+    /// Said in the settings when the library's saved folder layout cannot be read
+    /// (it was saved by a newer version, or is damaged); nil when it can, or none is
+    /// saved. Changing the layout, to the standard one too, saves one that can.
+    public var layoutUnreadableText: String? {
+        layoutStoredIsUnreadable ? LayoutText.unreadable : nil
     }
 
     // MARK: FL5–FL7 Previewing and changing
@@ -125,7 +131,9 @@ extension AppModel {
         else { return }
         do {
             let plan = try await worker.planLayoutChange(to: pattern)
-            layoutPreview = LayoutText.preview(of: plan, changesPattern: pattern != libraryPattern)
+            // Storing a pattern in place of one that cannot be read is a change too.
+            layoutPreview = LayoutText.preview(
+                of: plan, changesPattern: pattern != libraryPattern || layoutStoredIsUnreadable)
         } catch {
             show(error)
         }

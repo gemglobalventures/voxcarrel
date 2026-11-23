@@ -168,6 +168,11 @@ extension ImportReview {
             if entry.isAddedToExisting {
                 return entry.destination.map { "Will be added to: \($0)" } ?? "Will be added to the existing book"
             }
+            // FP41: the folder it belongs in is another book's; the import would refuse it.
+            if entry.destination == nil, !entry.needsDestination(under: folderPattern),
+               let refusal = entry.destinationRefusal {
+                return "Cannot be imported yet. \(refusal)"
+            }
             return entry.destination.map { "Will be filed in: \($0)" } ?? "Working out where it will be filed…"
         }
     }

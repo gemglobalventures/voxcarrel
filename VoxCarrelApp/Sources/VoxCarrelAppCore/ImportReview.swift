@@ -25,6 +25,9 @@ public struct ImportReview: Equatable, Sendable {
         /// was worked out for. `computedFor` is nil until there has been an answer.
         var computedDestination: String?
         var computedFor: DestinationDetails?
+        /// FP41: why the import would refuse this entry as a new book, when it would:
+        /// the folder it belongs in is another book's. Worked out with the folder.
+        var destinationRefusal: String?
 
         /// The title, first author and Audible ID `existingMatch` was looked up for; nil
         /// when it has yet to be looked up.
@@ -238,6 +241,7 @@ public struct ImportReview: Equatable, Sendable {
                 candidate: CandidateBook(files: [detached], metadata: source.candidate.metadata),
                 included: true, cover: nil, coverChanged: false, existingMatch: nil, addToExisting: true,
                 computedDestination: source.computedDestination, computedFor: source.computedFor,
+                destinationRefusal: source.destinationRefusal,
                 // Moved out to be a book of its own: it is not offered to the library's
                 // book again unless its title or author is changed.
                 matchedFor: MatchDetails(source.candidate.metadata)),
@@ -283,10 +287,14 @@ public struct ImportReview: Equatable, Sendable {
     /// Records where a new book would be filed. Ignored when the details that decide
     /// the folder are no longer the ones the answer was worked out for, and for an
     /// entry that is added to an existing book.
-    /// - Parameter hasAudio: Whether the answer was worked out for a book with audio;
-    ///   nil when it was worked out for the entry's files as they are now.
+    /// - Parameters:
+    ///   - hasAudio: Whether the answer was worked out for a book with audio; nil when
+    ///     it was worked out for the entry's files as they are now.
+    ///   - refusal: FP41: why the import would refuse to file the book there, when it
+    ///     would: the folder is another book's. The folder is then not named.
     public mutating func setDestination(
-        _ folder: String?, for id: UUID, matchingMetadata: BookMetadata, hasAudio: Bool? = nil
+        _ folder: String?, for id: UUID, matchingMetadata: BookMetadata, hasAudio: Bool? = nil,
+        refusal: String? = nil
     ) {
         guard let entry = entries.firstIndex(where: { $0.id == id }),
               !entries[entry].isAddedToExisting
@@ -296,8 +304,9 @@ public struct ImportReview: Equatable, Sendable {
         guard details == DestinationDetails(
             entries[entry].candidate.metadata, hasAudio: current, pattern: folderPattern)
         else { return }
-        entries[entry].computedDestination = folder
+        entries[entry].computedDestination = refusal == nil ? folder : nil
         entries[entry].computedFor = details
+        entries[entry].destinationRefusal = refusal
     }
 
     /// R9: entries that join a book with no files, whose folder has not been worked out

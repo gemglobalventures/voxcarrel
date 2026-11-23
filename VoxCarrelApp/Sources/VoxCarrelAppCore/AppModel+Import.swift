@@ -142,9 +142,11 @@ extension AppModel {
             guard let entry = review?.entries.first(where: { $0.id == id }) else { continue }
             let metadata = entry.candidate.metadata
             let hasAudio = entry.hasAudio
-            let folder = await worker.plannedFolder(for: metadata, hasAudio: hasAudio)
+            // FP41: a folder that is another book's is not named: the import would refuse it.
+            let planned = await worker.plannedNewFiling(for: metadata, hasAudio: hasAudio)
             // Ignored by the review if the entry's details or files have changed again meanwhile.
-            review?.setDestination(folder, for: id, matchingMetadata: metadata, hasAudio: hasAudio)
+            review?.setDestination(
+                planned.folder, for: id, matchingMetadata: metadata, hasAudio: hasAudio, refusal: planned.refusal)
         }
         for id in review?.entriesNeedingMatchDestination ?? [] {
             guard let entry = review?.entries.first(where: { $0.id == id }), let match = entry.existingMatch

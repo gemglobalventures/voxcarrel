@@ -104,6 +104,10 @@ enum LayoutText {
         "Put a part in [square brackets] to leave it out for a book that has no value for it. "
         + "After a |, give a second layout for the books the first cannot file."
 
+    static let unreadable =
+        "The library's saved folder layout could not be read, so books are being filed by the standard layout. "
+        + "Choose a layout and press Change Layout… to save one that can be read."
+
     static let onlyFoldersMove = "Only folders move. You can undo this from the Edit menu."
 
     // MARK: FL3 The example
@@ -148,6 +152,9 @@ enum LayoutText {
         let moves = plan.moves.count
         let heading =
             switch moves {
+            // Nothing to do at all: the pattern is the library's own, and no book is
+            // anywhere else than it files it.
+            case 0 where !changesPattern && plan.staying.isEmpty: "Every book is already in place"
             case 0: "No book will move"
             case 1: "1 book will move"
             default: "\(moves) books will move"

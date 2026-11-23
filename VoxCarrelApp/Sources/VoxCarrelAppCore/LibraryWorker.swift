@@ -214,6 +214,23 @@ public actor LibraryWorker {
         return PlannedFirstFiling(folder: folder, refusal: nil)
     }
 
+    /// FP41: where a new book with these details would be filed, or why the import
+    /// would refuse it: a new book is never filed into another book's folder.
+    public func plannedNewFiling(for metadata: BookMetadata, hasAudio: Bool) -> PlannedFirstFiling {
+        guard let folder = service.plannedFolder(for: metadata, hasAudio: hasAudio) else {
+            return PlannedFirstFiling(folder: nil, refusal: nil)
+        }
+        if service.isFolderOfAnotherBook(folder, than: nil) {
+            return PlannedFirstFiling(folder: nil, refusal: LibraryService.newBookFolderTakenReason)
+        }
+        return PlannedFirstFiling(folder: folder, refusal: nil)
+    }
+
+    /// Whether the library's stored folder pattern is one this version cannot read.
+    public func storedFolderPatternIsUnreadable() throws -> Bool {
+        try service.storedFolderPatternIsUnreadable()
+    }
+
     /// FL3: the first book of the library, by title, that is in a series: what a
     /// layout is shown with. Nil when no book is in one. Reads the catalogue only.
     public func layoutSample() throws -> LayoutSample? {

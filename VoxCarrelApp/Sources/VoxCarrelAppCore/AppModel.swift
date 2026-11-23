@@ -237,6 +237,7 @@ public final class AppModel {
         layoutChangeIsUnresolved = false
         libraryPattern = .standard
         layoutPatternRead = false
+        layoutStoredIsUnreadable = false
         layoutSample = nil
         showLibraryLayout()
         review = nil
@@ -575,6 +576,7 @@ public final class AppModel {
             // FL9: the layout setting follows the library's pattern whenever that has
             // changed; a draft is otherwise left as it was typed.
             let pattern = try await worker.folderPattern()
+            layoutStoredIsUnreadable = try await worker.storedFolderPatternIsUnreadable()
             layoutSample = try await worker.layoutSample()
             if !layoutPatternRead || pattern.text != libraryPattern.text {
                 libraryPattern = pattern
@@ -860,6 +862,9 @@ public final class AppModel {
     var layoutCustomChosen = false
     /// The book of the library that a layout is shown with when none is selected.
     var layoutSample: LayoutSample?
+    /// Whether the open library has a pattern stored that could not be read, so that
+    /// `libraryPattern` is the standard one standing in for it.
+    var layoutStoredIsUnreadable = false
     /// False until the open library's pattern has been read once.
     @ObservationIgnored var layoutPatternRead = false
     /// FL5: what the change of layout being previewed would do; not nil shows the sheet.

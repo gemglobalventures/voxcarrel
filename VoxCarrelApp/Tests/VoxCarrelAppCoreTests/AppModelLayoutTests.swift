@@ -203,8 +203,9 @@ func layoutTree(_ root: URL) -> [String] {
 
     @Test func fl4_theLayoutCanBeChangedWhenTheDraftIsAnotherUsablePattern() async throws {
         let h = try await Harness.demo()
-        // The draft is the library's own pattern.
-        #expect(!h.model.canChangeLayout)
+        // The draft is the library's own pattern: that can be previewed too, to re-file
+        // books that are not where it files them.
+        #expect(h.model.canChangeLayout)
         h.model.chooseLayout(Self.authorTitle)
         #expect(h.model.canChangeLayout)
 
@@ -213,9 +214,147 @@ func layoutTree(_ root: URL) -> [String] {
         #expect(!h.model.canChangeLayout)
         // The library's own pattern, however it is typed.
         h.model.layoutDraftText = "  {author}/[{series}/][{number} - ]{title} "
-        #expect(!h.model.canChangeLayout)
+        #expect(h.model.canChangeLayout)
         h.model.layoutDraftText = Self.narratorPattern
         #expect(h.model.canChangeLayout)
+    }
+
+    /// The library's own pattern can be previewed too: books left behind by an earlier
+    /// change, or moved since, are re-filed by it.
+    @Test func fl4_theLibrarysOwnLayoutCanBeAppliedAgainToRefileBooksThatAreNotInPlace() async throws {
+        let h = try await Harness.demo()
+        h.model.chooseLayout(Self.authorTitle)
+        await h.model.previewLayoutChange()
+        await h.model.applyLayoutChange()
+        h.model.result = nil
+        // The library files by the standard pattern again, with three books left where
+        // "Author / Title" put them.
+        try h.store().setFolderPatternText(nil)
+        await h.model.reloadAll()
+        #expect(h.model.layoutChoiceId == Self.standardName)
+        #expect(try h.book(try h.id("Salt Road")).folderPath == "Ines Calloway/Salt Road")
+
+        #expect(h.model.canChangeLayout)
+        await h.model.previewLayoutChange()
+        let preview = try #require(h.model.layoutPreview)
+        #expect(preview.heading == "3 books will move")
+        #expect(preview.canApply)
+        await h.model.applyLayoutChange()
+        #expect(h.model.alert == nil)
+        #expect(try h.book(try h.id("Salt Road")).folderPath == "Ines Calloway/Tidewater Chronicles/1 - Salt Road")
+        #expect(h.model.undoMenuTitle == "Undo Change Folder Layout")
+    }
+
+    @Test func fl4_whenTheLibrarysOwnLayoutWouldMoveNothingThePreviewSaysSoAndCannotBeApplied() async throws {
+        // Every book in place.
+        let empty = try await Harness.empty()
+        await empty.model.beginImport([try Harness.inbox().appendingPathComponent("Quiet Rivers.epub")])
+        await empty.model.confirmImport()
+        #expect(empty.model.canChangeLayout)
+        await empty.model.previewLayoutChange()
+        var preview = try #require(empty.model.layoutPreview)
+        #expect(preview.heading == "Every book is already in place")
+        #expect(preview.lines == ["1 is already in place"])
+        #expect(!preview.canApply)
+        let tree = layoutTree(empty.root)
+        await empty.model.applyLayoutChange()
+        #expect(empty.model.layoutPreview == preview)
+        #expect(layoutTree(empty.root) == tree)
+        empty.model.cancelLayoutChange()
+        #expect(empty.model.layoutPreview == nil)
+
+        // A book that cannot be filed is not in place: it is said to stay.
+        let h = try await Harness.demo()
+        await h.model.previewLayoutChange()
+        preview = try #require(h.model.layoutPreview)
+        #expect(preview.heading == "No book will move")
+        #expect(preview.lines == ["1 book stays where it is", "11 are already in place"])
+        #expect(!preview.canApply)
+    }
+
+    // MARK: A saved layout that cannot be read
+
+    @Test func aSavedLayoutThatCannotBeReadIsSaidAndCanBeReplaced() async throws {
+        let h = try await Harness.demo()
+        #expect(h.model.layoutUnreadableText == nil)
+        try h.store().setFolderPatternText("{Auther}/{Title")
+        await h.model.reloadAll()
+        #expect(h.model.layoutUnreadableText
+            == "The library's saved folder layout could not be read, so books are being filed by the standard "
+            + "layout. Choose a layout and press Change Layout… to save one that can be read.")
+        // The standard layout is what is in use, and is shown.
+        #expect(h.model.layoutChoiceId == Self.standardName)
+        #expect(h.model.canChangeLayout)
+
+        await h.model.previewLayoutChange()
+        let preview = try #require(h.model.layoutPreview)
+        #expect(preview.heading == "No book will move")
+        #expect(preview.lines.last == "New books will be filed by this layout")
+        #expect(preview.canApply)
+        await h.model.applyLayoutChange()
+        #expect(h.model.alert == nil)
+        #expect(try h.store().folderPatternText() == FolderPattern.standard.text)
+        #expect(h.model.layoutUnreadableText == nil)
+
+        // Another library has its own.
+        try h.store().setFolderPatternText("{Auther}/{Title")
+        await h.model.reloadAll()
+        #expect(h.model.layoutUnreadableText != nil)
+        await h.model.chooseLibrary(try makeTempDir())
+        #expect(h.model.layoutUnreadableText == nil)
+    }
+
+    // MARK: FP41 A new book and a folder that is taken
+
+    @Test func theImportSheetSaysWhenANewBooksFolderIsAnotherBooks() async throws {
+        let h = try await Harness.empty()
+        let inbox = try Harness.inbox()
+        await h.model.beginImport([inbox.appendingPathComponent("Quiet Rivers.epub")])
+        await h.model.confirmImport()
+        h.model.result = nil
+
+        // An audiobook given the same title and author, kept as a book of its own.
+        let audio = inbox.appendingPathComponent("The Lighthouse Keeper.m4b")
+        await h.model.beginImport([audio])
+        h.model.updateReview {
+            $0.entries[0].candidate.metadata.title = "Quiet Rivers"
+            $0.entries[0].candidate.metadata.authors = ["Amara Okafor"]
+        }
+        await h.model.settle()
+        var review = try #require(h.model.review)
+        var entry = try #require(review.entries.first)
+        // The offer to add it to the book that is there is as it was.
+        #expect(entry.existingMatch?.id == (try h.id("Quiet Rivers")))
+        #expect(entry.isAddedToExisting)
+        #expect(review.destinationText(of: entry.id) == "Will be added to: Amara Okafor/Quiet Rivers")
+
+        h.model.updateReview { $0.entries[0].addToExisting = false }
+        await h.model.settle()
+        review = try #require(h.model.review)
+        entry = try #require(review.entries.first)
+        #expect(entry.destination == nil)
+        #expect(review.destinationText(of: entry.id)
+            == "Cannot be imported yet. Another book already uses the folder this book belongs in. "
+            + "Add these files to that book instead, or change one book's details.")
+
+        // With other details the folder is named again.
+        h.model.updateReview { $0.entries[0].candidate.metadata.title = "Quiet Rivers Aloud" }
+        await h.model.settle()
+        review = try #require(h.model.review)
+        #expect(review.destinationText(of: review.entries[0].id) == "Will be filed in: Amara Okafor/Quiet Rivers Aloud")
+
+        // Imported all the same under the taken name, the item fails and nothing moves.
+        h.model.updateReview { $0.entries[0].candidate.metadata.title = "Quiet Rivers" }
+        await h.model.settle()
+        h.model.updateReview { $0.entries[0].addToExisting = false }
+        await h.model.settle()
+        #expect(h.model.review?.entries.first?.isAddedToExisting == false)
+        await h.model.confirmImport()
+        #expect(FileManager.default.fileExists(atPath: audio.path))
+        #expect(try h.store().books().count == 1)
+        #expect(h.model.result?.problems.first?.detail
+            == "Another book already uses the folder this book belongs in. Add these files to that book instead, "
+            + "or change one book's details.")
     }
 
     @Test func fl4_notWhileAnythingIsInTheWay() async throws {
@@ -314,9 +453,7 @@ func layoutTree(_ root: URL) -> [String] {
     @Test func fl5_aPreviewIsNotMadeWhenTheLayoutCannotBeChanged() async throws {
         let h = try await Harness.demo()
         h.recordBusyLabels()
-        // The library's own layout.
-        await h.model.previewLayoutChange()
-        #expect(h.model.layoutPreview == nil)
+        // (The library's own layout can be previewed: books not in place are re-filed by it.)
         h.model.chooseLayout(LayoutText.customId)
         h.model.layoutDraftText = "{Author}/{Titel}"
         await h.model.previewLayoutChange()
@@ -559,15 +696,15 @@ func layoutTree(_ root: URL) -> [String] {
         h.model.result = nil
         #expect(h.model.layoutChoiceId == Self.authorTitle)
         #expect(h.model.layoutDraftText == "{Author}/{Title}")
-        // It is the library's own layout now.
-        #expect(!h.model.canChangeLayout)
+        // It is the library's own layout now: that is what the setting shows.
+        #expect(h.model.libraryPattern.text == "{Author}/{Title}")
         #expect(h.model.layoutExampleText == "Ines Calloway/Harbour of Glass")
 
         await h.model.undo()
         #expect(h.model.alert == nil)
         #expect(h.model.layoutChoiceId == Self.standardName)
         #expect(h.model.layoutDraftText == "{Author}/[{Series}/][{Number} - ]{Title}")
-        #expect(!h.model.canChangeLayout)
+        #expect(h.model.libraryPattern == .standard)
         #expect(try h.book(salt).folderPath == "Ines Calloway/Tidewater Chronicles/1 - Salt Road")
         // The library remembers one operation to undo, and that was it.
         #expect(h.model.undoMenuTitle == "Undo")
