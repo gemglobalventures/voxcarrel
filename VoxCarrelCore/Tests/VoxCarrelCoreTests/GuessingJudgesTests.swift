@@ -217,6 +217,9 @@ import Testing
         #expect(found("Dune - B002V1OF70") == ["B002V1OF70", "Dune"])
         #expect(found("B002V1OF70 - Dune") == ["B002V1OF70", "Dune"])
         #expect(found("Frank Herbert - Dune [B002V1OF70]") == ["B002V1OF70", "Frank Herbert - Dune"])
+        // Between two dashes it leaves one, not two.
+        #expect(found("Frank Herbert - B002V1OF70 - Dune") == ["B002V1OF70", "Frank Herbert - Dune"])
+        #expect(found("Frank Herbert - [B002V1OF70] - Dune") == ["B002V1OF70", "Frank Herbert - Dune"])
         // A space stands where the ID was, so what was either side of it is not run together.
         #expect(found("Dune_B002V1OF70_x") == ["B002V1OF70", "Dune_ _x"])
         #expect(found("Dune  (Unabridged)  [B002V1OF70]") == ["B002V1OF70", "Dune (Unabridged)"])

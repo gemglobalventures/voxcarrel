@@ -8,7 +8,8 @@ public enum AudibleIDInName {
     /// An ID is "B0" and eight more capitals or digits, standing as a whole word: no
     /// letter or digit directly before or after it, so a longer run that holds one is
     /// not an ID, and nor is an ISBN. Brackets around it go with it; what is left has
-    /// its runs of spaces made one and loses a "-" left dangling at either end.
+    /// its runs of spaces made one, loses a "-" left dangling at either end, and keeps
+    /// one "-" where the ID stood between two.
     ///
     /// Read once, in time that grows with the length of the name.
     public static func find(in name: String) -> (id: String, cleaned: String)? {
@@ -28,7 +29,9 @@ public enum AudibleIDInName {
         }
 
         let rest = String(characters[..<from]) + " " + String(characters[to...])
-        var words = rest.split(separator: " ")[...]
+        // Where the ID stood between two dashes, one of them is left.
+        var words: ArraySlice<Substring> = []
+        for word in rest.split(separator: " ") where !(word == "-" && words.last == "-") { words.append(word) }
         while words.last == "-" { words.removeLast() }
         while words.first == "-" { words.removeFirst() }
         return (String(characters[at..<(at + length)]), words.joined(separator: " "))
