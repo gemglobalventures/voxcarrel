@@ -145,7 +145,7 @@ extension ImportReview {
     /// be in each other's place, and there are two to exchange.
     public func offersProminentSwap(of id: UUID) -> Bool {
         guard let entry = entry(id) else { return false }
-        return !entry.guessNotes.isDisjoint(with: ImportReview.Entry.orderQuestions.union(.titleLooksLikePerson))
+        return (entry.orderIsInQuestion || entry.guessNotes.contains(.titleLooksLikePerson))
             && canSwapTitleAndAuthor(of: id)
     }
 
@@ -426,13 +426,17 @@ extension ImportReview.Entry {
 
     // MARK: IH4 What was guessed
 
-    /// The notes that leave the order of the title and the author in question.
-    static let orderQuestions: GuessNotes = [.orderUnsure, .orderGuessedByShape]
+    /// Whether the order of the title and the author is in question: nothing decided
+    /// it, or shape alone turned the name round. A name read the usual way round is
+    /// not asked about, or every plain "Author - Title" file would be.
+    var orderIsInQuestion: Bool {
+        guessNotes.contains(.orderUnsure) || guessNotes.isSuperset(of: [.orderGuessedByShape, .orderSwapped])
+    }
 
     /// IH4: the one line about the title and the authors: the question of their order
     /// first, then a title that looks like a person, then how the name was read.
     var guessNote: String? {
-        if !guessNotes.isDisjoint(with: Self.orderQuestions) {
+        if orderIsInQuestion {
             return "Read from the file name; check the title and author are the right way round."
         }
         if guessNotes.contains(.titleLooksLikePerson) { return "This title looks like a person's name." }
@@ -446,7 +450,7 @@ extension ImportReview.Entry {
     /// IH6: what there is to check about the entry, each thing once; nil when nothing.
     public var question: String? {
         var asked: [String] = []
-        if !guessNotes.isDisjoint(with: Self.orderQuestions) {
+        if orderIsInQuestion {
             asked.append("Check that the title and author are the right way round.")
         }
         if guessNotes.contains(.titleLooksLikePerson) { asked.append("This title looks like a person's name.") }

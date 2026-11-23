@@ -489,7 +489,10 @@ import VoxCarrelCore
                 nil,
                 "Read from the file name.",
                 "Read from the file name as “Title - Author”.",
-                Self.checkOrder, Self.checkOrder, Self.checkOrder,
+                Self.checkOrder,
+                // Read the usual way round: nothing to ask, even though shape decided it.
+                "Read from the file name.",
+                Self.checkOrder,
                 "This title looks like a person's name.",
                 Self.checkOrder,
                 nil,
@@ -555,7 +558,7 @@ import VoxCarrelCore
 
     /// IH4: details taken from a lookup are no longer what the name said.
     @Test func IH4_detailsChangedThroughTheEntryClearTheNotesToo() {
-        var review = review([guessed([.fromFileName, .orderGuessedByShape])])
+        var review = review([guessed([.fromFileName, .orderSwapped, .orderGuessedByShape])])
         let id = review.entries[0].id
         review.update(id) { $0.included = false }
         #expect(review.guessNote(of: id) == Self.checkOrder)
@@ -579,7 +582,7 @@ import VoxCarrelCore
         ])
         #expect(
             review.entries.map { review.offersProminentSwap(of: $0.id) }
-                == [true, true, true, true, false, false, false, false])
+                == [true, false, true, true, false, false, false, false])
         #expect(!review.offersProminentSwap(of: UUID()))
     }
 
@@ -593,6 +596,7 @@ import VoxCarrelCore
             guessed([.fromFileName]),
             guessed([.fromFileName, .orderSwapped]),
             guessed([.audibleIDFromName], asin: "B09WXN61GL"),
+            guessed([.fromFileName, .orderGuessedByShape]),
             guessed([.fromFileName, .orderUnsure]),
             guessed([.fromFileName, .orderSwapped, .orderGuessedByShape]),
             guessed([.fromFileName, .titleLooksLikePerson], author: nil),
@@ -603,7 +607,7 @@ import VoxCarrelCore
         ])
         #expect(
             review.entries.map { review.question(of: $0.id) } == [
-                nil, nil, nil, nil, order, order, person, "\(order) \(person)", match, "\(order) \(match)", nil,
+                nil, nil, nil, nil, nil, order, order, person, "\(order) \(person)", match, "\(order) \(match)", nil,
             ])
         #expect(review.entries.map(\.question) == review.entries.map { review.question(of: $0.id) })
         #expect(review.question(of: UUID()) == nil)
