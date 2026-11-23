@@ -69,7 +69,13 @@ extension LibraryService {
     /// folder is no longer remembered as imported, in the same transaction as the rest:
     /// it arrives in the inbox again.
     ///
-    /// Only what the operation changed is restored: a book's read status and dates, and
+    /// A merge of entries is undone whole: the entries it removed come back under their
+    /// own ids with their details, file rows, covers, collections and sent records, the
+    /// kept book is exactly the entry it was (read status and external copies included),
+    /// and every file whose tags the merge wrote is put back byte for byte.
+    ///
+    /// For every other operation,
+    /// only what the operation changed is restored: a book's read status and dates, and
     /// its external copies (where else it is owned), stay as they are now, except that
     /// the Audible copies' item ID follows the ASIN back when undo changes it to another
     /// one (a book that goes back to having none leaves its copies their ID). A book
@@ -128,10 +134,13 @@ extension LibraryService {
         // U5
         var change = LibraryChange()
         change.clearsJournal = true
+        // A merge joined the entries' read status and where else they are owned: undoing
+        // it puts those back with the rest, for the kept book as for the others.
+        let merge = snapshot?.merge
         for book in snapshot?.books ?? [] {
             if var before = book.bookBefore {
                 // Not part of undo: where the reader is with the book.
-                if let current = try store.book(id: book.bookId) {
+                if merge == nil, let current = try store.book(id: book.bookId) {
                     before.readStatus = current.readStatus
                     before.dateStarted = current.dateStarted
                     before.dateFinished = current.dateFinished
@@ -172,6 +181,27 @@ extension LibraryService {
                 change.deletedBookIds.append(book.bookId)
             }
         }
+        // The entries a merge removed come back under their own ids, with their file
+        // rows, their collections and their sent records; and the kept book leaves the
+        // collections the merge put it in.
+        for removed in merge?.removed ?? [] {
+            guard let id = removed.book.id else { continue }
+            var book = removed.book
+            if removed.files.contains(where: { !FileManager.default.fileExists(atPath: store.url(for: $0).path) }) {
+                book.needsAttention = true
+            }
+            let files = removed.files.map { row -> BookFile in
+                var row = row
+                row.lengthUnmeasured = nil
+                return row
+            }
+            change.restoredBooks.append(LibraryChange.BookWrite(book: book, files: files))
+            change.sentRecordMoves.append(.init(recordIds: removed.sentRecordIds, toBookId: id))
+            change.membershipsAdded += removed.collectionIds.map { .init(collectionId: $0, bookId: id) }
+        }
+        if let merge, let keptId = snapshot?.books.first?.bookId {
+            change.membershipsRemoved = merge.collectionsJoined.map { .init(collectionId: $0, bookId: keptId) }
+        }
         // The originals of an import by copy are not imported any more.
         let copied = batch.moves.filter(\.wasCopy).map { URL(fileURLWithPath: $0.from) }
         if !copied.isEmpty {
@@ -188,9 +218,11 @@ extension LibraryService {
         // What has been learnt since about the length of the restored books' files, and
         // the correction made of a length a wrong header gave, must not go back with the
         // rest: the books are checked again as the launch check would, headers included.
-        for book in snapshot?.books ?? [] where book.bookBefore != nil {
-            guard let restored = try? store.book(id: book.bookId),
-                  let rows = try? store.files(bookId: book.bookId),
+        let restoredIds = (snapshot?.books ?? []).filter { $0.bookBefore != nil }.map(\.bookId)
+            + (merge?.removed ?? []).compactMap(\.book.id)
+        for bookId in restoredIds {
+            guard let restored = try? store.book(id: bookId),
+                  let rows = try? store.files(bookId: bookId),
                   rows.allSatisfy({ FileManager.default.fileExists(atPath: store.url(for: $0).path) })
             else { continue }
             _ = try? checkLengths(of: restored, files: rows, lookingAtHeaders: true)
@@ -207,6 +239,14 @@ extension LibraryService {
                 } else {
                     // The book had no stored cover, or did not exist.
                     try? covers.remove(for: book.bookId)
+                }
+            }
+            for removed in snapshot.merge?.removed ?? [] {
+                guard let id = removed.book.id else { continue }
+                if let name = removed.storedCover, let image = undoImage(named: name, token: snapshot.token) {
+                    try? covers.set(image, for: id)
+                } else {
+                    try? covers.remove(for: id)
                 }
             }
         }

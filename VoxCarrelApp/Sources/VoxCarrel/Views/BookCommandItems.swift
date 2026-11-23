@@ -124,6 +124,16 @@ struct BookCommandItems: View {
         .disabled(!model.canSendToPhone(books))
         .accessibilityIdentifier("\(prefix).sendToPhone")
 
+        // Merge books plan: entries that are one book become one. Always in the Book
+        // menu; in a context menu when it is for several books.
+        if ids == nil || model.offersMergeBooks(for: books) {
+            Button("Merge Books…") {
+                Task { await model.beginMergeBooks(for: books) }
+            }
+            .disabled(!model.canMergeBooks(books))
+            .accessibilityIdentifier("\(prefix).mergeBooks")
+        }
+
         Divider()
 
         // No key of its own here: ⌘⌫ in a menu would take it from a text field that is

@@ -123,6 +123,8 @@ public enum UserMessage {
                 "The folder of \(book) could not be moved, so the folder layout was not changed.", sentence(reason),
                 "Every folder is where it was.",
             ])
+        case .mergeRefused(let blocker):
+            joined([sentence(LibraryService.describe(blocker)), "Nothing was changed."])
         }
     }
 

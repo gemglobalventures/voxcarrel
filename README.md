@@ -29,6 +29,7 @@ The books in these pictures are generated samples from the demo library.
 - Sends an audiobook to your phone: by AirDrop, or by a QR code that makes BookPlayer download it from your Mac. A book in several parts goes as one zip, and the cover can be made square for the phone, on the copy that is sent.
 - Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
 - Checks a series against Audible's own list of it and shows the books you do not have, in order, so you can see what is missing.
+- Merges entries that are really one book (an audiobook, its ebook and a companion PDF imported separately) into one, choosing which to keep and what each file is, in one step that Undo reverses.
 - Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
 - Read status, tags, ratings and collections; undo for the last operation; a check of the library at launch.
 

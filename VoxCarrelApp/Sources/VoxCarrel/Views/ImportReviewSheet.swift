@@ -235,13 +235,24 @@ private struct EntryDetail: View {
                         InspectorField("Authors", hint: InspectorMetrics.semicolonHint) {
                             textField("Authors", text: $authors, id: "authors")
                         }
-                        // V1
-                        Button("Look Up…") {
-                            model.beginLookup(forEntry: entry.id)
+                        HStack(spacing: 8) {
+                            // V1
+                            Button("Look Up…") {
+                                model.beginLookup(forEntry: entry.id)
+                            }
+                            .disabled(!model.canLookUpEntry(entry.id))
+                            .help(model.lookUpHelp(forEntry: entry.id))
+                            .accessibilityIdentifier("review.lookup")
+                            // Merge books plan: for files that had the two in each other's place.
+                            Button("Swap Title and Author") {
+                                model.swapReviewTitleAndAuthor(for: entry.id)
+                                // The authors box keeps its own text: it takes the entry's again.
+                                authors = (model.review ?? review).text(for: .authors, of: entry.id)
+                            }
+                            .disabled(!model.canSwapReviewTitleAndAuthor(for: entry.id))
+                            .help("Exchange the title and the first author")
+                            .accessibilityIdentifier("review.swapTitleAndAuthor")
                         }
-                        .disabled(!model.canLookUpEntry(entry.id))
-                        .help(model.lookUpHelp(forEntry: entry.id))
-                        .accessibilityIdentifier("review.lookup")
                     }
                 }
 

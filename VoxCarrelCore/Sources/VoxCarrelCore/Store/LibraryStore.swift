@@ -599,6 +599,15 @@ public final class LibraryStore: Sendable {
         }
     }
 
+    /// The collections a book is in, by id, in id order.
+    func collectionIds(bookId: Int64) throws -> [Int64] {
+        try dbQueue.read { db in
+            try Int64.fetchAll(
+                db, sql: "SELECT collectionId FROM collectionBook WHERE bookId = ? ORDER BY collectionId",
+                arguments: [bookId])
+        }
+    }
+
     public func books(inCollection collectionId: Int64) throws -> [Book] {
         try dbQueue.read { db in
             try Book.fetchAll(db, sql: """
@@ -879,6 +888,13 @@ extension LibraryStore {
                 id: nil, bookId: record.bookId, sentAt: record.sentAt, method: record.method.rawValue,
                 fingerprint: fingerprint)
             try row.insert(db)
+        }
+    }
+
+    /// The row ids of a book's sent records, readable by this code or not, oldest first.
+    func sentRecordIds(bookId: Int64) throws -> [Int64] {
+        try dbQueue.read { db in
+            try Int64.fetchAll(db, sql: "SELECT id FROM sentRecord WHERE bookId = ? ORDER BY id", arguments: [bookId])
         }
     }
 

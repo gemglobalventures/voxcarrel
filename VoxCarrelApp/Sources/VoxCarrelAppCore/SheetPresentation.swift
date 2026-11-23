@@ -54,6 +54,7 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case seriesChoice([SeriesChoice])
     case lookup(LookupSession)
     case sendToPhone(SendSheetState)
+    case mergeBooks(MergeSheetState)
 
     public var id: String {
         switch self {
@@ -65,6 +66,7 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .seriesChoice: "seriesChoice"
         case .lookup: "lookup"
         case .sendToPhone: "sendToPhone"
+        case .mergeBooks: "mergeBooks"
         }
     }
 }
@@ -73,15 +75,18 @@ extension AppModel {
     /// V5: the one sheet the window should have up now; nil for none. When several are
     /// wanted, the first of: progress, the import review, a result, the launch check,
     /// the preview of a change of folder layout, the choice between Audible series, a lookup (for the inspected book, or to
-    /// add an Audible book), and Send to Phone.
+    /// add an Audible book), Send to Phone, and Merge Books.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
-    /// which stays up: the progress sheet does not take its place.
+    /// which stays up: the progress sheet does not take its place. MG7: the same for
+    /// Merge Books.
     ///
     /// - Parameter progressDue: Whether the operation that is running has run long
     ///   enough for its progress to be shown: a short one shows no sheet.
     public func windowSheet(progressDue: Bool) -> WindowSheet? {
-        if progressDue, sendSession == nil, let label = progressSheetLabel { return .progress(label) }
+        if progressDue, sendSession == nil, mergeSession == nil, let label = progressSheetLabel {
+            return .progress(label)
+        }
         if let review { return .review(review) }
         if let result { return .result(result) }
         if let check = libraryCheckSummary { return .check(check) }
@@ -91,6 +96,7 @@ extension AppModel {
         if let lookup = inspectorLookup { return .lookup(lookup) }
         if let lookup = addAudibleLookup { return .lookup(lookup) }
         if let sheet = sendSheet { return .sendToPhone(sheet) }
+        if let sheet = mergeSheet { return .mergeBooks(sheet) }
         return nil
     }
 }

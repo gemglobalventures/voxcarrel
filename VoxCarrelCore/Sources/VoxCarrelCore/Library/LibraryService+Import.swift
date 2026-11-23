@@ -535,8 +535,16 @@ extension LibraryService {
     /// A series and its number go together: a number is only taken from a file that
     /// names the series the book ends up in.
     static func filledIn(_ book: BookMetadata, from files: [WorkingFile]) -> BookMetadata {
-        let said = (files.filter { $0.role == .audio } + files.filter { $0.role == .ebook })
-            .compactMap { $0.before?.metadata }
+        filledIn(
+            book,
+            fromDetails: (files.filter { $0.role == .audio } + files.filter { $0.role == .ebook })
+                .compactMap { $0.before?.metadata })
+    }
+
+    /// A book's details with each one it lacks taken from the first of `said`, in order,
+    /// that has it. The length and the page count are left as the book has them, and a
+    /// series' number is only taken from details that name the series the book ends up in.
+    static func filledIn(_ book: BookMetadata, fromDetails said: [BookMetadata]) -> BookMetadata {
         func text(_ value: String?) -> String? {
             let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : value

@@ -159,7 +159,8 @@ public final class AppModel {
     /// Whether a library folder can be chosen now: nothing is running and no question
     /// is waiting for an answer.
     public var canChooseLibrary: Bool {
-        busyLabel == nil && storedPrompt == nil && layoutPreview == nil
+        // MG7: nor while Merge Books is open.
+        busyLabel == nil && storedPrompt == nil && layoutPreview == nil && mergeSession == nil
     }
 
     /// Makes `folder` the library. A folder that already holds other files is not taken
@@ -179,6 +180,11 @@ public final class AppModel {
         // FL8
         guard layoutPreview == nil else {
             alert = "Finish or cancel the change of folder layout first, then choose the library folder again."
+            return
+        }
+        // MG7
+        guard mergeSession == nil else {
+            alert = "Finish or cancel the merge first, then choose the library folder again."
             return
         }
         // A4
@@ -226,6 +232,8 @@ public final class AppModel {
         }
         // PH26: a send was of a book of the library shown before.
         endSend()
+        // MG7: a merge was of books of the library shown before.
+        mergeSession = nil
         worker = nil
         // WF10: the inbox was the inbox of the library shown before.
         closeInbox()
@@ -948,9 +956,10 @@ public final class AppModel {
     /// operation is that change (`overLayoutPreview`).
     ///
     /// PH28: nor while Send to Phone is open, unless the operation is one of its own.
+    /// MG7: the same for Merge Books.
     func begin(_ label: String, overLayoutPreview: Bool = false) async -> LibraryWorker? {
         guard busyLabel == nil, let worker, layoutPreview == nil || overLayoutPreview,
-              sendSession == nil || sendIsActing
+              sendSession == nil || sendIsActing, mergeSession == nil || mergeIsActing
         else { return nil }
         busyLabel = label
         await beforeOperation?()
@@ -1276,6 +1285,14 @@ public final class AppModel {
     @ObservationIgnored var beforeSendCleanup: (@Sendable () async -> Void)?
     /// PH25: whether the Mac is being kept awake for a transfer.
     @ObservationIgnored var sendKeepsAwake = false
+
+    // MARK: Merge Books
+
+    /// The merge that is open; not nil shows the sheet.
+    var mergeSession: MergeSession?
+    /// MG7: true while the open merge begins an operation of its own (planning again,
+    /// the merge itself), which the sheet being open does not stop.
+    @ObservationIgnored var mergeIsActing = false
 
     // MARK: Checking editions
 

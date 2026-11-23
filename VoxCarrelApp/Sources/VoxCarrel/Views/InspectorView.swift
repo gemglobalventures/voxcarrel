@@ -53,11 +53,13 @@ private struct BookInspector: View {
 
     var body: some View {
         let markers = model.appOnlyMarkers
-        let reasons = detail.attentionReasons
+        let reasons = detail.attentionLines
 
         InspectorPane(offersLookUp: true) {
             if !reasons.isEmpty {
-                AttentionBanner(reasons: reasons)
+                AttentionBanner(lines: reasons, canAcceptOffer: model.canAcceptMergeOffer) { offer in
+                    Task { await model.beginMerge(with: offer.bookId) }
+                }
             }
 
             VStack(spacing: 6) {
@@ -72,6 +74,14 @@ private struct BookInspector: View {
                 field("Title", \.title, .title, id: "title")
                 field("Subtitle", \.subtitle, .subtitle, id: "subtitle")
                 field("Authors", \.authors, .authors, id: "authors", hint: InspectorMetrics.semicolonHint)
+                // Merge books plan: for a book whose file had the two in each other's place.
+                Button("Swap Title and Author") {
+                    model.swapTitleAndAuthor()
+                }
+                .controlSize(.small)
+                .disabled(!model.canSwapTitleAndAuthor)
+                .help("Exchange the title and the first author. Nothing is written until you save.")
+                .accessibilityIdentifier("inspector.swapTitleAndAuthor")
                 if detail.row.hasAudio {
                     field(
                         "Narrators", \.narrators, .narrators, id: "narrators",
@@ -328,9 +338,12 @@ struct AppOnlyMarker: View {
     }
 }
 
-/// I7: why the book needs attention.
+/// I7: why the book needs attention, and under a reason what can be done about it:
+/// merging with the book that has this book's folder.
 private struct AttentionBanner: View {
-    let reasons: [String]
+    let lines: [AttentionLine]
+    let canAcceptOffer: Bool
+    let accept: (MergeOffer) -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -338,9 +351,19 @@ private struct AttentionBanner: View {
                 .symbolRenderingMode(.multicolor)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(reasons, id: \.self) { reason in
-                    Text(reason)
+                ForEach(lines) { line in
+                    Text(line.text)
                         .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("inspector.attention.reason")
+                    if let offer = line.offer {
+                        Button(offer.actionTitle) {
+                            accept(offer)
+                        }
+                        .controlSize(.small)
+                        .disabled(!canAcceptOffer)
+                        .padding(.vertical, 2)
+                        .accessibilityIdentifier("inspector.mergeOffer")
+                    }
                 }
             }
             .font(.callout)
@@ -348,7 +371,9 @@ private struct AttentionBanner: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.yellow.opacity(0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityElement(children: .combine)
+        // The reasons are read as they were, each a text of the banner; the button is a
+        // control of its own.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("inspector.attention")
     }
 }

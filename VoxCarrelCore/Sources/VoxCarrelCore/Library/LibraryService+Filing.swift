@@ -127,6 +127,11 @@ extension LibraryService {
             owners[folder]?.contains { $0 != bookId } ?? false
         }
 
+        /// The books that have `folder`, other than `bookId`, lowest id first.
+        func users(of folder: [String], otherThan bookId: Int64?) -> [Int64] {
+            (owners[folder] ?? []).filter { $0 != bookId }.sorted()
+        }
+
         /// Records that the book's folder is now `folder` (nil for none).
         mutating func set(_ folder: [String]?, for bookId: Int64) {
             if let old = folders.removeValue(forKey: bookId) {

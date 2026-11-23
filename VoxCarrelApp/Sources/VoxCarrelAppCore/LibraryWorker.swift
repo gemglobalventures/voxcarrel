@@ -183,6 +183,10 @@ public actor LibraryWorker {
         detail.unfiledReason = try service.unfiledReason(for: bookId)
         // PH29
         detail.lastSent = try service.sentRecords(for: bookId).first?.sentAt
+        // MG5
+        if let other = try service.bookUsingFolder(of: bookId), let otherId = other.id {
+            detail.mergeOffer = MergeOffer(bookId: otherId, title: other.title)
+        }
         return detail
     }
 
@@ -430,6 +434,31 @@ public actor LibraryWorker {
     public func recordSent(bookId: Int64, method: SendMethod, fingerprint: SendFingerprint, at date: Date) throws {
         guard isBookId(bookId) else { return }
         try service.recordSent(bookId: bookId, method: method, fingerprint: fingerprint, at: date)
+    }
+
+    // MARK: Merging
+
+    /// What merging these entries would do, with what the sheet says of each entry.
+    /// Changes nothing. Ids that are no book's are left out.
+    public func planMerge(bookIds: [Int64], keep: Int64?, roles: [Int64: FileRole]) throws -> MergeReading {
+        let ids = self.bookIds(bookIds)
+        let plan = try service.planMerge(bookIds: ids, keep: keep, roles: roles)
+        var seen = Set<Int64>()
+        var entries: [MergeEntryFacts] = []
+        for id in ids where seen.insert(id).inserted {
+            guard let book = try store.book(id: id) else { continue }
+            entries.append(
+                MergeEntryFacts(
+                    id: id, title: book.title, authors: book.authors,
+                    roles: try store.files(bookId: id).map(\.role)))
+        }
+        return MergeReading(plan: plan, entries: entries)
+    }
+
+    /// Makes the entries one book, as one operation that Undo reverses. Returns the
+    /// kept book's id.
+    public func mergeBooks(_ bookIds: [Int64], keep: Int64, roles: [Int64: FileRole]) throws -> Int64 {
+        try service.mergeBooks(self.bookIds(bookIds), keep: keep, roles: roles)
     }
 
     public func setRole(_ role: FileRole, forFile fileId: Int64) throws {

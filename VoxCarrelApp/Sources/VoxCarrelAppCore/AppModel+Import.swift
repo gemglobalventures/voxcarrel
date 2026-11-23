@@ -22,8 +22,9 @@ extension AppModel {
         let files = urls.filter(\.isFileURL)
         guard !files.isEmpty else { return }
         // FL8: nor while a change of folder layout is previewed.
-        // PH28: nor while Send to Phone is open.
-        guard hasTriedLibrary, busyLabel == nil, layoutPreview == nil, sendSession == nil else {
+        // PH28: nor while Send to Phone is open. MG7: nor Merge Books.
+        guard hasTriedLibrary, busyLabel == nil, layoutPreview == nil, sendSession == nil, mergeSession == nil
+        else {
             heldFiles += files
             return
         }
