@@ -335,6 +335,32 @@ import VoxCarrelFixtures
         #expect(try f.service.genreFileDifferences().isEmpty)
     }
 
+    @Test func G14_aBookOneOfWhoseFilesCouldNotBeWrittenIsStillCounted() throws {
+        let f = try F()
+        let fm = FileManager.default
+        let id = try f.importNew(
+            try f.makeMP3Parts(folder: "Parts", tags: F.meta("Parts", "An Author")), F.meta("Parts", "An Author"))
+        try setGenres(f, id, ["Horror"])
+        let places = try urls(f, id)
+        #expect(places.count == 2)
+        let stuck = places[1]
+        try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: stuck.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: stuck.path) }
+
+        let problems = try #require(saved(try f.service.updateGenreFiles([id]).first))
+        #expect(problems.map(\.file) == [stuck.lastPathComponent])
+        #expect(try places.map(tag) == ["Horror", nil])
+        // One file took the tag and one did not: the book still differs from its files.
+        #expect(try f.store.book(id: id)?.genreTag == nil)
+        #expect(try f.service.genreFileDifferences().map(\.id) == [id])
+
+        try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: stuck.path)
+        #expect(saved(try f.service.updateGenreFiles([id]).first) == [])
+        #expect(try places.map(tag) == ["Horror", "Horror"])
+        #expect(try f.store.book(id: id)?.genreTag == "Horror")
+        #expect(try f.service.genreFileDifferences().isEmpty)
+    }
+
     @Test func G14_undoRestoresTheSameRecordsTheSameListAndTheSameTags() throws {
         let f = try F()
         // A tag as another app wrote it, which the library reads as one genre.
