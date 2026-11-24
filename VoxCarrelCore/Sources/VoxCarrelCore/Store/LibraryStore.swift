@@ -17,8 +17,10 @@ public final class LibraryStore: Sendable {
     /// before its genres are converted (`copyBeforeGenresName`): an earlier version
     /// cannot read a converted one. When the copy cannot be made,
     /// `LibraryStoreError.copyBeforeGenresFailed` is thrown and the catalogue is as it was.
-    public convenience init(libraryRoot: URL) throws {
-        try self.init(libraryRoot: libraryRoot, today: Date())
+    public init(libraryRoot: URL) throws {
+        let opened = try Self.open(libraryRoot, today: Date(), copyBeforeGenres: LibraryStore.copyWhole)
+        self.libraryRoot = opened.root
+        dbQueue = opened.queue
     }
 
     /// As `init(libraryRoot:)`. `today` dates the copy; `copyBeforeGenres` makes it, given
@@ -27,13 +29,26 @@ public final class LibraryStore: Sendable {
         libraryRoot: URL, today: Date = Date(),
         copyBeforeGenres: (Database, String) throws -> Void = LibraryStore.copyWhole
     ) throws {
+        let opened = try Self.open(libraryRoot, today: today, copyBeforeGenres: copyBeforeGenres)
+        self.libraryRoot = opened.root
+        dbQueue = opened.queue
+    }
+
+    /// A catalogue opened and brought up to date, with the folder it is in.
+    private struct Opened {
+        var root: URL
+        var queue: DatabaseQueue
+    }
+
+    private static func open(
+        _ libraryRoot: URL, today: Date, copyBeforeGenres: (Database, String) throws -> Void
+    ) throws -> Opened {
         try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
         let root = LibraryLayout.canonicalFolder(libraryRoot)
-        self.libraryRoot = root
-        dbQueue = try DatabaseQueue(
-            path: root.appendingPathComponent(Self.databaseFileName).path)
-        try Self.keepCopyBeforeGenres(of: dbQueue, in: root, today: today, copy: copyBeforeGenres)
-        try Self.migrator.migrate(dbQueue)
+        let queue = try DatabaseQueue(path: root.appendingPathComponent(Self.databaseFileName).path)
+        try keepCopyBeforeGenres(of: queue, in: root, today: today, copy: copyBeforeGenres)
+        try migrator.migrate(queue)
+        return Opened(root: root, queue: queue)
     }
 
     // MARK: The copy kept before genres are converted
