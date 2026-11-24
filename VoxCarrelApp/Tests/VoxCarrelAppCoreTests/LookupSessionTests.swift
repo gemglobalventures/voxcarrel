@@ -15,7 +15,7 @@ import VoxCarrelCore
         metadata.narrators = ["Rebecca Front", "Michael Sheen"]
         metadata.series = "Omens"
         metadata.seriesNumber = "1"
-        metadata.genre = "Comedy"
+        metadata.genres = ["Comedy"]
         metadata.year = 2021
         metadata.publisher = "Audible Studios"
         metadata.summary = "Armageddon, with jokes."
@@ -228,7 +228,7 @@ import VoxCarrelCore
 
         // A blank found value is no value.
         var blank = BookMetadata(title: "  ", authors: [" "])
-        blank.genre = " "
+        blank.genres = [" "]
         blank.narrators = [""]
         let nothing = LookupCandidate(id: "audible:us:Y", source: .audible, metadata: blank)
         #expect(session(finding: [nothing]).offers.isEmpty)
@@ -253,7 +253,7 @@ import VoxCarrelCore
     /// K4: ticked exactly when the book has nothing there.
     @Test func K4_preTickedWhereTheBookIsEmpty() {
         var current = BookMetadata(title: "Good Omens", authors: ["Terry Pratchett"])
-        current.genre = "Fantasy"
+        current.genres = ["Fantasy"]
         let session = session(current: current, hasCover: false, finding: [audible()])
         let ticked = Set(session.offers.filter(\.ticked).map(\.id))
         #expect(ticked == [
@@ -274,9 +274,9 @@ import VoxCarrelCore
     /// the ticks made on the first are kept.
     @Test func K4_selectingAnotherCandidateShowsItsOwnTicksAndKeepsTheOthers() {
         var first = audible("B000000001")
-        first.metadata.genre = "Comedy"
+        first.metadata.genres = ["Comedy"]
         var second = audible("B000000002")
-        second.metadata.genre = "Humour"
+        second.metadata.genres = ["Humour"]
         var session = session(finding: [first, second])
         session.setTicked(true, for: .genre)
         session.setTicked(true, for: .title)
@@ -420,15 +420,47 @@ import VoxCarrelCore
         #expect(audioEntry.offers.contains { $0.id == .narrators })
     }
 
+    // MARK: Genres
+
+    /// GH20: a result shows its genres on one line, and applying it replaces the book's
+    /// genres, with the wording they were found in, only when the Genre row is ticked.
+    @Test func GH20_aLookupsGenresReplaceTheBooksOnlyWhenTheGenreRowIsTicked() {
+        var found = audible()
+        found.metadata.genres = ["Thrillers & Spies", "Crime & Mystery"]
+        found.metadata.genreSource = "Mystery, Thriller & Suspense > Mystery; Mystery, Thriller & Suspense > Thriller & Suspense"
+        var current = fullBook().metadata
+        current.genres = ["Fantasy", "Humour"]
+        current.genreSource = "Fantasy; Humor"
+        var session = session(current: current, finding: [found])
+        let offer = session.offers.first { $0.id == .genre }
+        #expect(offer?.found == "Thrillers & Spies, Crime & Mystery")
+        #expect(offer?.current == "Fantasy, Humour")
+        // The book has genres, so the row is not ticked to begin with.
+        #expect(offer?.ticked == false)
+
+        session.setTicked(true, for: .year)
+        #expect(session.applied().metadata.genres == ["Fantasy", "Humour"])
+        #expect(session.applied().metadata.genreSource == "Fantasy; Humor")
+
+        session.setTicked(true, for: .genre)
+        #expect(session.applied().metadata.genres == ["Thrillers & Spies", "Crime & Mystery"])
+        #expect(session.applied().metadata.genreSource == found.metadata.genreSource)
+
+        // The same genres are no offer, whatever wording they came in.
+        current.genres = ["Thrillers & Spies", "Crime & Mystery"]
+        let same = self.session(current: current, finding: [found])
+        #expect(!same.offers.contains { $0.id == .genre })
+    }
+
     // MARK: K7
 
     /// K7: details that arrive add offers and leave the user's ticks alone.
     @Test func K7_detailsAddOffersAndKeepTicks() {
         var found = openLibrary()
         found.metadata.year = 1991
-        found.metadata.genre = "Humour"
+        found.metadata.genres = ["Humour"]
         var current = BookMetadata(title: "Good Omens", authors: ["Terry Pratchett", "Neil Gaiman"])
-        current.genre = "Fantasy"
+        current.genres = ["Fantasy"]
         var session = session(current: current, hasCover: false, finding: [found, audible()])
         #expect(session.offers.map(\.id) == [.genre, .year])
         // Against the defaults: genre on, year off.

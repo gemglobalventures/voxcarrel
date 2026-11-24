@@ -36,7 +36,11 @@ public struct BookMetadata: Codable, Equatable, Sendable {
     public var series: String?
     /// Free text so "2.5" and "1-3" are possible.
     public var seriesNumber: String?
-    public var genre: String?
+    /// The book's genres in order, the main one first. No genre is there twice.
+    public var genres: [String] = []
+    /// The genre wording the book had from its source (a file's tag, or a lookup),
+    /// unchanged. For details read from a file it is the file's genre tag as it stands.
+    public var genreSource: String?
     public var year: Int?
     public var publisher: String?
     /// The book's description / blurb.
@@ -64,7 +68,15 @@ public struct BookMetadata: Codable, Equatable, Sendable {
         narrators = try c.decodeIfPresent([String].self, forKey: .narrators) ?? []
         series = try c.decodeIfPresent(String.self, forKey: .series)
         seriesNumber = try c.decodeIfPresent(String.self, forKey: .seriesNumber)
-        genre = try c.decodeIfPresent(String.self, forKey: .genre)
+        if let list = try c.decodeIfPresent([String].self, forKey: .genres) {
+            genres = list
+            genreSource = try c.decodeIfPresent(String.self, forKey: .genreSource)
+        } else {
+            // Written before a book had several genres: one text, which is the wording
+            // and gives the genres.
+            let old = try decoder.container(keyedBy: EarlierKeys.self)
+            (genres, genreSource) = Self.genres(fromEarlier: try old.decodeIfPresent(String.self, forKey: .genre))
+        }
         year = try c.decodeIfPresent(Int.self, forKey: .year)
         publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
@@ -73,6 +85,26 @@ public struct BookMetadata: Codable, Equatable, Sendable {
         asin = try c.decodeIfPresent(String.self, forKey: .asin)
         durationSeconds = try c.decodeIfPresent(Double.self, forKey: .durationSeconds)
         pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount)
+    }
+
+    /// The key the one genre text was saved under before a book had several genres.
+    enum EarlierKeys: String, CodingKey {
+        case genre
+    }
+
+    /// What one genre text saved by an earlier version comes to: the text is the source
+    /// wording, and the mapping gives the genres.
+    static func genres(fromEarlier text: String?) -> (genres: [String], source: String?) {
+        guard let text else { return ([], nil) }
+        return (GenreMapping.map(.text(text)).names, text)
+    }
+
+    /// These details as they go back into the file they were read from: the genre tag
+    /// exactly as the file had it, whatever genres it was read as.
+    var asReadFromFile: BookMetadata {
+        var details = self
+        details.genres = genreSource.map { [$0] } ?? []
+        return details
     }
 }
 

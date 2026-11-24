@@ -158,7 +158,7 @@ import Testing
         expected.isbn = "9781637990520"
         expected.language = "en"
         #expect(boxSet.metadata == expected)
-        #expect(boxSet.metadata.genre == nil)     // O4
+        #expect(boxSet.metadata.genres == [])     // O4
         #expect(boxSet.coverURL == nil)           // O5: no cover_i
         #expect(boxSet.id == "openLibrary:/works/OL36735881W")
         #expect(boxSet.note == "Open Library · 2022 · 1 edition")

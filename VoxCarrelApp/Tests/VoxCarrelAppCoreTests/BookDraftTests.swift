@@ -137,7 +137,8 @@ import VoxCarrelCore
         expected.narrators = ["N One"]
         expected.series = "Hainish"
         expected.seriesNumber = "2.5"
-        expected.genre = "SF"
+        // What is typed in the genre field is read as a file's genre tag would be.
+        expected.genres = ["Science Fiction"]
         expected.year = 1969
         expected.publisher = "Ace"
         expected.summary = "Line one.\nLine two."
@@ -170,7 +171,7 @@ import VoxCarrelCore
         #expect(metadata.subtitle == nil)
         #expect(metadata.series == nil)
         #expect(metadata.seriesNumber == nil)
-        #expect(metadata.genre == nil)
+        #expect(metadata.genres == [])
         #expect(metadata.year == nil)
         #expect(metadata.publisher == nil)
         #expect(metadata.summary == nil)
@@ -313,7 +314,7 @@ import VoxCarrelCore
         draft.cover = .set(image)
 
         var fresh = fullBook()
-        fresh.genre = "Comedy"
+        fresh.genres = ["Comedy"]
         fresh.rating = 1
         fresh.setReadStatus(.inProgress)
 
@@ -368,5 +369,49 @@ import VoxCarrelCore
         expected.rating = 1
         expected.cover = .remove
         #expect(carried == expected)
+    }
+
+    // MARK: Genres
+
+    /// The genre field is one line until it holds chips: the book's genres joined with
+    /// ", ". A book opened and left alone keeps its genres and their wording exactly.
+    @Test func GH1_theGenreFieldShowsTheBooksGenresOnOneLine() throws {
+        var book = fullBook()
+        book.genres = ["Thrillers & Spies", "Crime & Mystery", "Pub Quiz"]
+        book.genreSource = "Mystery, Thriller & Suspense, Mystery; Pub Quiz"
+        var draft = BookDraft(book: book)
+        #expect(draft.genre == "Thrillers & Spies, Crime & Mystery, Pub Quiz")
+        #expect(!draft.isDirty)
+        #expect(try #require(draft.makeEdit()).metadata == book.metadata)
+
+        // Spaces around the line are no change.
+        draft.genre = "  Thrillers & Spies, Crime & Mystery, Pub Quiz "
+        #expect(!draft.isDirty)
+        #expect(try #require(draft.makeEdit()).metadata == book.metadata)
+    }
+
+    /// Names of the built-in list typed on the line are those genres in the order typed;
+    /// any other text is read as a file's genre tag would be. The wording the book came
+    /// with stays.
+    @Test func GH1_whatIsTypedOnTheGenreLineBecomesGenres() throws {
+        var book = fullBook()
+        book.genreSource = "Fantasy fiction"
+        let cases: [(typed: String, genres: [String])] = [
+            ("Crime & Mystery, Thrillers & Spies", ["Crime & Mystery", "Thrillers & Spies"]),
+            ("horror; fantasy, Horror", ["Horror", "Fantasy"]),
+            ("Mystery, Thriller & Suspense", ["Thrillers & Spies"]),
+            ("Sci-Fi", ["Science Fiction"]),
+            ("Pub Quiz", ["Pub Quiz"]),
+            ("Audiobook", []),
+            ("   ", []),
+        ]
+        for (typed, genres) in cases {
+            var draft = BookDraft(book: book)
+            draft.genre = typed
+            #expect(draft.isDirty, "\(typed)")
+            let edit = try #require(draft.makeEdit())
+            #expect(edit.metadata.genres == genres, "\(typed)")
+            #expect(edit.metadata.genreSource == "Fantasy fiction", "\(typed)")
+        }
     }
 }

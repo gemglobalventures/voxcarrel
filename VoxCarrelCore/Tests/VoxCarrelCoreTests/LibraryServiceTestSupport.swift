@@ -45,7 +45,9 @@ final class LibraryFixture {
         m.narrators = ["Ray Porter"]
         m.series = "The Series"
         m.seriesNumber = "2"
-        m.genre = "Science Fiction"
+        m.genres = ["Science Fiction"]
+        // As a file holding that genre reads.
+        m.genreSource = "Science Fiction"
         m.year = 2021
         m.publisher = "Audible Studios"
         m.summary = "What it is about."
@@ -136,9 +138,11 @@ final class LibraryFixture {
         try Data(contentsOf: url)
     }
 
-    /// The descriptive tags inside a file, without the facts about the file itself.
+    /// The descriptive tags inside a file, without the facts about the file itself. The
+    /// genres are what the file's genre tag gives in this library; the tag as it stands
+    /// is `genreSource`.
     func tags(_ url: URL) throws -> BookMetadata {
-        var m = try io.read(url).metadata
+        var m = service.inLibrary(try io.read(url).metadata)
         m.durationSeconds = nil
         m.pageCount = nil
         return m

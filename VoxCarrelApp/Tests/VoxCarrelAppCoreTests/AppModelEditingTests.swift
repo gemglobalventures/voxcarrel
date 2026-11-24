@@ -113,7 +113,7 @@ import VoxCarrelFixtures
 
         let saved = try h.book(id)
         #expect(saved.title == "The Salt Road")
-        #expect(saved.genre == "Sea Stories")
+        #expect(saved.genres == ["Sea Stories"])
         #expect(saved.rating == 2)
 
         #expect(h.model.rows.first { $0.id == id }?.book == saved)
@@ -139,7 +139,7 @@ import VoxCarrelFixtures
         await h.model.save()
         #expect(h.model.alert == "Year must be a number such as 1984.")
         #expect(h.model.undoLabel == Harness.demoUndoLabel)
-        #expect(try h.book(id).genre == "Fantasy")
+        #expect(try h.book(id).genres == ["Fantasy"])
         #expect(h.draft?.genre == "Sea Stories")
         #expect(h.model.hasUnsavedChanges)
     }
@@ -170,7 +170,7 @@ import VoxCarrelFixtures
         #expect(h.model.result == nil)
         for id in ids {
             let book = try h.book(id)
-            #expect(book.genre == "Sea Stories")
+            #expect(book.genres == ["Sea Stories"])
             #expect(book.tags.contains("shelf one"))
         }
         #expect(try h.book(try h.id("Salt Road")).tags == ["sea", "comfort listen", "shelf one"])
@@ -205,7 +205,7 @@ import VoxCarrelFixtures
         #expect(result.problems.map(\.title) == ["Quiet Rivers"])
         #expect(h.model.alert == nil)
         #expect(h.model.busyLabel == nil)
-        #expect(h.model.rows.first { $0.id == id }?.book.genre == (try h.book(id).genre))
+        #expect(h.model.rows.first { $0.id == id }?.book.genres == (try h.book(id).genres))
     }
 
     // MARK: A11 Reloading after a change
@@ -693,7 +693,7 @@ import VoxCarrelFixtures
     @Test func whatIsTypedDuringASaveIsKept() async throws {
         let h = try await Harness.demo()
         let id = try await h.edit("Salt Road", newTitle: "Salt Road X")
-        h.model.updateDraft { $0.genre = "Adventure" }
+        h.model.updateDraft { $0.genre = "Horror" }
         let gate = Gate()
         h.model.beforeOperation = { await gate.wait() }
         let saving = Task { await h.model.save() }
@@ -707,14 +707,14 @@ import VoxCarrelFixtures
         await saving.value
 
         #expect(try h.book(id).title == "Salt Road X")
-        #expect(try h.book(id).genre == "Adventure")
+        #expect(try h.book(id).genres == ["Horror"])
         #expect(try h.book(id).publisher == nil)
         let draft = try #require(h.draft)
         #expect(draft.original.title == "Salt Road X")
         #expect(draft.title == "Salt Road XY")
         #expect(draft.publisher == "Typed During Save")
         #expect(draft.rating == 5)
-        #expect(draft.genre == "Adventure")
+        #expect(draft.genre == "Horror")
         #expect(draft.isDirty)
 
         // Saved again, it is all there, and nothing is left over.
@@ -730,7 +730,7 @@ import VoxCarrelFixtures
     @Test func whatIsTypedDuringABulkSaveIsKept() async throws {
         let h = try await Harness.demo()
         let ids = try await h.select(["Salt Road", "Quiet Rivers"])
-        h.model.setBulkText("Travel", for: .genre)
+        h.model.setBulkText("Horror", for: .genre)
         let gate = Gate()
         h.model.beforeOperation = { await gate.wait() }
         let saving = Task { await h.model.save() }
@@ -740,7 +740,7 @@ import VoxCarrelFixtures
         await saving.value
 
         for id in ids {
-            #expect(try h.book(id).genre == "Travel")
+            #expect(try h.book(id).genres == ["Horror"])
             #expect(try h.book(id).publisher != "Harbour Press")
         }
         #expect(h.bulkDraft?.values == [.publisher: "Harbour Press"])
@@ -1282,10 +1282,10 @@ import VoxCarrelFixtures
     /// A browse value that an edit leaves no book with falls back to all books.
     @Test func aBrowseValueThatDisappearsFallsBackToAllBooks() async throws {
         let h = try await Harness.demo()
-        h.model.sidebarSelection = .browse(.genre, "Poetry")
+        h.model.sidebarSelection = .browse(.genre, "Science & Nature")
         await h.model.settle()
-        #expect(h.titles == ["Quiet Rivers"])
-        let id = try await h.select("Quiet Rivers")
+        #expect(h.titles == ["A Field Guide to Small Hours"])
+        let id = try await h.select("A Field Guide to Small Hours")
         h.model.updateDraft { $0.genre = "Verse" }
 
         await h.model.save()

@@ -156,7 +156,9 @@ extension LibraryService {
         _ item: ImportItem, options: ImportOptions, pattern: FolderPattern, owners: inout FolderOwners?,
         into operation: inout PendingOperation
     ) -> PreparedItem {
-        let candidate = item.candidate
+        var candidate = item.candidate
+        // G1: no genre twice, each spelled as the library's list has it.
+        candidate.metadata.genres = listedGenres(candidate.metadata.genres)
         var files: [WorkingFile]
         do {
             files = try workingFiles(for: candidate)  // I3
@@ -189,6 +191,7 @@ extension LibraryService {
             book.editionKind = Self.statedEditionKind(of: candidate)
             book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
             book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)
+            book.genreTag = Self.genreTagRead(from: files)
             operation.add(
                 .init(book: book, files: bookFiles(files)),
                 snapshot: BookSnapshot(
@@ -235,6 +238,7 @@ extension LibraryService {
         book.editionKind = Self.statedEditionKind(of: candidate)
         book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
         book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)  // I9
+        book.genreTag = Self.genreTag(after: files, of: book, recorded: Self.genreTagRead(from: files))
         operation.add(
             .init(book: book, files: bookFiles(files)),  // I10
             snapshot: BookSnapshot(
@@ -394,6 +398,13 @@ extension LibraryService {
         // A8
         updated.appOnlyFields = Self.appOnlyFields(
             files: files, hasStoredCover: hadStoredCover || newCover != nil)
+        // A book that had no file to hold a genre has the tag of the files it is given.
+        let hadHolder = rows.contains {
+            $0.role != .extra && FileMetadataIO.storableFields(for: $0.format).contains(.genre)
+        }
+        updated.genreTag = Self.genreTag(
+            after: files, of: updated,
+            recorded: hadHolder ? book.genreTag : Self.genreTagRead(from: files.filter { $0.existing == nil }))
 
         operation.add(
             .init(book: updated, files: bookFiles(files)),
@@ -517,6 +528,7 @@ extension LibraryService {
         }
         let newCover = stored == nil ? Self.firstCover(in: files) : nil
         updated.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: stored != nil || newCover != nil)
+        updated.genreTag = Self.genreTag(after: files, of: updated, recorded: Self.genreTagRead(from: files))
 
         operation.add(
             .init(book: updated, files: bookFiles(files)),
@@ -573,7 +585,11 @@ extension LibraryService {
                 same($0.series, series) ? text($0.seriesNumber) : nil
             }
         }
-        merged.genre = first(text(book.genre)) { text($0.genre) }
+        // Genres and their wording are taken together, from the first that has any.
+        if book.genres.isEmpty, let source = said.first(where: { !$0.genres.isEmpty }) {
+            merged.genres = source.genres
+            merged.genreSource = source.genreSource
+        }
         merged.year = first(book.year) { $0.year }
         merged.publisher = first(text(book.publisher)) { text($0.publisher) }
         merged.summary = first(text(book.summary)) { text($0.summary) }

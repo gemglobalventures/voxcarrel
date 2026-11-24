@@ -174,7 +174,7 @@ import VoxCarrelFixtures
             finding: [
                 found {
                     $0.publisher = "Tidewater Audio"
-                    $0.genre = "Travel"
+                    $0.genres = ["Travel"]
                 }
             ])
         let publisher = try #require(session.offers.first { $0.id == .publisher })

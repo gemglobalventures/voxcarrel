@@ -29,7 +29,7 @@ import VoxCarrelFixtures
 
     func edit(_ f: F, _ id: Int64, genre: String) throws {
         var edit = BookEdit(book: try #require(try f.store.book(id: id)), cover: .keep)
-        edit.metadata.genre = genre
+        edit.metadata.genres = [genre]
         _ = try f.service.save([edit])
     }
 
@@ -76,7 +76,7 @@ import VoxCarrelFixtures
         try f.service.undoLast()
         #expect(abs(try length(f, id) - trueTotal) < 0.01)
         #expect(try f.store.files(bookId: id).last?.lengthProblem != nil)
-        #expect(try f.store.book(id: id)?.genre == nil)
+        #expect(try f.store.book(id: id)?.genres == [])
     }
 
     @Test func rewritingTagsPutsTheTotalRightToo() throws {
@@ -153,7 +153,7 @@ import VoxCarrelFixtures
 
         #expect(try f.service.undoLast() == "Edit Long Book")
 
-        #expect(try f.store.book(id: id)?.genre == nil)
+        #expect(try f.store.book(id: id)?.genres == [])
         #expect(abs(try length(f, id) - 2 * Self.trueSeconds) < 0.01)
         #expect(try f.store.files(bookId: id).allSatisfy { $0.lengthProblem?.repairable == true })
         // The next launch has nothing to correct, and so nothing to say.

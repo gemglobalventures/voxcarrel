@@ -11,7 +11,9 @@ struct OperationSnapshot: Codable, Equatable {
     /// that does not know it would put the folders back and leave the new pattern.
     /// 3 added `merge`: code that does not know it would put the files back and leave
     /// the entries that were merged away out of the catalogue.
-    static let currentVersion = 3
+    /// 4 is for a snapshot holding books or files since a book had several genres:
+    /// code that knows one genre text would put the files back without their genre tag.
+    static let currentVersion = 4
 
     /// The oldest layout whose code can act on this snapshot safely: 1, unless it
     /// carries something only newer code knows what to do with. A snapshot with a
@@ -35,6 +37,7 @@ struct OperationSnapshot: Codable, Equatable {
     init(token: String, books: [BookSnapshot]) {
         self.token = token
         self.books = books
+        if !books.isEmpty { version = 4 }
     }
 
     init(from decoder: Decoder) throws {

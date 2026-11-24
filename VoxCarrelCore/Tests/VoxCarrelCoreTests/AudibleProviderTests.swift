@@ -324,7 +324,8 @@ import Testing
         expected.language = "en"
         expected.durationSeconds = 970 * 60
         // Three of its four ladders are under this; the first listed is not.
-        expected.genre = "Science Fiction & Fantasy"
+        expected.genres = ["Science Fiction"]
+        expected.genreSource = "Science Fiction & Fantasy"
         expected.asin = "B08G9PRS1K"
         expected.summary = summary
         // No subtitle, no series, no ISBN, no page count: nothing invented.
@@ -348,7 +349,7 @@ import Testing
         #expect(book.metadata.publisher == "Macmillan Audio")
         #expect(book.metadata.year == 2010)
         #expect(book.metadata.durationSeconds == 163_800.0)
-        #expect(book.metadata.genre == "Science Fiction & Fantasy")
+        #expect(book.metadata.genres == ["Science Fiction"])
         #expect(book.note == "Audible · Unabridged · 45h 30m · English")
         // Paragraphs set apart by line breaks inside one <p>.
         #expect(book.metadata.summary == """
@@ -389,7 +390,7 @@ import Testing
         ]}
         """)
         // A tie goes to the first listed; otherwise the most common top name, whatever is under it.
-        #expect(found.map(\.metadata.genre) == ["History", nil, nil, "Science Fiction"])
+        #expect(found.map(\.metadata.genres) == [["History"], [], [], ["Science Fiction"]])
     }
 
     /// Whatever the service sends is made safe to keep before anything else sees it.
@@ -425,7 +426,7 @@ import Testing
         #expect(book.metadata.language == "en")
         #expect(book.metadata.durationSeconds == nil)
         #expect(book.metadata.summary == "One\n\nTwo three")
-        #expect(book.metadata.genre == "Science Fiction")
+        #expect(book.metadata.genres == ["Science Fiction"])
         #expect(book.metadata.series == "Tidewater Books")
         #expect(book.metadata.seriesNumber == "2")
         #expect(book.note == "Audible · Unabridged · English")

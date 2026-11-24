@@ -212,7 +212,7 @@ import VoxCarrelFixtures
     @Test func undoKeepsReadStatusSetSince() throws {
         let f = try F()
         let id = try importM4B(f, F.meta("Dune", "Frank Herbert"))
-        _ = try edit(f, id) { $0.rating = 4; $0.metadata.genre = "SF" }
+        _ = try edit(f, id) { $0.rating = 4; $0.metadata.genres = ["SF"] }
         let day = Date(timeIntervalSince1970: 1_700_000_000)
         try f.service.setReadStatus(.finished, for: [id], on: day)
 
@@ -220,7 +220,7 @@ import VoxCarrelFixtures
 
         let book = try #require(try f.store.book(id: id))
         #expect(book.rating == 0)
-        #expect(book.genre == nil)
+        #expect(book.genres == [])
         #expect(book.readStatus == .finished)
         #expect(book.dateStarted == day)
         #expect(book.dateFinished == day)
@@ -326,8 +326,8 @@ import VoxCarrelFixtures
         _ = try f.service.reconcile()
         #expect(try f.store.book(id: id)?.needsAttention == true)
 
-        _ = try edit(f, id) { $0.metadata.genre = "SF" }
-        #expect(try f.store.book(id: id)?.genre == "SF")
+        _ = try edit(f, id) { $0.metadata.genres = ["SF"] }
+        #expect(try f.store.book(id: id)?.genres == ["SF"])
         #expect(try f.store.book(id: id)?.needsAttention == true)
 
         // Once the file is back, the next check clears it as before.
@@ -501,7 +501,7 @@ import VoxCarrelFixtures
             [try f.makeM4B("in.m4b", tags: F.meta("Old", "Old Author"), cover: F.jpeg)], F.meta("Dune", "Frank Herbert"))
         var e = BookEdit(book: try #require(try f.store.book(id: id)), cover: .set(F.png))
         e.metadata.authors = ["F. Herbert"]
-        e.metadata.genre = "SF"
+        e.metadata.genres = ["SF"]
         _ = try f.service.save([e])
         return id
     }
@@ -512,9 +512,9 @@ import VoxCarrelFixtures
         #expect(f.libraryTree() == ["Frank Herbert", "Frank Herbert/Dune", "Frank Herbert/Dune/Dune.m4b"])
         let book = try #require(try f.store.book(id: id))
         #expect(book.authors == ["Frank Herbert"])
-        #expect(book.genre == nil)
+        #expect(book.genres == [])
         #expect(try f.store.files(bookId: id).map(\.path) == ["Frank Herbert/Dune/Dune.m4b"])
-        #expect(try f.tags(f.lib("Frank Herbert/Dune/Dune.m4b")).genre == nil)
+        #expect(try f.tags(f.lib("Frank Herbert/Dune/Dune.m4b")).genreSource == nil)
         #expect(try f.io.read(f.lib("Frank Herbert/Dune/Dune.m4b")).cover == F.jpeg)
         #expect(f.service.covers.image(for: id) == F.jpeg)
         #expect(try f.service.undoLabel() == nil)
@@ -523,14 +523,14 @@ import VoxCarrelFixtures
     @Test func snapshotCarriesItsVersion() throws {
         let f = try F()
         _ = try editedBook(f)
-        // An edit needs nothing that the first version does not know, and says so:
-        // only a change of folder layout is marked as needing the second.
-        #expect(try f.snapshot().version == 1)
-        #expect(OperationSnapshot.currentVersion == 3)
+        // An edit holds a book and its files' tags as they were, with their several
+        // genres, and says so: code that knows one genre text must leave it alone.
+        #expect(try f.snapshot().version == 4)
+        #expect(OperationSnapshot.currentVersion == 4)
         let batch = try #require(try f.store.lastBatch())
         let data = try #require(batch.snapshot)
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["version"] as? Int == 1)
+        #expect(json["version"] as? Int == 4)
     }
 
     // A snapshot written before some fields existed can still be undone.
@@ -600,7 +600,7 @@ import VoxCarrelFixtures
 
         #expect(f.libraryTree() == tree)
         #expect(try f.store.book(id: id) == book)
-        #expect(try f.tags(f.lib("F. Herbert/Dune/Dune.m4b")).genre == "SF")
+        #expect(try f.tags(f.lib("F. Herbert/Dune/Dune.m4b")).genreSource == "SF")
         #expect(try f.store.lastBatch() == nil)
         #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
     }

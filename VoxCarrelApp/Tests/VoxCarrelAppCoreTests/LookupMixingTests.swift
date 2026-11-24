@@ -35,7 +35,7 @@ import VoxCarrelCore
         metadata.year = 2025
         metadata.publisher = "Penguin"
         metadata.summary = "A spy, perfectly."
-        metadata.genre = "Thriller"
+        metadata.genres = ["Thriller"]
         metadata.series = "Standalone Spies"
         metadata.seriesNumber = "3"
         metadata.asin = "B0DM2NJ5SK"
@@ -52,7 +52,7 @@ import VoxCarrelCore
     private func work() -> LookupCandidate {
         var metadata = BookMetadata(title: "A Perfect Spy", authors: ["John le Carré"])
         metadata.year = 1986
-        metadata.genre = "Spy fiction"
+        metadata.genres = ["Spy fiction"]
         metadata.summary = "From Open Library."
         return LookupCandidate(
             id: "openLibrary:/works/OL1W", source: .openLibrary, metadata: metadata,
@@ -528,7 +528,7 @@ import VoxCarrelCore
 
     @Test func A5_appliedMergesEveryTickedFieldAcrossResults() {
         var book = spy()
-        book.genre = "Fiction"
+        book.genres = ["Fiction"]
         book.durationSeconds = 64_800
         book.pageCount = 12
         var session = session([cassette(), kinnear(), work()], book: book)
@@ -748,7 +748,7 @@ import VoxCarrelCore
     @Test func A1_moreAboutTheSelectedResultKeepsTheTicks() {
         var bare = work()
         bare.metadata.summary = nil
-        bare.metadata.genre = nil
+        bare.metadata.genres = []
         var session = session([cassette(), bare])
         session.setTicked(true, for: .title)
         session.select(bare.id)

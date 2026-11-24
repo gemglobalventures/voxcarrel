@@ -50,19 +50,21 @@ import VoxCarrelFixtures
         let treeBefore = f.libraryTree()
         let rowsBefore = try f.store.files(bookId: id)
         var expected = F.fullMeta("Artemis", "Andy Weir")
-        expected.genre = "Thriller"
+        expected.genres = ["Thriller"]
+        // The wording the book had stays with the book (G4); in the file it is the tag.
+        expected.genreSource = "Thriller"
         expected.narrators = ["Rosario Dawson"]
 
         let outcomes = try f.service.save([
             try edit(f, id) {
-                $0.metadata.genre = "Thriller"
+                $0.metadata.genres = ["Thriller"]
                 $0.metadata.narrators = ["Rosario Dawson"]
             }
         ])
 
         #expect(outcomes == [.saved(bookId: id, refiled: false, appOnlyFields: [], fileProblems: [])])
         let book = try #require(try f.store.book(id: id))
-        #expect(book.genre == "Thriller")
+        #expect(book.genres == ["Thriller"])
         #expect(book.narrators == ["Rosario Dawson"])
         #expect(book.folderPath == "Andy Weir/The Series/2 - Artemis")
         #expect(try f.tags(f.lib(path)) == expected)
@@ -419,7 +421,7 @@ import VoxCarrelFixtures
         defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dest.path) }
         let bytes = try f.bytes(dest)
 
-        let outcomes = try f.service.save([try edit(f, id) { $0.metadata.genre = "Thriller" }])
+        let outcomes = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"] }])
 
         guard case .saved(id, false, let fields, let problems) = try #require(outcomes.first) else {
             Issue.record("expected .saved, got \(outcomes)")
@@ -431,7 +433,7 @@ import VoxCarrelFixtures
         let reason = try #require(problems.first?.reason)
         #expect(reason.contains("locked"))
         var book = try #require(try f.store.book(id: id))
-        #expect(book.genre == "Thriller")
+        #expect(book.genres == ["Thriller"])
         #expect(Set(book.appOnlyFields) == allText)
         #expect(try f.store.files(bookId: id).map(\.writeProblem) == [reason])
         #expect(try f.bytes(dest) == bytes)
@@ -439,12 +441,12 @@ import VoxCarrelFixtures
 
         // Writable again: the next save that writes tags clears the problem.
         try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: dest.path)
-        let again = try f.service.save([try edit(f, id) { $0.metadata.genre = "Heist" }])
+        let again = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Heist"] }])
         #expect(again == [.saved(bookId: id, refiled: false, appOnlyFields: [], fileProblems: [])])
         book = try #require(try f.store.book(id: id))
         #expect(book.appOnlyFields == [])
         #expect(try f.store.files(bookId: id).map(\.writeProblem) == [nil])
-        #expect(try f.tags(dest).genre == "Heist")
+        #expect(try f.tags(dest).genreSource == "Heist")
     }
 
     // E8, E9
@@ -461,18 +463,18 @@ import VoxCarrelFixtures
         #expect(try f.io.read(file).cover == F.png)
 
         // .keep: neither changes, though the tags are rewritten.
-        outcomes = try f.service.save([try edit(f, id) { $0.metadata.genre = "Thriller" }])
+        outcomes = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"] }])
         #expect(outcomes == [.saved(bookId: id, refiled: false, appOnlyFields: [], fileProblems: [])])
         #expect(f.service.covers.image(for: id) == F.png)
         #expect(try f.io.read(file).cover == F.png)
-        #expect(try f.tags(file).genre == "Thriller")
+        #expect(try f.tags(file).genreSource == "Thriller")
 
         // .remove: gone from the store and from the file.
         outcomes = try f.service.save([try edit(f, id, cover: .remove)])
         #expect(outcomes == [.saved(bookId: id, refiled: false, appOnlyFields: [], fileProblems: [])])
         #expect(f.service.covers.url(for: id) == nil)
         #expect(try f.io.read(file).cover == nil)
-        #expect(try f.tags(file).genre == "Thriller")
+        #expect(try f.tags(file).genreSource == "Thriller")
 
         // E9: a PDF cannot hold a cover, so a set cover is in the app only...
         let pdfId = try f.importNew([try f.makePDF("paper.pdf")], F.meta("Paper", "Ann Author"))
@@ -489,7 +491,7 @@ import VoxCarrelFixtures
         #expect(try #require(try f.store.book(id: pdfId)).appOnlyFields.contains(.cover))
 
         // ...and with .keep that membership is carried over when the tags are rewritten.
-        outcomes = try f.service.save([try edit(f, pdfId) { $0.metadata.genre = "Essays" }])
+        outcomes = try f.service.save([try edit(f, pdfId) { $0.metadata.genres = ["Essays"] }])
         guard case .saved(pdfId, false, let kept, _) = try #require(outcomes.first) else {
             Issue.record("expected .saved, got \(outcomes)")
             return
@@ -539,13 +541,13 @@ import VoxCarrelFixtures
         // Alongside a real change they are still ignored.
         _ = try f.service.save([
             try edit(f, id) {
-                $0.metadata.genre = "Thriller"
+                $0.metadata.genres = ["Thriller"]
                 $0.metadata.durationSeconds = 5
                 $0.metadata.pageCount = 999
             }
         ])
         let after = try #require(try f.store.book(id: id))
-        #expect(after.genre == "Thriller")
+        #expect(after.genres == ["Thriller"])
         #expect(after.durationSeconds == before.durationSeconds)
         #expect(after.pageCount == nil)
     }
@@ -633,7 +635,7 @@ import VoxCarrelFixtures
         _ = try f.service.save([
             try edit(f, id, cover: .set(F.png)) {
                 $0.metadata.title = "Artemis Rising"
-                $0.metadata.genre = "Thriller"
+                $0.metadata.genres = ["Thriller"]
                 $0.rating = 5
             }
         ])
@@ -669,7 +671,7 @@ import VoxCarrelFixtures
     @Test func snapshotCoverStatesFollowTheChange() throws {
         let f = try F()
         let id = try importM4B(f, F.meta("Artemis", "Andy Weir"))
-        _ = try f.service.save([try edit(f, id) { $0.metadata.genre = "Thriller" }])
+        _ = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"] }])
         var saved = try f.snapshot().books[0]
         #expect(saved.fileStates.map(\.coverBefore) == [nil])
         #expect(saved.storedCoverBefore == nil)
@@ -703,7 +705,7 @@ import VoxCarrelFixtures
             try f.service.save([
                 try edit(f, id, cover: .set(F.png)) {
                     $0.metadata.authors = ["Andrew Weir"]
-                    $0.metadata.genre = "Thriller"
+                    $0.metadata.genres = ["Thriller"]
                 },
                 try edit(f, other, cover: .remove) { $0.rating = 1 },
             ])

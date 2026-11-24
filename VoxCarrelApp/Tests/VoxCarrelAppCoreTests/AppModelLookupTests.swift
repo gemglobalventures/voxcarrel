@@ -626,7 +626,7 @@ import VoxCarrelFixtures
 
         await h.model.applyLookup()
         #expect(h.busyLabels == ["Saving…"])
-        #expect(try h.book(id).genre == "Sea Stories")
+        #expect(try h.book(id).genres == ["Sea Stories"])
         #expect(try h.book(id).publisher == "Tidewater Audio")
         #expect(!h.model.hasUnsavedChanges)
         #expect(h.model.undoLabel == "Edit Salt Road")
@@ -961,14 +961,14 @@ import VoxCarrelFixtures
         #expect(h.lookup.coverURLs.isEmpty)
 
         // A cover that cannot be fetched: the rest is applied, and the entry's cover stays.
-        h.lookup.find(.audible, [foundBook(.audible, "us:B2", title: "Salt Road", cover: true) { $0.genre = "Sea stories" }])
+        h.lookup.find(.audible, [foundBook(.audible, "us:B2", title: "Salt Road", cover: true) { $0.genres = ["Sea stories"] }])
         h.model.beginLookup(forEntry: before.id)
         await h.model.settle()
         h.model.setLookupTicked(true, for: .cover)
         h.model.setLookupTicked(true, for: .genre)
         await h.model.applyLookup()
         let last = try #require(h.model.review?.entry(before.id))
-        #expect(last.candidate.metadata.genre == "Sea stories")
+        #expect(last.candidate.metadata.genres == ["Sea stories"])
         #expect(last.cover == before.cover)
         #expect(!last.coverChanged)
         #expect(h.model.alert == "The cover could not be downloaded. The other details were applied.")

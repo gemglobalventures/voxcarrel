@@ -174,7 +174,7 @@ import VoxCarrelFixtures
         let outcomes = try f.service.save([
             try edit(f, id, cover: .set(F.png)) {
                 $0.metadata.authors = ["Andrew Weir"]
-                $0.metadata.genre = "Thriller"
+                $0.metadata.genres = ["Thriller"]
                 $0.rating = 5
                 $0.tags = ["favourite"]
             }
@@ -261,7 +261,7 @@ import VoxCarrelFixtures
         let audioBytes = try f.bytes(audio)
         let epubTags = try f.tags(f.lib("\(folder)/Artemis.epub"))
 
-        let outcomes = try f.service.save([try edit(f, id) { $0.metadata.genre = "Thriller" }])
+        let outcomes = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"] }])
         guard case .saved(id, false, let fields, let problems) = try #require(outcomes.first) else {
             Issue.record("expected .saved, got \(outcomes)")
             return
@@ -269,7 +269,7 @@ import VoxCarrelFixtures
         #expect(problems.map(\.file) == ["Artemis.m4b"])
         #expect(fields.contains(.narrators))
         #expect(try f.store.files(bookId: id).map { $0.writeProblem != nil } == [true, false])
-        #expect(try f.tags(f.lib("\(folder)/Artemis.epub")).genre == "Thriller")
+        #expect(try f.tags(f.lib("\(folder)/Artemis.epub")).genreSource == "Thriller")
 
         // Writable again by the time of the undo: it must still not be written.
         try fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: audio.path)
@@ -306,7 +306,7 @@ import VoxCarrelFixtures
         let tagsBefore = try f.tags(dest)
 
         // A save that clears the problem and the app-only fields...
-        _ = try f.service.save([try edit(f, id) { $0.metadata.genre = "Thriller" }])
+        _ = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"] }])
         #expect(try #require(try f.store.book(id: id)).appOnlyFields == [])
         #expect(try f.store.files(bookId: id).map(\.writeProblem) == [nil])
         try f.service.undoLast()
@@ -338,7 +338,7 @@ import VoxCarrelFixtures
             _ = try f.service.save([
                 try edit(f, id, cover: .set(F.png)) {
                     $0.metadata.authors = ["Andrew Weir"]
-                    $0.metadata.genre = "Thriller"
+                    $0.metadata.genres = ["Thriller"]
                 }
             ])
         }
@@ -375,7 +375,7 @@ import VoxCarrelFixtures
         #expect(exists(moved))
         #expect(try read(stray) == "in the way")
         // A blocked undo changes nothing: the tags inside the file are still the edit's.
-        #expect(try f.tags(moved).genre == "Thriller")
+        #expect(try f.tags(moved).genreSource == "Thriller")
         #expect(try f.tags(moved).authors == ["Andrew Weir"])
         #expect(try f.io.read(moved).cover == F.png)
 
@@ -533,14 +533,14 @@ import VoxCarrelFixtures
         let epub = try f.makeEPUB("a.epub")
         let id = try f.importNew([m4b, epub], F.meta("Artemis", "Andy Weir"))
         let before = try state(f)
-        _ = try f.service.save([try edit(f, id) { $0.metadata.genre = "Thriller" }])
+        _ = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"] }])
         // The EPUB is replaced by something that is no EPUB: restoring its tags fails.
         try Data("not an epub".utf8).write(to: f.lib("Andy Weir/Artemis/Artemis.epub"))
 
         try f.service.undoLast()
 
         #expect(try state(f) == before)
-        #expect(try f.tags(f.lib("Andy Weir/Artemis/Artemis.m4b")).genre == nil)
+        #expect(try f.tags(f.lib("Andy Weir/Artemis/Artemis.m4b")).genreSource == nil)
         #expect(try read(f.lib("Andy Weir/Artemis/Artemis.epub")) == "not an epub")
         try expectNothingLeftToUndo(f)
     }

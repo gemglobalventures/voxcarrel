@@ -523,7 +523,7 @@ import Testing
         <note type="performers">Narrated by Rae Reader.</note><tableOfContents>One -- Two</tableOfContents>
         """)
         #expect(candidate.metadata.summary == nil)
-        #expect(candidate.metadata.genre == nil)
+        #expect(candidate.metadata.genres == [])
         #expect(candidate.metadata.series == nil)
         #expect(candidate.metadata.narrators == ["Rae Reader"])
     }

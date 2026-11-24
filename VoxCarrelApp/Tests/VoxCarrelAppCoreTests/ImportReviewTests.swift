@@ -234,7 +234,7 @@ import VoxCarrelFixtures
         var first = seed(
             "Atlas", files: [file("atlas.m4b"), file("atlas.epub"), file("atlas.pdf", .extra)], cover: cover(1),
             match: libraryBook("Atlas"))
-        first.candidate.metadata.genre = "Travel"
+        first.candidate.metadata.genres = ["Travel"]
         first.candidate.sourceFolder = url("Atlas")
         var review = review([first, seed("Rivers", files: [file("rivers.epub")])])
         review.entries[0].coverChanged = true
@@ -317,7 +317,7 @@ import VoxCarrelFixtures
         var second = seed(
             "Atlas Part Two", files: [file("extra.pdf", .extra), file("two.mp3"), file("atlas.epub")],
             cover: cover(2), match: libraryBook("Atlas"))
-        second.candidate.metadata.genre = "Travel"
+        second.candidate.metadata.genres = ["Travel"]
         var review = review([
             seed("Rivers", files: [file("rivers.epub")]),
             second,
@@ -435,7 +435,7 @@ import VoxCarrelFixtures
             ("series", true, { $0.series = "Skies" }),
             ("series number", true, { $0.seriesNumber = "2" }),
             ("second author", false, { $0.authors = ["Ann Author", "Third Author"] }),
-            ("genre", false, { $0.genre = "Travel" }),
+            ("genre", false, { $0.genres = ["Travel"] }),
             ("subtitle", false, { $0.subtitle = "A Journey" }),
             ("narrators", false, { $0.narrators = ["Tom Hale"] }),
             ("year", false, { $0.year = 2001 }),
@@ -489,7 +489,7 @@ import VoxCarrelFixtures
         var review = review([seed("Atlas", files: [file("atlas.m4b")])])
         let id = review.entries[0].id
         let asked = review.entries[0].candidate.metadata
-        review.entries[0].candidate.metadata.genre = "Travel"
+        review.entries[0].candidate.metadata.genres = ["Travel"]
         review.setDestination("Ann Author/Atlas", for: id, matchingMetadata: asked)
         #expect(review.entries[0].destination == "Ann Author/Atlas")
         #expect(review.entriesNeedingDestination.isEmpty)
@@ -601,7 +601,7 @@ import VoxCarrelFixtures
         review.setText(" 2 ", for: .seriesNumber, of: id)
         review.entries[0].candidate.metadata.authors = [" Ann Author ", "  ", "Bo Writer"]
         review.entries[0].candidate.metadata.narrators = ["  "]
-        review.entries[0].candidate.metadata.genre = " Travel "
+        review.entries[0].candidate.metadata.genres = [" Travel "]
         review.entries[0].candidate.metadata.subtitle = "\n"
 
         let metadata = review.items()[0].candidate.metadata
@@ -610,7 +610,7 @@ import VoxCarrelFixtures
         #expect(metadata.seriesNumber == "2")
         #expect(metadata.authors == ["Ann Author", "Bo Writer"])
         #expect(metadata.narrators == [])
-        #expect(metadata.genre == "Travel")
+        #expect(metadata.genres == ["Travel"])
         #expect(metadata.subtitle == nil)
         // The files are sent as they are.
         #expect(review.items()[0].candidate.files == review.entries[0].candidate.files)

@@ -61,7 +61,7 @@ public struct BulkDraft: Equatable, Sendable {
                 case .narrators: edit.metadata.narrators = NameListText.names(from: value)
                 // The series number is each book's own, and is left alone.
                 case .series: edit.metadata.series = value.trimmedOrNil
-                case .genre: edit.metadata.genre = value.trimmedOrNil
+                case .genre: edit.metadata.genres = GenreText.genres(typed: value)
                 case .year:
                     if case .year(let year) = YearText(value) { edit.metadata.year = year } else { edit.metadata.year = nil }
                 case .publisher: edit.metadata.publisher = value.trimmedOrNil
@@ -82,7 +82,7 @@ public struct BulkDraft: Equatable, Sendable {
         case .authors: NameListText.text(from: book.authors)
         case .narrators: NameListText.text(from: book.narrators)
         case .series: book.series ?? ""
-        case .genre: book.genre ?? ""
+        case .genre: GenreText.shown(book.genres)
         case .year: book.year.map(String.init) ?? ""
         case .publisher: book.publisher ?? ""
         case .language: book.language ?? ""

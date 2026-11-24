@@ -228,7 +228,7 @@ import VoxCarrelFixtures
         let source = try f.makeM4B("mystery.m4b", tags: F.meta("Old Title", "Old Author"), cover: F.jpeg)
         let before = try f.bytes(source)
         var reviewed = BookMetadata(title: "Mystery")  // no author: cannot be filed
-        reviewed.genre = "Unknown"
+        reviewed.genres = ["Unknown"]
 
         let result = try f.service.importItems([ImportItem(candidate: f.candidate([source], reviewed))])
 
@@ -243,7 +243,7 @@ import VoxCarrelFixtures
         #expect(book.needsAttention)
         #expect(book.folderPath == nil)
         #expect(book.title == "Mystery")
-        #expect(book.genre == "Unknown")
+        #expect(book.genres == ["Unknown"])
         #expect((book.durationSeconds ?? 0) > 0.5)  // I7 still applies
         let files = try f.store.files(bookId: id)
         #expect(files.count == 1)

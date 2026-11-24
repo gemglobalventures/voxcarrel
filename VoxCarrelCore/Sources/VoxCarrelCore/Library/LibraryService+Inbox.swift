@@ -127,7 +127,7 @@ extension LibraryService {
         // the library when nothing waits.
         let known = everything.isEmpty ? KnownNames.none : (try? knownNames()) ?? .none
         let scanner = BookScanner(
-            reader: InboxTagReader { [self] url in
+            reader: LibraryTagReader { [self] url in
                 try cachedInboxTags(of: url, as: identities[url.path])
             }, known: known)
         var arrivals: [InboxArrival] = []
@@ -290,17 +290,3 @@ struct InboxTags {
 
 /// Thrown in place of the first failure when a file is known not to be readable.
 struct InboxTagsUnreadable: Error {}
-
-/// Gives the scanner its tags by way of the inbox check, which remembers them. Used
-/// within one check, on the thread that makes it.
-private final class InboxTagReader: MetadataReader, @unchecked Sendable {
-    private let read: (URL) throws -> BookMetadata
-
-    init(_ read: @escaping (URL) throws -> BookMetadata) {
-        self.read = read
-    }
-
-    func readMetadata(at url: URL) throws -> BookMetadata {
-        try read(url)
-    }
-}

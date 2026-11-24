@@ -16,7 +16,11 @@ public struct BookDraft: Equatable, Sendable {
     public var narrators: String
     public var series: String
     public var seriesNumber: String
+    /// The genres as one line of text (`GenreText`), until the field holds chips.
     public var genre: String
+    /// The wording the genres came from: the book's own, or a lookup's once its genres
+    /// have been taken into the draft.
+    public var genreSource: String?
     public var year: String
     public var publisher: String
     public var summary: String
@@ -40,7 +44,8 @@ public struct BookDraft: Equatable, Sendable {
         narrators = NameListText.text(from: book.narrators)
         series = book.series ?? ""
         seriesNumber = book.seriesNumber ?? ""
-        genre = book.genre ?? ""
+        genre = GenreText.shown(book.genres)
+        genreSource = book.genreSource
         year = book.year.map(String.init) ?? ""
         publisher = book.publisher ?? ""
         summary = book.summary ?? ""
@@ -113,7 +118,7 @@ public struct BookDraft: Equatable, Sendable {
         cover != .keep || ratingChanged || yearChanged || titleChanged || editionKindChanged
             || textChanged(subtitle, original.subtitle) || namesChanged(authors, original.authors)
             || namesChanged(narrators, original.narrators) || textChanged(series, original.series)
-            || textChanged(seriesNumber, original.seriesNumber) || textChanged(genre, original.genre)
+            || textChanged(seriesNumber, original.seriesNumber) || genreChanged
             || textChanged(publisher, original.publisher) || textChanged(summary, original.summary)
             || textChanged(language, original.language) || textChanged(isbn, original.isbn)
             || textChanged(asin, original.asin) || namesChanged(tags, original.tags)
@@ -141,7 +146,10 @@ public struct BookDraft: Equatable, Sendable {
         }
         if textChanged(series, original.series) { edit.metadata.series = series.trimmedOrNil }
         if textChanged(seriesNumber, original.seriesNumber) { edit.metadata.seriesNumber = seriesNumber.trimmedOrNil }
-        if textChanged(genre, original.genre) { edit.metadata.genre = genre.trimmedOrNil }
+        if genreChanged {
+            edit.metadata.genres = GenreText.genres(typed: genre)
+            edit.metadata.genreSource = genreSource
+        }
         if yearChanged {
             if case .year(let value) = YearText(year) { edit.metadata.year = value } else { edit.metadata.year = nil }
         }
@@ -192,7 +200,10 @@ public struct BookDraft: Equatable, Sendable {
         if namesChanged(narrators, original.narrators) { fresh.narrators = narrators }
         if textChanged(series, original.series) { fresh.series = series }
         if textChanged(seriesNumber, original.seriesNumber) { fresh.seriesNumber = seriesNumber }
-        if textChanged(genre, original.genre) { fresh.genre = genre }
+        if genreChanged {
+            fresh.genre = genre
+            fresh.genreSource = genreSource
+        }
         if yearChanged { fresh.year = year }
         if textChanged(publisher, original.publisher) { fresh.publisher = publisher }
         if textChanged(summary, original.summary) { fresh.summary = summary }
@@ -219,6 +230,7 @@ public struct BookDraft: Equatable, Sendable {
         for text in texts where self[keyPath: text] != sent[keyPath: text] {
             fresh[keyPath: text] = self[keyPath: text]
         }
+        if genre != sent.genre { fresh.genreSource = genreSource }
         if rating != sent.rating { fresh.rating = rating }
         if editionKind != sent.editionKind { fresh.editionKind = editionKind }
         if cover != sent.cover { fresh.cover = cover }
@@ -231,6 +243,8 @@ public struct BookDraft: Equatable, Sendable {
     private var ratingChanged: Bool { clampedRating != original.rating }
     private var titleChanged: Bool { title.trimmed != original.title.trimmed }
     private var yearChanged: Bool { year.trimmed != (original.year.map(String.init) ?? "") }
+    /// Whether the genre line is no longer the book's genres as they are shown.
+    var genreChanged: Bool { textChanged(genre, GenreText.shown(original.genres)) }
 
     private func textChanged(_ text: String, _ value: String?) -> Bool {
         text.trimmed != (value ?? "").trimmed

@@ -618,7 +618,10 @@ public struct LookupSession: Equatable, Sendable {
                 case .narrators: metadata.narrators = Self.names(found.narrators)
                 case .series: metadata.series = found.series?.trimmedOrNil
                 case .seriesNumber: metadata.seriesNumber = found.seriesNumber?.trimmedOrNil
-                case .genre: metadata.genre = found.genre?.trimmedOrNil
+                // The genres a lookup found come with the wording it found them in.
+                case .genre:
+                    metadata.genres = found.genres
+                    metadata.genreSource = found.genreSource
                 case .year: metadata.year = found.year
                 case .publisher: metadata.publisher = found.publisher?.trimmedOrNil
                 case .summary: metadata.summary = found.summary?.trimmedOrNil
@@ -778,7 +781,8 @@ public struct LookupSession: Equatable, Sendable {
         case .narrators: return hasAudio ? names(found.narrators, current.narrators) : nil
         case .series: return text(found.series, current.series)
         case .seriesNumber: return text(found.seriesNumber, current.seriesNumber)
-        case .genre: return text(found.genre, current.genre)
+        // Shown as one line until the offer holds chips.
+        case .genre: return text(GenreText.shown(found.genres), GenreText.shown(current.genres))
         case .year: return text(found.year.map(String.init), current.year.map(String.init))
         case .publisher: return text(found.publisher, current.publisher)
         case .language: return text(found.language, current.language)

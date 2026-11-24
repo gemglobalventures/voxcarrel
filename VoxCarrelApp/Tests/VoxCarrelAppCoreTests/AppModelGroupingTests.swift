@@ -246,9 +246,9 @@ import VoxCarrelFixtures
         await h.model.save()
         #expect(h.busyLabels == ["Saving 3 books…"])
         for id in ids {
-            #expect(try h.book(id).genre == "Sea Stories")
+            #expect(try h.book(id).genres == ["Sea Stories"])
         }
-        #expect(try h.store().books().filter { $0.genre == "Sea Stories" }.count == 3)
+        #expect(try h.store().books().filter { $0.genres == ["Sea Stories"] }.count == 3)
         #expect(!h.model.hasUnsavedChanges)
         // The group is still there, still selected.
         #expect(h.model.itemSelection == [Self.seriesItem])

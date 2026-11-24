@@ -183,7 +183,9 @@ public struct AudibleProvider: LookupProvider {
         metadata.summary = LookupText.cleaned(
             (product["publisher_summary"] as? String).map(LookupText.plainText(fromHTML:)),
             limit: LookupText.summaryLimit, multiline: true)
-        metadata.genre = Self.genre(product["category_ladders"])
+        let genres = GenreSource.text(Self.genre(product["category_ladders"]) ?? "")
+        metadata.genres = GenreMapping.map(genres).names
+        metadata.genreSource = GenreMapping.wording(of: genres)
         (metadata.series, metadata.seriesNumber) = Self.series(product["series"], main: line("publication_name", limit: LookupText.nameLimit))
 
         var note = [source.title]

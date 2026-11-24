@@ -59,7 +59,8 @@ public struct FolderPatternValues: Equatable, Sendable {
             let digits = String(year)
             set(.year, String(repeating: "0", count: 4 - digits.count) + digits)
         }
-        set(.genre, metadata.genre)
+        // The first genre is the main one.
+        set(.genre, metadata.genres.first)
         set(.publisher, metadata.publisher)
         set(.language, metadata.language)
         set(.kind, hasAudio ? "Audiobooks" : "Ebooks")

@@ -427,7 +427,7 @@ import VoxCarrelFixtures
             book.externalCopies = [ExternalCopy(kind: .audible, form: .audio, store: "uk", itemId: "B0DIFFERS1")]
         }
         edit = BookEdit(book: try #require(try f.store.book(id: filed)))
-        edit.metadata.genre = "History"
+        edit.metadata.genres = ["History"]
         _ = try f.service.save([edit])
         #expect(try f.store.book(id: filed)?.externalCopies.map(\.itemId) == ["B0DIFFERS1"])
     }

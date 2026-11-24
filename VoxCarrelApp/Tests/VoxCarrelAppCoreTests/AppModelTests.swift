@@ -665,8 +665,8 @@ import VoxCarrelFixtures
         await h.model.settle()
         #expect(h.model.prompt == .unsavedChanges)
         await h.model.resolveUnsaved(.save)
-        let genres = try ids.map { try h.book($0).genre }
-        #expect(genres == ["Sea Stories", "Sea Stories"])
+        let genres = try ids.map { try h.book($0).genres }
+        #expect(genres == [["Sea Stories"], ["Sea Stories"]])
         #expect(h.model.searchText == "salt")
         #expect(h.model.selection == [try h.id("Salt Road")])
     }

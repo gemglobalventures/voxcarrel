@@ -187,7 +187,7 @@ import VoxCarrelFixtures
         #expect(try book(f, ebook).folderPath == book(f, audio).folderPath)
         var edit = BookEdit(book: try book(f, audio))
         edit.rating = 3
-        edit.metadata.genre = "Science Fiction"
+        edit.metadata.genres = ["Science Fiction"]
         _ = try f.service.save([edit])
         #expect(try !book(f, audio).needsAttention)
         #expect(try f.service.unfiledReason(for: audio) == nil)
@@ -368,7 +368,7 @@ import VoxCarrelFixtures
         let tree = f.libraryTree()
 
         var edit = BookEdit(book: try book(f, audio))
-        edit.metadata.genre = "Science Fiction"
+        edit.metadata.genres = ["Science Fiction"]
         _ = try f.service.save([edit])
         #expect(f.libraryTree() == tree)
         #expect(try book(f, audio).folderPath == "Frank Herbert/Dune Saga/1 - Dune")

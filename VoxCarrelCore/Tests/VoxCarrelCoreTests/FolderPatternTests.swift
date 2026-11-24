@@ -81,7 +81,7 @@ struct SeededGenerator: RandomNumberGenerator {
         m.seriesNumber = number
         m.narrators = narrators
         m.year = year
-        m.genre = genre
+        m.genres = genre.map { [$0] } ?? []
         m.publisher = publisher
         m.language = language
         return m
@@ -305,7 +305,7 @@ struct SeededGenerator: RandomNumberGenerator {
         for a in hostile {
             for b in hostile {
                 var m = Self.book(a + "x", [b + "y"], series: a, number: b, narrators: [a + "n"])
-                m.genre = b + "g"
+                m.genres = [b + "g"]
                 m.publisher = a + "p"
                 m.language = b + "l"
                 for pattern in patterns {
@@ -368,7 +368,7 @@ struct SeededGenerator: RandomNumberGenerator {
             if Int.random(in: 0..<3, using: &rng) > 0 { m.seriesNumber = value(using: &rng) }
             m.narrators = (0..<Int.random(in: 0...2, using: &rng)).map { _ in value(using: &rng) }
             if Bool.random(using: &rng) { m.year = Int.random(in: -5...12_000, using: &rng) }
-            if Bool.random(using: &rng) { m.genre = value(using: &rng) }
+            if Bool.random(using: &rng) { m.genres = [value(using: &rng)] }
             return m
         }
     }

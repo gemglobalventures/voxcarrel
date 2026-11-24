@@ -172,7 +172,7 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
 
         // More filled wins over earlier added.
         var edit = BookEdit(book: try book(f, ebook))
-        edit.metadata.genre = "Science Fiction"
+        edit.metadata.genres = ["Science Fiction"]
         edit.metadata.year = 1965
         _ = try f.service.save([edit])
         #expect(try f.service.planMerge(bookIds: [notes, ebook], keep: nil).suggestedKeepId == ebook)
@@ -619,7 +619,7 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
             let kept = try f.importNew([try f.makeEPUB("dune.epub")], F.meta("Dune", "Frank Herbert"))
             var first = F.meta("Dune Notes", "Someone Else")
             first.year = 1965
-            first.genre = "Science Fiction"
+            first.genres = ["Science Fiction"]
             first.series = "Dune Chronicles"
             first.seriesNumber = "1"
             var second = F.meta("Dune Maps", "Another Writer")
@@ -638,7 +638,7 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
             #expect(merged.title == "Dune")
             #expect(merged.authors == ["Frank Herbert"])
             #expect(merged.year == (reversed ? 1970 : 1965))
-            #expect(merged.genre == "Science Fiction")
+            #expect(merged.genres == ["Science Fiction"])
             #expect(merged.publisher == "Ace")
             #expect(merged.language == "en")
             // A series and its number come from the same entry.
@@ -963,11 +963,12 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
     @Test func mb7_aMergeIsRecordedInAFormOlderVersionsWillNotTryToUndo() throws {
         let f = try F()
         let (ebook, notes) = try ebookAndNotes(f)
-        #expect(OperationSnapshot.currentVersion == 3)
+        #expect(OperationSnapshot.currentVersion == 4)
         try f.service.mergeBooks([ebook, notes], keep: ebook, roles: [:])
         let data = try #require(try f.store.lastBatch()?.snapshot)
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["version"] as? Int == 3)
+        // 3 for the merge, and 4 for the books it holds, which have several genres.
+        #expect(json["version"] as? Int == 4)
         let snapshot = try f.snapshot()
         #expect(snapshot.books.map(\.bookId) == [ebook])
         #expect(snapshot.merge?.removed.map(\.book.id) == [notes])

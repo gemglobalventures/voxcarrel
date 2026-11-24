@@ -72,7 +72,7 @@ import VoxCarrelFixtures
         let id = review.entries[0].id
         let metadata = review.entries[0].candidate.metadata
         let changes: [(inout BookMetadata) -> Void] = [
-            { $0.narrators = ["Nan Reader"] }, { $0.year = 1999 }, { $0.genre = "Maps" }, { $0.publisher = "P" },
+            { $0.narrators = ["Nan Reader"] }, { $0.year = 1999 }, { $0.genres = ["Maps"] }, { $0.publisher = "P" },
             { $0.language = "en" },
         ]
 

@@ -617,7 +617,9 @@ extension BookMetadata {
             case .narrators: narrators = other.narrators
             case .series: series = other.series
             case .seriesNumber: seriesNumber = other.seriesNumber
-            case .genre: genre = other.genre
+            case .genre:
+                genres = other.genres
+                genreSource = other.genreSource
             case .year: year = other.year
             case .publisher: publisher = other.publisher
             case .summary: summary = other.summary
@@ -642,7 +644,10 @@ extension BookDraft {
         metadata.narrators = NameListText.names(from: narrators)
         metadata.series = series.trimmedOrNil
         metadata.seriesNumber = seriesNumber.trimmedOrNil
-        metadata.genre = genre.trimmedOrNil
+        if genreChanged {
+            metadata.genres = GenreText.genres(typed: genre)
+            metadata.genreSource = genreSource
+        }
         if case .year(let value) = YearText(year) { metadata.year = value } else { metadata.year = nil }
         metadata.publisher = publisher.trimmedOrNil
         metadata.summary = summary.trimmedOrNil
@@ -662,7 +667,9 @@ extension BookDraft {
             case .narrators: narrators = NameListText.text(from: metadata.narrators)
             case .series: series = metadata.series ?? ""
             case .seriesNumber: seriesNumber = metadata.seriesNumber ?? ""
-            case .genre: genre = metadata.genre ?? ""
+            case .genre:
+                genre = GenreText.shown(metadata.genres)
+                genreSource = metadata.genreSource
             case .year: year = metadata.year.map(String.init) ?? ""
             case .publisher: publisher = metadata.publisher ?? ""
             case .summary: summary = metadata.summary ?? ""

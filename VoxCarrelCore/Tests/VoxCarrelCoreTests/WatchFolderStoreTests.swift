@@ -406,18 +406,18 @@ import VoxCarrelFixtures
         let root = try makeTempDir()
         let path = root.appendingPathComponent(LibraryStore.databaseFileName).path
         let tables = ["book", "bookFile", "collection", "collectionBook", "operationBatch", "operationMove", "libraryNote"]
-        func contents(_ db: Database) throws -> [String: [Row]] {
-            var all: [String: [Row]] = [:]
+        func contents(_ db: Database) throws -> [String: [EarlierRow]] {
+            var all: [String: [EarlierRow]] = [:]
             for table in tables {
-                all[table] = try Row.fetchAll(db, sql: "SELECT * FROM \(table) ORDER BY rowid").map { $0.copy() }
+                all[table] = try earlierRows(db, of: table)
             }
             return all
         }
         func schema(_ db: Database) throws -> [String] {
             try String.fetchAll(
-                db, sql: "SELECT sql FROM sqlite_master WHERE tbl_name IN (\(tables.map { "'\($0)'" }.joined(separator: ","))) AND sql IS NOT NULL ORDER BY name")
+                db, sql: "SELECT sql FROM sqlite_master WHERE tbl_name IN (\(earlierSchemaTables(tables))) AND sql IS NOT NULL ORDER BY name")
         }
-        var before: [String: [Row]] = [:]
+        var before: [String: [EarlierRow]] = [:]
         var schemaBefore: [String] = []
         do {
             let queue = try DatabaseQueue(path: path)

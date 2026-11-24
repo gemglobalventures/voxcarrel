@@ -51,7 +51,9 @@ import VoxCarrelFixtures
         m.language = "en"
         m.summary = "Original <b>description</b> & more"
         m.isbn = "9780000000001"
-        m.genre = "Fantasy; Adventure"
+        // The file's two subjects are the wording; "Adventure" alone says too little to be kept.
+        m.genres = ["Fantasy"]
+        m.genreSource = "Fantasy; Adventure"
         return m
     }
 
@@ -65,7 +67,16 @@ import VoxCarrelFixtures
         m.language = "en-GB"
         m.summary = "New description"
         m.isbn = "9781111111111"
-        m.genre = "A; B"
+        m.genres = ["A", "B"]
+        m.genreSource = "A; B"
+        return m
+    }
+
+    /// Details read from a file as they read once they have been written back: the
+    /// subjects are then the genres they were read as.
+    func settled(_ m: BookMetadata) -> BookMetadata {
+        var m = m
+        m.genreSource = GenreTag.text(m.genres)
         return m
     }
 
@@ -87,7 +98,8 @@ import VoxCarrelFixtures
         #expect(m.language == "en")
         #expect(m.summary == "Original <b>description</b> & more")
         #expect(m.isbn == "9780000000001")
-        #expect(m.genre == "Fantasy; Adventure")
+        #expect(m.genres == ["Fantasy"])
+        #expect(m.genreSource == "Fantasy; Adventure")
         #expect(m == fixture3Metadata())
         #expect(contents.cover == CoverImage(data: MediaFixtures.makeImage(.jpeg), mime: "image/jpeg"))
         #expect(contents.chapters.isEmpty)
@@ -112,7 +124,7 @@ import VoxCarrelFixtures
         #expect(contents.metadata.language == "en-GB")
         #expect(contents.metadata.summary == "New description")
         #expect(contents.metadata.isbn == "9781111111111")
-        #expect(contents.metadata.genre == "A; B")
+        #expect(contents.metadata.genres == ["A", "B"])
         // The manifest says JPEG, so the PNG was converted and the entry path kept.
         #expect(contents.cover?.mime == "image/jpeg")
         #expect(contents.cover?.data.prefix(3) == Data([0xFF, 0xD8, 0xFF]))
@@ -200,7 +212,8 @@ import VoxCarrelFixtures
         let before = try opfText(url)
         let metadata = try EpubIO.read(url).metadata
 
-        try EpubIO.write(metadata, cover: .keep, to: url)
+        // The subjects go back as they stood, not as the genres they were read as.
+        try EpubIO.write(metadata.asReadFromFile, cover: .keep, to: url)
 
         let after = try opfText(url)
         let strip = { (s: String) in
@@ -220,7 +233,8 @@ import VoxCarrelFixtures
         m.seriesNumber = nil
         m.publisher = nil
         m.isbn = nil
-        m.genre = nil
+        m.genres = []
+        m.genreSource = nil
 
         try EpubIO.write(m, cover: .keep, to: url)
 
@@ -322,7 +336,8 @@ import VoxCarrelFixtures
         m.isbn = "9782222222222"
         m.summary = "Added description"
         m.publisher = "Added Press"
-        m.genre = "History"
+        m.genres = ["History"]
+        m.genreSource = "History"
         try EpubIO.write(m, cover: .set(jpeg()), to: url)
         try EpubIO.validate(url)
 
@@ -415,7 +430,7 @@ import VoxCarrelFixtures
         let rightsBefore = try opfValues(url, rights)
         #expect(rightsBefore == ["\u{201C}Q&A\u{201D} ©2020 Smith & Sons\u{2019} Press"])
 
-        var m = try EpubIO.read(url).metadata
+        var m = settled(try EpubIO.read(url).metadata)
         #expect(m.title == "Tom & Jerry\u{2019}s été <1>")
         #expect(m.summary == "\u{201C}Q&A\u{201D} with the author")
 
@@ -633,7 +648,7 @@ import VoxCarrelFixtures
         try #require(opf.contains(">set</meta>"))
         let url = try epub("set.epub", opf: opf, in: makeTempDir())
 
-        var m = try EpubIO.read(url).metadata
+        var m = settled(try EpubIO.read(url).metadata)
         #expect(m.series == nil)
         #expect(m.seriesNumber == nil)
 
@@ -675,7 +690,8 @@ import VoxCarrelFixtures
     /// What `write` would expect of a copy of `url` after applying `edit` to its metadata.
     func expectation(for url: URL, mimetypeRule: Bool = true, edit: (inout BookMetadata) -> Void = { _ in }) throws -> EpubIO.Expectation {
         let package = try EpubIO.Package(archive: try Archive(url: url, accessMode: .read))
-        var m = EpubIO.bookMetadata(from: package.readMetadata())
+        // The subjects as they stand, so that only `edit` changes anything.
+        var m = EpubIO.bookMetadata(from: package.readMetadata()).asReadFromFile
         edit(&m)
         _ = package.apply(EpubIO.epubMetadata(from: m, existing: package.readMetadata()))
         return package.expectation(mimetypeRule: mimetypeRule)

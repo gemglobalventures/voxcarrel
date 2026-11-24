@@ -214,7 +214,81 @@ public final class LibraryStore: Sendable {
                 t.column("fingerprint", .text).notNull()
             }
         }
+        migrator.registerMigration("v12") { db in
+            try Self.giveBooksSeveralGenres(db)
+        }
         return migrator
+    }
+
+    /// The change to a book having several genres. Each book's one genre text becomes
+    /// its source wording, and the mapping gives its genres; the text is also recorded
+    /// as the tag its files hold, which it was. The library's list of genres is made:
+    /// the built-in ones, and one of the owner's own in Other for each name the mapping
+    /// did not know. No file is read or written.
+    private static func giveBooksSeveralGenres(_ db: Database) throws {
+        try db.create(table: "genre") { t in
+            t.autoIncrementedPrimaryKey("id")
+            t.column("name", .text).notNull().unique().collate(.nocase)
+            // A `GenreGroup` raw value.
+            t.column("genreGroup", .text).notNull()
+            // The name the app ships the genre under; null for one of the owner's own.
+            t.column("builtInName", .text)
+            t.column("isHidden", .boolean).notNull().defaults(to: false)
+        }
+        for genre in BuiltInGenre.all {
+            try db.execute(
+                sql: "INSERT INTO genre (name, genreGroup, builtInName) VALUES (?, ?, ?)",
+                arguments: [genre.name, genre.group.rawValue, genre.name])
+        }
+
+        // The search index follows the book table, and is made again below with the genres in it.
+        try db.dropFTS5SynchronizationTriggers(forTable: "bookSearch")
+        try db.drop(table: "bookSearch")
+        try db.alter(table: "book") { t in
+            t.rename(column: "genre", to: "genreSource")
+            t.add(column: "genres", .text).notNull().defaults(to: "[]")
+            t.add(column: "genreTag", .text)
+        }
+        // A text with nothing in it was no genre.
+        try db.execute(sql: "UPDATE book SET genreSource = NULL WHERE trim(genreSource) = ''")
+        try db.execute(sql: "UPDATE book SET genreTag = genreSource")
+        let rows = try Row.fetchAll(
+            db, sql: "SELECT id, genreSource FROM book WHERE genreSource IS NOT NULL ORDER BY id")
+        for row in rows {
+            let id: Int64 = row["id"]
+            let text: String = row["genreSource"]
+            let mapped = GenreMapping.map(.text(text)).names
+            guard !mapped.isEmpty else { continue }
+            try addOwnGenres(db, named: mapped)
+            // A name two books spell differently is spelled as the list has it: as the
+            // book with the lower id has it.
+            let genres = GenreName.spelled(mapped, as: try String.fetchAll(db, sql: "SELECT name FROM genre"))
+            let list = String(decoding: try JSONEncoder().encode(genres), as: UTF8.self)
+            try db.execute(sql: "UPDATE book SET genres = ? WHERE id = ?", arguments: [list, id])
+        }
+        try db.create(virtualTable: "bookSearch", using: FTS5()) { t in
+            t.synchronize(withTable: "book")
+            t.column("title")
+            t.column("authors")
+            t.column("narrators")
+            t.column("series")
+            t.column("tags")
+            t.column("genres")
+        }
+    }
+
+    /// Adds to the library's list, as genres of the owner's own in Other, each of these
+    /// names that it does not hold yet. A name the list has, shown or hidden, in any
+    /// capitalisation, is left as it is.
+    static func addOwnGenres(_ db: Database, named names: [String]) throws {
+        guard !names.isEmpty else { return }
+        var listed = try String.fetchAll(db, sql: "SELECT name FROM genre")
+        for name in GenreName.distinct(names) where !listed.contains(where: { GenreName.same($0, name) }) {
+            try db.execute(
+                sql: "INSERT OR IGNORE INTO genre (name, genreGroup) VALUES (?, ?)",
+                arguments: [name, GenreGroup.other.rawValue])
+            listed.append(name)
+        }
     }
 
     // MARK: Paths
@@ -456,7 +530,7 @@ public final class LibraryStore: Sendable {
         }
     }
 
-    /// Books whose title, authors, narrators, series or tags contain words
+    /// Books whose title, authors, narrators, series, tags or genres contain words
     /// starting with every word of `text`. Blank text returns all books; text
     /// with nothing searchable in it (only punctuation, say) returns none.
     public func search(_ text: String) throws -> [Book] {
@@ -513,7 +587,7 @@ public final class LibraryStore: Sendable {
 
     /// Every distinct value of a browse field, sorted.
     public func distinctValues(_ field: BrowseField) throws -> [String] {
-        let column = field.rawValue
+        let column = field.column
         let sql = field.isList
             ? """
               SELECT DISTINCT j.value FROM book, json_each(book.\(column)) AS j
@@ -537,9 +611,11 @@ public final class LibraryStore: Sendable {
 
     /// Books having exactly `value` for a browse field, sorted by title.
     public func books(where field: BrowseField, equals value: String) throws -> [Book] {
-        let column = field.rawValue
+        let column = field.column
+        // A genre is the same genre however it is capitalised.
+        let match = field == .genre ? "value = ? COLLATE NOCASE" : "value = ?"
         let condition = field.isList
-            ? "EXISTS (SELECT 1 FROM json_each(book.\(column)) WHERE value = ?)"
+            ? "EXISTS (SELECT 1 FROM json_each(book.\(column)) WHERE \(match))"
             : "book.\(column) = ?"
         return try dbQueue.read { db in
             try Book.fetchAll(
@@ -623,6 +699,77 @@ public final class LibraryStore: Sendable {
                 WHERE collectionBook.collectionId = ?
                 ORDER BY book.title COLLATE NOCASE
                 """, arguments: [collectionId])
+        }
+    }
+}
+
+// MARK: Genres
+
+extension LibraryStore {
+    /// The library's list of genres, hidden ones included, each with the number of
+    /// books that have it: by group, the built-in ones in their own order and then the
+    /// owner's own by name.
+    public func genreList() throws -> [GenreEntry] {
+        try dbQueue.read { db in
+            // Counted here and not by the database, which only folds the case of ASCII letters.
+            var counts: [String: Int] = [:]
+            for row in try Row.fetchAll(db, sql: """
+                SELECT j.value AS name, COUNT(*) AS books FROM book, json_each(book.genres) AS j GROUP BY j.value
+                """) {
+                let name: String = row["name"]
+                counts[name.lowercased(), default: 0] += row["books"]
+            }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT name, genreGroup, builtInName, isHidden FROM genre
+                ORDER BY builtInName IS NULL, CASE WHEN builtInName IS NULL THEN 0 ELSE id END, name COLLATE NOCASE
+                """)
+            let entries = rows.map { row -> GenreEntry in
+                let name: String = row["name"]
+                return GenreEntry(
+                    name: name, group: GenreGroup(rawValue: row["genreGroup"]) ?? .other,
+                    builtInName: row["builtInName"], isHidden: row["isHidden"],
+                    bookCount: counts[name.lowercased()] ?? 0)
+            }
+            return GenreGroup.allCases.flatMap { group in entries.filter { $0.group == group } }
+        }
+    }
+
+    /// The names of the library's list, hidden ones included.
+    public func genreNames() throws -> [String] {
+        try dbQueue.read { db in try String.fetchAll(db, sql: "SELECT name FROM genre ORDER BY id") }
+    }
+
+    /// The ids of the books that have this genre, whatever its place in their lists,
+    /// sorted by title.
+    public func bookIds(inGenre name: String) throws -> [Int64] {
+        try dbQueue.read { db in
+            try Int64.fetchAll(db, sql: """
+                SELECT id FROM book
+                WHERE EXISTS (SELECT 1 FROM json_each(book.genres) WHERE value = ? COLLATE NOCASE)
+                ORDER BY title COLLATE NOCASE
+                """, arguments: [name])
+        }
+    }
+
+    /// The ids of the books with a genre of this group, each once, sorted by title.
+    public func bookIds(inGroup group: GenreGroup) throws -> [Int64] {
+        try dbQueue.read { db in
+            try Int64.fetchAll(db, sql: """
+                SELECT id FROM book
+                WHERE EXISTS (
+                    SELECT 1 FROM json_each(book.genres) AS j
+                    JOIN genre ON genre.name = j.value COLLATE NOCASE
+                    WHERE genre.genreGroup = ?)
+                ORDER BY title COLLATE NOCASE
+                """, arguments: [group.rawValue])
+        }
+    }
+
+    /// The ids of the books with no genre, sorted by title.
+    public func bookIdsWithNoGenre() throws -> [Int64] {
+        try dbQueue.read { db in
+            try Int64.fetchAll(
+                db, sql: "SELECT id FROM book WHERE json_array_length(genres) = 0 ORDER BY title COLLATE NOCASE")
         }
     }
 }
@@ -871,7 +1018,7 @@ extension LibraryStore {
     private static func deleteUnusedSeriesLinks(_ db: Database) throws {
         try db.execute(sql: """
             DELETE FROM seriesLink
-            WHERE NOT EXISTS (SELECT 1 FROM book WHERE book.\(BrowseField.series.rawValue) = seriesLink.seriesKey)
+            WHERE NOT EXISTS (SELECT 1 FROM book WHERE book.\(BrowseField.series.column) = seriesLink.seriesKey)
             """)
     }
 

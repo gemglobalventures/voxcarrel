@@ -198,8 +198,8 @@ extension LibraryService {
             func has(_ text: String?) -> Bool {
                 !(text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
-            let texts = [
-                book.title, book.subtitle, book.series, book.seriesNumber, book.genre, book.publisher,
+            let texts: [String?] = [
+                book.title, book.subtitle, book.series, book.seriesNumber, book.genres.first, book.publisher,
                 book.summary, book.language, book.isbn, book.asin,
             ]
             return texts.filter(has).count + (book.authors.contains(where: has) ? 1 : 0)
@@ -220,6 +220,9 @@ extension LibraryService {
     static func mergedDetails(kept: Book, others: [Book]) -> Book {
         var merged = kept
         merged.metadata = filledIn(kept.metadata, fromDetails: others.map(\.metadata))
+        // The kept entry's genres, then those of the others that it lacks.
+        merged.genres = GenreName.distinct(kept.genres + others.flatMap(\.genres))
+        merged.genreSource = kept.genreSource ?? others.lazy.compactMap(\.genreSource).first
 
         var seen = Set<String>()
         merged.tags = (kept.tags + others.flatMap(\.tags)).filter {
@@ -657,6 +660,7 @@ extension LibraryService {
             }
         }
         updated.appOnlyFields = MetadataField.allCases.filter(appOnly.contains)
+        updated.genreTag = Self.genreTag(after: files, of: updated, recorded: kept.book.genreTag)
 
         operation.add(
             .init(book: updated, files: bookFiles(files)),

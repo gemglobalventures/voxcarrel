@@ -101,6 +101,7 @@ extension LibraryService {
         if folderTaken { updated.needsAttention = true }
         updated.appOnlyFields = keepingCoverMembership(
             of: book, in: Self.appOnlyFields(files: files, hasStoredCover: false))
+        updated.genreTag = Self.genreTag(after: files, of: updated, recorded: book.genreTag)
         operation.add(
             .init(book: updated, files: bookFiles(files)),
             snapshot: BookSnapshot(
@@ -174,12 +175,14 @@ extension LibraryService {
             updated.appOnlyFields = keepingCoverMembership(
                 of: book, in: Self.appOnlyFields(files: files, hasStoredCover: false))
             updated.durationSeconds = Self.remeasuredDuration(files, recorded: book.durationSeconds)
+            updated.genreTag = Self.genreTag(after: files, of: updated, recorded: book.genreTag)
             let newRows = bookFiles(files)
 
             // Recorded only when a file was really changed or the database would be.
             let changed = files.contains { $0.state != nil }
                 || updated.appOnlyFields != book.appOnlyFields
                 || updated.durationSeconds != book.durationSeconds
+                || updated.genreTag != book.genreTag
                 || newRows.map(\.writeProblem) != rows.map(\.writeProblem)
                 || newRows.map(\.lengthProblem) != rows.map(\.lengthProblem)
             if changed {

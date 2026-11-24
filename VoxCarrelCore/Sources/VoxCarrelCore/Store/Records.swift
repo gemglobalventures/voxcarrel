@@ -141,7 +141,14 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     public var narrators: [String]
     public var series: String?
     public var seriesNumber: String?
-    public var genre: String?
+    /// The book's genres in order, the main one first. No genre is there twice.
+    public var genres: [String]
+    /// The genre wording the book had from its source (a file's tag, or a lookup), unchanged.
+    public var genreSource: String?
+    /// The genre tag as the book's files last had it: what was read from them when they
+    /// were brought in, and after that what was last written into them. Nil when they
+    /// had none. It says, without opening a file, whether the files hold the book's genres.
+    public var genreTag: String? = nil
     public var year: Int?
     public var publisher: String?
     public var summary: String?
@@ -188,7 +195,8 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     public var partsAppearMissing = false
 
     enum CodingKeys: String, CodingKey {
-        case id, title, subtitle, authors, narrators, series, seriesNumber, genre, year, publisher, summary
+        case id, title, subtitle, authors, narrators, series, seriesNumber, genres, genreSource, genreTag
+        case year, publisher, summary
         case language, isbn, asin, durationSeconds, pageCount, tags, rating, folderPath, needsAttention
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
@@ -213,7 +221,8 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         self.narrators = metadata.narrators
         self.series = metadata.series
         self.seriesNumber = metadata.seriesNumber
-        self.genre = metadata.genre
+        self.genres = GenreName.distinct(metadata.genres)
+        self.genreSource = metadata.genreSource
         self.year = metadata.year
         self.publisher = metadata.publisher
         self.summary = metadata.summary
@@ -262,7 +271,18 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         narrators = try c.decodeIfPresent([String].self, forKey: .narrators) ?? []
         series = try c.decodeIfPresent(String.self, forKey: .series)
         seriesNumber = try c.decodeIfPresent(String.self, forKey: .seriesNumber)
-        genre = try c.decodeIfPresent(String.self, forKey: .genre)
+        if let list = try c.decodeIfPresent([String].self, forKey: .genres) {
+            genres = GenreName.distinct(list)
+            genreSource = try c.decodeIfPresent(String.self, forKey: .genreSource)
+            genreTag = try c.decodeIfPresent(String.self, forKey: .genreTag)
+        } else {
+            // A snapshot saved before a book had several genres holds one text: it is
+            // the source wording and gives the genres, and it is what the files held.
+            let old = try decoder.container(keyedBy: BookMetadata.EarlierKeys.self)
+            let text = try old.decodeIfPresent(String.self, forKey: .genre)
+            (genres, genreSource) = BookMetadata.genres(fromEarlier: text)
+            genreTag = text
+        }
         year = try c.decodeIfPresent(Int.self, forKey: .year)
         publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
@@ -300,7 +320,8 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
             m.narrators = narrators
             m.series = series
             m.seriesNumber = seriesNumber
-            m.genre = genre
+            m.genres = genres
+            m.genreSource = genreSource
             m.year = year
             m.publisher = publisher
             m.summary = summary
@@ -318,7 +339,8 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
             narrators = newValue.narrators
             series = newValue.series
             seriesNumber = newValue.seriesNumber
-            genre = newValue.genre
+            genres = GenreName.distinct(newValue.genres)
+            genreSource = newValue.genreSource
             year = newValue.year
             publisher = newValue.publisher
             summary = newValue.summary
@@ -332,6 +354,34 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
         id = inserted.rowID
+    }
+
+    /// Every genre a book is stored with is in the library's list: a name the list does
+    /// not have yet joins it as one of the owner's own, in Other. Called by the database
+    /// whenever a book is inserted or updated.
+    public func willSave(_ db: Database) throws {
+        try LibraryStore.addOwnGenres(db, named: genres)
+    }
+}
+
+/// One genre of a library's list, with the number of books that have it.
+public struct GenreEntry: Equatable, Sendable, Identifiable {
+    public var name: String
+    public var group: GenreGroup
+    /// The name the app ships this genre under; nil for one of the owner's own.
+    public var builtInName: String?
+    /// True for a built-in genre that has been merged away: it is kept, out of sight.
+    public var isHidden: Bool
+    public var bookCount: Int
+
+    public var id: String { name }
+
+    public init(name: String, group: GenreGroup, builtInName: String? = nil, isHidden: Bool = false, bookCount: Int = 0) {
+        self.name = name
+        self.group = group
+        self.builtInName = builtInName
+        self.isHidden = isHidden
+        self.bookCount = bookCount
     }
 }
 
@@ -415,13 +465,18 @@ public struct BookCollection: Codable, Equatable, Identifiable, Sendable,
     }
 }
 
-/// Fields the sidebar can browse by. Raw values are column names.
+/// Fields the sidebar can browse by.
 public enum BrowseField: String, Sendable, CaseIterable {
     case authors, narrators, series, genre
 
+    /// The column of the book table the field is kept in.
+    var column: String {
+        self == .genre ? "genres" : rawValue
+    }
+
     /// True for columns holding a JSON array of strings.
     var isList: Bool {
-        self == .authors || self == .narrators
+        self == .authors || self == .narrators || self == .genre
     }
 }
 

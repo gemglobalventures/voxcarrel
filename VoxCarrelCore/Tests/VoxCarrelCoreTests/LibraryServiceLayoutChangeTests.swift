@@ -1008,7 +1008,7 @@ extension LibraryFixture {
         try f.service.applyLayoutChange(to: try pattern(Self.byKind))
         let snapshot = try f.snapshot()
         #expect(snapshot.version == 2)
-        #expect(OperationSnapshot.currentVersion == 3)
+        #expect(OperationSnapshot.currentVersion == 4)
         #expect(snapshot.books.isEmpty)
         let saved = try #require(snapshot.layoutChange)
         #expect(saved.patternTextBefore == nil)

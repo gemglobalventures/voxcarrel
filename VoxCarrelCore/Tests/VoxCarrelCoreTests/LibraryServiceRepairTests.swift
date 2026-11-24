@@ -365,7 +365,7 @@ import VoxCarrelFixtures
         let tags = F.meta("Dune", "Frank Herbert")
         let id = try f.importNew([try f.makeM4B("in.m4b", tags: tags)], tags)
         var edit = BookEdit(book: try #require(try f.store.book(id: id)), cover: .keep)
-        edit.metadata.genre = "SF"
+        edit.metadata.genres = ["SF"]
         _ = try f.service.save([edit])
         #expect(try #require(try f.store.lastBatch()).moves.isEmpty)
         let written = try contents(f, id)
@@ -377,7 +377,7 @@ import VoxCarrelFixtures
 
         #expect(try contents(f, id) == written)
         #expect(try copied.map { try Data(contentsOf: $0) } == written)
-        #expect(try copy.store.book(id: id)?.genre == "SF")
+        #expect(try copy.store.book(id: id)?.genres == ["SF"])
         #expect(try f.service.undoLabel() == "Edit Dune")
     }
 

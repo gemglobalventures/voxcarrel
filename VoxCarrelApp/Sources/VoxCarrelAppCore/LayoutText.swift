@@ -119,7 +119,7 @@ enum LayoutText {
         metadata.seriesNumber = "3"
         metadata.narrators = ["Stephen Lang"]
         metadata.year = 2002
-        metadata.genre = "Thriller"
+        metadata.genres = ["Thriller"]
         metadata.publisher = "Putnam"
         metadata.language = "English"
         return LayoutSample(metadata: metadata, hasAudio: true)

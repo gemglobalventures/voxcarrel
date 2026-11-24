@@ -382,6 +382,8 @@ public enum DemoContent {
             let added = now.addingTimeInterval(-Double(number) * 13 * 3600)
             var book = Book(metadata: metadata, folderPath: folderPath, dateAdded: added)
             book.appOnlyFields = template.book.appOnlyFields
+            // The files are copies of the template's, so the genre tag in them is its.
+            book.genreTag = template.book.genreTag
             switch number % 5 {
             case 2: book.setReadStatus(.inProgress, on: added.addingTimeInterval(86_400))
             case 3:
@@ -583,5 +585,18 @@ public enum DemoContent {
           </spine>
         </package>
         """
+    }
+}
+
+private extension BookMetadata {
+    /// A sample book's genre as it was worded before books had several: the mapping
+    /// reads it, as it would a file's tag. A stand-in until the samples name their
+    /// genres from the list.
+    var genre: String? {
+        get { genreSource }
+        set {
+            genreSource = newValue
+            genres = GenreMapping.map(.text(newValue ?? "")).names
+        }
     }
 }

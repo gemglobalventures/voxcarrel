@@ -208,7 +208,9 @@ public final class LibraryService {
     func workingFile(
         at url: URL, format: FileFormat, role: FileRole, existing: BookFile? = nil, read: Bool = true
     ) -> WorkingFile {
-        let before = role == .extra || !read ? nil : try? metadataIO.read(url)
+        var before = role == .extra || !read ? nil : try? metadataIO.read(url)
+        // G18: what a file's tag comes to is for the library's list to say.
+        if let read = before?.metadata { before?.metadata = inLibrary(read) }
         var file = WorkingFile(url: url, format: format, role: role, existing: existing, before: before)
         if before != nil { file.trackBefore = try? metadataIO.readTrackTags(at: url) }
         file.writeProblem = existing?.writeProblem
@@ -259,6 +261,9 @@ public final class LibraryService {
     ) {
         guard file.role != .extra else { return }
         file.wasWritten = true
+        // The genres go into the file as the book keeps them.
+        var metadata = metadata
+        metadata.genres = GenreName.distinct(metadata.genres)
         do {
             let report = try metadataIO.write(metadata, cover: cover, part: part, to: file.url)
             file.writeProblem = nil
@@ -297,6 +302,28 @@ public final class LibraryService {
             }
             return !held.contains { $0.holds.contains(field) }
         }
+    }
+
+    /// The genre tag a book's files hold once an operation is done with them
+    /// (`Book.genreTag`): the book's genres as a tag, when every file that can hold a
+    /// genre was written by the operation and took it; otherwise `recorded`, what was
+    /// known before. So a book one of whose files could not be written is still known
+    /// to differ from its files.
+    static func genreTag(after files: [WorkingFile], of book: Book, recorded: String?) -> String? {
+        let holders = files.filter {
+            $0.role != .extra && FileMetadataIO.storableFields(for: $0.format).contains(.genre)
+        }
+        guard !holders.isEmpty, holders.allSatisfy({ $0.wasWritten && $0.holds.contains(.genre) }) else {
+            return recorded
+        }
+        return GenreTag.text(book.genres)
+    }
+
+    /// The genre tag of files being brought in, as they were read: that of the first,
+    /// in filing order, that has one.
+    static func genreTagRead(from files: [WorkingFile]) -> String? {
+        (files.filter { $0.role == .audio } + files.filter { $0.role == .ebook })
+            .lazy.compactMap { $0.before?.metadata.genreSource }.first
     }
 
     /// The database rows for a book's files, in the given order. A file that has not
@@ -422,7 +449,7 @@ public final class LibraryService {
             cover = undoImage(named: name, token: token).map { .set($0) } ?? .keep
         }
         try metadataIO.write(
-            state.metadataBefore, cover: cover, part: state.part, restoringTrack: state.trackBefore,
+            state.metadataBefore.asReadFromFile, cover: cover, part: state.part, restoringTrack: state.trackBefore,
             to: URL(fileURLWithPath: path))
     }
 

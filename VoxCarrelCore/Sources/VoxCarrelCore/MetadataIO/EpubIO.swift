@@ -125,7 +125,9 @@ enum EpubIO {
         m.language = e.language
         m.summary = e.summary
         m.isbn = e.isbn
-        m.genre = e.subjects.isEmpty ? nil : e.subjects.joined(separator: "; ")
+        // Each subject is one piece of the genre wording.
+        m.genreSource = GenreTag.text(e.subjects)
+        m.genres = GenreTag.genres(from: m.genreSource)
         return m
     }
 
@@ -141,7 +143,9 @@ enum EpubIO {
         e.language = m.language
         e.summary = m.summary
         e.isbn = m.isbn
-        e.subjects = (m.genre ?? "").components(separatedBy: ";")
+        // One subject for each genre. A name never holds a semicolon, but wording put
+        // back as a file had it may: it goes back as the subjects it was.
+        e.subjects = m.genres.flatMap { $0.components(separatedBy: ";") }
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         return e
     }

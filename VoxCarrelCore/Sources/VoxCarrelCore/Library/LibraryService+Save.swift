@@ -80,6 +80,14 @@ extension LibraryService {
         } catch {
             return .failed(Self.reason(for: error))
         }
+        var edit = edit
+        // G1: no genre twice, each spelled as the library's list has it. A new name
+        // that could not be told from two in a file's tag is refused.
+        edit.metadata.genres = listedGenres(edit.metadata.genres)
+        let added = edit.metadata.genres.filter { !book.genres.contains($0) }
+        if let name = added.first(where: { GenreName.valid($0) == nil }) {
+            return .failed("A genre's name cannot have a comma, a semicolon or a slash in it: \"\(name)\"")
+        }
         if rows.isEmpty { return prepareEditWithoutFiles(edit, book: book, into: &operation) }
 
         // E2: the facts about the files are not editable.
@@ -180,6 +188,7 @@ extension LibraryService {
             updated.appOnlyFields = fields
         }
         updated.metadata = metadata
+        if writesTags { updated.genreTag = Self.genreTag(after: files, of: updated, recorded: book.genreTag) }
         // The length is not editable, but what the files were just read to hold counts.
         if writesTags { updated.durationSeconds = Self.remeasuredDuration(files, recorded: book.durationSeconds) }
         Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)

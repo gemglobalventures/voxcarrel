@@ -15,7 +15,7 @@ import VoxCarrelFixtures
         m.narrators = ["Ray Porter", "Someone Else"]
         m.series = "The Expanse"
         m.seriesNumber = "2.5"
-        m.genre = "Science Fiction"
+        m.genres = ["Science Fiction"]
         m.year = 2021
         m.publisher = "Audible Studios"
         m.summary = "A placeholder summary for the tests.\nSecond line, with ünïcödé."
@@ -68,7 +68,8 @@ import VoxCarrelFixtures
         #expect(got.narrators == want.narrators, sourceLocation: sourceLocation)
         #expect(got.series == want.series, sourceLocation: sourceLocation)
         #expect(got.seriesNumber == want.seriesNumber, sourceLocation: sourceLocation)
-        #expect(got.genre == want.genre, sourceLocation: sourceLocation)
+        #expect(got.genres == want.genres, sourceLocation: sourceLocation)
+        #expect(got.genreSource == GenreTag.text(want.genres), sourceLocation: sourceLocation)
         #expect(got.year == want.year, sourceLocation: sourceLocation)
         #expect(got.publisher == want.publisher, sourceLocation: sourceLocation)
         #expect(got.summary == want.summary, sourceLocation: sourceLocation)
@@ -485,7 +486,8 @@ import VoxCarrelFixtures
             let got = try AudioTagIO.read(url).metadata
             #expect(got.authors == ["Alice Able", "Baker, Bob", "Carol Cho", "Dan Dee"], "\(name)")
             #expect(got.narrators == ["Ray Porter", "Jane Reader", "Joe Reader"], "\(name)")
-            #expect(got.genre == "Fantasy; Humour", "\(name)")
+            #expect(got.genres == ["Fantasy", "Humour"], "\(name)")
+            #expect(got.genreSource == "Fantasy; Humour", "\(name)")
 
             // Writing back what was read loses nobody; the tag becomes one joined value.
             try AudioTagIO.write(got, cover: .keep, part: nil, to: url)

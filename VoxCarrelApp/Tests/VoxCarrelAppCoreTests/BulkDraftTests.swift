@@ -14,7 +14,7 @@ import VoxCarrelCore
         book.narrators = narrators
         book.series = series
         book.seriesNumber = number
-        book.genre = genre
+        book.genres = genre.map { [$0] } ?? []
         book.year = year
         book.publisher = publisher
         book.language = language
@@ -81,7 +81,7 @@ import VoxCarrelCore
         #expect(edits.count == 2)
         for (edit, original) in zip(edits, books) {
             var expected = BookEdit(book: original)
-            expected.metadata.genre = "Fantasy"
+            expected.metadata.genres = ["Fantasy"]
             expected.metadata.authors = ["Cy Dee", "Le Guin, Ursula K."]
             expectSame(edit, expected)
         }
@@ -99,7 +99,8 @@ import VoxCarrelCore
             #expect(edit.metadata.authors == ["A One"])
             #expect(edit.metadata.narrators == ["N One", "N Two"])
             #expect(edit.metadata.series == "Saga")
-            #expect(edit.metadata.genre == "SF")
+            // What is typed is read as a file's genre tag would be.
+            #expect(edit.metadata.genres == ["Science Fiction"])
             #expect(edit.metadata.year == 1999)
             #expect(edit.metadata.publisher == "Ace")
             #expect(edit.metadata.language == "en")
@@ -154,7 +155,7 @@ import VoxCarrelCore
             #expect(edit.metadata.authors.isEmpty)  // K4: clearing authors is allowed
             #expect(edit.metadata.narrators.isEmpty)
             #expect(edit.metadata.series == nil)
-            #expect(edit.metadata.genre == nil)
+            #expect(edit.metadata.genres == [])
             #expect(edit.metadata.year == nil)
             #expect(edit.metadata.publisher == nil)
             #expect(edit.metadata.language == nil)

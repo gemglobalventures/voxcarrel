@@ -304,6 +304,8 @@ import VoxCarrelFixtures
         expected.folderPath = Self.glassFolder
         expected.durationSeconds = seconds  // X10
         expected.appOnlyFields = after.appOnlyFields
+        // The files now hold the book's genres, and the book records that they do.
+        expected.genreTag = "Science Fiction"
         #expect(after == expected)
         #expect(after.externalCopies == [Self.audible])
         #expect(after.needsAttention == false)
@@ -548,11 +550,11 @@ import VoxCarrelFixtures
         let f = try F()
         var catalogue = Self.catalogue("The Glass Tide", "Ines Calloway")
         catalogue.isbn = nil
-        catalogue.genre = "   "
+        catalogue.genres = ["   "]
         let id = try addAudible(f, catalogue)
         var fileTags = Self.rich("glass tide rip", "Unknown Artist")
         fileTags.narrators = ["Somebody Else"]
-        fileTags.genre = "Fantasy"
+        fileTags.genres = ["Fantasy"]
         fileTags.isbn = "9780000000002"
         fileTags.series = "Another Series"
         fileTags.seriesNumber = "9"
@@ -562,7 +564,9 @@ import VoxCarrelFixtures
 
         var expected = catalogue
         expected.durationSeconds = nil
-        expected.genre = "Fantasy"
+        // The genres come with the wording they had in the file.
+        expected.genres = ["Fantasy"]
+        expected.genreSource = "Fantasy"
         expected.isbn = "9780000000002"
         let after = try #require(try f.store.book(id: id))
         #expect(details(after) == expected)
@@ -660,10 +664,12 @@ import VoxCarrelFixtures
         let before = try #require(try f.store.book(id: id))
         var one = Self.rich("Long Book", "Ann Author")
         one.year = nil
-        one.genre = nil
+        one.genres = []
+        one.genreSource = nil
         var two = Self.rich("Long Book", "Ann Author")
         two.year = 1999
-        two.genre = "History"
+        two.genres = ["History"]
+        two.genreSource = "History"
         two.narrators = ["Second Voice"]
         let first = try f.makeMP3("long/part1.mp3", tags: one, seconds: 1)
         let second = try f.makeMP3("long/part2.mp3", tags: two, seconds: 2)
@@ -673,7 +679,8 @@ import VoxCarrelFixtures
 
         var expected = one
         expected.year = 1999
-        expected.genre = "History"
+        expected.genres = ["History"]
+        expected.genreSource = "History"
         let after = try #require(try f.store.book(id: id))
         #expect(details(after) == expected)
         #expect(after.durationSeconds == total)

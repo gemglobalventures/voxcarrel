@@ -188,7 +188,7 @@ public struct ImportReview: Equatable, Sendable {
                     case .number: metadata.seriesNumber
                     case .narrator: metadata.narrators.first
                     case .year: metadata.year.map(String.init)
-                    case .genre: metadata.genre
+                    case .genre: metadata.genres.first
                     case .publisher: metadata.publisher
                     case .language: metadata.language
                     case .kind: hasAudio ? "audio" : "no audio"
@@ -495,7 +495,7 @@ public struct ImportReview: Equatable, Sendable {
         tidy.narrators = metadata.narrators.compactMap(\.trimmedOrNil)
         tidy.series = metadata.series?.trimmedOrNil
         tidy.seriesNumber = metadata.seriesNumber?.trimmedOrNil
-        tidy.genre = metadata.genre?.trimmedOrNil
+        tidy.genres = metadata.genres.compactMap(\.trimmedOrNil)
         tidy.publisher = metadata.publisher?.trimmedOrNil
         tidy.summary = metadata.summary?.trimmedOrNil
         tidy.language = metadata.language?.trimmedOrNil

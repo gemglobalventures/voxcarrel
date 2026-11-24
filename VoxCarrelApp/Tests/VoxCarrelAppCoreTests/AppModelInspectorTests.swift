@@ -230,8 +230,8 @@ import VoxCarrelFixtures
     private func books() -> [Book] {
         var a = fullBook(id: 1, title: "A")
         var b = fullBook(id: 2, title: "B")
-        a.genre = "Fantasy"
-        b.genre = "Fantasy"
+        a.genres = ["Fantasy"]
+        b.genres = ["Fantasy"]
         a.publisher = "Gollancz"
         b.publisher = "Corgi"
         a.tags = ["funny"]
@@ -288,7 +288,7 @@ import VoxCarrelFixtures
         #expect(draft.values[.genre] == "")
         #expect(draft.isDirty)
         #expect(draft.note(for: .genre) == "Will be cleared on 2 books")
-        #expect(draft.makeEdits()?.map(\.metadata.genre) == [nil, nil])
+        #expect(draft.makeEdits()?.map(\.metadata.genres) == [[], []])
 
         draft.setText("  ", for: .authors)
         #expect(draft.note(for: .authors) == "Will be cleared on 2 books")
@@ -385,7 +385,7 @@ import VoxCarrelFixtures
         #expect(h.model.inspectorEditedText == "Edited · not saved")
 
         // Typed back to what it was: nothing to save, nothing to mark.
-        h.model.updateDraft { $0.genre = $0.original.genre ?? "" }
+        h.model.updateDraft { $0.genre = $0.original.genres.joined(separator: ", ") }
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)
 

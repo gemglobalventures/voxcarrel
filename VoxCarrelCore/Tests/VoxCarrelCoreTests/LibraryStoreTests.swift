@@ -11,7 +11,7 @@ import VoxCarrelFixtures
     func hailMary() -> BookMetadata {
         var m = BookMetadata(title: "Project Hail Mary", authors: ["Andy Weir"])
         m.narrators = ["Ray Porter"]
-        m.genre = "Science Fiction"
+        m.genres = ["Science Fiction"]
         m.year = 2021
         m.durationSeconds = 58_200
         m.pageCount = 496
@@ -22,7 +22,7 @@ import VoxCarrelFixtures
         var m = BookMetadata(title: "Dune", authors: ["Frank Herbert"])
         m.series = "Dune"
         m.seriesNumber = "1"
-        m.genre = "Science Fiction"
+        m.genres = ["Science Fiction"]
         return m
     }
 
@@ -206,7 +206,7 @@ import VoxCarrelFixtures
         try store.insert(Book(metadata: hailMary()), files: [])
         try store.insert(Book(metadata: dune()), files: [])
         var coAuthored = BookMetadata(title: "Good Omens", authors: ["Terry Pratchett", "Andy Weir"])
-        coAuthored.genre = "Fantasy"
+        coAuthored.genres = ["Fantasy"]
         try store.insert(Book(metadata: coAuthored), files: [])
 
         #expect(try store.distinctValues(.authors) == ["Andy Weir", "Frank Herbert", "Terry Pratchett"])

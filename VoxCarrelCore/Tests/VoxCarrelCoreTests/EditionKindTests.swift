@@ -572,7 +572,7 @@ private let bbcShort = found(
         let id = try importBook(f)
         try set(f, id, hours: 18, kind: byHand)
         var edit = BookEdit(book: try #require(try f.store.book(id: id)))
-        edit.metadata.genre = "Thriller"
+        edit.metadata.genres = ["Thriller"]
         _ = try f.service.save([edit])
         #expect(try kind(f, id) == byHand)
         // And "not known" can be chosen again.

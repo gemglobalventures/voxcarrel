@@ -9,7 +9,7 @@ func fullBook(id: Int64 = 7, title: String = "Good Omens") -> Book {
     metadata.narrators = ["Martin Jarvis"]
     metadata.series = "Standalones"
     metadata.seriesNumber = "1.5"
-    metadata.genre = "Fantasy"
+    metadata.genres = ["Fantasy"]
     metadata.year = 1990
     metadata.publisher = "Gollancz"
     metadata.summary = "The world will end on Saturday."

@@ -187,8 +187,8 @@ import VoxCarrelFixtures
         #expect(byAuthor.map(\.book.title) == ["Harbour of Glass", "Salt Road", "The Drowned Bell"])
         let secondAuthor = try await library.worker.rows(for: .browse(.authors, "Daniel Brandt"), search: "")
         #expect(secondAuthor.map(\.book.title) == ["Two Hands on the Wheel"])
-        let byGenre = try await library.worker.rows(for: .browse(.genre, "Poetry"), search: "")
-        #expect(byGenre.map(\.book.title) == ["Quiet Rivers"])
+        let byGenre = try await library.worker.rows(for: .browse(.genre, "Science & Nature"), search: "")
+        #expect(byGenre.map(\.book.title) == ["A Field Guide to Small Hours"])
 
         let favourites = try #require(try library.store.collections().first { $0.name == "Favourites" }?.id)
         let inCollection = try await library.worker.rows(for: .collection(favourites), search: "")
@@ -302,7 +302,7 @@ import VoxCarrelFixtures
         #expect(sidebar.browse[.series] == ["Tidewater Chronicles"])
         #expect(sidebar.browse[.authors]?.contains("Daniel Brandt") == true)
         #expect(sidebar.browse[.authors]?.count == 10)
-        #expect(sidebar.browse[.genre]?.contains("Poetry") == true)
+        #expect(sidebar.browse[.genre]?.contains("Science & Nature") == true)
         #expect(sidebar.browse[.narrators]?.contains("Tom Hale") == true)
         #expect(sidebar.collections.map(\.name) == ["Favourites", "Holiday Listening"])
         #expect(sidebar.collections == (try library.store.collections()))
@@ -312,12 +312,12 @@ import VoxCarrelFixtures
     @Test func sidebarBrowseOmitsBlankValues() async throws {
         let library = try emptyLibrary()
         try insert(library.store, "One", authors: ["", "zoe", "  "]) {
-            $0.genre = "   "
+            $0.genres = ["   "]
             $0.series = ""
             $0.narrators = ["Bob"]
         }
         try insert(library.store, "Two", authors: ["Adam"]) {
-            $0.genre = "Fantasy"
+            $0.genres = ["Fantasy"]
             $0.series = "saga"
             $0.narrators = ["alice", ""]
         }

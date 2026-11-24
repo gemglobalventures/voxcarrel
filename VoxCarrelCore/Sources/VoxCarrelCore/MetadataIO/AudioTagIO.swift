@@ -98,7 +98,7 @@ enum AudioTagIO {
             t.narrators = raw.names("©nrt", "©wrt")
             t.series = raw.first(free + "SERIES", "©mvn")
             t.seriesNumber = raw.first(free + "SERIES-PART", "©mvi")
-            t.genre = NameList.join(raw.values("©gen"))
+            t.genreSource = NameList.join(raw.values("©gen"))
             t.year = raw.first("©day").flatMap(leadingYear)
             t.publisher = raw.first("©pub", free + "PUBLISHER")
             t.summary = raw.first("ldes", "desc", "©cmt")
@@ -113,7 +113,7 @@ enum AudioTagIO {
             t.narrators = raw.names("TCOM", "TXXX:NARRATOR")
             t.series = raw.first("TXXX:SERIES", "MVNM")
             t.seriesNumber = raw.first("TXXX:SERIES-PART", "MVIN")
-            t.genre = NameList.join(raw.values("TCON"))
+            t.genreSource = NameList.join(raw.values("TCON"))
             t.year = raw.first("TDRC", "TYER").flatMap(leadingYear)
             t.publisher = raw.first("TPUB")
             t.summary = raw.first("TXXX:DESCRIPTION", "COMM")
@@ -122,6 +122,8 @@ enum AudioTagIO {
             t.asin = raw.first("TXXX:ASIN")
             grouping = raw.first("GRP1", "TIT1")
         }
+        // The tag is kept as it stands; what it comes to on its own is the mapping's to say.
+        t.genres = GenreTag.genres(from: t.genreSource)
         // Grouping is a series only in the "Name #N" form; a bare grouping ("Fiction") is not.
         if t.series == nil, let grouping, grouping.contains("#") {
             (t.series, t.seriesNumber) = parseGrouping(grouping)
@@ -252,7 +254,7 @@ enum AudioTagIO {
             put(free + "SERIES", metadata.series); put(free + "SERIES-PART", metadata.seriesNumber)
             put("©mvn", metadata.series); put("©mvi", wholeNumber) // ©mvi is an integer atom
             put("©grp", grouping)
-            put("©gen", metadata.genre)
+            put("©gen", GenreTag.text(metadata.genres))
             put("©pub", metadata.publisher); put(free + "PUBLISHER", metadata.publisher)
             put("desc", metadata.summary); put("ldes", metadata.summary)
             put(free + "LANGUAGE", metadata.language)
@@ -268,7 +270,7 @@ enum AudioTagIO {
             put("TXXX:SERIES", metadata.series); put("TXXX:SERIES-PART", metadata.seriesNumber)
             put("MVNM", metadata.series); put("MVIN", wholeNumber)
             put("GRP1", grouping)
-            put("TCON", metadata.genre)
+            put("TCON", GenreTag.text(metadata.genres))
             put("TPUB", metadata.publisher)
             put("TXXX:DESCRIPTION", metadata.summary)
             put("TLAN", metadata.language)
