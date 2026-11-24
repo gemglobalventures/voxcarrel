@@ -349,7 +349,9 @@ extension CandidateBook {
         }
     }
 
-    @Test func audiobookWithSeveralMatchesIsLeftForTheUserWhicheverIsScannedFirst() throws {
+    // The ebook and the PDF are one book's forms (same title, same author), so the
+    // audiobook has one match and takes both.
+    @Test func audiobookWithItsEbookInTwoFormsIsOneBookWhicheverIsScannedFirst() throws {
         for folders in [["a", "b", "c"], ["c", "a", "b"], ["b", "c", "a"]] {
             let root = try makeTempDir()
             try touch(root.appendingPathComponent("\(folders[0])/H - Dune.m4b"))
@@ -358,8 +360,9 @@ extension CandidateBook {
 
             let result = BookScanner().scan([root])
 
-            #expect(Set(result.candidates.map(\.summary))
-                == [["H - Dune.m4b:audio"], ["H - Dune.epub:ebook"], ["H - Dune.pdf:ebook"]])
+            #expect(result.candidates.count == 1)
+            #expect(Set(result.candidates.first?.summary ?? [])
+                == ["H - Dune.m4b:audio", "H - Dune.epub:ebook", "H - Dune.pdf:ebook"])
         }
     }
 

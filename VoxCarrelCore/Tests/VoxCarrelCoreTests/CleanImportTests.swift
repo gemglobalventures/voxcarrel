@@ -228,4 +228,70 @@ import VoxCarrelFixtures
         try Data("<not xml".utf8).write(to: shelf.appendingPathComponent("broken.opf"))
         #expect(Sidecar.details(at: shelf.appendingPathComponent("broken.opf")) == nil)
     }
+
+    // MARK: The same file, and the same book, twice
+
+    @Test func CI9_aFileThatIsACopyOfAnotherIsNotABookOfItsOwn() throws {
+        let root = try makeTempDir()
+        let shelf = root.appendingPathComponent("Shelf", isDirectory: true)
+        let first = shelf.appendingPathComponent("How to Day Trade - Andrew Aziz.epub")
+        let copy = shelf.appendingPathComponent("14 items/How to Day Trade - Andrew Aziz.epub")
+        let renamed = shelf.appendingPathComponent("14 items/htdt.epub")
+        let other = shelf.appendingPathComponent("Another Book - Ann Author.epub")
+        try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let same = Data(repeating: 7, count: 5000)
+        try same.write(to: first)
+        try same.write(to: copy)
+        try same.write(to: renamed)
+        try Data(repeating: 9, count: 5000).write(to: other)   // the same size, not the same
+
+        let result = BookScanner().scan([shelf])
+        #expect(result.candidates.count == 2)
+        let kept = try #require(result.candidates.first { $0.metadata.title.contains("Day Trade") || $0.files.count == 1 && $0.copies.count == 2 })
+        #expect(kept.files.count == 1)
+        #expect(Set(kept.copies.map(\.lastPathComponent)) == ["How to Day Trade - Andrew Aziz.epub", "htdt.epub"])
+        #expect(result.candidates.contains { $0.files[0].url.lastPathComponent == other.lastPathComponent && $0.copies.isEmpty })
+        // The result does not depend on how often it is asked for.
+        #expect(BookScanner().scan([shelf]) == result)
+    }
+
+    @Test func CI9_emptyFilesAndUnreadableOnesAreNeverCalledCopies() throws {
+        let root = try makeTempDir()
+        try touch(root.appendingPathComponent("Shelf/A - Ann Author.epub"))
+        try touch(root.appendingPathComponent("Shelf/B - Bob Writer.epub"))
+        let result = BookScanner().scan([root.appendingPathComponent("Shelf")])
+        #expect(result.candidates.count == 2)
+        #expect(result.candidates.allSatisfy { $0.copies.isEmpty })
+        #expect(BookScanner.fingerprint(of: root.appendingPathComponent("missing")) == nil)
+    }
+
+    @Test func CI10_theSameBookFoundTwiceIsOneBookWithItsForms() throws {
+        let root = try makeTempDir()
+        let shelf = root.appendingPathComponent("Shelf", isDirectory: true)
+        func write(_ path: String, _ text: String) throws {
+            let url = shelf.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        try write("Mark Mcrae - Sure Fire Forex Trading.pdf", "one")
+        // (Small files are never compared, so these stand for three different files.)
+        try write("More/Mark McRae - Sure Fire Forex Trading (Unabridged).pdf", "two!")
+        try write("More/Mark Mcrae - Sure Fire Forex Trading.epub", "three")
+        try write("Mark Mcrae - Another Title.pdf", "four")
+
+        let result = BookScanner().scan([shelf])
+        #expect(result.candidates.count == 2)
+        let joined = try #require(result.candidates.first { $0.files.count == 3 })
+        #expect(Set(joined.files.map { $0.url.pathExtension }) == ["pdf", "epub"])
+        #expect(joined.files.allSatisfy { $0.role != .audio })
+    }
+
+    @Test func CI10_twoAudiobooksOfOneTitleStayTwo() throws {
+        let root = try makeTempDir()
+        try touch(root.appendingPathComponent("Shelf/One/Ann Author - Dune.m4b"))
+        try touch(root.appendingPathComponent("Shelf/Two/Ann Author - Dune.m4b"))
+        try Data("a".utf8).write(to: root.appendingPathComponent("Shelf/One/Ann Author - Dune.m4b"))
+        try Data("bb".utf8).write(to: root.appendingPathComponent("Shelf/Two/Ann Author - Dune.m4b"))
+        #expect(BookScanner().scan([root.appendingPathComponent("Shelf")]).candidates.count == 2)
+    }
 }

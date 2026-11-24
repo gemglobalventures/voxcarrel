@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Reads descriptive metadata from one file. Format-specific readers arrive in Plan 2.
@@ -18,6 +19,10 @@ public struct CandidateBook: Equatable, Sendable {
 
     /// A picture of the cover found beside the book, for when its files hold none.
     public var coverBeside: URL?
+
+    /// Files found in the same scan that are byte for byte the same as one of this
+    /// book's files. They are not imported: one copy is enough.
+    public var copies: [URL] = []
 
     public init(
         files: [CandidateFile], metadata: BookMetadata, sourceFolder: URL? = nil, guessNotes: GuessNotes = []
@@ -93,7 +98,7 @@ public struct BookScanner {
                      subfoldersHaveBooks: false, into: &result)
         }
 
-        finish(&result)
+        finish(&result, tidying: true)
         return result
     }
 
@@ -141,13 +146,18 @@ public struct BookScanner {
         }
         addFiles(loose, folder: nil, subfoldersHaveAudio: false, subfoldersHaveBooks: false, into: &result)
 
-        finish(&result)
+        finish(&result, tidying: false)
         return result
     }
 
     /// Merges candidates that are one book, and puts each one's files in order.
-    private func finish(_ result: inout ScanResult) {
-        result.candidates = mergeMatching(result.candidates).map { candidate in
+    ///
+    /// - Parameter tidying: True for what the owner asked to have scanned: files that
+    ///   are copies of others are set aside and the same book found twice is one. A
+    ///   watch folder's check leaves both alone, since it keeps account of every file.
+    private func finish(_ result: inout ScanResult, tidying: Bool) {
+        let found = tidying ? joinSameBook(Self.withoutCopies(result.candidates)) : result.candidates
+        result.candidates = mergeMatching(found).map { candidate in
             var sorted = candidate
             sorted.files = [FileRole.audio, .ebook, .extra].flatMap { role in
                 candidate.files.filter { $0.role == role }
@@ -531,6 +541,95 @@ public struct BookScanner {
         return merged.compactMap { $0 }
     }
 
+    // MARK: The same file, and the same book, found twice
+
+    /// What tells two files with the same bytes from two that differ: the size, and a
+    /// digest of the contents (of the first and last 4 MB for a file larger than 64 MB,
+    /// which is as much as two different audiobooks of one length could share by
+    /// chance). Nil for a file that cannot be read.
+    static func fingerprint(of url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return nil }
+        var hash = Fingerprint()
+        let whole: UInt64 = 64 * 1024 * 1024, edge: UInt64 = 4 * 1024 * 1024
+        func feed(from start: UInt64, count: UInt64) -> Bool {
+            guard (try? handle.seek(toOffset: start)) != nil else { return false }
+            var left = count
+            while left > 0 {
+                guard let chunk = try? handle.read(upToCount: Int(min(left, 1024 * 1024))), !chunk.isEmpty else { return false }
+                hash.add(chunk)
+                left -= UInt64(chunk.count)
+            }
+            return true
+        }
+        if size <= whole {
+            guard feed(from: 0, count: size) else { return nil }
+        } else {
+            guard feed(from: 0, count: edge), feed(from: size - edge, count: edge) else { return nil }
+        }
+        return "\(size):\(hash.value)"
+    }
+
+    /// The candidates with every file that is a copy of an earlier one taken out and
+    /// noted as a copy on the book that keeps the first. A candidate left with no
+    /// file is dropped. Only files of the same size are read to be compared.
+    static func withoutCopies(_ candidates: [CandidateBook]) -> [CandidateBook] {
+        var sizes: [Int: Int] = [:]
+        // Anything smaller than this is no book, and says nothing by being the same.
+        let smallest = 4096
+        func size(_ url: URL) -> Int? { (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize }
+        for candidate in candidates {
+            for file in candidate.files { if let s = size(file.url), s >= smallest { sizes[s, default: 0] += 1 } }
+        }
+        var out = candidates
+        // The candidate that holds the first file with each fingerprint.
+        var first: [String: Int] = [:]
+        for index in out.indices {
+            var kept: [CandidateFile] = []
+            for file in out[index].files {
+                guard let s = size(file.url), s >= smallest, sizes[s, default: 0] > 1,
+                      let print = fingerprint(of: file.url)
+                else {
+                    kept.append(file)
+                    continue
+                }
+                // The parts of one book are never copies of one another.
+                if let owner = first[print], owner != index {
+                    out[owner].copies.append(file.url)
+                } else {
+                    first[print] = first[print] ?? index
+                    kept.append(file)
+                }
+            }
+            out[index].files = kept
+        }
+        return out.filter { !$0.files.isEmpty }
+    }
+
+    /// Joins candidates with no audio that are the same book: the same first author
+    /// and the same title, edition words aside. Their files go
+    /// together as the forms of one book, under the details of the first found.
+    /// Audiobooks are never joined to one another: two of one title are two editions.
+    private func joinSameBook(_ candidates: [CandidateBook]) -> [CandidateBook] {
+        var out: [CandidateBook?] = candidates
+        var firstByKey: [String: Int] = [:]
+        for (index, candidate) in candidates.enumerated() where !candidate.hasAudio {
+            // Not by Audible ID alone: a book's map and its glossary share one.
+            let keys = [matchKey(candidate).map { "name:" + $0 }].compactMap { $0 }
+            if let owner = keys.compactMap({ firstByKey[$0] }).first, var kept = out[owner] {
+                kept.files += candidate.files
+                kept.copies += candidate.copies
+                kept.coverBeside = kept.coverBeside ?? candidate.coverBeside
+                out[owner] = kept
+                out[index] = nil
+            } else {
+                for key in keys { firstByKey[key] = index }
+            }
+        }
+        return out.compactMap { $0 }
+    }
+
     /// Nil when the candidate has no Audible ID.
     private func audibleIDKey(_ candidate: CandidateBook) -> String? {
         let id = (candidate.metadata.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -544,4 +643,11 @@ public struct BookScanner {
         guard !title.isEmpty, !author.isEmpty else { return nil }
         return title + "\u{0}" + author
     }
+}
+
+/// A running digest of a file's contents.
+private struct Fingerprint {
+    private var hasher = SHA256()
+    mutating func add(_ data: Data) { hasher.update(data: data) }
+    var value: String { hasher.finalize().map { String(format: "%02x", $0) }.joined() }
 }
