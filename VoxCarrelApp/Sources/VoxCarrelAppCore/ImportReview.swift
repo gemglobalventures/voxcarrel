@@ -223,6 +223,11 @@ public struct ImportReview: Equatable, Sendable {
 
     public var entries: [Entry]
     public var skipped: [URL]
+    /// How many of the files that were read the library already has, byte for byte.
+    /// They are not among the entries.
+    public var alreadyInLibrary = 0
+    /// Which entries the list shows.
+    public var filter: Filter = .all
     public var copyInsteadOfMove: Bool
     /// How the library the books are going into files its books. The review reads
     /// nothing, so whoever makes it for a library gives it that library's pattern.
@@ -243,8 +248,9 @@ public struct ImportReview: Equatable, Sendable {
 
     public init(
         seeds: [ImportSeed], skipped: [URL], copyInsteadOfMove: Bool, moveOnly: Bool = false,
-        isFromInbox: Bool = false, inboxNote: String? = nil
+        isFromInbox: Bool = false, inboxNote: String? = nil, alreadyInLibrary: Int = 0
     ) {
+        self.alreadyInLibrary = alreadyInLibrary
         self.isFromInbox = isFromInbox
         self.inboxNote = inboxNote
         entries = seeds.map { seed in

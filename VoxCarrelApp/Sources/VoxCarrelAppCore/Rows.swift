@@ -193,6 +193,14 @@ public struct SidebarData: Equatable, Sendable {
 }
 
 /// A scanned candidate with what the review sheet needs to show beside it.
+/// What reading the files to import found.
+public struct ImportScan: Equatable, Sendable {
+    public var seeds: [ImportSeed]
+    public var skipped: [URL]
+    /// Files the library already has, byte for byte: not offered again.
+    public var alreadyInLibrary: [URL] = []
+}
+
 public struct ImportSeed: Equatable, Sendable {
     public var candidate: CandidateBook
     /// Found in the candidate's files, or failing that beside them.

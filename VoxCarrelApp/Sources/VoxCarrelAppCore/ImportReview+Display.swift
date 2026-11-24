@@ -181,6 +181,11 @@ extension ImportReview {
     /// be imported. Empty when there is nothing to say.
     public var tidyingLines: [String] {
         var lines: [String] = []
+        if alreadyInLibrary == 1 {
+            lines.append("1 file is already in your library and is left where it is.")
+        } else if alreadyInLibrary > 1 {
+            lines.append("\(Self.count(alreadyInLibrary)) files are already in your library and are left where they are.")
+        }
         let copies = entries.reduce(0) { $0 + $1.candidate.copies.count }
         if copies == 1 {
             lines.append("1 file is a copy of another and is left where it is.")
@@ -201,7 +206,69 @@ extension ImportReview {
         return lines
     }
 
-    /// Endings of book files VoxCarrel cannot import, with what to call them.
+    /// What is said when every file that was read is in the library already.
+    public static func allAlreadyInLibrary(_ files: Int) -> String {
+        files == 1
+            ? "That file is already in your library. Nothing was imported."
+            : "All \(count(files)) of those files are already in your library. Nothing was imported."
+    }
+
+    static func count(_ value: Int) -> String { StatusBarText.number(value) }
+
+    // MARK: Showing only some of the entries
+
+    /// Which entries the list shows.
+    public enum Filter: String, CaseIterable, Sendable {
+        case all, questions, ready
+
+        public var title: String {
+            switch self {
+            case .all: "All"
+            case .questions: "To Check"
+            case .ready: "Ready"
+            }
+        }
+    }
+
+    /// True for an entry there is something to check about: it has a question, or a
+    /// status that is not simply ready.
+    public func needsALook(_ id: UUID) -> Bool {
+        question(of: id) != nil || status(of: id) != nil
+    }
+
+    /// The entries the list shows under `filter`, in their order.
+    public var shownEntries: [Entry] {
+        switch filter {
+        case .all: entries
+        case .questions: entries.filter { needsALook($0.id) }
+        case .ready: entries.filter { !needsALook($0.id) }
+        }
+    }
+
+    /// "All (106)", "To Check (10)", "Ready (96)".
+    public func title(of filter: Filter) -> String {
+        let number: Int
+        switch filter {
+        case .all: number = entries.count
+        case .questions: number = entries.filter { needsALook($0.id) }.count
+        case .ready: number = entries.filter { !needsALook($0.id) }.count
+        }
+        return "\(filter.title) (\(Self.count(number)))"
+    }
+
+    /// The filter is worth showing once there are enough entries to lose one's place
+    /// in, and something to tell apart.
+    public var offersFilter: Bool {
+        entries.count >= 8 && entries.contains { needsALook($0.id) }
+    }
+
+    /// Ticks or unticks every entry the list shows, and no other.
+    public mutating func setIncluded(_ included: Bool, forShown: Void = ()) {
+        let shown = Set(shownEntries.map(\.id))
+        for index in entries.indices where shown.contains(entries[index].id) { entries[index].included = included }
+    }
+
+    /// Endings of book files VoxCarrel cannot import, with what to call them.    /// Endings of book files VoxCarrel cannot import, with what to call them.
     static let unreadableBookKinds: [(ending: String, name: String)] = [
         ("djvu", "DjVu"), ("doc", "Word"), ("docx", "Word"), ("prc", "PRC"), ("lit", "LIT"), ("fb2", "FB2"),
         ("cbz", "comic"), ("cbr", "comic"), ("chm", "CHM"), ("rtf", "RTF"), ("kfx", "KFX"), ("azw", "AZW"),

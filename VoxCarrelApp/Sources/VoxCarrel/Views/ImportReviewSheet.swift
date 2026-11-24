@@ -100,8 +100,41 @@ private struct EntryList: View {
     var body: some View {
         // A row in the list does not read the model itself: it is handed what it does.
         let model = model
+        VStack(spacing: 0) {
+            if review.offersFilter {
+                HStack(spacing: 8) {
+                    Picker("Show", selection: Binding(
+                        get: { review.filter },
+                        set: { chosen in model.updateReview { $0.filter = chosen } })) {
+                        ForEach(ImportReview.Filter.allCases, id: \.self) { filter in
+                            Text(review.title(of: filter)).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accessibilityIdentifier("review.filter")
+                    Menu {
+                        Button("Tick All Shown") { model.updateReview { $0.setIncluded(true) } }
+                        Button("Untick All Shown") { model.updateReview { $0.setIncluded(false) } }
+                    } label: {
+                        Image(systemName: "checklist")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Tick or untick every book shown")
+                    .accessibilityIdentifier("review.filter.tickMenu")
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                Divider()
+            }
+            entryList(model)
+        }
+    }
+
+    private func entryList(_ model: AppModel) -> some View {
         List(selection: $selection) {
-            ForEach(Array(review.entries.enumerated()), id: \.element.id) { index, entry in
+            ForEach(Array(review.shownEntries.enumerated()), id: \.element.id) { index, entry in
                 EntryRow(
                     entry: entry, status: review.status(of: entry.id), question: review.question(of: entry.id),
                     index: index, isSelected: selection.contains(entry.id),

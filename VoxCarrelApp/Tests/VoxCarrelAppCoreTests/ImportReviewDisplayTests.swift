@@ -722,4 +722,46 @@ import VoxCarrelCore
         #expect(r.entries[0].coverChanged)
         #expect(!r.entries[1].coverChanged)
     }
+
+    // MARK: Files the library already has, and showing only some entries
+
+    @Test func CI16_filesTheLibraryAlreadyHasAreSaidAndNotOffered() {
+        var r = ImportReview(
+            seeds: [seed("A", files: [file("a.epub")])], skipped: [], copyInsteadOfMove: false, alreadyInLibrary: 12)
+        #expect(r.tidyingLines.first == "12 files are already in your library and are left where they are.")
+        r.alreadyInLibrary = 1
+        #expect(r.tidyingLines.first == "1 file is already in your library and is left where it is.")
+        r.alreadyInLibrary = 0
+        #expect(r.tidyingLines.isEmpty)
+        #expect(ImportReview.allAlreadyInLibrary(1) == "That file is already in your library. Nothing was imported.")
+        #expect(ImportReview.allAlreadyInLibrary(1200) == "All 1,200 of those files are already in your library. Nothing was imported.")
+    }
+
+    @Test func CI17_theListCanShowOnlyWhatNeedsALook() {
+        var seeds = (1...9).map { seed("Book \($0)", files: [file("b\($0).epub")]) }
+        // One the library may already have: it carries a question.
+        seeds.append(seed("Atlas", files: [file("atlas.epub")], match: libraryBook("Atlas")))
+        seeds[9].matchStrength = .possible
+        var r = review(seeds)
+        let asked = r.entries.filter { r.needsALook($0.id) }.map(\.id)
+        #expect(asked.count == 1)
+        #expect(r.offersFilter)
+        #expect(r.title(of: .all) == "All (10)" && r.title(of: .questions) == "To Check (1)" && r.title(of: .ready) == "Ready (9)")
+        #expect(r.shownEntries.count == 10)
+        r.filter = .questions
+        #expect(r.shownEntries.map(\.id) == asked)
+        // Ticking and unticking reach the shown entries and no other.
+        r.setIncluded(false)
+        #expect(r.entries.filter { !$0.included }.map(\.id) == asked)
+        r.filter = .ready
+        #expect(r.shownEntries.count == 9 && r.shownEntries.allSatisfy { $0.included })
+        r.setIncluded(false)
+        #expect(r.entries.allSatisfy { !$0.included })
+        r.filter = .all
+        r.setIncluded(true)
+        #expect(r.entries.allSatisfy { $0.included })
+        // A short list, or one with nothing to tell apart, offers no filter.
+        #expect(!review(Array(seeds.prefix(9))).offersFilter)
+        #expect(!review([seeds[9]]).offersFilter)
+    }
 }

@@ -145,7 +145,42 @@ public final class LibraryService {
     public func scan(_ urls: [URL]) -> ScanResult {
         // G19: what a file's genre tag comes to is for the library's list to say.
         let reader = LibraryTagReader { [self] url in inLibrary(try metadataIO.readMetadata(at: url)) }
-        return BookScanner(reader: reader, known: (try? knownNames()) ?? .none).scan(urls)
+        var result = BookScanner(reader: reader, known: (try? knownNames()) ?? .none).scan(urls)
+        setAsideWhatTheLibraryHolds(in: &result)
+        return result
+    }
+
+    /// Takes out of a scan every file that is byte for byte the same as a file was
+    /// when it came into the library (`BookFile.arrivedPrint`), and lists it under
+    /// `alreadyInLibrary`; a candidate left with no audio and no ebook is dropped, its
+    /// extras with it. No library file is opened. A file kept in iCloud and not here
+    /// is not read, and a file that is itself the library's is no copy of it.
+    func setAsideWhatTheLibraryHolds(in result: inout ScanResult) {
+        guard let arrived = try? store.arrivedPrints(), !arrived.isEmpty,
+              let rows = try? store.allFiles()
+        else { return }
+        let own = Set(rows.filter { $0.bookId != nil }.map { Self.comparablePath(store.url(for: $0)) })
+        var kept: [CandidateBook] = []
+        for var candidate in result.candidates {
+            var files: [CandidateFile] = []
+            for file in candidate.files {
+                guard !own.contains(Self.comparablePath(file.url)), BookScanner.isOnThisMac(file.url),
+                      let print = BookScanner.fingerprint(of: file.url), arrived[print] != nil
+                else {
+                    files.append(file)
+                    continue
+                }
+                result.alreadyInLibrary.append(file.url)
+            }
+            candidate.files = files
+            if files.contains(where: { $0.role != .extra }) {
+                kept.append(candidate)
+            } else {
+                // What is left is only what came along with a book the library has.
+                result.alreadyInLibrary += files.map(\.url) + candidate.copies
+            }
+        }
+        result.candidates = kept
     }
 
     /// Every author and every title in the library, normalised for comparing
@@ -197,6 +232,9 @@ public final class LibraryService {
         var wasWritten = false
         /// The name the file had when it was first filed as an extra (`BookFile.originalName`).
         var originalName: String?
+        /// `BookFile.arrivedPrint`: as recorded, or for a file that is new to the
+        /// library as it is now, before anything is written into it.
+        var arrivedPrint: String?
         /// What is wrong with an MP3's length header: as just read, or, for a file the
         /// operation did not read, as recorded.
         var lengthProblem: LengthProblem?
@@ -217,6 +255,7 @@ public final class LibraryService {
         if before != nil { file.trackBefore = try? metadataIO.readTrackTags(at: url) }
         file.writeProblem = existing?.writeProblem
         file.originalName = existing?.originalName ?? (role == .extra ? url.lastPathComponent : nil)
+        file.arrivedPrint = existing != nil ? existing?.arrivedPrint : BookScanner.fingerprint(of: url)
         file.holdsCover = before?.cover != nil
         file.lengthProblem = before.map(\.lengthProblem) ?? existing?.lengthProblem
         // Until it is written, a file is taken to hold what its format can, unless the
@@ -338,6 +377,7 @@ public final class LibraryService {
                 position: index)
             row.writeProblem = file.writeProblem
             row.originalName = file.originalName
+            row.arrivedPrint = file.arrivedPrint
             row.lengthProblem = file.role == .audio ? file.lengthProblem : nil
             if file.role == .audio {
                 if let before = file.before {

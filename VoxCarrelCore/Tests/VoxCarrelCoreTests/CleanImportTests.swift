@@ -388,4 +388,30 @@ import VoxCarrelFixtures
         #expect(FilenameParser.downloadSiteName("Spider-Man 2002") == nil)
         #expect(FilenameParser.downloadSiteName("Frank Herbert-Dune 1965") == nil)   // no number before it: left alone
     }
+
+    // MARK: Files the library already has
+
+    @Test func CI16_aFileTheLibraryAlreadyHasIsNotOfferedAgain() throws {
+        let f = try LibraryFixture()
+        let first = try f.makeEPUB("Shelf/First.epub")
+        let candidate = try #require(f.service.scan([first]).candidates.first)
+        _ = try f.service.importItems([ImportItem(candidate: candidate)], options: ImportOptions(mode: .copy))
+
+        // The same bytes under another name, and beside them a book the library lacks.
+        let again = f.inbox.appendingPathComponent("Later/the same book.epub")
+        try FileManager.default.createDirectory(at: again.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: first, to: again)
+        let other = f.inbox.appendingPathComponent("Later/Ann Author - Something Else.epub")
+        try Data(repeating: 3, count: 6000).write(to: other)
+
+        let result = f.service.scan([again.deletingLastPathComponent()])
+        #expect(result.alreadyInLibrary.map(\.lastPathComponent) == ["the same book.epub"])
+        #expect(result.candidates.count == 1)
+        #expect(result.candidates.first?.files.first?.url.lastPathComponent == other.lastPathComponent)
+        // Nothing was changed by looking.
+        #expect(FileManager.default.fileExists(atPath: again.path))
+        // The library's own files are not copies of themselves.
+        let own = try f.store.allFiles().map { f.store.url(for: $0) }
+        #expect(f.service.scan(own).alreadyInLibrary.isEmpty)
+    }
 }

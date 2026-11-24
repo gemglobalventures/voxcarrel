@@ -74,7 +74,9 @@ extension AppModel {
         else { return }
         do {
             let scan = try await untracked ? worker.prepareImport(untracked: urls) : worker.prepareImport(urls)
-            if scan.seeds.isEmpty {
+            if scan.seeds.isEmpty, !scan.alreadyInLibrary.isEmpty {
+                alert = ImportReview.allAlreadyInLibrary(scan.alreadyInLibrary.count)
+            } else if scan.seeds.isEmpty {
                 alert = Self.nothingFound(skipped: scan.skipped.count)
             } else {
                 // Files that are in the library already are moved into place: a copy
@@ -85,7 +87,7 @@ extension AppModel {
                 await openReview(
                     ImportReview(
                         seeds: scan.seeds, skipped: scan.skipped, copyInsteadOfMove: copyOnImport,
-                        moveOnly: moveOnly))
+                        moveOnly: moveOnly, alreadyInLibrary: scan.alreadyInLibrary.count))
             }
             // Reading changes nothing in the library, so there is nothing to reload.
             busyLabel = nil

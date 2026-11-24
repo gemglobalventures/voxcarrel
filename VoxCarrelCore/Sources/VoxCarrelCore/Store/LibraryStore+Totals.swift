@@ -9,4 +9,18 @@ extension LibraryStore {
             try Double.fetchOne(db, sql: "SELECT COALESCE(SUM(durationSeconds), 0) FROM book") ?? 0
         }
     }
+
+    /// The fingerprints files had when they came into the library, each with the book
+    /// that has the file.
+    public func arrivedPrints() throws -> [String: Int64] {
+        try dbQueue.read { db in
+            var found: [String: Int64] = [:]
+            let rows = try Row.fetchAll(
+                db, sql: "SELECT arrivedPrint, bookId FROM bookFile WHERE arrivedPrint IS NOT NULL AND bookId IS NOT NULL")
+            for row in rows {
+                if let print: String = row["arrivedPrint"], let book: Int64 = row["bookId"] { found[print] = book }
+            }
+            return found
+        }
+    }
 }

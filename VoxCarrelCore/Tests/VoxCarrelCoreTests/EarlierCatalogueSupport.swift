@@ -7,7 +7,8 @@ typealias EarlierRow = [String: DatabaseValue]
 
 /// The columns of the book table that the change to several genres (v12) renamed or
 /// added. They are left out of the comparison, and have tests of their own.
-private let genreColumns: Set<String> = ["genre", "genreSource", "genres", "genreTag"]
+/// So is the column v13 added to the file table, for what a file was when it arrived.
+private let genreColumns: Set<String> = ["genre", "genreSource", "genres", "genreTag", "arrivedPrint"]
 
 /// A table's rows in row order, the book table's genre columns left out.
 func earlierRows(_ db: Database, of table: String) throws -> [EarlierRow] {
@@ -19,7 +20,8 @@ func earlierRows(_ db: Database, of table: String) throws -> [EarlierRow] {
 }
 
 /// The tables whose definitions must read the same before and after, as an SQL list:
-/// every one but the book table, whose genre columns v12 changes.
+/// every one but the book table, whose genre columns v12 changes, and the file table,
+/// to which v13 adds a column.
 func earlierSchemaTables(_ tables: [String]) -> String {
-    tables.filter { $0 != "book" }.map { "'\($0)'" }.joined(separator: ",")
+    tables.filter { $0 != "book" && $0 != "bookFile" }.map { "'\($0)'" }.joined(separator: ",")
 }

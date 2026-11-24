@@ -49,6 +49,9 @@ public struct ScanResult: Equatable, Sendable {
     /// symlinks, paths that do not exist, folders that could not be read, and
     /// packages or folders named like a book file.
     public var skipped: [URL] = []
+    /// Files that are byte for byte the same as a file the library already has. They
+    /// are not offered: the book is there. Filled in only by a library's own scan.
+    public var alreadyInLibrary: [URL] = []
 
     public init() {}
 }

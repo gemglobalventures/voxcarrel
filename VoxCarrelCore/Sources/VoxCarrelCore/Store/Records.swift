@@ -419,6 +419,10 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     /// file was last read: the length counted for it is the one it states. It holds for
     /// the file as it was then (`UnmeasuredLength.describes`).
     public var lengthUnmeasured: UnmeasuredLength? = nil
+    /// What told this file from every other when it came into the library, before
+    /// anything was written into it (`BookScanner.fingerprint`): so that the same file
+    /// met again is known. Nil for a file that came in before this was kept.
+    public var arrivedPrint: String? = nil
 
     public init(path: String, format: FileFormat, role: FileRole, position: Int) {
         self.id = nil
@@ -445,6 +449,7 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
         // row, or an undo snapshot holding it, unreadable.
         lengthProblem = (try? c.decodeIfPresent(LengthProblem.self, forKey: .lengthProblem)) ?? nil
         lengthUnmeasured = (try? c.decodeIfPresent(UnmeasuredLength.self, forKey: .lengthUnmeasured)) ?? nil
+        arrivedPrint = (try? c.decodeIfPresent(String.self, forKey: .arrivedPrint)) ?? nil
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

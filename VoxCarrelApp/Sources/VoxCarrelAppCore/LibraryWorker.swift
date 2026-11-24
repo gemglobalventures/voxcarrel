@@ -446,11 +446,11 @@ public actor LibraryWorker {
     /// Scans what was dropped. Each candidate comes with the cover of its first audio or
     /// ebook file that has one (a file that cannot be read has none) and the library book
     /// it most likely belongs to.
-    public func prepareImport(_ urls: [URL]) throws -> (seeds: [ImportSeed], skipped: [URL]) {
+    public func prepareImport(_ urls: [URL]) throws -> ImportScan {
         let scan = service.scan(urls)
         let reader = FileMetadataIO()
         let seeds = try scan.candidates.map { try seed(for: $0, reader: reader) }
-        return (seeds, scan.skipped)
+        return ImportScan(seeds: seeds, skipped: scan.skipped, alreadyInLibrary: scan.alreadyInLibrary)
     }
 
     /// The candidate with what the review shows beside it.
@@ -495,7 +495,7 @@ public actor LibraryWorker {
     /// As `prepareImport(_:)` for files found loose in the library folder: a folder in
     /// which no library book has a file is scanned as a folder (`UntrackedInputs`), so
     /// that the parts of one audiobook are one candidate.
-    public func prepareImport(untracked files: [URL]) throws -> (seeds: [ImportSeed], skipped: [URL]) {
+    public func prepareImport(untracked files: [URL]) throws -> ImportScan {
         let tracked = try store.allFiles().map { store.url(for: $0) }
         return try prepareImport(
             UntrackedInputs.grouped(untracked: files, tracked: tracked, root: store.libraryRoot))
