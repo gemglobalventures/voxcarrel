@@ -103,9 +103,13 @@ public struct BulkDraft: Equatable, Sendable {
     /// GH27: the genres to add and to take away after a change to the library's list
     /// of genres: `follow` gives each name as it is now. A genre that is then both to
     /// be added and taken away is added.
-    mutating func followGenres(_ follow: ([String]) -> [String]) {
+    ///
+    /// A genre to take away that was merged into another (`merged`) is no longer taken
+    /// away at all: the books may have the other genre on their own.
+    mutating func followGenres(_ follow: ([String]) -> [String], merged: [String] = []) {
         genreAdds = follow(genreAdds)
-        genreRemoves = follow(genreRemoves).filter { !Self.holds(genreAdds, $0) }
+        genreRemoves = follow(genreRemoves.filter { !Self.holds(merged, $0) })
+            .filter { !Self.holds(genreAdds, $0) }
     }
 
     /// GH27: puts them back as they were before a change to the list that has been undone.

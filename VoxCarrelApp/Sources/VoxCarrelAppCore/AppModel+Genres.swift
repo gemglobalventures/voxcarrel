@@ -123,6 +123,8 @@ struct GenreNameChange: Equatable {
     var renames: [GenreRenamed] = []
     /// The genres that are no more.
     var drops: [String] = []
+    /// The genres among `renames` that were merged into another, not given a new name.
+    var merged: [String] = []
 
     var isEmpty: Bool { renames.isEmpty && drops.isEmpty }
 
@@ -402,6 +404,7 @@ extension AppModel {
         // GH27: what is not saved yet follows the change now, before it is read again.
         var names = GenreNameChange(renames: follow.renames)
         if case .delete(let name) = change { names.drops = [name] }
+        if case .merge(let name, _) = change { names.merged = [name] }
         let before = unsavedGenres
         followUnsavedGenres(names)
         let after = unsavedGenres
@@ -436,7 +439,7 @@ extension AppModel {
         guard !change.isEmpty else { return }
         switch inspecting {
         case .one: updateDraft { $0.followGenres(change.names) }
-        case .many: updateBulkDraft { $0.followGenres(change.names) }
+        case .many: updateBulkDraft { $0.followGenres(change.names, merged: change.merged) }
         case .nothing, .missing: break
         }
         let entries = (review?.entries ?? []).filter { change.names($0.genres) != $0.genres }.map(\.id)

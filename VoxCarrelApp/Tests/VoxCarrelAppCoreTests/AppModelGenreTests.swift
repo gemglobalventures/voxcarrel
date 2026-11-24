@@ -503,6 +503,21 @@ import VoxCarrelFixtures
         #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
     }
 
+    @Test func GH27_aGenreToTakeFromSeveralBooksIsNotTakenAsTheGenreItIsMergedInto() async throws {
+        let h = try await Harness.demo()
+        try await h.give("Pub Quiz", in: .other, to: ["Salt Road"])
+        try await h.select(["Salt Road", "Quiet Rivers"])
+        h.model.removeDraftGenre("Pub Quiz")
+        #expect(h.bulkDraft?.genreRemoves == ["Pub Quiz"])
+
+        // Merged into a genre the books have on their own: that genre is not taken from them.
+        let manager = try h.manager()
+        await manager.merge("Pub Quiz", into: "Fantasy")
+        #expect(h.bulkDraft?.genreRemoves == [])
+        await h.model.undo()
+        #expect(h.bulkDraft?.genreRemoves == ["Pub Quiz"])
+    }
+
     @Test func GH27_genresToAddToOrTakeFromSeveralBooksFollowTheList() async throws {
         let h = try await Harness.demo()
         try await h.give("Pub Quiz", in: .other, to: ["Salt Road"])
