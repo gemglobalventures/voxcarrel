@@ -302,6 +302,30 @@ import VoxCarrelFixtures
         #expect(f.service.genres(fromTag: "Fantasy; Comedy") == ["Fantasy", "Humour"])
     }
 
+    @Test func G24_resetKeepsTheOwnersOwnOnTheListAndEveryGenreInItsGroup() throws {
+        let f = try F()
+        let id = try book(f, "One", ["Pub Quiz", "Fantasy"])
+        try f.service.addGenre("Swords", group: .fiction)
+        try f.service.moveGenre("Pub Quiz", to: .nonFiction)
+        try f.service.renameGenre("Humour", to: "Comedy Shows")
+        try f.service.mergeGenre("Fantasy", into: "Horror")
+
+        try f.service.resetBuiltInGenreNames()
+        // The owner's own are still on the list, where they were put, with their books.
+        let quiz = try #require(try entry(f, "Pub Quiz"))
+        #expect(quiz.group == .nonFiction)
+        #expect(quiz.builtInName == nil)
+        #expect(quiz.bookCount == 1)
+        let swords = try #require(try entry(f, "Swords"))
+        #expect(swords.group == .fiction)
+        #expect(swords.builtInName == nil)
+        #expect(try genres(f, id) == ["Pub Quiz", "Horror"])
+        #expect(try f.service.genreList().count == BuiltInGenre.all.count + 2)
+        // A genre that comes back into sight comes back to the group it was in.
+        #expect(try entry(f, "Fantasy")?.group == .fiction)
+        #expect(try entry(f, "Humour")?.group == .fiction)
+    }
+
     @Test func G24_resetExchangesNamesThatWereSwapped() throws {
         let f = try F()
         let id = try book(f, "One", ["Horror", "Romance"])
