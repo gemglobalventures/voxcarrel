@@ -69,8 +69,8 @@ public final class LibraryStore: Sendable {
         }
         guard isDue else { return }
 
-        let taken = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
-        let target = root.appendingPathComponent(copyBeforeGenresName(on: today, taken: taken))
+        let target = freeCopyBeforeGenres(
+            in: root, on: today, listing: try? FileManager.default.contentsOfDirectory(atPath: root.path))
         do {
             // Not in a transaction: the database will not copy itself inside one.
             try queue.writeWithoutTransaction { db in try copy(db, target.path) }
@@ -78,6 +78,20 @@ public final class LibraryStore: Sendable {
             // Whatever was begun is not a copy.
             try? FileManager.default.removeItem(at: target)
             throw LibraryStoreError.copyBeforeGenresFailed(target.lastPathComponent)
+        }
+    }
+
+    /// Where the copy goes: a name in the library folder that no file has. The folder's
+    /// `listing` says which names are taken; when it could not be had, or missed one,
+    /// each name is looked for on disk, so that a copy that fails and is cleared away
+    /// can never be an earlier copy.
+    static func freeCopyBeforeGenres(in root: URL, on today: Date, listing: [String]?) -> URL {
+        var taken = listing ?? []
+        while true {
+            let name = copyBeforeGenresName(on: today, taken: taken)
+            let url = root.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: url.path) else { return url }
+            taken.append(name)
         }
     }
 

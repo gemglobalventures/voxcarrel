@@ -361,6 +361,20 @@ import ZIPFoundation
         #expect(try Data(contentsOf: store.libraryRoot.appendingPathComponent(plain)) == Data("mine".utf8))
     }
 
+    @Test func GP7_theCopyNeverTakesANameThatIsOnDiskEvenWhenTheFolderCannotBeListed() throws {
+        let root = try makeTempDir()
+        let day = Date(timeIntervalSince1970: 1_795_000_000)
+        let plain = LibraryStore.copyBeforeGenresName(on: day, taken: [])
+        let earlier = root.appendingPathComponent(plain)
+        try Data("an earlier copy".utf8).write(to: earlier)
+        // With no listing to go by, the name is still one no file has.
+        let free = LibraryStore.freeCopyBeforeGenres(in: root, on: day, listing: nil)
+        #expect(free.lastPathComponent != plain)
+        #expect(!FileManager.default.fileExists(atPath: free.path))
+        #expect(LibraryStore.freeCopyBeforeGenres(in: root, on: day, listing: [plain]).lastPathComponent == free.lastPathComponent)
+        #expect(try Data(contentsOf: earlier) == Data("an earlier copy".utf8))
+    }
+
     @Test func GP7_aCopyThatFailsStopsTheConversionAndLeavesTheLibraryAsItWas() throws {
         let root = try earlierLibrary(["Mystery, Thriller & Suspense"])
         let file = LibraryLayout.canonicalFolder(root).appendingPathComponent(LibraryStore.databaseFileName)

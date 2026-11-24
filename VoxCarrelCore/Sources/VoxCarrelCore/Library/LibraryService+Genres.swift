@@ -67,6 +67,16 @@ extension LibraryService {
             }) {
                 throw GenreChangeError.nameInUse(listing.standing(for: other).name)
             }
+            // A wording that files and catalogues use for another genre stays that
+            // genre's: taking it would send their books here from then on.
+            let meant = GenreMapping.map(.text(new))
+            if meant.unknown.isEmpty, meant.builtIn.count == 1,
+               let other = listing.rows.first(where: { other in
+                   other.id != row.id && other.builtInName.map { GenreName.same($0, meant.builtIn[0]) } ?? false
+               }) {
+                let standing = listing.standing(for: other)
+                if standing.id != row.id { throw GenreChangeError.nameInUse(standing.name) }
+            }
             guard new != row.name else { return [] }
             try db.execute(sql: "UPDATE genre SET name = ? WHERE id = ?", arguments: [new, row.id])
             return [GenreRename(from: row.name, to: new)]

@@ -233,6 +233,23 @@ import VoxCarrelFixtures
         #expect(try f.service.undoLabel() == label)
     }
 
+    @Test func G24_aWordingThatMeansAnotherGenreIsInUseSoThatAMergeCanBeOffered() throws {
+        let f = try F()
+        try f.service.addGenre("Pub Quiz", group: .other)
+        let before = try whole(f)
+        // "Sci-Fi" in a file's tag means Science Fiction; no other genre may take the word.
+        expectRefused(.nameInUse("Science Fiction")) { try f.service.renameGenre("Horror", to: "Sci-Fi") }
+        expectRefused(.nameInUse("Thrillers & Spies")) { try f.service.renameGenre("Pub Quiz", to: "thriller") }
+        #expect(try whole(f) == before)
+        // Where that genre has been renamed, it is named as it stands.
+        try f.service.renameGenre("Science Fiction", to: "Speculative")
+        expectRefused(.nameInUse("Speculative")) { try f.service.renameGenre("Horror", to: "Sci-Fi") }
+        // A genre may take a wording that means itself.
+        try f.service.renameGenre("Speculative", to: "Sci-Fi")
+        #expect(try entry(f, "Sci-Fi")?.builtInName == "Science Fiction")
+        #expect(try f.service.genres(fromTag: "Sci-Fi") == ["Sci-Fi"])
+    }
+
     @Test func G24_aNameAnotherBuiltInGenreShippedUnderIsInUse() throws {
         let f = try F()
         try f.service.renameGenre("Fantasy", to: "Magic")
