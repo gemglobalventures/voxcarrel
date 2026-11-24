@@ -92,11 +92,12 @@ import VoxCarrelFixtures
 
         #expect(result.candidates.count == 1)
         let candidate = try #require(result.candidates.first)
-        // The tags win for what they give.
-        #expect(candidate.metadata.title == "Original Title")
-        #expect(candidate.metadata.authors == ["Original Author"])
+        // A PDF's title that shares no word with a name that says this much is not
+        // believed, nor its author: the name is read.
+        #expect(candidate.metadata.title == "Mind Over Markets: Power Trading with Market Generated Information, Updated Edition")
+        #expect(candidate.metadata.authors == [])
         #expect(candidate.metadata.asin == "B09WXN61GL")
-        #expect(candidate.guessNotes == [.audibleIDFromName])
+        #expect(candidate.guessNotes == [.fromFileName, .audibleIDFromName])
 
         let match = try #require(try f.service.existingMatches(for: candidate.metadata))
         #expect(match.book.id == audiobook)

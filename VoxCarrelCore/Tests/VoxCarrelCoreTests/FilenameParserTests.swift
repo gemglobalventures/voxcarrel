@@ -62,7 +62,8 @@ import Testing
         #expect(inBookFolder.author == "Andy Weir")
 
         let inAuthorFolder = FilenameParser.guess(from: url, isFolder: false)
-        #expect(inAuthorFolder.author == "Project Hail Mary")
+        // The folder is not shaped like a person's name: it is not taken for an author.
+        #expect(inAuthorFolder.author == nil)
     }
 
     @Test func genericGrandparentFoldersAreNotAuthors() {

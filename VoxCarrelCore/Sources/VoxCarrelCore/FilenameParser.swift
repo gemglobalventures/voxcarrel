@@ -80,6 +80,11 @@ public enum FilenameParser {
         if guess.asin != nil { guess.notes.insert(.audibleIDFromName) }
 
         guess.title = tidy(name)
+        if let read = downloadSiteName(name) {
+            guess.title = read.title
+            guess.author = read.author
+            return guess
+        }
         if let range = name.range(of: " - ") {
             let before = tidy(String(name[..<range.lowerBound]))
             let after = tidy(String(name[range.upperBound...]))
@@ -96,13 +101,74 @@ public enum FilenameParser {
         }
 
         let parent = authorFolder.lastPathComponent
-        if !parent.isEmpty, parent != "/", !genericFolders.contains(parent.lowercased()) {
+        if !parent.isEmpty, parent != "/", !genericFolders.contains(parent.lowercased()),
+           folderIsAnAuthor(tidy(parent), known: known) {
             guess.author = tidy(parent)
         }
         if guess.author == nil, NameShape.looksLikePerson(guess.title) {
             guess.notes.insert(.titleLooksLikePerson)
         }
         return guess
+    }
+
+    /// Words that make a folder's name a subject or a heap, not a person.
+    static let subjectWords: Set<String> = [
+        "papers", "exchange", "trading", "investing", "investment", "books", "ebooks", "audiobooks", "collection",
+        "stocks", "markets", "market", "finance", "financial", "business", "general", "misc", "various", "other",
+        "new", "items", "library", "fiction", "history", "science", "analysis", "systems", "options", "futures",
+        "bonds", "commodities", "psychology", "interviews", "courses", "course", "unsorted", "sorted", "read",
+        "unread", "suggested", "reading", "kindle", "calibre", "torrents", "complete", "series", "volume",
+        "inbox", "drop", "incoming", "import", "imports", "temp", "tmp", "staging", "queue", "todo", "shared",
+        "public", "backup", "backups", "archive", "archives", "old", "stuff", "files", "media", "music", "home",
+    ]
+
+    /// True when the folder a book lies in can be taken for its author: a name the
+    /// library has as an author, or one shaped like a person's (or one capitalised
+    /// word, as a person named alone is written) with no word of a subject in it and
+    /// no digit. "White
+    /// Papers", "Foreign Exchange", "14 items" and "suggested stocktrader.com" are
+    /// where books were put, not who wrote them.
+    static func folderIsAnAuthor(_ name: String, known: KnownNames) -> Bool {
+        if known.hasAuthor(name) { return true }
+        guard NameShape.looksLikePerson(name) || NameShape.couldBeALoneName(name),
+              !name.contains(where: \.isNumber) else { return false }
+        let words = name.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return !words.contains(where: subjectWords.contains)
+    }
+
+    /// A name as download sites write it: "Author-Title-Publisher (2014)", with an
+    /// optional number and an optional series in brackets before it, and no spaces
+    /// round the hyphens. The author is what stands before the first such hyphen
+    /// (several, with commas, give the first), the title what stands between it and
+    /// the publisher. Nil for any other name.
+    static func downloadSiteName(_ name: String) -> (title: String, author: String)? {
+        var text = name.trimmingCharacters(in: .whitespaces)
+        // The year, in brackets at the end, is what marks the form.
+        guard let open = text.lastIndex(of: "("), text.hasSuffix(")") else { return nil }
+        let year = text[text.index(after: open)..<text.index(before: text.endIndex)]
+        guard year.count == 4, year.allSatisfy(\.isNumber) else { return nil }
+        text = String(text[..<open]).trimmingCharacters(in: .whitespaces)
+        // A number, then a series in brackets, may come first.
+        if let space = text.firstIndex(of: " "), text[..<space].allSatisfy(\.isNumber) {
+            text = String(text[text.index(after: space)...]).trimmingCharacters(in: .whitespaces)
+        }
+        if text.hasPrefix("("), let close = text.firstIndex(of: ")") {
+            text = String(text[text.index(after: close)...]).trimmingCharacters(in: .whitespaces)
+        }
+        // Hyphens with a letter on both sides and no space divide the three parts.
+        let characters = Array(text)
+        var cuts: [Int] = []
+        for i in characters.indices.dropFirst().dropLast()
+        where characters[i] == "-" && characters[i - 1] != " " && characters[i + 1] != " "
+            && (characters[i + 1].isUppercase || characters[i + 1].isNumber || characters[i + 1] == "[") {
+            cuts.append(i)
+        }
+        guard cuts.count >= 2, let first = cuts.first, let last = cuts.last else { return nil }
+        let authors = String(characters[..<first])
+        let title = tidy(String(characters[(first + 1)..<last]))
+        let author = tidy(authors.split(separator: ",").first.map(String.init) ?? authors)
+        guard !title.isEmpty, NameShape.looksLikePerson(author) else { return nil }
+        return (title, author)
     }
 
     private static func tidy(_ text: String) -> String {

@@ -342,6 +342,7 @@ public struct BookScanner {
         // Read tags from the audio if there is any, otherwise from the first file.
         let primary = (group.files.first { $0.role == .audio } ?? group.files[0]).url
         var metadata = (try? reader?.readMetadata(at: primary)) ?? BookMetadata()
+        Self.settingAsideWhatAProgramLeft(in: &metadata, primary: primary, folder: group.folder)
         // Tags always win: only what they leave empty is taken from names.
         let needsTitle = metadata.title.isEmpty
         let needsAuthor = metadata.authors.isEmpty
@@ -381,6 +382,37 @@ public struct BookScanner {
         }
         return CandidateBook(
             files: group.files, metadata: metadata, sourceFolder: group.folder, guessNotes: notes)
+    }
+
+    /// Empties a title or an author that is not the book's but what a program left in
+    /// the tags (`TagJudge`), so that the name is read instead. A PDF's title that has
+    /// no word in common with a name that says plenty is not believed either, and then
+    /// its author only if the name has them too. A part's number before the title of a
+    /// book in several files ("01 Slow Horses" in a folder named for Slow Horses) is
+    /// taken off.
+    static func settingAsideWhatAProgramLeft(in metadata: inout BookMetadata, primary: URL, folder: URL?) {
+        let name = (folder ?? primary.deletingPathExtension()).lastPathComponent
+        let isPDF = FileFormat(url: primary) == .pdf
+        metadata.authors = metadata.authors.compactMap(TagJudge.author)
+
+        var believed = !TagJudge.isJunkTitle(metadata.title)
+        if believed, isPDF, TagJudge.nameIsTelling(name), !TagJudge.agree(tagTitle: metadata.title, fileName: name) {
+            believed = false
+        }
+        if !believed {
+            metadata.title = ""
+            if isPDF { metadata.authors = metadata.authors.filter { TagJudge.agree(tagTitle: $0, fileName: name) } }
+        }
+
+        if let folder, believed {
+            let words = metadata.title.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+            if words.count == 2, words[0].count <= 3, words[0].allSatisfy(\.isNumber) {
+                let rest = String(words[1]).trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty, folder.lastPathComponent.range(of: rest, options: [.caseInsensitive]) != nil {
+                    metadata.title = rest
+                }
+            }
+        }
     }
 
     // MARK: Merging across folders
