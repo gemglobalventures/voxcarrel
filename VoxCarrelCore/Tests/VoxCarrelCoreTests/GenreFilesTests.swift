@@ -207,6 +207,30 @@ import VoxCarrelFixtures
         #expect(try f.service.genreFileDifferences().isEmpty)
     }
 
+    @Test func G15_anEbookKeptAsAnExtraIsNotCountedAndNotWritten() throws {
+        let f = try F()
+        var tags = F.meta("Both", "An Author")
+        tags.genres = ["Fantasy"]
+        let audio = try f.makeM4B("Both.m4b", tags: tags)
+        let extra = try f.makeEPUB("Both.epub")
+        let result = try f.service.importItems(
+            [ImportItem(candidate: f.candidate([audio, extra], tags, roles: [extra: .extra]))])
+        let id = try f.importedId(try #require(result.outcomes.first))
+        #expect(try f.store.files(bookId: id).map(\.role) == [.audio, .extra])
+        try setGenres(f, id, ["Horror"])
+        #expect(try f.service.genreFileDifferences().map(\.fileCount) == [1])
+
+        let places = try urls(f, id)
+        let kept = try #require(places.first { $0.pathExtension == "epub" })
+        let bytes = try Data(contentsOf: kept)
+        let stamp = FileStamp(fileAt: kept)
+        #expect(saved(try f.service.updateGenreFiles([id]).first) == [])
+        #expect(try tag(try #require(places.first { $0.pathExtension == "m4b" })) == "Horror")
+        #expect(try Data(contentsOf: kept) == bytes)
+        #expect(FileStamp(fileAt: kept) == stamp)
+        #expect(try f.service.genreFileDifferences().isEmpty)
+    }
+
     // MARK: G14 Update files
 
     @Test func G14_theChosenBooksFilesAreWrittenAsOneOperationInEveryFormat() throws {
