@@ -222,6 +222,128 @@ import ZIPFoundation
         return root
     }
 
+    // MARK: GP7 A copy before the conversion
+
+    /// The copies of the catalogue made before its genres were converted, by name.
+    func copies(in root: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: root.path)
+            .filter { $0.hasPrefix("VoxCarrel before genres") }.sorted()
+    }
+
+    @Test func GP7_anExistingLibraryIsCopiedBeforeItsGenresAreConverted() throws {
+        let root = try earlierLibrary(["Mystery, Thriller & Suspense", nil])
+        let day = Date(timeIntervalSince1970: 1_795_000_000)
+        let store = try LibraryStore(libraryRoot: root, today: day)
+        #expect(try store.book(id: 1)?.genres == [Self.thrillers])
+
+        let name = LibraryStore.copyBeforeGenresName(on: day, taken: [])
+        #expect(name.hasPrefix("VoxCarrel before genres 20"))
+        #expect(name.hasSuffix(".sqlite"))
+        #expect(name.count == "VoxCarrel before genres 2026-01-01.sqlite".count)
+        #expect(try copies(in: store.libraryRoot) == [name])
+
+        // The copy is a whole database as the earlier version left it: the old text is
+        // in it, and nothing of the conversion.
+        let copy = try DatabaseQueue(path: store.libraryRoot.appendingPathComponent(name).path)
+        struct Held { var genres: [String?]; var hasList: Bool; var applied: Set<String>; var check: String? }
+        let held = try copy.read { db in
+            Held(
+                genres: try Optional<String>.fetchAll(db, sql: "SELECT genre FROM book ORDER BY id"),
+                hasList: try db.tableExists("genre"),
+                applied: try LibraryStore.migrator.appliedIdentifiers(db),
+                check: try String.fetchOne(db, sql: "PRAGMA integrity_check"))
+        }
+        #expect(held.genres == ["Mystery, Thriller & Suspense", nil])
+        #expect(!held.hasList)
+        #expect(held.applied.contains("v11"))
+        #expect(!held.applied.contains("v12"))
+        #expect(held.check == "ok")
+    }
+
+    @Test func GP7_aLibraryFromAnyEarlierVersionIsCopied() throws {
+        let root = try makeTempDir()
+        let queue = try DatabaseQueue(path: root.appendingPathComponent(LibraryStore.databaseFileName).path)
+        try LibraryStore.migrator.migrate(queue, upTo: "v9")
+        try queue.write { db in
+            try db.execute(sql: """
+                INSERT INTO book (title, authors, narrators, genre, tags, rating, needsAttention, dateAdded, readStatus)
+                VALUES ('Old', '[]', '[]', 'Horror', '[]', 0, 0, '2025-01-02 03:04:05.000', 'unread')
+                """)
+        }
+        try queue.close()
+        let store = try LibraryStore(libraryRoot: root)
+        #expect(try store.book(id: 1)?.genres == ["Horror"])
+        #expect(try copies(in: store.libraryRoot).count == 1)
+    }
+
+    @Test func GP7_aNewLibraryAndOneWithNoBooksGetNoCopy() throws {
+        let new = try LibraryStore(libraryRoot: try makeTempDir())
+        #expect(try copies(in: new.libraryRoot).isEmpty)
+
+        let empty = try LibraryStore(libraryRoot: try earlierLibrary([]))
+        #expect(try copies(in: empty.libraryRoot).isEmpty)
+        #expect(try empty.genreNames().count == BuiltInGenre.all.count)
+    }
+
+    @Test func GP7_noSecondCopyIsMadeOnALaterOpen() throws {
+        let root = try earlierLibrary(["Horror"])
+        var store: LibraryStore? = try LibraryStore(libraryRoot: root)
+        let first = try copies(in: try #require(store).libraryRoot)
+        #expect(first.count == 1)
+        store = nil
+        let again = try LibraryStore(libraryRoot: root)
+        #expect(try copies(in: again.libraryRoot) == first)
+    }
+
+    @Test func GP7_aNameThatIsTakenGetsANumber() throws {
+        let day = Date(timeIntervalSince1970: 1_795_000_000)
+        let plain = LibraryStore.copyBeforeGenresName(on: day, taken: [])
+        let stem = String(plain.dropLast(".sqlite".count))
+        #expect(LibraryStore.copyBeforeGenresName(on: day, taken: [plain]) == "\(stem) 2.sqlite")
+        #expect(LibraryStore.copyBeforeGenresName(on: day, taken: [plain, "\(stem) 2.sqlite"]) == "\(stem) 3.sqlite")
+        // Capitalisation does not make a name free: the disk may not tell them apart.
+        #expect(LibraryStore.copyBeforeGenresName(on: day, taken: [plain.uppercased()]) == "\(stem) 2.sqlite")
+
+        // On disk: a file of that name is left alone and the copy goes beside it.
+        let root = try earlierLibrary(["Horror"])
+        try Data("mine".utf8).write(to: LibraryLayout.canonicalFolder(root).appendingPathComponent(plain))
+        let store = try LibraryStore(libraryRoot: root, today: day)
+        #expect(try copies(in: store.libraryRoot) == [plain, "\(stem) 2.sqlite"].sorted())
+        #expect(try Data(contentsOf: store.libraryRoot.appendingPathComponent(plain)) == Data("mine".utf8))
+    }
+
+    @Test func GP7_aCopyThatFailsStopsTheConversionAndLeavesTheLibraryAsItWas() throws {
+        let root = try earlierLibrary(["Mystery, Thriller & Suspense"])
+        let file = LibraryLayout.canonicalFolder(root).appendingPathComponent(LibraryStore.databaseFileName)
+        let before = try Data(contentsOf: file)
+
+        #expect(throws: LibraryStoreError.self) {
+            _ = try LibraryStore(libraryRoot: root, copyBeforeGenres: { _, _ in throw Boom() })
+        }
+        do {
+            _ = try LibraryStore(libraryRoot: root, copyBeforeGenres: { _, _ in throw Boom() })
+        } catch let error as LibraryStoreError {
+            guard case .copyBeforeGenresFailed = error else {
+                Issue.record("expected .copyBeforeGenresFailed, got \(error)")
+                return
+            }
+            #expect(error.localizedDescription.contains("copy"))
+            #expect(!LibraryStore.isDatabaseError(error))
+        }
+        #expect(try Data(contentsOf: file) == before)
+        #expect(try copies(in: LibraryLayout.canonicalFolder(root)).isEmpty)
+        let queue = try DatabaseQueue(path: file.path)
+        #expect(try queue.read { db in try String.fetchOne(db, sql: "SELECT genre FROM book") }
+            == "Mystery, Thriller & Suspense")
+        #expect(try queue.read { db in try LibraryStore.migrator.appliedIdentifiers(db) }.contains("v12") == false)
+        try queue.close()
+
+        // Once the copy can be made, the library opens and is converted.
+        let store = try LibraryStore(libraryRoot: root)
+        #expect(try store.book(id: 1)?.genres == [Self.thrillers])
+        #expect(try copies(in: store.libraryRoot).count == 1)
+    }
+
     @Test func G12_GP4_eachBooksOldTextBecomesItsWordingAndTheMappingGivesItsGenres() throws {
         let root = try earlierLibrary(Self.owners.map(\.old))
         let store = try LibraryStore(libraryRoot: root)

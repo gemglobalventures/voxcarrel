@@ -12,13 +12,83 @@ public final class LibraryStore: Sendable {
     let dbQueue: DatabaseQueue
 
     /// Opens (creating if needed) the catalogue inside `libraryRoot`.
-    public init(libraryRoot: URL) throws {
+    ///
+    /// A catalogue an earlier version left, with books in it, is copied beside itself
+    /// before its genres are converted (`copyBeforeGenresName`): an earlier version
+    /// cannot read a converted one. When the copy cannot be made,
+    /// `LibraryStoreError.copyBeforeGenresFailed` is thrown and the catalogue is as it was.
+    public convenience init(libraryRoot: URL) throws {
+        try self.init(libraryRoot: libraryRoot, today: Date())
+    }
+
+    /// As `init(libraryRoot:)`. `today` dates the copy; `copyBeforeGenres` makes it, given
+    /// the open catalogue and the path to copy it to. Both are test seams.
+    init(
+        libraryRoot: URL, today: Date = Date(),
+        copyBeforeGenres: (Database, String) throws -> Void = LibraryStore.copyWhole
+    ) throws {
         try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
         let root = LibraryLayout.canonicalFolder(libraryRoot)
         self.libraryRoot = root
         dbQueue = try DatabaseQueue(
             path: root.appendingPathComponent(Self.databaseFileName).path)
+        try Self.keepCopyBeforeGenres(of: dbQueue, in: root, today: today, copy: copyBeforeGenres)
         try Self.migrator.migrate(dbQueue)
+    }
+
+    // MARK: The copy kept before genres are converted
+
+    /// The migration that gives books several genres.
+    static let genresMigration = "v12"
+
+    /// Copies a catalogue that has books and has not had its genres converted, beside
+    /// itself. A new catalogue, one with no books and one already converted get none.
+    private static func keepCopyBeforeGenres(
+        of queue: DatabaseQueue, in root: URL, today: Date, copy: (Database, String) throws -> Void
+    ) throws {
+        let isDue = try queue.read { db -> Bool in
+            guard try db.tableExists("grdb_migrations"), try db.tableExists("book") else { return false }
+            let applied = try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations")
+            guard !applied.contains(genresMigration) else { return false }
+            return try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM book") ?? 0 > 0
+        }
+        guard isDue else { return }
+
+        let taken = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        let target = root.appendingPathComponent(copyBeforeGenresName(on: today, taken: taken))
+        do {
+            // Not in a transaction: the database will not copy itself inside one.
+            try queue.writeWithoutTransaction { db in try copy(db, target.path) }
+        } catch {
+            // Whatever was begun is not a copy.
+            try? FileManager.default.removeItem(at: target)
+            throw LibraryStoreError.copyBeforeGenresFailed(target.lastPathComponent)
+        }
+    }
+
+    /// The copy as the database itself makes it: one whole, consistent file, whatever
+    /// the catalogue has waiting in files beside it. Nothing is ever replaced.
+    static func copyWhole(_ db: Database, to path: String) throws {
+        try db.execute(sql: "VACUUM INTO ?", arguments: [path])
+    }
+
+    /// The name of the copy made on `today`: "VoxCarrel before genres 2026-11-24.sqlite",
+    /// or with " 2", " 3"… before the extension when `taken` (the names in the library
+    /// folder) holds that name already, in any capitalisation.
+    static func copyBeforeGenresName(on today: Date, taken: [String]) -> String {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.calendar = Calendar(identifier: .gregorian)
+        format.dateFormat = "yyyy-MM-dd"
+        let stem = "VoxCarrel before genres \(format.string(from: today))"
+        let used = Set(taken.map { $0.lowercased() })
+        var name = "\(stem).sqlite"
+        var number = 2
+        while used.contains(name.lowercased()) {
+            name = "\(stem) \(number).sqlite"
+            number += 1
+        }
+        return name
     }
 
     /// Whether an error came from the database itself (it could not be opened, read or
@@ -770,6 +840,23 @@ extension LibraryStore {
         try dbQueue.read { db in
             try Int64.fetchAll(
                 db, sql: "SELECT id FROM book WHERE json_array_length(genres) = 0 ORDER BY title COLLATE NOCASE")
+        }
+    }
+}
+
+/// Why a catalogue could not be opened, where the reason is the library's own and can
+/// be said as it is.
+public enum LibraryStoreError: Error, Equatable, LocalizedError {
+    /// The copy kept before the genres are converted could not be made, under this
+    /// name in the library folder. Nothing was changed.
+    case copyBeforeGenresFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .copyBeforeGenresFailed(let name):
+            return "Before this version changes how the library keeps genres it makes a copy of the catalogue, "
+                + "\"\(name)\", in the library folder. The copy could not be made, so nothing was changed. "
+                + "Check that the library folder can be written to and has room, then open it again."
         }
     }
 }

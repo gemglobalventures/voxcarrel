@@ -549,7 +549,11 @@ import VoxCarrelFixtures
         // The launch check moves nothing, and finds nothing wrong with the book.
         let report = try service.reconcile()
         #expect(report.booksWithMissingFiles.isEmpty)
-        #expect(tree(root).filter { !$0.hasPrefix(LibraryStore.databaseFileName) } == treeBefore)
+        // The catalogue's own files aside, the copy kept before genres (GP7) among them.
+        let treeAfter = tree(root).filter {
+            !$0.hasPrefix(LibraryStore.databaseFileName) && !$0.hasPrefix("VoxCarrel before genres")
+        }
+        #expect(treeAfter == treeBefore)
         #expect(try store.book(id: 1)?.folderPath == "Somewhere Odd")
         #expect(try store.files(bookId: 1).map(\.path) == ["Somewhere Odd/Patriot Games.m4b"])
     }
