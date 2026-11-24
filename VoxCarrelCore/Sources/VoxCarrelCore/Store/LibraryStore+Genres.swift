@@ -40,9 +40,13 @@ struct GenreRow: Codable, Equatable, Sendable, FetchableRecord, PersistableRecor
     }
 }
 
-/// The library's list, for saying what a name comes to in it.
-struct GenreListing: Sendable {
+/// The library's list at one moment, for saying what a name comes to in it.
+public struct GenreListing: Sendable {
     let rows: [GenreRow]
+
+    init(rows: [GenreRow]) {
+        self.rows = rows
+    }
 
     /// The genre a name is: the one that has it now, or failing that the built-in one
     /// that shipped under it. Capitalisation does not count.
@@ -68,13 +72,13 @@ struct GenreListing: Sendable {
 
     /// The name the library keeps for this one: a renamed built-in genre by its new
     /// name, one merged away by the genre it went into. Nil for a name the list lacks.
-    func listed(_ name: String) -> String? {
+    public func listed(_ name: String) -> String? {
         row(named: name).map { standing(for: $0).name }
     }
 
     /// Genres as the library keeps them on a book: each as `listed` gives it, a name
     /// the list lacks as it is, and none twice.
-    func names(_ names: [String]) -> [String] {
+    public func names(_ names: [String]) -> [String] {
         GenreName.distinct(GenreName.distinct(names).map { listed($0) ?? $0 })
     }
 }

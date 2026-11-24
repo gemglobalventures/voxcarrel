@@ -9,6 +9,15 @@ extension LibraryService {
     /// pattern cannot be read, before anything is done, or when the database commit
     /// fails, in which case everything the call did is reversed.
     public func save(_ edits: [BookEdit]) throws -> [SaveOutcome] {
+        try save(edits) { count, title in
+            let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return count == 1 ? "Edit \(name.isEmpty ? "book" : name)" : "Edit \(count) books"
+        }
+    }
+
+    /// As `save(_:)`, recorded under the name `label` gives it: from the number of
+    /// books written and the title of the last of them.
+    func save(_ edits: [BookEdit], label: (_ count: Int, _ title: String) -> String) throws -> [SaveOutcome] {
         try refuseWhileLayoutChangeIsInterrupted()
         let pattern = try folderPattern()
         var operation = PendingOperation()
@@ -35,9 +44,7 @@ extension LibraryService {
         var books: [Book] = []
         let count = operation.writes.count
         if count > 0 {
-            let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let label = count == 1 ? "Edit \(name.isEmpty ? "book" : name)" : "Edit \(count) books"
-            books = try commit(operation, label: label)
+            books = try commit(operation, label: label(count, title))
         } else {
             // E12: nothing to commit; the journal and earlier undo data stay as they were.
             removeUndoData(token: operation.token)
