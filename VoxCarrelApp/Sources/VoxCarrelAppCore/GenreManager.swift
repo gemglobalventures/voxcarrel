@@ -155,6 +155,7 @@ public final class GenreManager {
         guard let name = renaming, canCommitRename else { return }
         switch await model.changeGenreList(.rename(name, to: renameText)) {
         case .done:
+            ownChange = GenreListChange.rename(name, to: renameText).undoLabel
             cancelRename()
         case .nameInUse(let other):
             question = mergeQuestion(name, into: other)
@@ -256,9 +257,15 @@ public final class GenreManager {
 
     // MARK: Undo
 
-    /// G27: whether the last change can be undone from here.
+    /// The undo label of the last change made in this sheet that has not been undone;
+    /// nil when there is none.
+    private var ownChange: String?
+
+    /// G27: whether the last change can be undone from here: only a change made in
+    /// this sheet, while it is still what Undo would reverse. An operation from before
+    /// the sheet was opened is not undone from it.
     public var canUndo: Bool {
-        model.canUndo
+        model.canUndo && ownChange != nil && ownChange == model.undoLabel
     }
 
     /// "Undo Rename genre"
@@ -267,7 +274,9 @@ public final class GenreManager {
     }
 
     public func undo() async {
+        guard canUndo else { return }
         problem = nil
+        ownChange = nil
         await model.undo()
     }
 
@@ -281,7 +290,9 @@ public final class GenreManager {
     private func make(_ change: GenreListChange) async {
         problem = nil
         switch await model.changeGenreList(change) {
-        case .done, .notTried:
+        case .done:
+            ownChange = change.undoLabel
+        case .notTried:
             break
         case .nameInUse(let other):
             problem = UserMessage.text(for: LibraryService.GenreChangeError.nameInUse(other))

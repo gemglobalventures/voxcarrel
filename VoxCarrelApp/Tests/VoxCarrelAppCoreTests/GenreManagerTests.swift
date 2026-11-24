@@ -199,6 +199,23 @@ import VoxCarrelFixtures
         #expect(try h.book(try h.id("Night Train to Vostok")).genres == ["Crime & Mystery"])
     }
 
+    @Test func GH27_undoInManageGenresReversesOnlyAChangeMadeThere() async throws {
+        let h = try await Harness.demo()
+        // The library has an operation to undo from before the sheet was opened.
+        #expect(h.model.canUndo)
+        let manager = try h.manager()
+        #expect(!manager.canUndo)
+        await manager.undo()
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
+
+        await manager.move("Fantasy", to: .nonFiction)
+        #expect(manager.canUndo)
+        #expect(manager.undoTitle == "Undo Move genre")
+        await manager.undo()
+        #expect(!manager.canUndo)
+        #expect(try row(manager, "Fantasy").group == .fiction)
+    }
+
     @Test func GH25_mergingIsUndoneWhole() async throws {
         let h = try await Harness.demo()
         let manager = try h.manager()
