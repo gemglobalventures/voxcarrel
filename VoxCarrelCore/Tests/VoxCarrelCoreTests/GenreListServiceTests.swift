@@ -613,6 +613,23 @@ import VoxCarrelFixtures
         #expect(try f.store.book(id: gone) == nil)
     }
 
+    @Test func G27_aListChangeDiscardsWhatWasKeptToUndoTheOperationBefore() throws {
+        let f = try F()
+        var tags = F.meta("Kept", "Mick Herron")
+        tags.genres = ["Pub Quiz"]
+        let id = try f.importNew([try f.makeM4B("Kept.m4b", tags: tags, cover: F.jpeg)], tags, cover: .set(F.jpeg))
+        _ = try f.service.save([BookEdit(book: try #require(try f.store.book(id: id)), cover: .set(F.png))])
+        #expect(f.hiddenTree().contains { $0.hasPrefix("undo/") })
+
+        // Only the last operation can be undone: what the one before kept is of no use.
+        try f.service.renameGenre("Pub Quiz", to: "Quizzes")
+        #expect(try f.service.undoLabel() == "Rename genre")
+        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo/") })
+        try f.service.undoLast()
+        #expect(try genres(f, id) == ["Pub Quiz"])
+        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
+    }
+
     @Test func G27_GP9_aListChangeIsRecordedAsVersionFive() throws {
         let f = try F()
         try book(f, "One", ["Pub Quiz"])
