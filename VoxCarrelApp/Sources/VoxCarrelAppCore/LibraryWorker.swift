@@ -158,11 +158,13 @@ public actor LibraryWorker {
         for group in GenreGroup.allCases {
             groupCounts[group] = try service.books(inGroup: group).count
         }
-        return SidebarData(
+        var data = SidebarData(
             counts: counts, browse: browse, collections: try store.collections(), genres: genres,
             genreGroupCounts: groupCounts, noGenreCount: try service.booksWithNoGenre().count,
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
+        data.audioSeconds = try store.totalAudioSeconds()
+        return data
     }
 
     // MARK: Genres

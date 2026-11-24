@@ -174,6 +174,8 @@ public struct SidebarData: Equatable, Sendable {
     public var noGenreCount: Int
     /// G13: how many books have files whose genre tag differs from what would be written.
     public var genreFilesToUpdate: Int
+    /// The length of all the library's audio, in seconds, for the status bar.
+    public var audioSeconds: Double = 0
 
     public init(
         counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection],

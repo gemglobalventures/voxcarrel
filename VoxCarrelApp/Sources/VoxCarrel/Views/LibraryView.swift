@@ -116,6 +116,10 @@ private struct BooksView: View {
             }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let bar = model.statusBar {
+                Divider()
+                StatusBarStrip(bar: bar)
+            }
         }
     }
 
@@ -140,5 +144,28 @@ private struct BooksView: View {
         case .inbox:
             InboxView()
         }
+    }
+}
+
+/// The bar along the bottom of the list of books: what is listed, and the library's totals.
+private struct StatusBarStrip: View {
+    let bar: StatusBar
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(bar.shown)
+                .accessibilityIdentifier("statusBar.shown")
+            Spacer(minLength: 12)
+            Text(bar.library)
+                .accessibilityIdentifier("statusBar.library")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
     }
 }

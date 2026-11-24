@@ -25,6 +25,7 @@ The books in these pictures are generated samples from the demo library.
 
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
 - Reads a messy folder sensibly: a file that is a copy of another is set aside, the same book in several formats or found twice is one entry, an audiobook kept in disc folders is one book, titles a program left in a PDF ("Microsoft Word - draft.doc") are passed over for the file's name, and the details and cover calibre keeps beside a book are used. Files still in iCloud are not fetched until you import.
+- Shows a status bar under the list: how many books are listed or selected and how long they run, and the library's totals (books, audiobooks, ebooks, hours of audio, unread).
 - Reads a file's name when its tags say too little (either way round, with an Audible ID if the name has one), says in the review what it guessed, and asks before adding files to a book that only might be the same one.
 - Keeps an audiobook, its ebook and companion files together as one book, in folders arranged the way you choose: `Author/Series/Title` to begin with, or another layout or a pattern of your own.
 - Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
