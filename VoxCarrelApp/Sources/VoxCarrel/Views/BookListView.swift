@@ -13,6 +13,9 @@ private typealias ListItem = VoxCarrelAppCore.LibraryItem
 /// that opens to show its books, each drawn as any book's row is.
 struct BookListView: View {
     @Environment(AppModel.self) private var model
+    /// Which columns are shown, in what order and how wide: the owner's own choice,
+    /// made on the column headers and kept between launches.
+    @AppStorage("books.table.columns") private var columnCustomization: TableColumnCustomization<ListItem>
 
     var body: some View {
         @Bindable var model = model
@@ -25,35 +28,57 @@ struct BookListView: View {
             // insets: the room beside the sidebar and the inspector in a window of the
             // default size is about 630. Title's is much the largest, and only Title has
             // no greatest width: it takes the room the rest leave.
-            Table(of: ListItem.self, selection: Self.selection(in: model), sortOrder: $model.itemTableSortOrder) {
+            //
+            // G37: Genre is an eighth, for which there is no room at that size, so it is
+            // hidden until it is chosen from the menu on the column headers. Title is
+            // always shown.
+            Table(
+                of: ListItem.self, selection: Self.selection(in: model), sortOrder: $model.itemTableSortOrder,
+                columnCustomization: $columnCustomization
+            ) {
                 TableColumn("Title", value: \.titleSortKey) { item in
                     ItemTitleCell(model: model, item: item)
                 }
                 .width(min: 136, ideal: 280)
+                .customizationID("title")
+                .disabledCustomizationBehavior(.visibility)
                 TableColumn("Author", value: \.authorSortKey) { item in
                     ItemAuthorCell(item: item)
                 }
                 .width(min: 70, ideal: 140, max: 240)
+                .customizationID("author")
                 TableColumn("Series", value: \.seriesSortKey) { item in
                     ItemSeriesCell(item: item)
                 }
                 .width(min: 50, ideal: 120, max: 200)
+                .customizationID("series")
+                // G37: a book's genres on one line; the header sorts by the first.
+                TableColumn("Genre", value: \.genreSortKey) { item in
+                    ItemGenreCell(item: item)
+                }
+                .width(min: 50, ideal: 120, max: 200)
+                .customizationID("genre")
+                .defaultVisibility(.hidden)
                 TableColumn("Formats", value: \.formatsSortKey) { item in
                     ItemFormatsCell(model: model, item: item)
                 }
                 .width(min: 54, ideal: 58, max: 70)
+                .customizationID("formats")
                 TableColumn("Length", value: \.lengthSortKey) { item in
                     ItemLengthCell(item: item)
                 }
                 .width(min: 50, ideal: 60, max: 70)
+                .customizationID("length")
                 TableColumn("Added", value: \.dateAddedSortKey) { item in
                     ItemAddedCell(item: item)
                 }
                 .width(min: 60, ideal: 66, max: 80)
+                .customizationID("added")
                 TableColumn("Status", value: \.statusSortKey) { item in
                     ItemStatusCell(item: item)
                 }
                 .width(min: 52, ideal: 90, max: 100)
+                .customizationID("status")
             } rows: {
                 ForEach(model.items) { item in
                     if case .series(let group) = item {
@@ -145,6 +170,17 @@ private struct ItemSeriesCell: View {
     var body: some View {
         if case .book(let row) = item {
             TextCell(text: row.seriesText)
+        }
+    }
+}
+
+/// G37. Nothing for a series' row, whose books may differ.
+private struct ItemGenreCell: View {
+    let item: ListItem
+
+    var body: some View {
+        if case .book(let row) = item {
+            TextCell(text: row.genreText)
         }
     }
 }

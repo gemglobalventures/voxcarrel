@@ -44,6 +44,9 @@ struct AppCommands: Commands {
         SidebarCommands()
         InspectorCommands()
         CommandMenu("Book") { BookCommandItems(model: model) }
+        CommandMenu("Library") {
+            GenreCommandItems(model: model, updateTitle: "Update Genre Tags in Files…", prefix: "menu.library")
+        }
     }
 }
 

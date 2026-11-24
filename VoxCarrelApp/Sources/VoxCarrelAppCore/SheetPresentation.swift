@@ -55,6 +55,12 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case lookup(LookupSession)
     case sendToPhone(SendSheetState)
     case mergeBooks(MergeSheetState)
+    /// G23: Manage Genres.
+    case manageGenres(SheetObject<GenreManager>)
+    /// G14: the preview of "Update files…".
+    case genreFiles(SheetObject<GenreFilesUpdate>)
+    /// G29: Fill in Genres.
+    case genreFill(SheetObject<GenreFillSession>)
 
     public var id: String {
         switch self {
@@ -67,7 +73,24 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .lookup: "lookup"
         case .sendToPhone: "sendToPhone"
         case .mergeBooks: "mergeBooks"
+        case .manageGenres: "manageGenres"
+        case .genreFiles: "genreFiles"
+        case .genreFill: "genreFill"
         }
+    }
+}
+
+/// A sheet's state that is an object, which the sheet watches for itself: two are the
+/// same when they are the same object.
+public struct SheetObject<State: AnyObject & Sendable>: Equatable, Sendable {
+    public let state: State
+
+    public init(_ state: State) {
+        self.state = state
+    }
+
+    public static func == (a: SheetObject, b: SheetObject) -> Bool {
+        a.state === b.state
     }
 }
 
@@ -75,16 +98,17 @@ extension AppModel {
     /// V5: the one sheet the window should have up now; nil for none. When several are
     /// wanted, the first of: progress, the import review, a result, the launch check,
     /// the preview of a change of folder layout, the choice between Audible series, a lookup (for the inspected book, or to
-    /// add an Audible book), Send to Phone, and Merge Books.
+    /// add an Audible book), Send to Phone, Merge Books, Manage Genres, the preview of
+    /// "Update files…", and Fill in Genres.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
     /// which stays up: the progress sheet does not take its place. MG7: the same for
-    /// Merge Books.
+    /// Merge Books. G23: and for Manage Genres, whose changes are made under it.
     ///
     /// - Parameter progressDue: Whether the operation that is running has run long
     ///   enough for its progress to be shown: a short one shows no sheet.
     public func windowSheet(progressDue: Bool) -> WindowSheet? {
-        if progressDue, sendSession == nil, mergeSession == nil, let label = progressSheetLabel {
+        if progressDue, sendSession == nil, mergeSession == nil, genreManager == nil, let label = progressSheetLabel {
             return .progress(label)
         }
         if let review { return .review(review) }
@@ -97,6 +121,9 @@ extension AppModel {
         if let lookup = addAudibleLookup { return .lookup(lookup) }
         if let sheet = sendSheet { return .sendToPhone(sheet) }
         if let sheet = mergeSheet { return .mergeBooks(sheet) }
+        if let genreManager { return .manageGenres(SheetObject(genreManager)) }
+        if let genreFilesUpdate { return .genreFiles(SheetObject(genreFilesUpdate)) }
+        if let genreFill { return .genreFill(SheetObject(genreFill)) }
         return nil
     }
 }

@@ -47,8 +47,9 @@ struct SidebarView: View {
                 }
             }
 
-            // G34–G36: the genres by group, then the books that have none.
-            Section("Genres") {
+            // G34–G36: the genres by group, each with its count, then the books that
+            // have none. G13, G23, G29: the header has what is done with genres.
+            Section {
                 ForEach(model.genreTree) { group in
                     DisclosureGroup(isExpanded: isOpen(group.group)) {
                         ForEach(group.genres) { genre in
@@ -60,7 +61,9 @@ struct SidebarView: View {
                         }
                     } label: {
                         Label(group.title, systemImage: group.item.symbol)
+                            .lineLimit(1)
                             .badge(group.count)
+                            .tag(group.item)
                     }
                     .tag(group.item)
                     .accessibilityIdentifier("sidebar.genreGroup.\(group.group.rawValue)")
@@ -69,9 +72,21 @@ struct SidebarView: View {
                     Label(model.title(of: .noGenre), systemImage: SidebarItem.noGenre.symbol)
                         .badge(model.noGenreCount)
                         .tag(SidebarItem.noGenre)
+                        .contextMenu {
+                            // G29
+                            Button("Fill in Genres…") {
+                                Task { await model.beginGenreFill() }
+                            }
+                            .disabled(!model.canFillInGenres)
+                            .accessibilityIdentifier("sidebar.noGenre.fill")
+                        }
                         .accessibilityIdentifier("sidebar.noGenre")
                 }
+            } header: {
+                GenresHeader(model: model)
             }
+            // The header's own controls stand where the button that hides a section would.
+            .collapsible(false)
 
             Section("Collections") {
                 ForEach(model.sidebar.collections) { collection in
@@ -183,5 +198,79 @@ struct SidebarView: View {
             set: { shown in
                 if !shown { collection.wrappedValue = nil }
             })
+    }
+}
+
+/// The heading of the sidebar's genres. G13: "Update files…" with how many books have
+/// files to update, while any has. G23, G29: a menu of what is done with genres.
+///
+/// Handed the model: it is drawn by the list, and reads nothing from the environment.
+private struct GenresHeader: View {
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Genres")
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if let offer = model.genreFilesOffer {
+                Button {
+                    Task { await model.beginGenreFilesUpdate() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(offer.title)
+                            .lineLimit(1)
+                        Text("\(offer.count)")
+                            .monospacedDigit()
+                            .padding(.horizontal, 5)
+                            .background(.quaternary, in: Capsule())
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .disabled(!model.canUpdateGenreFiles)
+                .help(offer.help)
+                .accessibilityIdentifier("sidebar.genres.updateFiles")
+            }
+            Menu {
+                GenreCommandItems(model: model, updateTitle: "Update Files…", prefix: "sidebar.genres.menu")
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Manage genres, update files and fill in genres")
+            .accessibilityLabel("Genres")
+            .accessibilityIdentifier("sidebar.genres.menu")
+        }
+    }
+}
+
+/// G14, G23, G29: the three commands about genres, for the Library menu and for the
+/// menu in the sidebar's heading. Whether each applies is the model's to say.
+struct GenreCommandItems: View {
+    let model: AppModel
+    /// What the command that updates files is called here.
+    let updateTitle: String
+    /// The start of each item's accessibility identifier.
+    let prefix: String
+
+    var body: some View {
+        Button("Manage Genres…") {
+            model.beginManageGenres()
+        }
+        .disabled(!model.canManageGenres)
+        .accessibilityIdentifier("\(prefix).manageGenres")
+        Button(updateTitle) {
+            Task { await model.beginGenreFilesUpdate() }
+        }
+        .disabled(!model.canUpdateGenreFiles)
+        .accessibilityIdentifier("\(prefix).updateFiles")
+        Button("Fill in Genres…") {
+            Task { await model.beginGenreFill() }
+        }
+        .disabled(!model.canFillInGenres)
+        .accessibilityIdentifier("\(prefix).fillInGenres")
     }
 }

@@ -8,6 +8,8 @@ struct BulkInspectorView: View {
     let draft: BulkDraft
 
     var body: some View {
+        // The genre field is handed the model's commands: it does not read the model.
+        let model = model
         // The same pane as one book's inspector. Nothing in it may ask for more width
         // than the column at its narrowest gives: 240 points less the padding.
         InspectorPane {
@@ -46,12 +48,20 @@ struct BulkInspectorView: View {
                 }
             }
 
+            // G21: a genre is added to the books that lack it, or taken from those that
+            // have it. One that only some have is shown as mixed, with how many.
             InspectorSection("Genres") {
                 GenreChipsField(
-                    chips: draft.genres.map { GenreChipsField.Chip(name: $0.name, detail: $0.detail) }, note: nil,
+                    chips: draft.genres.map {
+                        GenreChipsField.Chip(name: $0.name, detail: $0.detail, isMixed: $0.isMixed)
+                    },
                     identifier: "inspector.bulk.genres",
+                    suggestions: { model.genreSuggestions(for: $0) },
                     add: { model.addDraftGenre($0) },
-                    remove: { model.removeDraftGenre($0) })
+                    remove: { model.removeDraftGenre($0) },
+                    create: { name, group in
+                        Task { await model.createDraftGenre(name, group: group) }
+                    })
             }
 
             InspectorSection("Reading") {

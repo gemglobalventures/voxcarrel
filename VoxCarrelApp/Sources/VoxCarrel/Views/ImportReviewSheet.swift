@@ -235,6 +235,8 @@ private struct EntryDetail: View {
     }
 
     var body: some View {
+        // The genre field is handed the model's commands: it does not read the model.
+        let model = model
         ScrollView {
             VStack(alignment: .leading, spacing: InspectorMetrics.sectionSpacing) {
                 HStack(alignment: .top, spacing: 16) {
@@ -311,6 +313,19 @@ private struct EntryDetail: View {
                             textField("Narrators", text: $narrators, id: "narrators")
                                 .disabled(review.isLocked(.narrators, of: entry.id))
                         }
+                    }
+                    // G19: the genres the file's tag came to, to put right before the import.
+                    InspectorField("Genres") {
+                        GenreChipsField(
+                            chips: entry.genres.map { GenreChipsField.Chip(name: $0) },
+                            identifier: "import.entry.\(entry.id).genres",
+                            suggestions: { model.genreSuggestions(for: $0, excluding: entry.genres) },
+                            add: { model.addImportGenre($0, to: entry.id) },
+                            remove: { model.removeImportGenre($0, from: entry.id) },
+                            move: { model.moveImportGenre(from: $0, to: $1, in: entry.id) },
+                            create: { name, group in
+                                Task { await model.createImportGenre(name, group: group, for: entry.id) }
+                            })
                     }
                     if let note = review.keptDetailsNote(of: entry.id) {
                         Text(note)

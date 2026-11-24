@@ -52,6 +52,8 @@ private struct BookInspector: View {
     let draft: BookDraft
 
     var body: some View {
+        // The genre field is handed the model's commands: it does not read the model.
+        let model = model
         let markers = model.appOnlyMarkers
         let reasons = detail.attentionLines
 
@@ -96,18 +98,18 @@ private struct BookInspector: View {
                     }
                     .frame(width: 64)
                 }
+                // G21, G22: chips, and a box that offers the library's genres as it is typed in.
                 InspectorField("Genre", isAppOnly: markers.contains(.genre)) {
                     GenreChipsField(
                         chips: draft.genres.map { GenreChipsField.Chip(name: $0) }, note: draft.genreSourceNote,
                         identifier: "inspector.genres",
-                        add: { typed in
-                            if let name = model.genreSuggestions(for: typed).createName {
-                                Task { await model.createDraftGenre(name, group: .other) }
-                            } else {
-                                model.addDraftGenre(typed)
-                            }
-                        },
-                        remove: { model.removeDraftGenre($0) })
+                        suggestions: { model.genreSuggestions(for: $0) },
+                        add: { model.addDraftGenre($0) },
+                        remove: { model.removeDraftGenre($0) },
+                        move: { model.moveDraftGenre(from: $0, to: $1) },
+                        create: { name, group in
+                            Task { await model.createDraftGenre(name, group: group) }
+                        })
                 }
                 field("Tags", \.tags, nil, id: "tags", hint: InspectorMetrics.semicolonHint)
                 InspectorField("Rating") {

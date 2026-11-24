@@ -515,9 +515,15 @@ extension AppModel {
 
     // MARK: The three sheets
 
+    /// Whether none of the three sheets about genres is open. One at a time: what one
+    /// shows was read before another could change it.
+    var noGenreSheetIsOpen: Bool {
+        genreManager == nil && genreFilesUpdate == nil && genreFill == nil
+    }
+
     /// G23: whether Manage Genres can be opened.
     public var canManageGenres: Bool {
-        genresCanChange && genreManager == nil
+        genresCanChange && noGenreSheetIsOpen
     }
 
     /// G23: opens Manage Genres.
@@ -532,17 +538,17 @@ extension AppModel {
 
     /// G13: whether there are files to update, and they can be updated now.
     public var canUpdateGenreFiles: Bool {
-        genresCanChange && filesCanChange && genreFilesToUpdate > 0 && genreFilesUpdate == nil
+        genresCanChange && filesCanChange && genreFilesToUpdate > 0 && noGenreSheetIsOpen
     }
 
     /// G14: opens the preview of "Update files…": what each book's files hold and what
     /// will be written. Nothing is written by opening it.
     public func beginGenreFilesUpdate() async {
-        guard genresCanChange, filesCanChange, genreFilesUpdate == nil, let worker else { return }
+        guard genresCanChange, filesCanChange, noGenreSheetIsOpen, let worker else { return }
         do {
             // Read off the main thread: it goes through every book.
             let differences = try await worker.genreFileDifferences()
-            guard genresCanChange, genreFilesUpdate == nil else { return }
+            guard genresCanChange, noGenreSheetIsOpen else { return }
             genreFilesUpdate = GenreFilesUpdate(model: self, differences: differences)
         } catch {
             show(error)
@@ -551,7 +557,7 @@ extension AppModel {
 
     /// G29: whether Fill in Genres can be opened.
     public var canFillInGenres: Bool {
-        genresCanChange && filesCanChange && genreFill == nil
+        genresCanChange && filesCanChange && noGenreSheetIsOpen
     }
 
     /// G29: opens Fill in Genres. Nothing is looked up until it is started.

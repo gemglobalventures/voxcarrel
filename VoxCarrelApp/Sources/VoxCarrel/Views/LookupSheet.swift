@@ -407,7 +407,8 @@ private struct OfferRow: View {
     var body: some View {
         OfferLayout(
             label: offer.label, ticked: ticked, found: offer.found, current: offer.currentText,
-            reason: offer.reason, reasonIsWarning: true, id: offer.id.rawValue)
+            reason: offer.reason, reasonIsWarning: true, id: offer.id.rawValue,
+            foundGenres: offer.foundGenres, currentGenres: offer.currentGenres)
     }
 
     private var ticked: Binding<Bool> {
@@ -466,6 +467,9 @@ private struct OfferLayout: View {
     let reasonIsWarning: Bool
     /// The end of the row's accessibility identifiers.
     let id: String
+    /// G20: for the Genre offer, the genres found and the book's own, to show as chips.
+    var foundGenres: [String]?
+    var currentGenres: [String]?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -474,16 +478,31 @@ private struct OfferLayout: View {
                 .frame(width: Self.labelWidth, alignment: .leading)
                 .accessibilityIdentifier("lookup.offer.\(id)")
             VStack(alignment: .leading, spacing: 2) {
-                Text(found)
-                    .lineLimit(3)
-                    .help(found)
-                    .accessibilityIdentifier("lookup.offer.\(id).found")
-                Text(current)
-                    .font(.callout)
+                if let foundGenres, !foundGenres.isEmpty {
+                    GenreChipsRow(names: foundGenres, identifier: "lookup.offer.\(id).found")
+                        .accessibilityLabel(found)
+                } else {
+                    Text(found)
+                        .lineLimit(3)
+                        .help(found)
+                        .accessibilityIdentifier("lookup.offer.\(id).found")
+                }
+                if let currentGenres, !currentGenres.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("Now:")
+                            .font(.callout)
+                        GenreChipsRow(names: currentGenres, identifier: "lookup.offer.\(id).current")
+                            .accessibilityLabel(current)
+                    }
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .help(current)
-                    .accessibilityIdentifier("lookup.offer.\(id).current")
+                } else {
+                    Text(current)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .help(current)
+                        .accessibilityIdentifier("lookup.offer.\(id).current")
+                }
                 if let reason {
                     Text(reason)
                         .font(.caption)

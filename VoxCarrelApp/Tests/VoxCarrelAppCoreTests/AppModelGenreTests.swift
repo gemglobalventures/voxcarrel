@@ -560,6 +560,98 @@ import VoxCarrelFixtures
         #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
     }
 
+    // MARK: G14, G23, G29 The sheets
+
+    @Test func GH23_manageGenresIsTheWindowsSheetAndProgressDoesNotTakeItsPlace() async throws {
+        let h = try await Harness.demo()
+        #expect(h.model.windowSheet(progressDue: true) == nil)
+        let manager = try h.manager()
+        #expect(h.model.windowSheet(progressDue: false) == .manageGenres(SheetObject(manager)))
+
+        // A change is made under the sheet, which says itself that it is busy.
+        h.model.busyLabel = "Renaming genre…"
+        #expect(manager.isBusy)
+        #expect(h.model.windowSheet(progressDue: true) == .manageGenres(SheetObject(manager)))
+        h.model.busyLabel = nil
+
+        // A result comes first, and the sheet is back when it has been read.
+        let result = ResultSummary(headline: "Done", problems: [], isClean: true)
+        h.model.result = result
+        #expect(h.model.windowSheet(progressDue: false) == .result(result))
+        h.model.result = nil
+
+        h.model.closeManageGenres()
+        #expect(h.model.windowSheet(progressDue: false) == nil)
+    }
+
+    /// What one sheet shows was read before the others could change it: a list changed
+    /// under the preview of the files, or under genres waiting to be applied, would
+    /// leave them holding names the list no longer has.
+    @Test func GH23_onlyOneSheetAboutGenresIsOpenAtATime() async throws {
+        let h = try await Harness.demo()
+        try await h.rename("Fantasy", to: "Fantastic")
+        #expect(h.model.canManageGenres && h.model.canUpdateGenreFiles && h.model.canFillInGenres)
+
+        let manager = try h.manager()
+        #expect(!h.model.canUpdateGenreFiles)
+        #expect(!h.model.canFillInGenres)
+        await h.model.beginGenreFilesUpdate()
+        await h.model.beginGenreFill()
+        #expect(h.model.genreFilesUpdate == nil)
+        #expect(h.model.genreFill == nil)
+        // Its own changes are still made.
+        await manager.move("Fantastic", to: .nonFiction)
+        #expect(manager.problem == nil)
+        #expect(h.model.genreCatalogue.group(of: "Fantastic") == .nonFiction)
+        h.model.closeManageGenres()
+
+        await h.model.beginGenreFilesUpdate()
+        let update = try #require(h.model.genreFilesUpdate)
+        #expect(!h.model.canManageGenres)
+        #expect(!h.model.canFillInGenres)
+        h.model.beginManageGenres()
+        await h.model.beginGenreFill()
+        #expect(h.model.genreManager == nil)
+        #expect(h.model.genreFill == nil)
+        update.cancel()
+
+        await h.model.beginGenreFill()
+        let fill = try #require(h.model.genreFill)
+        #expect(!h.model.canManageGenres)
+        #expect(!h.model.canUpdateGenreFiles)
+        h.model.beginManageGenres()
+        await h.model.beginGenreFilesUpdate()
+        #expect(h.model.genreManager == nil)
+        #expect(h.model.genreFilesUpdate == nil)
+        fill.cancel()
+        #expect(h.model.canManageGenres && h.model.canUpdateGenreFiles && h.model.canFillInGenres)
+    }
+
+    @Test func GH14_thePreviewOfUpdateFilesIsTheWindowsSheetAndProgressFollowsIt() async throws {
+        let h = try await Harness.demo()
+        try await h.rename("Fantasy", to: "Fantastic")
+        await h.model.beginGenreFilesUpdate()
+        let update = try #require(h.model.genreFilesUpdate)
+        #expect(h.model.windowSheet(progressDue: false) == .genreFiles(SheetObject(update)))
+        update.cancel()
+        #expect(h.model.windowSheet(progressDue: false) == nil)
+        // The writing itself is shown as any other work is.
+        h.model.busyLabel = "Updating genre tags…"
+        #expect(h.model.windowSheet(progressDue: true) == .progress("Updating genre tags…"))
+        h.model.busyLabel = nil
+    }
+
+    @Test func GH29_fillInGenresIsTheWindowsSheet() async throws {
+        let h = try await fillLibrary()
+        await h.model.beginGenreFill()
+        let fill = try #require(h.model.genreFill)
+        #expect(h.model.windowSheet(progressDue: false) == .genreFill(SheetObject(fill)))
+        fill.cancel()
+        #expect(h.model.windowSheet(progressDue: false) == nil)
+        // A sheet of its own kind: it is never shown in the place of another.
+        #expect(WindowSheet.genreFill(SheetObject(fill)).id != WindowSheet.progress("").id)
+    }
+
     // MARK: G19 Import
 
     /// An ebook whose genre tag is `tag`, loose in a folder of its own.
