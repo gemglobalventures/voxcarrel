@@ -42,6 +42,7 @@ public enum GenreMapping {
             read(text, into: &found)
         case .paths(let paths):
             for path in paths { read(path: path, into: &found) }
+            return settle(found, countingPaths: true)
         case .subjects(let subjects):
             for subject in subjects { read(subject, into: &found) }
             found.unknown = []
@@ -146,8 +147,10 @@ public enum GenreMapping {
     }
 
     /// Drops a top name where a name beneath it was found, and general genres where
-    /// there are others; then orders what is left and keeps five.
-    private static func settle(_ found: Found) -> MappedGenres {
+    /// there are others; then orders what is left and keeps five. For category paths
+    /// (`countingPaths`), of genres decided by names as deep as each other the one more
+    /// paths decide comes first.
+    private static func settle(_ found: Found, countingPaths: Bool = false) -> MappedGenres {
         var hits = hits(of: found)
 
         let sitUnder = Set(hits.flatMap(\.under))
@@ -165,6 +168,17 @@ public enum GenreMapping {
         }
         var builtIn: [String] = []
         for (_, hit) in ordered where !builtIn.contains(hit.genre) { builtIn.append(hit.genre) }
+        if countingPaths {
+            // Each hit is one path. The sort keeps the order above where nothing differs.
+            let deepest = Dictionary(hits.map { ($0.genre, $0.level) }, uniquingKeysWith: max)
+            let paths = Dictionary(hits.map { ($0.genre, 1) }, uniquingKeysWith: +)
+            builtIn = builtIn.enumerated().sorted { a, b in
+                let (first, second) = (a.element, b.element)
+                if deepest[first] != deepest[second] { return (deepest[first] ?? 0) > (deepest[second] ?? 0) }
+                if paths[first] != paths[second] { return (paths[first] ?? 0) > (paths[second] ?? 0) }
+                return a.offset < b.offset
+            }.map(\.element)
+        }
 
         var unknown: [String] = []
         for name in found.unknown where !unknown.contains(where: { GenreName.same($0, name) }) {

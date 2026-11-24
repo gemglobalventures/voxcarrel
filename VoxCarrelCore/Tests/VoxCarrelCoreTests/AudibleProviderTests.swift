@@ -323,9 +323,9 @@ import Testing
         expected.year = 2021
         expected.language = "en"
         expected.durationSeconds = 970 * 60
-        // G20: all four of its paths are kept as the wording, and each gives its genre,
-        // in the order Audible lists them.
-        expected.genres = ["Thrillers & Spies", "Science Fiction"]
+        // G20: all four of its paths are kept as the wording, and each gives its genre.
+        // GP8: three of the four are science fiction, so that comes first.
+        expected.genres = ["Science Fiction", "Thrillers & Spies"]
         expected.genreSource = "Mystery, Thriller & Suspense > Thriller & Suspense > Suspense; "
             + "Science Fiction & Fantasy > Science Fiction > Adventure; "
             + "Science Fiction & Fantasy > Science Fiction > Hard Science Fiction; "

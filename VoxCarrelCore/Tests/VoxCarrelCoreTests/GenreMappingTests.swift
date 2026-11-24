@@ -593,6 +593,38 @@ import Testing
         #expect(genres("Crime Thrillers") == ["Thrillers & Spies"])
     }
 
+    // MARK: GP8 The genre more paths point to
+
+    @Test func GP8_amongEquallyDeepNamesTheGenreMorePathsDecideIsFirst() {
+        // As Audible files Project Hail Mary: one suspense path first, then science fiction.
+        let mapped = GenreMapping.map(.paths([
+            "Mystery, Thriller & Suspense > Thriller & Suspense > Suspense",
+            "Science Fiction & Fantasy > Science Fiction > Adventure",
+            "Science Fiction & Fantasy > Science Fiction > Hard Science Fiction",
+            "Science Fiction & Fantasy > Science Fiction > Space Opera",
+        ].map(path)))
+        #expect(mapped.builtIn == ["Science Fiction", "Thrillers & Spies"])
+        #expect(mapped.unknown == [])
+    }
+
+    @Test func GP8_aDeeperNameStillComesBeforeAGenreMorePathsDecide() {
+        #expect(genres(paths: [
+            ["Mystery, Thriller & Suspense", "Mystery", "International Mystery & Crime"],
+            ["Mystery, Thriller & Suspense", "Mystery", "Traditional Detectives"],
+            ["Mystery, Thriller & Suspense", "Thriller & Suspense", "Spies & Politics", "Espionage"],
+        ]) == ["Thrillers & Spies", "Crime & Mystery"])
+    }
+
+    @Test func GP8_genresAsManyPathsDecideKeepTheOrderGiven() {
+        #expect(genres(paths: [["Romance", "Paranormal"], ["History", "Europe"]]) == ["Romance", "History"])
+        #expect(genres(paths: [["History", "Europe"], ["Romance", "Paranormal"]]) == ["History", "Romance"])
+    }
+
+    @Test func GP8_textIsNotCounted() {
+        // In a tag the order given decides between names as deep as each other.
+        #expect(genres("Horror, Romance, Romance, History") == ["Horror", "Romance", "History"])
+    }
+
     // MARK: GP5a A name that means different things
 
     @Test func GP5a_militaryAloneIsHistory() {
