@@ -144,7 +144,7 @@ extension ImportReview {
     // MARK: IH5 Swap
 
     /// IH5: whether Swap Title and Author is to stand out: the title and the author may
-    /// be in each other's place, and there are two to exchange.
+    /// be in each other's place, and Swap has something to move (MG6).
     public func offersProminentSwap(of id: UUID) -> Bool {
         guard let entry = entry(id) else { return false }
         return (entry.orderIsInQuestion || entry.guessNotes.contains(.titleLooksLikePerson))

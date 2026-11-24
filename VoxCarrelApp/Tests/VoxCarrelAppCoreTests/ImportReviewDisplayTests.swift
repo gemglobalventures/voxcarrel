@@ -577,12 +577,12 @@ import VoxCarrelCore
             guessed([.fromFileName, .orderSwapped]),
             guessed([.fromFileName]),
             guessed([]),
-            // Nothing to exchange it with.
+            // No author: Swap makes the title the author, which is what is wanted here.
             guessed([.fromFileName, .titleLooksLikePerson], author: nil),
         ])
         #expect(
             review.entries.map { review.offersProminentSwap(of: $0.id) }
-                == [true, false, true, true, false, false, false, false])
+                == [true, false, true, true, false, false, false, true])
         #expect(!review.offersProminentSwap(of: UUID()))
     }
 
