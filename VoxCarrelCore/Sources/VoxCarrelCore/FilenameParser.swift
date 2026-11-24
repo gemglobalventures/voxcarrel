@@ -111,6 +111,29 @@ public enum FilenameParser {
         return guess
     }
 
+    /// Words of a title that capital letters can make look like a name.
+    static let titleOnlyWords: Set<String> = [
+        "fund", "funds", "hedge", "guide", "money", "management", "secrets", "strategy", "strategies", "system",
+        "method", "methods", "techniques", "introduction", "manual", "report", "handbook", "trader", "traders",
+        "profits", "wealth", "economy", "economics", "price", "action", "day", "swing", "forex", "candlestick",
+        "charting", "portfolio", "street", "wall", "stock", "using", "made", "easy", "beginners", "dummies",
+    ]
+
+    /// True for text that begins as a subtitle often does: with an article, or with
+    /// "How", "Why", "What", "When", "Where", "Lessons", "Notes", "Inside".
+    static func beginsLikeASubtitle(_ text: String) -> Bool {
+        guard let first = text.split(separator: " ").first?.lowercased() else { return false }
+        return ["the", "a", "an", "how", "why", "what", "when", "where", "lessons", "notes", "inside"].contains(first)
+    }
+
+    /// True when a side of "A - B" is shaped like a person's name and holds no word
+    /// that belongs to a subject or a title.
+    static func looksLikeAnAuthor(_ text: String) -> Bool {
+        guard NameShape.looksLikePerson(text) else { return false }
+        let words = text.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return !words.contains { subjectWords.contains($0) || titleOnlyWords.contains($0) }
+    }
+
     /// Words that make a folder's name a subject or a heap, not a person.
     static let subjectWords: Set<String> = [
         "papers", "exchange", "trading", "investing", "investment", "books", "ebooks", "audiobooks", "collection",
@@ -159,14 +182,23 @@ public enum FilenameParser {
     /// the publisher. Nil for any other name.
     static func downloadSiteName(_ name: String) -> (title: String, author: String)? {
         var text = name.trimmingCharacters(in: .whitespaces)
-        // The year, in brackets at the end, is what marks the form.
-        guard let open = text.lastIndex(of: "("), text.hasSuffix(")") else { return nil }
-        let year = text[text.index(after: open)..<text.index(before: text.endIndex)]
-        guard year.count == 4, year.allSatisfy(\.isNumber) else { return nil }
-        text = String(text[..<open]).trimmingCharacters(in: .whitespaces)
+        // The year at the end is what marks the form: in brackets, or bare.
+        if text.hasSuffix(")"), let open = text.lastIndex(of: "(") {
+            let year = text[text.index(after: open)..<text.index(before: text.endIndex)]
+            guard year.count == 4, year.allSatisfy(\.isNumber) else { return nil }
+            text = String(text[..<open]).trimmingCharacters(in: .whitespaces)
+        } else {
+            let year = text.suffix(4)
+            guard text.count > 4, year.allSatisfy(\.isNumber), let first = year.first, first == "1" || first == "2",
+                  text.dropLast(4).last.map({ !$0.isNumber }) ?? false
+            else { return nil }
+            text = String(text.dropLast(4)).trimmingCharacters(in: .whitespaces)
+        }
         // A number, then a series in brackets, may come first.
+        var numbered = false
         if let space = text.firstIndex(of: " "), text[..<space].allSatisfy(\.isNumber) {
             text = String(text[text.index(after: space)...]).trimmingCharacters(in: .whitespaces)
+            numbered = true
         }
         if text.hasPrefix("("), let close = text.firstIndex(of: ")") {
             text = String(text[text.index(after: close)...]).trimmingCharacters(in: .whitespaces)
@@ -174,14 +206,20 @@ public enum FilenameParser {
         // Hyphens with a letter on both sides and no space divide the three parts.
         let characters = Array(text)
         var cuts: [Int] = []
-        for i in characters.indices.dropFirst().dropLast()
-        where characters[i] == "-" && characters[i - 1] != " " && characters[i + 1] != " "
-            && (characters[i + 1].isUppercase || characters[i + 1].isNumber || characters[i + 1] == "[") {
-            cuts.append(i)
+        // A hyphen inside square brackets belongs to what the brackets say.
+        var depth = 0
+        for i in characters.indices.dropFirst().dropLast() {
+            if characters[i] == "[" { depth += 1 } else if characters[i] == "]" { depth = max(0, depth - 1) }
+            if depth == 0, characters[i] == "-", characters[i - 1] != " ", characters[i + 1] != " ",
+               characters[i + 1].isUppercase || characters[i + 1].isNumber || characters[i + 1] == "[" {
+                cuts.append(i)
+            }
         }
-        guard cuts.count >= 2, let first = cuts.first, let last = cuts.last else { return nil }
+        // Author, title and publisher; or, in a numbered list, author and title alone.
+        guard cuts.count >= 2 || (numbered && cuts.count == 1), let first = cuts.first, let last = cuts.last
+        else { return nil }
         let authors = String(characters[..<first])
-        let title = tidy(String(characters[(first + 1)..<last]))
+        let title = tidy(String(cuts.count >= 2 ? characters[(first + 1)..<last] : characters[(first + 1)...]))
         let author = tidy(authors.split(separator: ",").first.map(String.init) ?? authors)
         guard !title.isEmpty, NameShape.looksLikePerson(author) else { return nil }
         return (title, author)
@@ -204,7 +242,9 @@ public enum FilenameParser {
             guess.title = ([standIns.0 ? b : a, tailA, tailB].filter { !$0.isEmpty }).joined(separator: " ")
             return
         }
-        let shapes = (NameShape.looksLikePerson(a), NameShape.looksLikePerson(b))
+        // "Stock Trading & Investing", "Hedge Fund Course": words of a subject are not
+        // a person's name, however they are capitalised.
+        let shapes = (looksLikeAnAuthor(a), looksLikeAnAuthor(b))
         let authors = (known.hasAuthor(a), known.hasAuthor(b))
         let titles = (known.hasTitle(a), known.hasTitle(b))
 
@@ -223,6 +263,16 @@ public enum FilenameParser {
             authorIsFirst = shapes.0
             // A guess all the same, whichever way round it came out.
             guess.notes.insert(.orderGuessedByShape)
+        } else if !shapes.0, !shapes.1, authors == (false, false), titles == (false, false),
+                  a.first?.isUppercase == true, a.contains(" "), !NameShape.beginsWithArticle(a),
+                  beginsLikeASubtitle(b) {
+            // Neither side is anybody's name, the first is no single word and no
+            // group's name with its article, and the second begins as a subtitle does:
+            // "Way of the Turtle - The Secret Methods" is a title and what follows it,
+            // with no author in sight.
+            guess.title = ([a + " - " + b, tailA, tailB].filter { !$0.isEmpty }).joined(separator: " ")
+            guess.author = nil
+            return
         } else {
             guess.notes.insert(.orderUnsure)
         }

@@ -146,7 +146,11 @@ import VoxCarrelFixtures
 
         // Every part arrives, though the discs use the same names.
         let outcome = try #require(try f.service.importItems([ImportItem(candidate: candidate)]).outcomes.first)
-        guard case .imported(let id, _) = outcome else {
+        // (The folder's name gives no author, so the book arrives needing one.)
+        let id: Int64
+        switch outcome {
+        case .imported(let bookId, _), .needsAttention(let bookId): id = bookId
+        default:
             Issue.record("not imported: \(outcome)")
             return
         }
@@ -341,5 +345,47 @@ import VoxCarrelFixtures
         #expect(result.candidates.count == 3)
         // An ordinary file is on this Mac.
         #expect(BookScanner.isOnThisMac(here))
+    }
+
+    // MARK: Names that were still read wrongly
+
+    private func guess(_ name: String) -> FilenameGuess {
+        FilenameParser.guess(from: URL(fileURLWithPath: "/x/Downloads/\(name).pdf"), isFolder: false)
+    }
+
+    @Test func CI14_aTitleAndWhatFollowsItIsNotAnAuthorAndATitle() {
+        let g = guess("Way of the Turtle - The Secret Methods that Turned Ordinary People into Legendary Traders")
+        #expect(g.author == nil)
+        #expect(g.title == "Way of the Turtle - The Secret Methods that Turned Ordinary People into Legendary Traders")
+        #expect(!g.notes.contains(.orderUnsure))
+        // One word, or a group's name with its article, may still be who made it.
+        #expect(guess("Aristotle - Nicomachean Ethics").author == "Aristotle")
+        #expect(guess("The Great Courses - Ancient Greece").author == "The Great Courses")
+        // A person on either side is read as before.
+        #expect(guess("Mick Herron - Slow Horses").author == "Mick Herron")
+        #expect(guess("Slow Horses - Mick Herron").author == "Mick Herron" || guess("Slow Horses - Mick Herron").notes.contains(.orderUnsure))
+        // And a name with no capital anywhere gives nothing to go by.
+        #expect(guess("frank herbert - dune").author == "frank herbert")
+    }
+
+    @Test func CI15_wordsOfASubjectAreNotAPersonsName() {
+        var g = guess("Stock Trading & Investing Using - Anna Coulling")
+        #expect(g.author == "Anna Coulling" && g.title == "Stock Trading & Investing Using")
+        g = guess("S A Mccrary - Hedge Fund Course")
+        // Initials without their full stops do not make a name by shape, so this one
+        // is still read the usual way round, and asked about.
+        #expect(g.author == "S A Mccrary" && g.title == "Hedge Fund Course")
+        #expect(!FilenameParser.looksLikeAnAuthor("Money Management"))
+        #expect(FilenameParser.looksLikeAnAuthor("Ryan Jones") && FilenameParser.looksLikeAnAuthor("James F. Dalton"))
+    }
+
+    @Test func CI6_aDownloadSiteNameWithABareYear() throws {
+        let read = try #require(FilenameParser.downloadSiteName("14 Nassim Nicholas Taleb-Incerto [4-Book Bundle]2016"))
+        #expect(read.author == "Nassim Nicholas Taleb")
+        #expect(read.title == "Incerto [4-Book Bundle]")
+        #expect(FilenameParser.downloadSiteName("Catch-22 1961") == nil)
+        #expect(FilenameParser.downloadSiteName("Blade Runner 2049") == nil)
+        #expect(FilenameParser.downloadSiteName("Spider-Man 2002") == nil)
+        #expect(FilenameParser.downloadSiteName("Frank Herbert-Dune 1965") == nil)   // no number before it: left alone
     }
 }
