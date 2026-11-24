@@ -304,6 +304,8 @@ public final class LibraryStore: Sendable {
             // The name the app ships the genre under; null for one of the owner's own.
             t.column("builtInName", .text)
             t.column("isHidden", .boolean).notNull().defaults(to: false)
+            // For a built-in genre merged away: the id of the genre it was merged into.
+            t.column("mergedInto", .integer)
         }
         for genre in BuiltInGenre.all {
             try db.execute(
@@ -769,77 +771,6 @@ public final class LibraryStore: Sendable {
                 WHERE collectionBook.collectionId = ?
                 ORDER BY book.title COLLATE NOCASE
                 """, arguments: [collectionId])
-        }
-    }
-}
-
-// MARK: Genres
-
-extension LibraryStore {
-    /// The library's list of genres, hidden ones included, each with the number of
-    /// books that have it: by group, the built-in ones in their own order and then the
-    /// owner's own by name.
-    public func genreList() throws -> [GenreEntry] {
-        try dbQueue.read { db in
-            // Counted here and not by the database, which only folds the case of ASCII letters.
-            var counts: [String: Int] = [:]
-            for row in try Row.fetchAll(db, sql: """
-                SELECT j.value AS name, COUNT(*) AS books FROM book, json_each(book.genres) AS j GROUP BY j.value
-                """) {
-                let name: String = row["name"]
-                counts[name.lowercased(), default: 0] += row["books"]
-            }
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT name, genreGroup, builtInName, isHidden FROM genre
-                ORDER BY builtInName IS NULL, CASE WHEN builtInName IS NULL THEN 0 ELSE id END, name COLLATE NOCASE
-                """)
-            let entries = rows.map { row -> GenreEntry in
-                let name: String = row["name"]
-                return GenreEntry(
-                    name: name, group: GenreGroup(rawValue: row["genreGroup"]) ?? .other,
-                    builtInName: row["builtInName"], isHidden: row["isHidden"],
-                    bookCount: counts[name.lowercased()] ?? 0)
-            }
-            return GenreGroup.allCases.flatMap { group in entries.filter { $0.group == group } }
-        }
-    }
-
-    /// The names of the library's list, hidden ones included.
-    public func genreNames() throws -> [String] {
-        try dbQueue.read { db in try String.fetchAll(db, sql: "SELECT name FROM genre ORDER BY id") }
-    }
-
-    /// The ids of the books that have this genre, whatever its place in their lists,
-    /// sorted by title.
-    public func bookIds(inGenre name: String) throws -> [Int64] {
-        try dbQueue.read { db in
-            try Int64.fetchAll(db, sql: """
-                SELECT id FROM book
-                WHERE EXISTS (SELECT 1 FROM json_each(book.genres) WHERE value = ? COLLATE NOCASE)
-                ORDER BY title COLLATE NOCASE
-                """, arguments: [name])
-        }
-    }
-
-    /// The ids of the books with a genre of this group, each once, sorted by title.
-    public func bookIds(inGroup group: GenreGroup) throws -> [Int64] {
-        try dbQueue.read { db in
-            try Int64.fetchAll(db, sql: """
-                SELECT id FROM book
-                WHERE EXISTS (
-                    SELECT 1 FROM json_each(book.genres) AS j
-                    JOIN genre ON genre.name = j.value COLLATE NOCASE
-                    WHERE genre.genreGroup = ?)
-                ORDER BY title COLLATE NOCASE
-                """, arguments: [group.rawValue])
-        }
-    }
-
-    /// The ids of the books with no genre, sorted by title.
-    public func bookIdsWithNoGenre() throws -> [Int64] {
-        try dbQueue.read { db in
-            try Int64.fetchAll(
-                db, sql: "SELECT id FROM book WHERE json_array_length(genres) = 0 ORDER BY title COLLATE NOCASE")
         }
     }
 }

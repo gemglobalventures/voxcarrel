@@ -963,7 +963,7 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
     @Test func mb7_aMergeIsRecordedInAFormOlderVersionsWillNotTryToUndo() throws {
         let f = try F()
         let (ebook, notes) = try ebookAndNotes(f)
-        #expect(OperationSnapshot.currentVersion == 4)
+        #expect(OperationSnapshot.currentVersion == 5)
         try f.service.mergeBooks([ebook, notes], keep: ebook, roles: [:])
         let data = try #require(try f.store.lastBatch()?.snapshot)
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

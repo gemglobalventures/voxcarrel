@@ -107,6 +107,10 @@ extension LibraryService {
             if let data, let saved = data.layoutChange {
                 return try undoLayoutChange(recorded, token: data.token, saved)
             }
+            // A change to the list of genres touched no file, and is undone its own way.
+            if let saved = data?.genreList {
+                return try undoGenreListChange(recorded, saved)
+            }
             batch = recorded
             snapshot = data
         }

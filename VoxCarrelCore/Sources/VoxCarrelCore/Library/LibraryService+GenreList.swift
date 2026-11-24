@@ -27,16 +27,36 @@ extension LibraryService {
     /// The genres a file's tag gives in this library. A tag made only of names of the
     /// library's list, parted by semicolons, is taken as it is written, so a tag the
     /// app wrote reads back as the same genres in the same order, the owner's own among
-    /// them; any other tag goes to the mapping, whole. Every reading of a file's genre
+    /// them; any other tag goes to the mapping, whole. Either way each name is then the
+    /// one the library keeps for it (`listedGenres`). Every reading of a file's genre
     /// tag for this library comes through here.
     public func genres(fromTag tag: String?) -> [String] {
-        GenreTag.genres(from: tag, listed: (try? store.genreNames()) ?? [])
+        let listing = (try? store.genreListing()) ?? GenreListing(rows: [])
+        return listing.names(GenreTag.genres(from: tag, listed: listing.rows.map(\.name)))
     }
 
-    /// Genres as this library keeps them on a book: no name twice, and each spelled as
-    /// the list spells it where the list has it.
-    func listedGenres(_ names: [String]) -> [String] {
-        GenreName.spelled(names, as: (try? store.genreNames()) ?? [])
+    /// Genres as this library keeps them on a book: no name twice, and each as the list
+    /// has it. A name is spelled as the list spells it; a built-in genre that has been
+    /// renamed is given by its new name, and one that has been merged away by the genre
+    /// it was merged into. Names from the mapping and from lookups are built-in names,
+    /// and come through here before they are stored or shown.
+    public func listedGenres(_ names: [String]) -> [String] {
+        ((try? store.genreListing()) ?? GenreListing(rows: [])).names(names)
+    }
+
+    /// The genre of the list that typed text is, without asking: the genre of that
+    /// name, or the built-in genre the mapping knows the text as a name for ("Sci-Fi"),
+    /// as the library now names it. Nil when the text is neither: it is then a new name.
+    public func listedGenre(forTyped text: String) -> String? {
+        let listing = (try? store.genreListing()) ?? GenreListing(rows: [])
+        return Self.listedGenre(forTyped: text, in: listing)
+    }
+
+    static func listedGenre(forTyped text: String, in listing: GenreListing) -> String? {
+        if let listed = listing.listed(text) { return listed }
+        let mapped = GenreMapping.map(.text(text))
+        guard mapped.unknown.isEmpty, mapped.builtIn.count == 1 else { return nil }
+        return listing.listed(mapped.builtIn[0])
     }
 
     /// A file's details as this library reads them: its genres are what its tag gives

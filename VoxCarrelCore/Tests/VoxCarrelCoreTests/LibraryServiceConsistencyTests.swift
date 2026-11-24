@@ -526,7 +526,7 @@ import VoxCarrelFixtures
         // An edit holds a book and its files' tags as they were, with their several
         // genres, and says so: code that knows one genre text must leave it alone.
         #expect(try f.snapshot().version == 4)
-        #expect(OperationSnapshot.currentVersion == 4)
+        #expect(OperationSnapshot.currentVersion == 5)
         let batch = try #require(try f.store.lastBatch())
         let data = try #require(batch.snapshot)
         let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])

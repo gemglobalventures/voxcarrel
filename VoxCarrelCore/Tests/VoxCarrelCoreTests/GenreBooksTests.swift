@@ -845,10 +845,10 @@ import ZIPFoundation
         #expect(try f.snapshot().version == 4)
         try edit(f, id) { $0.metadata.genres = ["Horror"] }
         #expect(try f.snapshot().version == 4)
-        #expect(OperationSnapshot.currentVersion == 4)
+        #expect(OperationSnapshot.currentVersion == 5)
         // One this version cannot act on is still refused.
         var newer = try f.snapshot()
-        newer.version = 5
+        newer.version = OperationSnapshot.currentVersion + 1
         #expect(OperationSnapshot.usable(from: try JSONEncoder().encode(newer)) == nil)
         #expect(OperationSnapshot.usable(from: try JSONEncoder().encode(try f.snapshot())) != nil)
     }

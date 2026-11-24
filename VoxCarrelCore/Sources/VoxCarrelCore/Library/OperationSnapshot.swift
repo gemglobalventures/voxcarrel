@@ -13,7 +13,9 @@ struct OperationSnapshot: Codable, Equatable {
     /// the entries that were merged away out of the catalogue.
     /// 4 is for a snapshot holding books or files since a book had several genres:
     /// code that knows one genre text would put the files back without their genre tag.
-    static let currentVersion = 4
+    /// 5 added `genreList`: code that does not know it would empty the journal and
+    /// leave the list and the books as the change made them.
+    static let currentVersion = 5
 
     /// The oldest layout whose code can act on this snapshot safely: 1, unless it
     /// carries something only newer code knows what to do with. A snapshot with a
@@ -34,6 +36,13 @@ struct OperationSnapshot: Codable, Equatable {
         didSet { if merge != nil { version = max(version, 3) } }
     }
 
+    /// Set when the operation changed the library's list of genres: the rows it
+    /// touched and the genres of the books it touched, as they were. `books` is then
+    /// empty, and no file was moved or written.
+    var genreList: GenreListSnapshot? {
+        didSet { if genreList != nil { version = max(version, 5) } }
+    }
+
     init(token: String, books: [BookSnapshot]) {
         self.token = token
         self.books = books
@@ -47,6 +56,7 @@ struct OperationSnapshot: Codable, Equatable {
         books = try c.decodeIfPresent([BookSnapshot].self, forKey: .books) ?? []
         layoutChange = try c.decodeIfPresent(LayoutChangeSnapshot.self, forKey: .layoutChange)
         merge = try c.decodeIfPresent(MergeSnapshot.self, forKey: .merge)
+        genreList = try c.decodeIfPresent(GenreListSnapshot.self, forKey: .genreList)
     }
 
     /// The snapshot in `data`, or nil when it cannot be read or was written by newer code.

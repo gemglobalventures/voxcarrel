@@ -373,15 +373,21 @@ public struct GenreEntry: Equatable, Sendable, Identifiable {
     /// True for a built-in genre that has been merged away: it is kept, out of sight.
     public var isHidden: Bool
     public var bookCount: Int
+    /// For a built-in genre merged away: the name of the genre it was merged into.
+    public var mergedInto: String?
 
     public var id: String { name }
 
-    public init(name: String, group: GenreGroup, builtInName: String? = nil, isHidden: Bool = false, bookCount: Int = 0) {
+    public init(
+        name: String, group: GenreGroup, builtInName: String? = nil, isHidden: Bool = false, bookCount: Int = 0,
+        mergedInto: String? = nil
+    ) {
         self.name = name
         self.group = group
         self.builtInName = builtInName
         self.isHidden = isHidden
         self.bookCount = bookCount
+        self.mergedInto = mergedInto
     }
 }
 
