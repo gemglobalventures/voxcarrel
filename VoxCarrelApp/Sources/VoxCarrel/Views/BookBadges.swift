@@ -11,19 +11,19 @@ struct FormatBadges: View {
     let row: BookRow
     /// A tooltip for every symbol in place of each one's own.
     var help: String?
+    /// When given, the headphones are a button that opens the audiobook.
+    var onListen: (() -> Void)?
+    /// When given, the book is a button that opens the ebook.
+    var onRead: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 4) {
             if row.hasFiles {
                 if row.hasAudio {
-                    Image(systemName: "headphones")
-                        .help(help ?? "Audiobook")
-                        .accessibilityLabel("Audiobook")
+                    symbol("headphones", name: "Audiobook", opens: "Open the audiobook", id: "listen", action: onListen)
                 }
                 if row.hasEbook {
-                    Image(systemName: "book.closed")
-                        .help(help ?? "Ebook")
-                        .accessibilityLabel("Ebook")
+                    symbol("book.closed", name: "Ebook", opens: "Open the ebook", id: "read", action: onRead)
                 }
             }
             if let whereabouts = row.whereaboutsText {
@@ -34,6 +34,26 @@ struct FormatBadges: View {
             }
         }
         .foregroundStyle(.secondary)
+    }
+
+    /// The symbol alone, or as a button when there is something for it to do.
+    @ViewBuilder
+    private func symbol(_ image: String, name: String, opens: String, id: String, action: (() -> Void)?) -> some View {
+        if let action {
+            Button(action: action) {
+                Image(systemName: image)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help(opens)
+            .accessibilityLabel(opens)
+            .accessibilityIdentifier("books.badge.\(row.id).\(id)")
+        } else {
+            Image(systemName: image)
+                .help(help ?? name)
+                .accessibilityLabel(name)
+        }
     }
 }
 

@@ -43,6 +43,8 @@ private struct FileItem: View {
                 .truncationMode(.middle)
                 .fixedSize(horizontal: false, vertical: true)
                 .help(file.url.path)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { model.open(file: file) }
                 .accessibilityIdentifier("inspector.file.\(file.id).name")
 
             HStack(spacing: 6) {
@@ -56,6 +58,16 @@ private struct FileItem: View {
                     .help("Choose the file to use in place of the missing one")
                     .accessibilityIdentifier("inspector.file.\(file.id).locate")
                 }
+                Button {
+                    model.open(file: file)
+                } label: {
+                    Label("Open", systemImage: "arrow.up.forward.app")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .disabled(file.isMissing)
+                .help("Open this file")
+                .accessibilityIdentifier("inspector.file.\(file.id).open")
                 Button {
                     model.reveal(file: file)
                 } label: {

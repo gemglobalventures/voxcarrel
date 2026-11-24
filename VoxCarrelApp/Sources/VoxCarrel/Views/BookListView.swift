@@ -39,7 +39,7 @@ struct BookListView: View {
                 }
                 .width(min: 50, ideal: 120, max: 200)
                 TableColumn("Formats", value: \.formatsSortKey) { item in
-                    ItemFormatsCell(item: item)
+                    ItemFormatsCell(model: model, item: item)
                 }
                 .width(min: 54, ideal: 58, max: 70)
                 TableColumn("Length", value: \.lengthSortKey) { item in
@@ -150,11 +150,13 @@ private struct ItemSeriesCell: View {
 }
 
 private struct ItemFormatsCell: View {
+    // Handed in: a view in a table cell does not read the model from the environment.
+    let model: AppModel
     let item: ListItem
 
     var body: some View {
         switch item {
-        case .book(let row): FormatsCell(row: row)
+        case .book(let row): FormatsCell(model: model, row: row)
         case .series(let group):
             SeriesGroupFormatBadges(group: group)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -240,11 +242,15 @@ private struct TextCell: View {
 
 /// The symbols alone; the formats' names are in the tooltip.
 private struct FormatsCell: View {
+    let model: AppModel
     let row: BookRow
 
     var body: some View {
-        FormatBadges(row: row, help: row.formatsHelpText)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        FormatBadges(
+            row: row, help: row.formatsHelpText,
+            onListen: { model.listen(row.id) }, onRead: { model.read(row.id) }
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .help(row.formatsHelpText)
     }

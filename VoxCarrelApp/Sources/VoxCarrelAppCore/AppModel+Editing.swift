@@ -435,6 +435,16 @@ extension AppModel {
         opener.reveal([file.url])
     }
 
+    /// A14: opens one file of a book in its usual app: the way to an extra, and to a
+    /// particular file when a book has several.
+    public func open(file: FileRow) {
+        guard !file.isMissing else {
+            alert = "\"\(file.name)\" cannot be found. It was expected here: \(file.url.path)"
+            return
+        }
+        opener.open(file.url)
+    }
+
     private func revealBooks(_ ids: [Int64]) async {
         guard let worker else { return }
         do {

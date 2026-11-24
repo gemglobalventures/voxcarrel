@@ -117,7 +117,7 @@ private struct BookGridItem: View {
 
     var body: some View {
         let isSelected = model.selection.contains(row.id)
-        BookGridCell(model: model, row: row, isSelected: isSelected)
+        BookGridCell(model: model, row: row, isSelected: isSelected, formatsAreDrawnAbove: true)
             .overlay {
                 ClickCatcher(toolTip: row.summaryText) {
                     model.contextClickItem(.book(row.id))
@@ -125,6 +125,14 @@ private struct BookGridItem: View {
                     isGridFocused.wrappedValue = true
                     clicked(modifiers: modifiers, clickCount: clickCount)
                 }
+            }
+            // The format symbols are buttons, so they stand above what catches the
+            // cell's clicks, exactly where the cell leaves room for them.
+            .overlay(alignment: .bottomLeading) {
+                FormatBadges(row: row, onListen: { model.listen(row.id) }, onRead: { model.read(row.id) })
+                    .font(.caption)
+                    .frame(height: 14)
+                    .padding(GridMetrics.cellPadding)
             }
             .contextMenu {
                 BookContextMenu(model: model, ids: model.contextTarget(forItem: .book(row.id)))
@@ -162,6 +170,9 @@ private struct BookGridCell: View {
     let model: AppModel
     let row: BookRow
     let isSelected: Bool
+    /// True when the format symbols are drawn over the cell as buttons; the cell then
+    /// only keeps their room.
+    var formatsAreDrawnAbove = false
 
     var body: some View {
         let outline = RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -199,6 +210,7 @@ private struct BookGridCell: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 5) {
                 FormatBadges(row: row)
+                    .opacity(formatsAreDrawnAbove ? 0 : 1)
                 // The room between the symbols is the edition label's, when there is one.
                 if row.editionLabel != nil {
                     EditionBadge(row: row)

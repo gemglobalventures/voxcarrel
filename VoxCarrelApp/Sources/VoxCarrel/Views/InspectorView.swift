@@ -67,6 +67,8 @@ private struct BookInspector: View {
                 if markers.contains(.cover) {
                     AppOnlyMarker()
                 }
+                OpenButtons(detail: detail)
+                    .padding(.top, 4)
             }
             .frame(maxWidth: .infinity)
 
@@ -455,7 +457,39 @@ private struct EditionControl: View {
     }
 }
 
-/// I1: read status, its dates, Listen and Read, and the audiobook's length; where the
+/// Listen and Read, under the cover: the first things to hand for a book with files.
+private struct OpenButtons: View {
+    @Environment(AppModel.self) private var model
+    let detail: BookDetail
+
+    var body: some View {
+        let id = detail.row.id
+        if detail.row.hasAudio || detail.row.hasEbook {
+            HStack(spacing: 8) {
+                if detail.row.hasAudio {
+                    Button {
+                        model.listen(id)
+                    } label: {
+                        Label(detail.row.listenTitle, systemImage: detail.row.listenSymbol)
+                    }
+                    .help(detail.row.listenHelpText)
+                    .accessibilityIdentifier("inspector.listen")
+                }
+                if detail.row.hasEbook {
+                    Button {
+                        model.read(id)
+                    } label: {
+                        Label("Read", systemImage: "book")
+                    }
+                    .help("Open the ebook")
+                    .accessibilityIdentifier("inspector.read")
+                }
+            }
+        }
+    }
+}
+
+/// I1: read status, its dates, and the audiobook's length; where the
 /// book is owned other than as files, and the switch that says it is on Audible (plan 6, V3).
 private struct ReadingControls: View {
     @Environment(AppModel.self) private var model
@@ -487,29 +521,6 @@ private struct ReadingControls: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("inspector.readDates")
-
-        if detail.row.hasAudio || detail.row.hasEbook {
-            HStack(spacing: 8) {
-                if detail.row.hasAudio {
-                    Button {
-                        model.listen(id)
-                    } label: {
-                        Label(detail.row.listenTitle, systemImage: detail.row.listenSymbol)
-                    }
-                    .help(detail.row.listenHelpText)
-                    .accessibilityIdentifier("inspector.listen")
-                }
-                if detail.row.hasEbook {
-                    Button {
-                        model.read(id)
-                    } label: {
-                        Label("Read", systemImage: "book")
-                    }
-                    .help("Open the ebook")
-                    .accessibilityIdentifier("inspector.read")
-                }
-            }
-        }
 
         if let summary = detail.audioSummaryText {
             Label(summary, systemImage: "clock")

@@ -659,6 +659,24 @@ import VoxCarrelFixtures
         #expect(h.opener.revealed.count == 1)
     }
 
+    /// A14: any one file of a book can be opened, an extra as well; a file that is
+    /// missing is said to be, and nothing is opened.
+    @Test func openingOneFile() async throws {
+        let h = try await Harness.demo()
+        try await h.select("Night Train to Vostok")
+        let file = try #require(h.detail?.files.last)
+        h.model.open(file: file)
+        #expect(h.opener.opened == [file.url])
+        #expect(h.model.alert == nil)
+
+        try FileManager.default.removeItem(at: file.url)
+        var gone = file
+        gone.isMissing = true
+        h.model.open(file: gone)
+        #expect(h.opener.opened == [file.url])
+        #expect(h.model.alert == "\"\(file.name)\" cannot be found. It was expected here: \(file.url.path)")
+    }
+
     /// A14
     @Test func revealingOneFile() async throws {
         let h = try await Harness.demo()
