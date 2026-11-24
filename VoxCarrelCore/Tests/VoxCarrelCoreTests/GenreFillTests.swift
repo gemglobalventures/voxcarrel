@@ -562,6 +562,29 @@ import VoxCarrelFixtures
         #expect(try place(f, id) == url)
     }
 
+    @Test func G31_whatTheOwnerNotedOfABookStaysWhenItsGenresAreFilledIn() throws {
+        let f = try F()
+        let id = try importFull(f, "Noted")
+        var edit = BookEdit(book: try #require(try f.store.book(id: id)))
+        edit.rating = 4
+        edit.tags = ["favourite", "re-read"]
+        edit.editionKind = EditionKindNote(kind: .abridged, basis: .setByHand)
+        _ = try f.service.save([edit])
+        try f.service.setReadStatus(.finished, for: [id])
+        let before = try #require(try f.store.book(id: id))
+        #expect(before.rating == 4)
+        #expect(before.tags == ["favourite", "re-read"])
+        #expect(before.editionKind?.kind == .abridged)
+        #expect(before.readStatus == .finished)
+
+        _ = try f.service.applyGenres([GenreChoice(bookId: id, genres: ["Horror"], genreSource: "Horror tales")])
+        var expected = before
+        expected.genres = ["Horror"]
+        expected.genreSource = "Horror tales"
+        expected.genreTag = "Horror"
+        #expect(try f.store.book(id: id) == expected)
+    }
+
     @Test func G33_applySetsTheChosenBooksGenresAsOneOperationAndWritesTheirFiles() throws {
         let f = try F()
         let first = try importFull(f, "First")
