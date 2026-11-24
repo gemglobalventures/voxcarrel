@@ -96,6 +96,37 @@ import ZIPFoundation
         #expect(try tag(try file(f, id)) == "Fantasy")
     }
 
+    @Test func G1_aBookReadFromSavedDataHasNoGenreTwice() throws {
+        let saved = Data(#"""
+            {"title": "Bad Actors",
+             "genres": ["Thrillers & Spies", "thrillers & spies", " Crime  &  Mystery ", "", "Crime & Mystery"]}
+            """#.utf8)
+        let book = try JSONDecoder().decode(Book.self, from: saved)
+        #expect(book.genres == [Self.thrillers, Self.crime])
+    }
+
+    @Test func G1_aTagThatNamesAGenreTwiceGivesItOnce() {
+        #expect(GenreTag.genres(from: "Fantasy; fantasy; Horror; FANTASY") == ["Fantasy", "Horror"])
+        #expect(GenreTag.genres(from: "Pub Quiz; pub quiz; Fantasy", listed: ["Pub Quiz"]) == ["Pub Quiz", "Fantasy"])
+    }
+
+    @Test func G1_genresGivenAtImportAreSpelledAsTheLibrarysListSpellsThemAndNoneTwice() throws {
+        let f = try F()
+        let first = try importM4B(f, title: "One", tag: nil)
+        try edit(f, first) { $0.metadata.genres = ["Pub Quiz"] }
+
+        // Changed in the review to names the list has, in another capitalisation.
+        let url = try f.makeM4B("Two.m4b", tags: F.meta("Two", "Mick Herron"))
+        var candidate = try #require(f.service.scan([url]).candidates.first)
+        candidate.metadata.genres = ["PUB QUIZ", "fantasy", "pub quiz"]
+        let id = try f.importedId(
+            try #require(try f.service.importItems([ImportItem(candidate: candidate)]).outcomes.first))
+
+        #expect(try f.store.book(id: id)?.genres == ["Pub Quiz", "Fantasy"])
+        #expect(try tag(try file(f, id)) == "Pub Quiz; Fantasy")
+        #expect(try f.service.genreList().filter { GenreName.same($0.name, "pub quiz") }.count == 1)
+    }
+
     // MARK: G2, G3, G28 The library's list
 
     @Test func G2_G3_aNewLibraryHasTheBuiltInGenresInTheirGroups() throws {
