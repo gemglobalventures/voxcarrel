@@ -45,6 +45,11 @@ public enum TagJudge {
         return false
     }
 
+    /// True for a word that stands where an author's name would: "Unknown", "Anonymous".
+    static func isStandIn(_ author: String) -> Bool {
+        emptyAuthors.contains(author.trimmingCharacters(in: .whitespaces).lowercased())
+    }
+
     /// The author as it can be believed: nil for a login name or a stand-in ("maryam",
     /// "b1cspra", "Preferred Customer", "."), and without a leading "By ".
     public static func author(_ author: String) -> String? {

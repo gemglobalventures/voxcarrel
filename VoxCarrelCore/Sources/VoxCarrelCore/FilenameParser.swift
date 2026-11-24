@@ -80,7 +80,7 @@ public enum FilenameParser {
         if guess.asin != nil { guess.notes.insert(.audibleIDFromName) }
 
         guess.title = tidy(name)
-        if let read = downloadSiteName(name) {
+        if let read = downloadSiteName(name) ?? authorInBracketsAtTheEnd(name) {
             guess.title = read.title
             guess.author = read.author
             return guess
@@ -136,6 +136,22 @@ public enum FilenameParser {
         return !words.contains(where: subjectWords.contains)
     }
 
+    /// "Title (Author)", as some download sites write it: what stands in round
+    /// brackets at the very end is the author when it is shaped like a person's name
+    /// (the first of several, with commas) and the name has no " - " to read by.
+    /// Nil for any other name, and for brackets that hold a year or edition words.
+    static func authorInBracketsAtTheEnd(_ name: String) -> (title: String, author: String)? {
+        let text = name.trimmingCharacters(in: .whitespaces)
+        guard !text.contains(" - "), text.hasSuffix(")"), let open = text.lastIndex(of: "(") else { return nil }
+        let inside = String(text[text.index(after: open)..<text.index(before: text.endIndex)])
+        let first = tidy(inside.split(separator: ",").first.map(String.init) ?? inside)
+        let title = tidy(String(text[..<open]))
+        guard !title.isEmpty, NameShape.looksLikePerson(first),
+              TitleMatch.settingAsideEditionWords(title + " (" + inside + ")").tail.isEmpty
+        else { return nil }
+        return (title, first)
+    }
+
     /// A name as download sites write it: "Author-Title-Publisher (2014)", with an
     /// optional number and an optional series in brackets before it, and no spaces
     /// round the hyphens. The author is what stands before the first such hyphen
@@ -181,6 +197,13 @@ public enum FilenameParser {
         // nothing to judge a side by. It is set aside and goes with the title.
         let (a, tailA) = TitleMatch.settingAsideEditionWords(first)
         let (b, tailB) = TitleMatch.settingAsideEditionWords(second)
+        // "Title - Unknown": a stand-in for the author is no author, and the other
+        // side is the title.
+        let standIns = (TagJudge.isStandIn(a), TagJudge.isStandIn(b))
+        if standIns.0 != standIns.1 {
+            guess.title = ([standIns.0 ? b : a, tailA, tailB].filter { !$0.isEmpty }).joined(separator: " ")
+            return
+        }
         let shapes = (NameShape.looksLikePerson(a), NameShape.looksLikePerson(b))
         let authors = (known.hasAuthor(a), known.hasAuthor(b))
         let titles = (known.hasTitle(a), known.hasTitle(b))

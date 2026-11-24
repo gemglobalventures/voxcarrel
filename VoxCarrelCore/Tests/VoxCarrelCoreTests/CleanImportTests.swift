@@ -294,4 +294,22 @@ import VoxCarrelFixtures
         try Data("bb".utf8).write(to: root.appendingPathComponent("Shelf/Two/Ann Author - Dune.m4b"))
         #expect(BookScanner().scan([root.appendingPathComponent("Shelf")]).candidates.count == 2)
     }
+
+    @Test func CI6_theAuthorInBracketsAtTheEnd() throws {
+        var read = try #require(FilenameParser.authorInBracketsAtTheEnd("Street Smarts (Laurence Connors)"))
+        #expect(read.title == "Street Smarts" && read.author == "Laurence Connors")
+        read = try #require(FilenameParser.authorInBracketsAtTheEnd(
+            "Buffett and Munger Unscripted Three Decades (Warren E. Buffett, Charlie Munger) "))
+        #expect(read.author == "Warren E. Buffett")
+        #expect(FilenameParser.authorInBracketsAtTheEnd("Mind Over Markets (Unabridged)") == nil)
+        #expect(FilenameParser.authorInBracketsAtTheEnd("Dune (1965)") == nil)
+        #expect(FilenameParser.authorInBracketsAtTheEnd("Mick Herron - Slow Horses (Sean Barrett)") == nil)
+        #expect(FilenameParser.authorInBracketsAtTheEnd("The Lord of the Rings (Illustrated Edition)") == nil)
+    }
+
+    @Test func CI2_aStandInForTheAuthorInANameIsNoAuthor() {
+        let url = URL(fileURLWithPath: "/x/Downloads/Think and Trade Like a Champion - Unknown.epub")
+        let guess = FilenameParser.guess(from: url, isFolder: false)
+        #expect(guess.author == nil)
+    }
 }
