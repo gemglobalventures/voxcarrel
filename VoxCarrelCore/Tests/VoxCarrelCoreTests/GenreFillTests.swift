@@ -370,6 +370,46 @@ import VoxCarrelFixtures
         #expect(found.first?.genres == ["Science Fiction"])
     }
 
+    @Test func G32_ofSeveralResultsALaterOneThatIsSurelyTheBookIsTakenBeforeTheBestMatch() async throws {
+        let f = try F()
+        let id = try book(f, "Dune", author: "Frank Herbert")
+        // The first matches the title and one of its authors as well as the second
+        // does, but its first author is another: only the second is surely the book.
+        var shared = Catalogue.product(asin: "B000000001", title: "Dune", author: "Brian Herbert", paths: [Self.espionage])
+        shared["authors"] = [["name": "Brian Herbert"], ["name": "Frank Herbert"]]
+        let own = Catalogue.product(asin: "B000000002", title: "Dune", author: "Frank Herbert", paths: [Self.hardSF])
+        var catalogue = Catalogue()
+        catalogue.audible["Dune"] = try JSONSerialization.data(withJSONObject: ["products": [shared, own]])
+
+        let lookedUp = await service(catalogue.http()).search(
+            LookupQuery(title: "Dune", author: "Frank Herbert"), preferAudio: true, language: nil, sources: [.audible])
+        #expect(lookedUp.candidates.map(\.metadata.authors.first) == ["Brian Herbert", "Frank Herbert"])
+
+        let found = try await all(try fill(f, catalogue.http()).proposals(for: [try candidate(f, id)]))
+        #expect(found.first?.foundAuthor == "Frank Herbert")
+        #expect(found.first?.isSure == true)
+        #expect(found.first?.genres == ["Science Fiction"])
+    }
+
+    @Test func G32_withNoAuthorOnEitherSideNothingIsSure() async throws {
+        let f = try F()
+        let id = try book(f, "Anonymous Work", author: nil)
+        let asked = try candidate(f, id)
+        #expect(asked.author == nil)
+        #expect(!LibraryService.isSurelyTheSameBook(asked, BookMetadata(title: "Anonymous Work", authors: [])))
+        #expect(!LibraryService.isSurelyTheSameBook(asked, BookMetadata(title: "Anonymous Work", authors: [" "])))
+
+        var product = Catalogue.product(asin: "B000000001", title: "Anonymous Work", author: "", paths: [Self.hardSF])
+        product["authors"] = [[String: String]]()
+        var catalogue = Catalogue()
+        catalogue.audible["Anonymous Work"] = try JSONSerialization.data(withJSONObject: ["products": [product]])
+        let found = try await all(try fill(f, catalogue.http()).proposals(for: [asked]))
+        #expect(found.map(\.genres) == [["Science Fiction"]])
+        #expect(found.map(\.foundTitle) == ["Anonymous Work"])
+        #expect(found.map(\.foundAuthor) == [nil])
+        #expect(found.map(\.isSure) == [false])
+    }
+
     @Test func G32_aBookWithNoResultIsListedWithNothingFound() async throws {
         let f = try F()
         let id = try book(f, "Obscure", author: "Nobody")
