@@ -80,9 +80,55 @@ public enum GenreMapping {
         var under: [String]
     }
 
+    /// A known name read from text, before the names beside it have had their say.
+    private struct Named {
+        var key: String
+        var meaning: GenreTable.Meaning
+    }
+
+    private enum Entry {
+        case hit(Hit)
+        case named(Named)
+    }
+
     private struct Found {
-        var hits: [Hit] = []
+        /// What was found, in the source's order.
+        var entries: [Entry] = []
         var unknown: [String] = []
+    }
+
+    /// The hits of what was found. A name that means different genres under different
+    /// top names takes the meaning it has under a top that an unambiguous name of the
+    /// same source is or sits under, the first such name in the source deciding; with
+    /// none, or where it only narrows there, it keeps its plain meaning.
+    private static func hits(of found: Found) -> [Hit] {
+        var tops: [String] = []
+        for case .named(let named) in found.entries where !named.meaning.isAmbiguous {
+            for top in named.meaning.contexts where !tops.contains(top) { tops.append(top) }
+        }
+        var hits: [Hit] = []
+        for entry in found.entries {
+            switch entry {
+            case .hit(let hit):
+                hits.append(hit)
+            case .named(let named):
+                let meaning = named.meaning
+                guard let plain = meaning.genre else { continue }
+                var hit = Hit(genre: plain, level: meaning.level, top: meaning.top, under: meaning.under)
+                if meaning.isAmbiguous {
+                    for top in tops {
+                        guard let row = GenreTable.row(key: named.key, underTop: top), let genre = row.genre else {
+                            continue
+                        }
+                        // The plain meaning said there changes nothing.
+                        if genre != plain { hit = Hit(genre: genre, level: row.level, top: nil, under: [top]) }
+                        break
+                    }
+                }
+                hits.append(hit)
+            }
+        }
+        return hits
     }
 
     /// A tag holding only the list's own names, parted by semicolons, is taken as it is
@@ -102,7 +148,7 @@ public enum GenreMapping {
     /// Drops a top name where a name beneath it was found, and general genres where
     /// there are others; then orders what is left and keeps five.
     private static func settle(_ found: Found) -> MappedGenres {
-        var hits = found.hits
+        var hits = hits(of: found)
 
         let sitUnder = Set(hits.flatMap(\.under))
         let specific = hits.filter { hit in hit.top.map { !sitUnder.contains($0) } ?? true }
@@ -183,7 +229,7 @@ public enum GenreMapping {
                 }
                 guard let meaning = GenreTable.meaning(key: key) else { continue }
                 read(pieces[..<start], into: &found)
-                note(meaning, into: &found)
+                found.entries.append(.named(Named(key: key, meaning: meaning)))
                 read(pieces[(start + length)...], into: &found)
                 return
             }
@@ -195,7 +241,7 @@ public enum GenreMapping {
     /// Reads one piece that holds no separator.
     private static func read(piece: String, key: String, mayBeANumber: Bool = true, into found: inout Found) {
         if let meaning = GenreTable.meaning(key: key) {
-            note(meaning, into: &found)
+            found.entries.append(.named(Named(key: key, meaning: meaning)))
         } else if GenreTable.saysNothing(key: key) {
             return
         } else if mayBeANumber, let number = bareNumber(key) {
@@ -208,11 +254,6 @@ public enum GenreMapping {
         } else {
             found.unknown.append(piece)
         }
-    }
-
-    private static func note(_ meaning: GenreTable.Meaning, into found: inout Found) {
-        guard let genre = meaning.genre else { return }
-        found.hits.append(Hit(genre: genre, level: meaning.level, top: meaning.top, under: meaning.under))
     }
 
     /// The number a piece is when it is nothing else: "12" or "(12)".
@@ -246,7 +287,7 @@ public enum GenreMapping {
             // No top name the table knows: each name is read as it would be in a tag.
             for index in keys.indices.reversed() {
                 if let genre = GenreTable.meaning(key: keys[index])?.genre {
-                    found.hits.append(Hit(genre: genre, level: index + 1, top: nil, under: []))
+                    found.entries.append(.hit(Hit(genre: genre, level: index + 1, top: nil, under: [])))
                     return
                 }
             }
@@ -260,9 +301,9 @@ public enum GenreMapping {
         let covering = beneath.first { rows[keys[$0]]?.isWhole == true && rows[keys[$0]]?.genre != nil }
         let deciding = covering ?? beneath.last { rows[keys[$0]]?.genre != nil }
         if let deciding, let genre = rows[keys[deciding]]?.genre {
-            found.hits.append(Hit(genre: genre, level: deciding + 1, top: nil, under: [topKey]))
+            found.entries.append(.hit(Hit(genre: genre, level: deciding + 1, top: nil, under: [topKey])))
         } else {
-            found.hits.append(Hit(genre: top.genre, level: 1, top: topKey, under: []))
+            found.entries.append(.hit(Hit(genre: top.genre, level: 1, top: topKey, under: [])))
         }
     }
 }

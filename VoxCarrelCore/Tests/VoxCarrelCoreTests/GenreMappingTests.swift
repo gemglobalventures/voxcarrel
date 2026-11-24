@@ -170,10 +170,9 @@ import Testing
         #expect(genres(paths: [["Literature & Fiction", "Genre Fiction", "War & Military"]]) == ["Literary & General"])
     }
 
-    @Test func G7_aNameUnderAnotherTopDoesNotSetThatTopAside() {
-        // "Fantasy" here is the genre, not the kind of romance.
-        #expect(genres("Romance, Fantasy") == ["Romance", "Fantasy"])
-        #expect(genres("Romance; Science Fiction") == ["Romance", "Science Fiction"])
+    @Test func G7_aTopNameStaysBesideANameThatDoesNotSitUnderIt() {
+        #expect(genres("Romance, Horror") == ["Romance", "Horror"])
+        #expect(genres("History; Cozy") == ["Crime & Mystery", "History"])
     }
 
     @Test func G7_aGeneralGenreIsDroppedBesideOthers() {
@@ -197,7 +196,7 @@ import Testing
 
     @Test(arguments: [
         "Audiobook", "Audiobooks", "Audio Book", "Book", "Books", "Ebook", "Podcast", "Unknown", "Other", "Misc",
-        "General", "Unabridged", "Abridged", "Non-Fiction", "Nonfiction",
+        "General", "Unabridged", "Abridged", "Speech", "Spoken Word", "Non-Fiction", "Nonfiction",
     ])
     func G8_aWordThatSaysNothingIsDropped(word: String) {
         for text in [word, word.uppercased(), "  \(word.lowercased()) "] {
@@ -220,6 +219,8 @@ import Testing
         // 57 is "Comedy", 100 "Humour": known names.
         #expect(genres("(57)") == ["Humour"])
         #expect(genres("100") == ["Humour"])
+        // 101 is "Speech", which says nothing.
+        #expect(genres("(101)") == [])
         // 17 is "Rock": not known, so the owner's own.
         #expect(GenreMapping.map(.text("(17)")).unknown == ["Rock"])
         #expect(GenreMapping.map(.text("17; Horror")).names == ["Horror", "Rock"])
@@ -366,6 +367,7 @@ import Testing
             == ["Thrillers & Spies"])
         #expect(genres(paths: [path("Mystery, Thriller & Suspense > Mystery > Cozy")]) == ["Crime & Mystery"])
         // A name the table does not know is passed over for the one above it.
+        #expect(genres(paths: [path("History > Military > Weapons & Warfare")]) == ["History"])
         #expect(genres(paths: [path("History > Military > Military Science")]) == ["History"])
         #expect(genres(paths: [path("Science Fiction & Fantasy > Fantasy > Never Heard Of It")]) == ["Fantasy"])
         #expect(GenreMapping.map(.paths([path("History > Never Heard Of It")])).unknown == [])
@@ -551,7 +553,7 @@ import Testing
                 "Mystery, Thriller & Suspense > Thriller & Suspense > Spies & Politics > Espionage",
                 "Mystery, Thriller & Suspense > Thriller & Suspense > Spies & Politics > Political",
                 "Mystery, Thriller & Suspense > Thriller & Suspense > Suspense",
-            ], ["Thrillers & Spies", "Crime & Mystery"]),
+            ], ["Thrillers & Spies"]),
             ("Tom Clancy Defense Protocol", [
                 "Literature & Fiction > Genre Fiction > War & Military",
                 "Mystery, Thriller & Suspense > Thriller & Suspense > Military",
@@ -565,19 +567,114 @@ import Testing
                 "Mystery, Thriller & Suspense > Thriller & Suspense > Spies & Politics > Political",
                 "Mystery, Thriller & Suspense > Thriller & Suspense > Suspense",
             ], ["Thrillers & Spies", "Crime & Mystery"]),
-            ("Project Maven", [
-                "Computers & Technology > Computer Science",
-                "History > Military > Military Science",
-                "Politics & Social Sciences > Politics & Government > Freedom & Security > National & International Security",
-                "Politics & Social Sciences > Politics & Government > International Relations > Arms Control",
-            ], ["Politics & Society", "Technology", "History"]),
         ]
-        #expect(titles.count == 7)
+        #expect(titles.count == 6)
         for (title, paths, expected) in titles {
             let mapped = GenreMapping.map(.paths(paths.map(path)))
             #expect(mapped.builtIn == expected, "\(title)")
             #expect(mapped.unknown == [], "\(title)")
         }
+    }
+
+    @Test func GP5_projectMavenIsPoliticsFirst() {
+        let mapped = GenreMapping.map(.paths([
+            "Computers & Technology > Computer Science",
+            "History > Military > Military Science",
+            "Politics & Social Sciences > Politics & Government > Freedom & Security > National & International Security",
+            "Politics & Social Sciences > Politics & Government > International Relations > Arms Control",
+        ].map(path)))
+        #expect(mapped.builtIn.first == "Politics & Society")
+        #expect(Set(mapped.builtIn) == ["Politics & Society", "Technology", "History"])
+        #expect(mapped.builtIn.count == 3)
+        #expect(mapped.unknown == [])
+    }
+
+    @Test func GP5_crimeThrillersIsAThriller() {
+        #expect(genres("Crime Thrillers") == ["Thrillers & Spies"])
+    }
+
+    // MARK: GP5a A name that means different things
+
+    @Test func GP5a_militaryAloneIsHistory() {
+        #expect(genres("Military") == ["History"])
+        #expect(genres("War & Military") == ["History"])
+        #expect(genres("Military; LitRPG") == ["History", "LitRPG"])
+    }
+
+    @Test func GP5a_militaryBesideHistoryIsHistory() {
+        #expect(genres("History, Military") == ["History"])
+        #expect(genres("Military, History") == ["History"])
+        #expect(genres("Military, Military Science") == ["History"])
+    }
+
+    @Test func GP5a_militaryBesideAThrillerNameIsAThriller() {
+        #expect(genres("Military, Espionage") == ["Thrillers & Spies"])
+        #expect(genres("Espionage, Military") == ["Thrillers & Spies"])
+        #expect(genres("Mystery, Thriller & Suspense; Military") == ["Thrillers & Spies"])
+    }
+
+    @Test func GP5a_theOwnersFlattenedThrillerIsStillAThriller() {
+        // "Suspense" sits under the thrillers, and under fiction, where "War & Military" is general.
+        #expect(genres("War & Military, Military, Political, Suspense") == ["Thrillers & Spies"])
+    }
+
+    @Test func GP5a_militaryBesideOtherTops() {
+        #expect(genres("Romance, Military") == ["Romance"])
+        // Under "Science Fiction & Fantasy" it only narrows, so its plain entry stands.
+        #expect(genres("Space Opera, Military") == ["Science Fiction", "History"])
+    }
+
+    @Test func GP5a_political() {
+        #expect(genres("Political") == ["Thrillers & Spies"])
+        #expect(genres("Political, Suspense") == ["Thrillers & Spies"])
+        #expect(genres("Literary Fiction, Political") == ["Literary & General"])
+        #expect(genres("Political, Cyberpunk") == ["Thrillers & Spies", "Science Fiction"])
+        // "Mystery" sits nearer the top of the thrillers than of fiction, so the thrillers decide.
+        #expect(genres("Mystery, Political") == ["Thrillers & Spies", "Crime & Mystery"])
+    }
+
+    @Test func GP5a_historical() {
+        #expect(genres("Historical") == ["Historical Fiction"])
+        #expect(genres("Romance, Historical") == ["Romance"])
+        #expect(genres("Historical, Regency; Romance") == ["Romance", "Regency"])
+        #expect(genres("Biographies & Memoirs, Historical") == ["Biography & Memoir"])
+        // Where it only narrows, its plain entry stands.
+        #expect(genres("Cozy, Historical") == ["Crime & Mystery", "Historical Fiction"])
+    }
+
+    @Test func GP5a_otherNamesThatMeanDifferentThings() {
+        #expect(genres("Travel & Tourism, Europe") == ["Travel & Places"])
+        #expect(genres("Europe") == ["History"])
+        #expect(genres("Children's Audiobooks, Mystery & Suspense") == ["Children"])
+        #expect(genres("Mystery & Suspense") == ["Thrillers & Spies"])
+        #expect(genres("Romance, Fantasy") == ["Romance"])
+        #expect(genres("Sword & Sorcery, Fantasy, Romance") == ["Fantasy", "Romance"])
+    }
+
+    @Test func GP5a_onlyAnUnambiguousNameGivesTheMeaning() {
+        // Neither says which the other is: each keeps its plain entry.
+        #expect(genres("Military, Political") == ["Thrillers & Spies", "History"])
+        #expect(genres("Political, Military") == ["Thrillers & Spies", "History"])
+        #expect(genres("Military, LitRPG") == ["History", "LitRPG"])
+    }
+
+    @Test func GP5a_theFirstNameInTheTextDecidesBetweenTwoTops() {
+        // "Military" is a thriller beside "Espionage" and history beside "Americas".
+        #expect(genres("Espionage, Americas, Military") == ["Thrillers & Spies", "History"])
+        #expect(genres("Americas, Espionage, Military") == ["Thrillers & Spies", "History"])
+        #expect(genres("Cozy, Americas, Military") == ["Crime & Mystery", "Thrillers & Spies", "History"])
+        #expect(genres("Americas, Cozy, Military") == ["Crime & Mystery", "History"])
+    }
+
+    @Test func GP5a_aMeaningThatIsThePlainOneChangesNothing() {
+        // "Fantasy" beside "Horror" is fantasy as it is alone, and no more specific for it.
+        #expect(genres("Horror, Fantasy") == ["Horror", "Fantasy"])
+        #expect(genres("Horror, Humor") == ["Horror", "Humour"])
+    }
+
+    @Test func GP5a_subjectsAreReadTheSameWay() {
+        #expect(GenreMapping.map(.subjects(["Military", "Spy stories"])).names == ["History", "Thrillers & Spies"])
+        #expect(GenreMapping.map(.subjects(["Military", "Espionage"])).names == ["Thrillers & Spies"])
     }
 
     // MARK: G4 The wording kept

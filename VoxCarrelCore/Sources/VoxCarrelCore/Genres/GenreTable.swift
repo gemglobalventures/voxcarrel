@@ -18,6 +18,13 @@ enum GenreTable {
         let level: Int
         /// Whether every name beneath this one means the same genre as it does.
         let isWhole: Bool
+
+        init(name: String, genre: String?, level: Int, isWhole: Bool = false) {
+            self.name = name
+            self.genre = genre
+            self.level = level
+            self.isWhole = isWhole
+        }
     }
 
     /// A top name, with the names known beneath it at any depth.
@@ -98,7 +105,8 @@ enum GenreTable {
         Top(name: "History", genre: G.history, rows: second(
             G.history,
             "Africa", "Americas", "Ancient", "Arctic & Antarctica", "Asia", "Australia, New Zealand & Oceania",
-            "Europe", "LGBTQ+", "Middle East", "Military", "Modern", "Religious", "Russia", "Women", "World")),
+            "Europe", "LGBTQ+", "Middle East", "Military", "Modern", "Religious", "Russia", "Women", "World")
+            + third(G.history, "Military Science")),
         Top(name: "Home & Garden", genre: G.reference, rows: second(
             G.reference,
             "Crafts & Hobbies", "Food & Wine", "Gardening & Horticulture", "House & Home", "Pets & Animal Care",
@@ -140,6 +148,10 @@ enum GenreTable {
             + third(G.horror, "Ghosts", "Gothic", "Occult")
             + third(G.humour, "Dark Humor", "Satire")
             + third(G.classics, "Shakespeare")
+            // Thrillers are also filed here, under "Action & Adventure", five names down.
+            + ["Suspense", "Espionage", "Spies & Politics", "Crime Thrillers"].map {
+                Row(name: $0, genre: G.thrillers, level: 5)
+            }
             + third(
                 G.literary,
                 "War & Military", "Women's Adventure", "Anthologies", "Short Stories", "Absurdist",
@@ -166,10 +178,10 @@ enum GenreTable {
                 G.crime,
                 "Noir", "Serial Killers", "Amateur Sleuths", "Cozy", "Hard-Boiled",
                 "International Mystery & Crime", "Police Procedurals", "Private Investigators",
-                "Traditional Detectives", "Women Sleuths", "Modern Detectives", "Crime Thrillers")
+                "Traditional Detectives", "Women Sleuths", "Modern Detectives")
             + third(
                 G.thrillers,
-                "Domestic Thrillers", "Legal", "Medical & Forensic", "Military", "Psychological",
+                "Crime Thrillers", "Domestic Thrillers", "Legal", "Medical & Forensic", "Military", "Psychological",
                 "Romantic Suspense", "Spies & Politics", "Supernatural", "Suspense", "Technothrillers")
             + third(
                 G.trueCrime,
@@ -246,7 +258,8 @@ enum GenreTable {
 
     /// What a name means with no path above it: the wordings of tags and subjects, and
     /// the plain meaning of each catalogue name that means different things in
-    /// different places. A top name is its own plain entry and is not listed here.
+    /// different places: what it means with no name beside it to say which. A top name
+    /// is its own plain entry and is not listed here.
     static let plain: [Row] =
         wording(
             G.literary,
@@ -262,7 +275,7 @@ enum GenreTable {
             "Thriller", "Thrillers", "Thrillers & Suspense", "Suspense fiction", "Spy", "Spies", "Spy stories",
             "Spy fiction", "Mystery/Thriller", "Mystery & Thriller", "Mysteries & Thrillers", "Mystery & Suspense",
             "Technothriller")
-        + wording(G.thrillers, level: 3, "Military", "Psychological")
+        + wording(G.thrillers, level: 3, "Psychological")
         + wording(G.thrillers, level: 4, "Political")
         + wording(
             G.scienceFiction,
@@ -278,8 +291,8 @@ enum GenreTable {
             "Biography & Autobiography", "Adventurers, Explorers & Survival")
         + wording(
             G.history,
-            "History & Culture", "Military History", "World History", "Africa", "Asia", "Europe", "Middle East",
-            "Russia")
+            "History & Culture", "Military", "War & Military", "Military History", "World History", "Africa", "Asia",
+            "Europe", "Middle East", "Russia")
         + wording(
             G.politics,
             "Politics", "Current Events", "Politics & Current Events", "Politics, Society & Current Events",
@@ -310,7 +323,7 @@ enum GenreTable {
     /// Wording that says nothing about what a book is about.
     static let sayNothing: [String] = [
         "Audiobook", "Audiobooks", "Audio Book", "Book", "Books", "Ebook", "Podcast", "Unknown", "Other", "Misc",
-        "General", "Unabridged", "Abridged", "Non-Fiction", "Nonfiction", "Non Fiction",
+        "General", "Unabridged", "Abridged", "Speech", "Spoken Word", "Non-Fiction", "Nonfiction", "Non Fiction",
     ]
 
     /// The genre names of ID3 tags, which files may give by number.
@@ -383,6 +396,12 @@ enum GenreTable {
         var top: String?
         /// The keys of the top names this name sits under with the same meaning.
         var under: [String]
+        /// Whether the name means different genres in different places. A top name
+        /// never does: it is itself.
+        var isAmbiguous = false
+        /// The keys of the top names this name is or sits under, the nearest above it
+        /// first. They say what a name beside it means when that one is ambiguous.
+        var contexts: [String] = []
     }
 
     /// The table laid out for looking names up. Built once, in the order the table is
@@ -443,10 +462,24 @@ enum GenreTable {
                     meaning.top = nameKey
                 } else if let first = beneath.first(where: { $0.row.genre != nil }) {
                     meaning.genre = first.row.genre
-                    meaning.level = first.row.level
+                    meaning.level = beneath.filter { $0.row.genre != nil }.map(\.row.level).min() ?? first.row.level
                     if beneath.contains(where: { $0.row.genre != nil && $0.row.genre != first.row.genre }) {
                         conflicts.append(name)
                     }
+                }
+                if meaning.top == nil {
+                    var genres = Set(beneath.compactMap(\.row.genre))
+                    if let genre = meaning.genre { genres.insert(genre) }
+                    meaning.isAmbiguous = genres.count > 1
+                    // Sorting by level alone keeps the table's order within a level.
+                    meaning.contexts = beneath.enumerated()
+                        .sorted { a, b in
+                            a.element.row.level != b.element.row.level
+                                ? a.element.row.level < b.element.row.level : a.offset < b.offset
+                        }
+                        .map(\.element.top)
+                } else {
+                    meaning.contexts = [nameKey]
                 }
                 meaning.under = beneath.filter { $0.row.genre == meaning.genre && $0.top != nameKey }.map(\.top)
                 if meaning.genre == nil { meaning.under = [] }
@@ -471,6 +504,11 @@ enum GenreTable {
     /// The top name with this key, and its place in `tops`.
     static func top(key: String) -> (place: Int, top: Top)? {
         index.topPlaces[key].map { ($0, tops[$0]) }
+    }
+
+    /// The row with this key beneath the top name with that key.
+    static func row(key: String, underTop topKey: String) -> Row? {
+        index.topPlaces[topKey].flatMap { index.rows[$0][key] }
     }
 
     /// The row of a name beneath a top name; nil when the table has none.
