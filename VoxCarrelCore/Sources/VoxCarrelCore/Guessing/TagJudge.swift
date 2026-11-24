@@ -16,8 +16,8 @@ public enum TagJudge {
 
     /// Authors that are whoever was logged in, not who wrote the book.
     static let emptyAuthors: Set<String> = [
-        "unknown", "unknown author", "author", "user", "owner", "admin", "administrator", "preferred customer",
-        "valued customer", "customer", "trader", "default", "none", "anonymous", "ed", "pc", "home", "test",
+        "unknown", "unknown author", "user", "owner", "admin", "administrator", "preferred customer",
+        "valued customer", "customer", "trader", "anonymous", "ed", "pc",
     ]
 
     /// True for a title a program left behind: "Microsoft Word - sfft.doc", "ebook.indd",
