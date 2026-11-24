@@ -16,6 +16,9 @@ public struct CandidateBook: Equatable, Sendable {
     /// What was guessed from names and not read from tags, for the review to say.
     public var guessNotes: GuessNotes
 
+    /// A picture of the cover found beside the book, for when its files hold none.
+    public var coverBeside: URL?
+
     public init(
         files: [CandidateFile], metadata: BookMetadata, sourceFolder: URL? = nil, guessNotes: GuessNotes = []
     ) {
@@ -386,7 +389,29 @@ public struct BookScanner {
             }
         }
 
-        result.candidates += groups.map(makeCandidate)
+        var made = groups.map(makeCandidate)
+        // A folder that is one book's own may hold its details, as calibre keeps
+        // them, and a picture of its cover. The details are the keeper's and are
+        // believed over the tags for what they give; an Audible ID is never replaced.
+        if folder != nil, made.count == 1, isDedicated {
+            if let file = Sidecar.detailsFile(among: files), let details = Sidecar.details(at: file) {
+                var merged = made[0].metadata
+                merged.title = details.title
+                if !details.authors.isEmpty { merged.authors = details.authors }
+                merged.series = details.series ?? merged.series
+                merged.seriesNumber = details.series != nil ? details.seriesNumber : merged.seriesNumber
+                merged.publisher = details.publisher ?? merged.publisher
+                merged.language = details.language ?? merged.language
+                merged.year = details.year ?? merged.year
+                merged.summary = details.summary ?? merged.summary
+                merged.isbn = details.isbn ?? merged.isbn
+                if (merged.asin ?? "").isEmpty { merged.asin = details.asin }
+                made[0].metadata = merged
+                made[0].guessNotes.subtract([.fromFileName, .orderUnsure, .orderSwapped, .orderGuessedByShape, .titleLooksLikePerson])
+            }
+            made[0].coverBeside = Sidecar.cover(among: files)
+        }
+        result.candidates += made
     }
 
     private func makeCandidate(_ group: Group) -> CandidateBook {
@@ -499,6 +524,7 @@ public struct BookScanner {
             }
             var combined = candidates[audio[0]]
             combined.files += candidates[others[0]].files
+            combined.coverBeside = combined.coverBeside ?? candidates[others[0]].coverBeside
             merged[min(audio[0], others[0])] = combined
             merged[max(audio[0], others[0])] = nil
         }

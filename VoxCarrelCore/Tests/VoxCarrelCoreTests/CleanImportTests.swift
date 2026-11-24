@@ -170,4 +170,62 @@ import VoxCarrelFixtures
         }
         #expect(BookScanner().scan([root.appendingPathComponent("Mixed")]).candidates.count == 2)
     }
+
+    // MARK: What lies beside a book
+
+    private static let opf = """
+    <?xml version='1.0' encoding='utf-8'?>
+    <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uuid_id" version="2.0">
+      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+        <dc:title>Japanese Candlestick Charting Techniques</dc:title>
+        <dc:creator opf:role="aut">Steve Nison</dc:creator>
+        <dc:publisher>Prentice Hall</dc:publisher>
+        <dc:date>2001-10-01T00:00:00+00:00</dc:date>
+        <dc:description>&lt;p&gt;A &lt;b&gt;classic&lt;/b&gt;.&lt;/p&gt;</dc:description>
+        <dc:identifier opf:scheme="ISBN">9780735201811</dc:identifier>
+        <dc:language>en</dc:language>
+        <dc:subject>to-read</dc:subject>
+        <meta name="calibre:series" content="Candles"/>
+        <meta name="calibre:series_index" content="2.0"/>
+      </metadata>
+    </package>
+    """
+
+    @Test func CI8_theDetailsCalibreKeepsBesideABookAreRead() throws {
+        let root = try makeTempDir()
+        let book = root.appendingPathComponent("Shelf/Japanese Candlestick Charting - Steve Nison", isDirectory: true)
+        try touch(book.appendingPathComponent("jcc.epub"))
+        try touch(book.appendingPathComponent("jcc.mobi"))
+        try Data(Self.opf.utf8).write(to: book.appendingPathComponent("metadata.opf"))
+        try Data([0xFF, 0xD8]).write(to: book.appendingPathComponent("cover.jpg"))
+
+        let result = BookScanner().scan([root.appendingPathComponent("Shelf")])
+        #expect(result.candidates.count == 1)
+        let candidate = try #require(result.candidates.first)
+        let m = candidate.metadata
+        #expect(m.title == "Japanese Candlestick Charting Techniques")
+        #expect(m.authors == ["Steve Nison"])
+        #expect(m.series == "Candles" && m.seriesNumber == "2")
+        #expect(m.publisher == "Prentice Hall" && m.year == 2001 && m.isbn == "9780735201811")
+        #expect(m.summary == "A classic.")
+        #expect(m.genres.isEmpty)
+        #expect(candidate.guessNotes.isEmpty)
+        #expect(candidate.coverBeside?.lastPathComponent == "cover.jpg")
+    }
+
+    @Test func CI8_detailsBesideSeveralBooksBelongToNone() throws {
+        let root = try makeTempDir()
+        let shelf = root.appendingPathComponent("Shelf", isDirectory: true)
+        try touch(shelf.appendingPathComponent("One - Ann Author.epub"))
+        try touch(shelf.appendingPathComponent("Two - Bob Writer.epub"))
+        try Data(Self.opf.utf8).write(to: shelf.appendingPathComponent("metadata.opf"))
+        try Data([0xFF, 0xD8]).write(to: shelf.appendingPathComponent("cover.jpg"))
+        let result = BookScanner().scan([shelf])
+        #expect(result.candidates.count == 2)
+        #expect(result.candidates.allSatisfy { $0.coverBeside == nil && !$0.metadata.title.contains("Candlestick") })
+        // What cannot be read changes nothing.
+        #expect(Sidecar.details(at: shelf.appendingPathComponent("missing.opf")) == nil)
+        try Data("<not xml".utf8).write(to: shelf.appendingPathComponent("broken.opf"))
+        #expect(Sidecar.details(at: shelf.appendingPathComponent("broken.opf")) == nil)
+    }
 }
