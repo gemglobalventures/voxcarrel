@@ -249,8 +249,8 @@ public struct ImportReview: Equatable, Sendable {
         self.inboxNote = inboxNote
         entries = seeds.map { seed in
             var entry = Entry(
-                id: UUID(), candidate: seed.candidate, included: true, cover: seed.cover, coverChanged: false,
-                existingMatch: seed.existingMatch,
+                id: UUID(), candidate: seed.candidate, included: true, cover: seed.cover,
+                coverChanged: seed.coverIsFromBeside, existingMatch: seed.existingMatch,
                 // IH1: a possible match is offered switched off.
                 addToExisting: seed.existingMatch == nil || Entry.startsAdded(seed.matchStrength),
                 measuredAudio: seed.measuredAudio,

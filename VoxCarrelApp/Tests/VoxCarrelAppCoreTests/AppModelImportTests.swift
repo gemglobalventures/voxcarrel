@@ -395,7 +395,9 @@ import VoxCarrelFixtures
     /// A22: a file left out of the import, or one that could not be imported, is still on offer.
     @Test func untrackedFilesThatWereNotImportedStayOnTheCheck() async throws {
         let h = try await Harness.demo(start: false)
-        _ = try MediaFixtures.makeEPUB3(in: h.root, name: "Stray.epub")
+        // Two different books: a file that is a copy of another would be set aside.
+        let stray = try MediaFixtures.makeEPUB2(in: h.root)
+        try FileManager.default.moveItem(at: stray, to: h.root.appendingPathComponent("Stray.epub"))
         _ = try MediaFixtures.makeEPUB3(in: h.root, name: "Other.epub")
         await h.model.start()
         await h.model.importUntracked()
@@ -603,7 +605,8 @@ import VoxCarrelFixtures
                 == "This may be “Mind Over Markets (Unabridged)”, which is already in your library.")
 
         // The companion PDF: joins by the Audible ID in its name, as an extra.
-        let companion = try entry(h, "Original Title")
+        // (Its PDF title shares no word with so telling a name, so the name is read.)
+        let companion = try entry(h, "Mind Over Markets: Power Trading with Market Generated Information, Updated Edition")
         #expect(companion.candidate.metadata.asin == "B09WXN61GL")
         #expect(companion.existingMatch?.id == audiobook)
         #expect(companion.matchStrength == .audibleID)
@@ -612,7 +615,7 @@ import VoxCarrelFixtures
         #expect(companion.existingMatchText == "Add to the existing book \"Mind Over Markets (Unabridged)\"")
         #expect(companion.candidate.files.map(\.role) == [.extra])
         #expect(companion.destination == folder)
-        #expect(review.guessNote(of: companion.id) == nil)
+        #expect(review.guessNote(of: companion.id) == "Read from the file name.")
         #expect(review.guessedAudibleIDText(of: companion.id) == "Audible ID B09WXN61GL")
         #expect(review.audibleIDNote(of: companion.id) == "The Audible ID was read from the file name.")
         #expect(review.question(of: companion.id) == nil)

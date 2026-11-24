@@ -679,4 +679,47 @@ import VoxCarrelCore
         #expect(none.skippedTitle == nil)
         #expect(none.skippedLines.isEmpty)
     }
+
+    // MARK: What was set aside, skipped, or is not here yet
+
+    @Test func CI12_theSheetSaysWhatWasSetAsideWhatIsInICloudAndWhatCannotBeRead() {
+        var one = seed("A", files: [file("a.epub")])
+        one.candidate.copies = [url("x/a.epub"), url("y/a copy.epub")]
+        one.candidate.filesNotOnThisMac = 1
+        var two = seed("B", files: [file("b.epub")])
+        two.candidate.filesNotOnThisMac = 2
+        let r = review([one, two], skipped: [
+            url("a.djvu"), url("b.DJVU"), url("c.doc"), url("film.mkv"), url("cover.jpg"), url("d.prc"),
+        ])
+        #expect(r.tidyingLines == [
+            "2 files are copies of others and are left where they are.",
+            "3 files are in iCloud and not on this Mac. Their details come from their names, and importing fetches them, which can take a while.",
+            "Not imported, as VoxCarrel cannot read them yet: 2 DjVu files, 1 Word file, 1 PRC file.",
+        ])
+        #expect(r.copiesText(of: r.entries[0].id) == "2 copies of this book's files were found and left where they are.")
+        #expect(r.copiesText(of: r.entries[1].id) == nil)
+
+        // Nothing to say, nothing said; and the singular forms.
+        #expect(review([seed("B", files: [file("b.epub")])], skipped: [url("film.mkv")]).tidyingLines.isEmpty)
+        var single = seed("C", files: [file("c.epub")])
+        single.candidate.copies = [url("x/c.epub")]
+        single.candidate.filesNotOnThisMac = 1
+        let s = review([single])
+        #expect(s.tidyingLines == [
+            "1 file is a copy of another and is left where it is.",
+            "1 file is in iCloud and not on this Mac. Its details come from its name, and importing fetches it.",
+        ])
+        #expect(s.copiesText(of: s.entries[0].id) == "1 copy of this book's files was found and left where it is.")
+    }
+
+    @Test func CI13_aCoverFoundBesideTheBookIsSentWithTheImport() {
+        var withBeside = seed("A", files: [file("a.epub")])
+        withBeside.cover = CoverImage(data: Data([0xFF, 0xD8, 0xFF]), mime: "image/jpeg")
+        withBeside.coverIsFromBeside = true
+        var embedded = seed("B", files: [file("b.epub")])
+        embedded.cover = CoverImage(data: Data([0xFF, 0xD8, 0xFF]), mime: "image/jpeg")
+        let r = review([withBeside, embedded])
+        #expect(r.entries[0].coverChanged)
+        #expect(!r.entries[1].coverChanged)
+    }
 }

@@ -174,6 +174,65 @@ extension ImportReview {
         }
     }
 
+    // MARK: What was set aside, skipped, or is not here yet
+
+    /// What the owner should know about the scan before importing, one line each:
+    /// copies set aside, files still in iCloud, and book files of kinds that cannot
+    /// be imported. Empty when there is nothing to say.
+    public var tidyingLines: [String] {
+        var lines: [String] = []
+        let copies = entries.reduce(0) { $0 + $1.candidate.copies.count }
+        if copies == 1 {
+            lines.append("1 file is a copy of another and is left where it is.")
+        } else if copies > 1 {
+            lines.append("\(copies) files are copies of others and are left where they are.")
+        }
+        let away = entries.reduce(0) { $0 + $1.candidate.filesNotOnThisMac }
+        if away == 1 {
+            lines.append("1 file is in iCloud and not on this Mac. Its details come from its name, and importing fetches it.")
+        } else if away > 1 {
+            lines.append(
+                "\(away) files are in iCloud and not on this Mac. Their details come from their names, and importing fetches them, which can take a while.")
+        }
+        let kinds = Self.bookKindsNotImported(skipped)
+        if !kinds.isEmpty {
+            lines.append("Not imported, as VoxCarrel cannot read them yet: \(kinds.joined(separator: ", ")).")
+        }
+        return lines
+    }
+
+    /// Endings of book files VoxCarrel cannot import, with what to call them.
+    static let unreadableBookKinds: [(ending: String, name: String)] = [
+        ("djvu", "DjVu"), ("doc", "Word"), ("docx", "Word"), ("prc", "PRC"), ("lit", "LIT"), ("fb2", "FB2"),
+        ("cbz", "comic"), ("cbr", "comic"), ("chm", "CHM"), ("rtf", "RTF"), ("kfx", "KFX"), ("azw", "AZW"),
+        ("flac", "FLAC"), ("ogg", "Ogg"), ("opus", "Opus"), ("wma", "WMA"), ("aax", "Audible AAX"),
+    ]
+
+    /// "5 DjVu files", "2 Word files": the skipped files that are books, counted by kind.
+    static func bookKindsNotImported(_ skipped: [URL]) -> [String] {
+        var order: [String] = []
+        var counts: [String: Int] = [:]
+        for url in skipped {
+            let ending = url.pathExtension.lowercased()
+            guard let kind = unreadableBookKinds.first(where: { $0.ending == ending }) else { continue }
+            if counts[kind.name] == nil { order.append(kind.name) }
+            counts[kind.name, default: 0] += 1
+        }
+        return order.map { name in
+            let count = counts[name] ?? 0
+            return count == 1 ? "1 \(name) file" : "\(count) \(name) files"
+        }
+    }
+
+    /// "2 copies of this book's files were found and left where they are."; nil when
+    /// the entry has none.
+    public func copiesText(of id: UUID) -> String? {
+        guard let count = entry(id)?.candidate.copies.count, count > 0 else { return nil }
+        return count == 1
+            ? "1 copy of this book's files was found and left where it is."
+            : "\(count) copies of this book's files were found and left where they are."
+    }
+
     // MARK: Q3 Status
 
     /// What a row says about an entry that is not simply ready.

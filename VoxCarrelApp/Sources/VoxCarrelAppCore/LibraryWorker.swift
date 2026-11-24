@@ -453,20 +453,38 @@ public actor LibraryWorker {
 
     /// The candidate with what the review shows beside it.
     private func seed(for candidate: CandidateBook, reader: FileMetadataIO) throws -> ImportSeed {
-        let cover = candidate.files.lazy
-            .filter { $0.role != .extra }
+        // A file kept in iCloud and not fetched is not read here: that would fetch it.
+        let embedded = candidate.files.lazy
+            .filter { $0.role != .extra && BookScanner.isOnThisMac($0.url) }
             .compactMap { (try? reader.read($0.url))?.cover }
             .first
-        return ImportSeed(
-            candidate: candidate, cover: cover, match: try importMatch(for: candidate.metadata),
+        // Failing a cover in the files, the picture found beside the book.
+        let beside = embedded == nil ? Self.picture(at: candidate.coverBeside) : nil
+        var seed = ImportSeed(
+            candidate: candidate, cover: embedded ?? beside, match: try importMatch(for: candidate.metadata),
             measuredAudio: Self.measuredAudio(of: candidate, reader: reader))
+        seed.coverIsFromBeside = beside != nil
+        return seed
+    }
+
+    /// The picture in a file beside a book, when it is one a cover can be: a JPEG or a
+    /// PNG of no more than 20 MB that is on this Mac.
+    static func picture(at url: URL?) -> CoverImage? {
+        guard let url, BookScanner.isOnThisMac(url),
+              let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size > 0, size <= 20_000_000,
+              let data = try? Data(contentsOf: url)
+        else { return nil }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return CoverImage(data: data, mime: "image/jpeg") }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return CoverImage(data: data, mime: "image/png") }
+        return nil
     }
 
     /// The length of the candidate's audio when it is one file whose length could be
     /// measured. The parts of a book in several files are not read here.
     private static func measuredAudio(of candidate: CandidateBook, reader: FileMetadataIO) -> MeasuredAudio? {
         let audio = candidate.files.filter { $0.role == .audio }
-        guard audio.count == 1, let contents = try? reader.read(audio[0].url), !contents.lengthCouldNotBeMeasured,
+        guard audio.count == 1, BookScanner.isOnThisMac(audio[0].url),
+              let contents = try? reader.read(audio[0].url), !contents.lengthCouldNotBeMeasured,
               let seconds = contents.metadata.durationSeconds, seconds.isFinite, seconds > 0
         else { return nil }
         return MeasuredAudio(file: audio[0].url, seconds: seconds)

@@ -28,6 +28,20 @@ struct ImportReviewSheet: View {
                     .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
+            if !review.tidyingLines.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(review.tidyingLines, id: \.self) { line in
+                        Label(line, systemImage: "info.circle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("review.tidying")
+                Divider()
+            }
             if let title = review.skippedTitle {
                 SkippedList(title: title, lines: review.skippedLines, isExpanded: $skippedShown)
                 Divider()
@@ -258,6 +272,13 @@ private struct EntryDetail: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("review.guessNote")
+                        }
+                        if let copies = review.copiesText(of: entry.id) {
+                            Text(copies)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("review.copies")
                         }
                         HStack(spacing: 8) {
                             // V1

@@ -193,8 +193,11 @@ public struct SidebarData: Equatable, Sendable {
 /// A scanned candidate with what the review sheet needs to show beside it.
 public struct ImportSeed: Equatable, Sendable {
     public var candidate: CandidateBook
-    /// Found in the candidate's files.
+    /// Found in the candidate's files, or failing that beside them.
     public var cover: CoverImage?
+    /// True when `cover` is a picture found beside the book, which its files do not
+    /// hold: it is sent with the import so that the book gets it.
+    public var coverIsFromBeside = false
     public var existingMatch: Book?
     /// IH1: how sure `existingMatch` is. Means nothing without one.
     public var matchStrength: MatchStrength = .sure

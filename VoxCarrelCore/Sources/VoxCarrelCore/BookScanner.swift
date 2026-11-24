@@ -24,6 +24,11 @@ public struct CandidateBook: Equatable, Sendable {
     /// book's files. They are not imported: one copy is enough.
     public var copies: [URL] = []
 
+    /// How many of the book's files are kept in iCloud and are not on this Mac. Their
+    /// tags were not read (that would have fetched them), so the details come from
+    /// names; importing fetches them.
+    public var filesNotOnThisMac = 0
+
     public init(
         files: [CandidateFile], metadata: BookMetadata, sourceFolder: URL? = nil, guessNotes: GuessNotes = []
     ) {
@@ -53,11 +58,28 @@ public struct BookScanner {
 
     private let known: KnownNames
 
+    /// Whether a file's contents are here to be read without fetching them.
+    private let isOnThisMac: @Sendable (URL) -> Bool
+
     /// - Parameter known: The authors and titles the library already has, as evidence
     ///   for reading a name "A - B" either way round.
-    public init(reader: (any MetadataReader)? = nil, known: KnownNames = .none) {
+    /// - Parameter isOnThisMac: For tests; the file system is asked otherwise.
+    public init(
+        reader: (any MetadataReader)? = nil, known: KnownNames = .none,
+        isOnThisMac: @escaping @Sendable (URL) -> Bool = BookScanner.isOnThisMac
+    ) {
         self.reader = reader
         self.known = known
+        self.isOnThisMac = isOnThisMac
+    }
+
+    /// False for a file kept in iCloud whose contents have not been fetched: reading
+    /// it would fetch it, however large it is. True for every other file.
+    public static func isOnThisMac(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
+              values.isUbiquitousItem == true, let status = values.ubiquitousItemDownloadingStatus
+        else { return true }
+        return status != .notDownloaded
     }
 
     /// Scans dropped files and folders (folders recursively) into candidate books.
@@ -156,7 +178,8 @@ public struct BookScanner {
     ///   are copies of others are set aside and the same book found twice is one. A
     ///   watch folder's check leaves both alone, since it keeps account of every file.
     private func finish(_ result: inout ScanResult, tidying: Bool) {
-        let found = tidying ? joinSameBook(Self.withoutCopies(result.candidates)) : result.candidates
+        let found = tidying
+            ? joinSameBook(Self.withoutCopies(result.candidates, isOnThisMac: isOnThisMac)) : result.candidates
         result.candidates = mergeMatching(found).map { candidate in
             var sorted = candidate
             sorted.files = [FileRole.audio, .ebook, .extra].flatMap { role in
@@ -427,7 +450,8 @@ public struct BookScanner {
     private func makeCandidate(_ group: Group) -> CandidateBook {
         // Read tags from the audio if there is any, otherwise from the first file.
         let primary = (group.files.first { $0.role == .audio } ?? group.files[0]).url
-        var metadata = (try? reader?.readMetadata(at: primary)) ?? BookMetadata()
+        // A file that is not here is not read: its name has to do until it is fetched.
+        var metadata = (isOnThisMac(primary) ? try? reader?.readMetadata(at: primary) : nil) ?? BookMetadata()
         Self.settingAsideWhatAProgramLeft(in: &metadata, primary: primary, folder: group.folder)
         // Tags always win: only what they leave empty is taken from names.
         let needsTitle = metadata.title.isEmpty
@@ -466,8 +490,10 @@ public struct BookScanner {
             metadata.asin = asin
             notes.insert(.audibleIDFromName)
         }
-        return CandidateBook(
+        var candidate = CandidateBook(
             files: group.files, metadata: metadata, sourceFolder: group.folder, guessNotes: notes)
+        candidate.filesNotOnThisMac = group.files.filter { !isOnThisMac($0.url) }.count
+        return candidate
     }
 
     /// Empties a title or an author that is not the book's but what a program left in
@@ -535,6 +561,8 @@ public struct BookScanner {
             var combined = candidates[audio[0]]
             combined.files += candidates[others[0]].files
             combined.coverBeside = combined.coverBeside ?? candidates[others[0]].coverBeside
+            combined.copies += candidates[others[0]].copies
+            combined.filesNotOnThisMac += candidates[others[0]].filesNotOnThisMac
             merged[min(audio[0], others[0])] = combined
             merged[max(audio[0], others[0])] = nil
         }
@@ -574,7 +602,9 @@ public struct BookScanner {
     /// The candidates with every file that is a copy of an earlier one taken out and
     /// noted as a copy on the book that keeps the first. A candidate left with no
     /// file is dropped. Only files of the same size are read to be compared.
-    static func withoutCopies(_ candidates: [CandidateBook]) -> [CandidateBook] {
+    static func withoutCopies(
+        _ candidates: [CandidateBook], isOnThisMac: (URL) -> Bool = BookScanner.isOnThisMac
+    ) -> [CandidateBook] {
         var sizes: [Int: Int] = [:]
         // Anything smaller than this is no book, and says nothing by being the same.
         let smallest = 4096
@@ -588,7 +618,7 @@ public struct BookScanner {
         for index in out.indices {
             var kept: [CandidateFile] = []
             for file in out[index].files {
-                guard let s = size(file.url), s >= smallest, sizes[s, default: 0] > 1,
+                guard let s = size(file.url), s >= smallest, sizes[s, default: 0] > 1, isOnThisMac(file.url),
                       let print = fingerprint(of: file.url)
                 else {
                     kept.append(file)
@@ -620,6 +650,7 @@ public struct BookScanner {
             if let owner = keys.compactMap({ firstByKey[$0] }).first, var kept = out[owner] {
                 kept.files += candidate.files
                 kept.copies += candidate.copies
+                kept.filesNotOnThisMac += candidate.filesNotOnThisMac
                 kept.coverBeside = kept.coverBeside ?? candidate.coverBeside
                 out[owner] = kept
                 out[index] = nil

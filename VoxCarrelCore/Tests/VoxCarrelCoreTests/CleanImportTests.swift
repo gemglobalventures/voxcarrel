@@ -312,4 +312,34 @@ import VoxCarrelFixtures
         let guess = FilenameParser.guess(from: url, isFolder: false)
         #expect(guess.author == nil)
     }
+
+    // MARK: Files kept in iCloud
+
+    @Test func CI11_aFileThatIsNotOnThisMacIsNotReadAndIsCounted() throws {
+        let root = try makeTempDir()
+        let shelf = root.appendingPathComponent("Shelf", isDirectory: true)
+        let away = shelf.appendingPathComponent("Ann Author - Far Away.epub")
+        let here = shelf.appendingPathComponent("Bob Writer - Right Here.epub")
+        try FileManager.default.createDirectory(at: shelf.appendingPathComponent("More"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 5000).write(to: away)
+        try Data(repeating: 1, count: 5000).write(to: shelf.appendingPathComponent("More/copy.epub"))
+        try Data(repeating: 2, count: 5000).write(to: here)
+        var tagged = BookMetadata()
+        tagged.title = "From The Tags"
+        tagged.authors = ["Tag Author"]
+        let reader = StubReader(byFileName: [away.lastPathComponent: tagged, here.lastPathComponent: tagged])
+        let awayName = away.lastPathComponent
+
+        let result = BookScanner(reader: reader, isOnThisMac: { $0.lastPathComponent != awayName }).scan([shelf])
+        let far = try #require(result.candidates.first { $0.files[0].url.lastPathComponent == away.lastPathComponent })
+        // Its tags were not asked for: the name is read. It is not compared with others.
+        #expect(far.metadata.title == "Far Away" && far.metadata.authors == ["Ann Author"])
+        #expect(far.filesNotOnThisMac == 1)
+        #expect(far.copies.isEmpty)
+        let near = try #require(result.candidates.first { $0.files[0].url.lastPathComponent == here.lastPathComponent })
+        #expect(near.metadata.title == "From The Tags" && near.filesNotOnThisMac == 0)
+        #expect(result.candidates.count == 3)
+        // An ordinary file is on this Mac.
+        #expect(BookScanner.isOnThisMac(here))
+    }
 }
