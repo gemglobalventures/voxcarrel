@@ -175,6 +175,15 @@ import ZIPFoundation
         #expect(try f.service.books(inGroup: .fiction) == [apple, mango, zebra])
     }
 
+    @Test func G36_theBooksWithNoGenreComeByTitle() throws {
+        let f = try F()
+        let zebra = try importM4B(f, title: "Zebra", tag: nil)
+        let apple = try importM4B(f, title: "apple", tag: "Audiobook")
+        let mango = try importM4B(f, title: "Mango", tag: nil)
+        _ = try importM4B(f, title: "Filed", tag: "Horror")
+        #expect(try f.service.booksWithNoGenre() == [apple, mango, zebra])
+    }
+
     // MARK: G4 The wording
 
     @Test func G4_theWordingABookCameWithStaysWhenItsGenresAreChanged() throws {
