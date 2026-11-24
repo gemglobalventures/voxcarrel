@@ -508,6 +508,33 @@ import VoxCarrelFixtures
         #expect(asked(http) == ["A", "B"])
     }
 
+    @Test func G33_whatIsFoundForTheBookBeingAskedAboutWhenStopIsPressedIsNotHandedOver() async throws {
+        let f = try F()
+        for title in ["A", "B", "C"] { try book(f, title) }
+        var catalogue = Catalogue()
+        try catalogue.addAudible(asked: "A", found: [("A", "An Author", [Self.espionage])])
+        try catalogue.addAudible(asked: "B", found: [("B", "An Author", [Self.hardSF])])
+        try catalogue.addAudible(asked: "C", found: [("C", "An Author", [Self.hardSF])])
+        let answers = catalogue.http()
+        let reader = Reader()
+        // Stop is pressed while the second book is being asked about, and it is answered.
+        let http = FakeHTTP { url in
+            if queryItems(url)["title"] == "B" { reader.stop() }
+            return try answers.answerForTest(url)
+        }
+        let stream = try fill(f, http).proposals(for: try f.service.genreFillCandidates(includingGeneral: false))
+        let task = Task { () -> [GenreProposal] in
+            while !reader.isSet { await Task.yield() }
+            var found: [GenreProposal] = []
+            for try await proposal in stream { found.append(proposal) }
+            return found
+        }
+        reader.set(task)
+        let found = try await task.value
+        #expect(found.map(\.title) == ["A"])
+        #expect(asked(http) == ["A", "B"])
+    }
+
     @Test func G30_whatComesBackUnderAnotherIDIsNotTakenAsTheBook() async throws {
         let f = try F()
         let id = try book(f, "Mine", author: "An Author", asin: "B08G9PRS1K")
