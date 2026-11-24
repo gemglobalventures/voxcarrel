@@ -135,6 +135,17 @@ extension LibraryService {
     /// could not be written; an unknown id gives `.failed`. A book for which nothing was
     /// written and nothing changed is reported as saved without being recorded.
     public func rewriteTags(for bookIds: [Int64]) throws -> [SaveOutcome] {
+        try rewriteTags(for: bookIds, writing: { _ in true }) { count in
+            count == 1 ? "Rewrite tags" : "Rewrite tags for \(count) books"
+        }
+    }
+
+    /// As `rewriteTags(for:)`, for the files of each book that `writing` picks; the
+    /// others are not opened to be written. `label` names the operation, given the
+    /// number of books it recorded.
+    func rewriteTags(
+        for bookIds: [Int64], writing: (WorkingFile) -> Bool, label: (Int) -> String
+    ) throws -> [SaveOutcome] {
         try refuseWhileLayoutChangeIsInterrupted()
         var operation = PendingOperation()
         var handled = Set<Int64>()
@@ -166,7 +177,7 @@ extension LibraryService {
             }
 
             let parts = Self.partPositions(for: files.map(\.role))
-            for index in files.indices {
+            for index in files.indices where writing(files[index]) {
                 writeTags(
                     book.metadata, cover: .keep, part: parts[index], to: &files[index],
                     restorePart: parts[index], coverBefore: nil)
@@ -198,7 +209,7 @@ extension LibraryService {
 
         let count = operation.writes.count
         if count > 0 {
-            _ = try commit(operation, label: count == 1 ? "Rewrite tags" : "Rewrite tags for \(count) books")
+            _ = try commit(operation, label: label(count))
         } else {
             removeUndoData(token: operation.token)
         }
