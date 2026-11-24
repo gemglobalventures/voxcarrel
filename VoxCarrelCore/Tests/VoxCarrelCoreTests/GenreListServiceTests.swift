@@ -156,6 +156,21 @@ import VoxCarrelFixtures
         #expect(try f.service.books(inGroup: .other).isEmpty)
     }
 
+    @Test func G2_theListIsGivenGroupByGroupWhereverAGenreWasPut() throws {
+        let f = try F()
+        try f.service.addGenre("Pub Quiz", group: .fiction)
+        try f.service.moveGenre("History", to: .fiction)
+        try f.service.moveGenre("Horror", to: .other)
+        let list = try f.service.genreList()
+        // Each group's genres stand together, the groups in their own order.
+        let groups = list.map(\.group)
+        #expect(groups == GenreGroup.allCases.flatMap { group in groups.filter { $0 == group } })
+        // Within a group the built-in ones come first, then the owner's own.
+        #expect(list.filter { $0.group == .fiction }.map(\.name).suffix(2) == ["History", "Pub Quiz"])
+        #expect(list.filter { $0.group == .other }.map(\.name) == ["Horror"])
+        #expect(list.count == BuiltInGenre.all.count + 1)
+    }
+
     @Test func G23_movingToTheGroupItIsInChangesNothing() throws {
         let f = try F()
         try book(f, "One", ["Fantasy"])
