@@ -153,7 +153,6 @@ extension BulkField {
         case .authors: "Author"
         case .narrators: "Narrator"
         case .series: "Series"
-        case .genre: "Genre"
         case .year: "Year"
         case .publisher: "Publisher"
         case .language: "Language"

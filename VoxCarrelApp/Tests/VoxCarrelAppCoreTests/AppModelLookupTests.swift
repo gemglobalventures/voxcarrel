@@ -620,7 +620,7 @@ import VoxCarrelFixtures
         h.recordBusyLabels()
         let id = try await h.select("Salt Road")
         let before = try h.book(id)
-        h.model.updateDraft { $0.genre = "Sea Stories" }
+        h.model.updateDraft { $0.genres = ["Sea Stories"] }
         h.model.beginLookup()
         await h.model.settle()
 

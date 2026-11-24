@@ -147,11 +147,92 @@ public actor LibraryWorker {
             counts[item] = try books(for: item).count
         }
         var browse: [BrowseField: [String]] = [:]
-        for field in BrowseField.allCases {
+        for field in BrowseField.allCases where field != .genre {
             browse[field] = try store.distinctValues(field)
                 .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         }
-        return SidebarData(counts: counts, browse: browse, collections: try store.collections())
+        // G34: the genres that have books, as the list orders them.
+        let genres = try service.genreList()
+        browse[.genre] = genres.filter { !$0.isHidden && $0.bookCount > 0 }.map(\.name)
+        var groupCounts: [GenreGroup: Int] = [:]
+        for group in GenreGroup.allCases {
+            groupCounts[group] = try service.books(inGroup: group).count
+        }
+        return SidebarData(
+            counts: counts, browse: browse, collections: try store.collections(), genres: genres,
+            genreGroupCounts: groupCounts, noGenreCount: try service.booksWithNoGenre().count,
+            // G13: read from the catalogue alone; no file is opened.
+            genreFilesToUpdate: try service.genreFileDifferences().count)
+    }
+
+    // MARK: Genres
+
+    /// The library's list of genres, each with its number of books.
+    public func genreList() throws -> [GenreEntry] {
+        try service.genreList()
+    }
+
+    /// G22: adds a genre of the owner's own to a group, and returns its name as listed
+    /// (`LibraryService.addGenre`).
+    public func addGenre(_ name: String, group: GenreGroup) throws -> String {
+        try service.addGenre(name, group: group)
+    }
+
+    /// G23–G27: one change to the list of genres, as one operation that Undo reverses.
+    public func changeGenreList(_ change: GenreListChange) throws {
+        switch change {
+        case .rename(let name, let new): try service.renameGenre(name, to: new)
+        case .merge(let name, let other): try service.mergeGenre(name, into: other)
+        case .move(let name, let group): try service.moveGenre(name, to: group)
+        case .delete(let name): try service.deleteGenre(name)
+        case .reset: try service.resetBuiltInGenreNames()
+        }
+    }
+
+    /// G13, G14: the books whose files hold another genre tag than would be written.
+    /// Reads the catalogue only.
+    public func genreFileDifferences() throws -> [LibraryService.GenreFileDifference] {
+        try service.genreFileDifferences()
+    }
+
+    /// G14: writes the books' genres into their files, as one operation that Undo reverses.
+    public func updateGenreFiles(_ bookIds: [Int64]) throws -> [SaveOutcome] {
+        let ids = self.bookIds(bookIds)
+        guard !ids.isEmpty else { return [] }
+        return try service.updateGenreFiles(ids)
+    }
+
+    /// G29: the books Fill in Genres covers.
+    public func genreFillCandidates(includingGeneral: Bool) throws -> [GenreFillBook] {
+        try service.genreFillCandidates(includingGeneral: includingGeneral)
+    }
+
+    /// G30: what looks genres up, with the library's list as it is now. It does not run
+    /// on the actor: the library goes on answering while a source is slow.
+    public func genreFill() throws -> GenreFill {
+        GenreFill(lookup: lookup.withLock { $0 }, listing: try service.genreListing())
+    }
+
+    /// G33: gives the chosen books their genres, as one operation that Undo reverses.
+    public func applyGenres(_ chosen: [GenreChoice]) throws -> [SaveOutcome] {
+        let chosen = chosen.filter { isBookId($0.bookId) }
+        guard !chosen.isEmpty else { return [] }
+        return try service.applyGenres(chosen)
+    }
+
+    /// G20, GP10: what a lookup found, with every result's genres named as the
+    /// library's list names them: before any of it is shown or stored.
+    public func inLibraryGenres(_ results: LookupResults) -> LookupResults {
+        var results = results
+        results.candidates = results.candidates.map(inLibraryGenres)
+        return results
+    }
+
+    /// The same for one result.
+    public func inLibraryGenres(_ candidate: LookupCandidate) -> LookupCandidate {
+        var candidate = candidate
+        candidate.metadata.genres = service.listedGenres(candidate.metadata.genres)
+        return candidate
     }
 
     /// The book and its files as they are now; nil when no book has that id.
@@ -294,10 +375,18 @@ public actor LibraryWorker {
         case .finished: try store.books(readStatus: .finished)
         case .needsAttention: try store.books(needsAttention: true)
         case .browse(let field, let value): try store.books(where: field, equals: value)
+        case .genreGroup(let group): try books(withIds: try service.books(inGroup: group))
+        case .noGenre: try books(withIds: try service.booksWithNoGenre())
         case .collection(let id): try store.books(inCollection: id)
         // The inbox lists arrivals, which are not yet books.
         case .inbox: []
         }
+    }
+
+    /// These books, in the store's order (by title).
+    private func books(withIds ids: [Int64]) throws -> [Book] {
+        let wanted = Set(ids)
+        return try store.books().filter { $0.id.map(wanted.contains) ?? false }
     }
 
     private func row(for book: Book, id: Int64, files: [BookFile]) -> BookRow {

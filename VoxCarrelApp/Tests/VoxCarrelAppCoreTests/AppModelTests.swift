@@ -652,21 +652,21 @@ import VoxCarrelFixtures
     @Test func aBulkEditIsProtectedToo() async throws {
         let h = try await Harness.demo()
         let ids = try await h.select(["Salt Road", "Quiet Rivers"])
-        h.model.updateBulkDraft { $0.values[.genre] = "Sea Stories" }
+        h.model.updateBulkDraft { $0.values[.publisher] = "Sea Stories" }
         #expect(h.model.hasUnsavedChanges)
 
         h.model.click(try h.id("Night Train to Vostok"), modifiers: [])
         #expect(h.model.prompt == .unsavedChanges)
         #expect(h.model.selection == ids)
         await h.model.resolveUnsaved(.cancel)
-        #expect(h.bulkDraft?.values[.genre] == "Sea Stories")
+        #expect(h.bulkDraft?.values[.publisher] == "Sea Stories")
 
         h.model.searchText = "salt"
         await h.model.settle()
         #expect(h.model.prompt == .unsavedChanges)
         await h.model.resolveUnsaved(.save)
-        let genres = try ids.map { try h.book($0).genres }
-        #expect(genres == [["Sea Stories"], ["Sea Stories"]])
+        let publishers = try ids.map { try h.book($0).publisher }
+        #expect(publishers == ["Sea Stories", "Sea Stories"])
         #expect(h.model.searchText == "salt")
         #expect(h.model.selection == [try h.id("Salt Road")])
     }

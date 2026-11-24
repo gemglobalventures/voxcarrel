@@ -41,7 +41,7 @@ public enum DemoContent {
         // Standalone audiobook: one M4B with chapters.
         var lighthouse = BookMetadata(title: "The Lighthouse Keeper", authors: ["Eleanor Marsh"])
         lighthouse.narrators = ["Tom Hale"]
-        lighthouse.genre = "Literary Fiction"
+        lighthouse.genres = ["Literary & General"]
         lighthouse.year = 2019
         lighthouse.publisher = "Harbour Audio"
         lighthouse.summary = "A keeper on a remote rock counts the ships that never arrive."
@@ -55,7 +55,7 @@ public enum DemoContent {
             book.narrators = ["Marcus Lindqvist"]
             book.series = "Tidewater Chronicles"
             book.seriesNumber = String(index + 1)
-            book.genre = "Fantasy"
+            book.genres = ["Fantasy"]
             book.year = 2014 + index
             try makeAudiobook(at: seriesFolder.appendingPathComponent("\(title).m4b"), book, cover.next(book))
         }
@@ -63,7 +63,8 @@ public enum DemoContent {
         // Multi-part audiobook: a folder of four MP3s.
         var train = BookMetadata(title: "Night Train to Vostok", authors: ["Mikhail Orlov"])
         train.narrators = ["Anna Petrova"]
-        train.genre = "Thriller"
+        // GH-c: the one sample book with two genres.
+        train.genres = ["Thrillers & Spies", "Crime & Mystery"]
         train.year = 2008
         let trainFolder = folder.appendingPathComponent("Night Train to Vostok", isDirectory: true)
         let trainCover = cover.next(train, square: true)
@@ -78,7 +79,7 @@ public enum DemoContent {
         // so it is the dedicated folder that makes them one book.
         var clockmaker = BookMetadata(title: "The Clockmaker's Apprentice", authors: ["Ruth Abernathy"])
         clockmaker.narrators = ["Simon Feld"]
-        clockmaker.genre = "Historical Fiction"
+        clockmaker.genres = ["Historical Fiction"]
         clockmaker.year = 2021
         let clockFolder = folder.appendingPathComponent("The Clockmaker's Apprentice", isDirectory: true)
         let clockCover = cover.next(clockmaker)
@@ -90,32 +91,33 @@ public enum DemoContent {
         // Audiobook with companion: an M4B and a PDF with the same base name.
         var fieldGuide = BookMetadata(title: "A Field Guide to Small Hours", authors: ["Jonas Whitlock"])
         fieldGuide.narrators = ["Jonas Whitlock"]
-        fieldGuide.genre = "Nature"
+        fieldGuide.genres = ["Science & Nature"]
         fieldGuide.year = 2017
         try makeAudiobook(at: folder.appendingPathComponent("A Field Guide to Small Hours.m4b"), fieldGuide, cover.next(fieldGuide))
         try makePDF(at: folder.appendingPathComponent("A Field Guide to Small Hours.pdf"), nil)
 
         // Ebook only.
         var rivers = BookMetadata(title: "Quiet Rivers", authors: ["Amara Okafor"])
-        rivers.genre = "Poetry"
+        rivers.genres = ["Literary & General"]
         rivers.year = 2012
         rivers.publisher = "Reedbank Press"
         try makeEbook(at: folder.appendingPathComponent("Quiet Rivers.epub"), rivers, cover.next(rivers, square: true))
 
         // Ebook in two formats: an EPUB and a PDF with the same base name.
         var cartographer = BookMetadata(title: "The Cartographer's Daughter", authors: ["Lena Voss"])
-        cartographer.genre = "Adventure"
+        cartographer.genres = ["Travel & Places"]
         cartographer.year = 2003
         try makeEbook(at: folder.appendingPathComponent("The Cartographer's Daughter.epub"), cartographer, cover.next(cartographer))
         try makePDF(at: folder.appendingPathComponent("The Cartographer's Daughter.pdf"), cartographer)
 
         // Two authors.
         var wheel = BookMetadata(title: "Two Hands on the Wheel", authors: ["Priya Nair", "Daniel Brandt"])
-        wheel.genre = "Memoir"
+        wheel.genres = ["Biography & Memoir"]
         wheel.year = 2022
         try makeEbook(at: folder.appendingPathComponent("Two Hands on the Wheel.epub"), wheel, cover.next(wheel))
 
         // No author: a title only, in a folder whose name is a place and not an author.
+        // GH-c: and no genre.
         let attic = BookMetadata(title: "Voices from the Attic")
         try makeAudiobook(
             at: folder.appendingPathComponent(genericFolderName, isDirectory: true)
@@ -128,7 +130,7 @@ public enum DemoContent {
             authors: ["Bartholomew Featherstonehaugh"])
         history.subtitle = "Being an Account of Ice, Commerce and Stubbornness from the Earliest Voyages to the Present Day"
         history.narrators = ["Clementine Ashworth-Delacroix"]
-        history.genre = "History"
+        history.genres = ["History"]
         history.year = 1998
         try makeAudiobook(at: folder.appendingPathComponent("Northern Sea Routes.m4b"), history, cover.next(history))
 
@@ -262,7 +264,7 @@ public enum DemoContent {
         glassTide.narrators = ["Marcus Lindqvist"]
         glassTide.series = "Tidewater Chronicles"
         glassTide.seriesNumber = "4"
-        glassTide.genre = "Fantasy"
+        glassTide.genres = ["Fantasy"]
         glassTide.year = 2018
         glassTide.publisher = "Tidewater Audio"
         glassTide.language = "en"
@@ -271,7 +273,7 @@ public enum DemoContent {
 
         var iceShelf = BookMetadata(title: "Letters from the Ice Shelf", authors: ["Solveig Aaberg"])
         iceShelf.narrators = ["Freya Dahl"]
-        iceShelf.genre = "Travel"
+        iceShelf.genres = ["Travel & Places"]
         iceShelf.year = 2020
         iceShelf.publisher = "Northlight Audio"
         iceShelf.language = "en"
@@ -308,11 +310,6 @@ public enum DemoContent {
     private static let seriesPool = [
         "Tidewater Chronicles", "The Lantern Cycle", "Inspector Hallam Mysteries", "Atlas of Winds",
         "The Glass Republic", "Orchard Lane", "Nine Bridges", "Far Meridian",
-    ]
-
-    private static let genrePool = [
-        "Fantasy", "Thriller", "Literary Fiction", "History", "Science Fiction", "Mystery", "Memoir", "Nature",
-        "Poetry", "Adventure",
     ]
 
     /// Brings the library up to `total` books by copying the sample books that are filed
@@ -352,7 +349,8 @@ public enum DemoContent {
             }
             // The template's Audible ID is its own.
             metadata.asin = nil
-            metadata.genre = genrePool[number % genrePool.count]
+            // The genres stay the template's: the files are copies of its files, and hold
+            // its genre tag, so no numbered book has a file to update.
             metadata.year = 1985 + (number * 3) % 40
             // Two to thirty hours for something to listen to.
             metadata.durationSeconds = hasAudio ? Double(7200 + (number * 9973) % 100_800) : nil
@@ -585,18 +583,5 @@ public enum DemoContent {
           </spine>
         </package>
         """
-    }
-}
-
-private extension BookMetadata {
-    /// A sample book's genre as it was worded before books had several: the mapping
-    /// reads it, as it would a file's tag. A stand-in until the samples name their
-    /// genres from the list.
-    var genre: String? {
-        get { genreSource }
-        set {
-            genreSource = newValue
-            genres = GenreMapping.map(.text(newValue ?? "")).names
-        }
     }
 }

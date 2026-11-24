@@ -242,13 +242,13 @@ import VoxCarrelFixtures
         #expect(h.model.selection == Set(ids))
         #expect(h.bulkDraft?.books.count == 3)
 
-        h.model.updateBulkDraft { $0.values[.genre] = "Sea Stories" }
+        h.model.updateBulkDraft { $0.values[.publisher] = "Sea Stories" }
         await h.model.save()
         #expect(h.busyLabels == ["Saving 3 books…"])
         for id in ids {
-            #expect(try h.book(id).genres == ["Sea Stories"])
+            #expect(try h.book(id).publisher == "Sea Stories")
         }
-        #expect(try h.store().books().filter { $0.genres == ["Sea Stories"] }.count == 3)
+        #expect(try h.store().books().filter { $0.publisher == "Sea Stories" }.count == 3)
         #expect(!h.model.hasUnsavedChanges)
         // The group is still there, still selected.
         #expect(h.model.itemSelection == [Self.seriesItem])
@@ -1505,7 +1505,7 @@ import VoxCarrelFixtures
 
         h.model.clickItem(.series("Pair"), modifiers: [])
         await h.model.settle()
-        h.model.updateBulkDraft { $0.values[.genre] = "Travel" }
+        h.model.updateBulkDraft { $0.values[.publisher] = "Travel" }
         #expect(h.model.editedMark(for: try group(h, "Pair")))
         #expect(!h.model.editedMark(for: try group(h)))
     }

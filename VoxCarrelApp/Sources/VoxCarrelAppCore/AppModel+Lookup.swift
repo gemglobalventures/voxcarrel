@@ -386,8 +386,10 @@ extension AppModel {
         let book = session.bookContext
         let generation = lookupGeneration
         let search = spawn {
-            let results = await worker.lookUp(
-                query, preferAudio: preferAudio, language: language, sources: sources, book: book)
+            // G20: the genres of what was found are named as the library names them.
+            let results = await worker.inLibraryGenres(
+                await worker.lookUp(
+                    query, preferAudio: preferAudio, language: language, sources: sources, book: book))
             // A cancelled search comes back looking like one that found nothing, and
             // this may no longer be the lookup, or the query, it was made for (K2).
             guard !Task.isCancelled, self.lookupGeneration == generation, var session = self.lookup,
@@ -429,7 +431,9 @@ extension AppModel {
         }
         let generation = lookupGeneration
         let load = spawn {
-            let detailed = try? await worker.lookupDetails(for: candidate)
+            var detailed = try? await worker.lookupDetails(for: candidate)
+            // G20
+            if let found = detailed { detailed = await worker.inLibraryGenres(found) }
             guard self.lookupGeneration == generation else { return }
             self.lookupDetailLoads[id] = nil
             guard let detailed, var session = self.lookup else { return }
@@ -645,7 +649,7 @@ extension BookDraft {
         metadata.series = series.trimmedOrNil
         metadata.seriesNumber = seriesNumber.trimmedOrNil
         if genreChanged {
-            metadata.genres = GenreText.genres(typed: genre)
+            metadata.genres = genres
             metadata.genreSource = genreSource
         }
         if case .year(let value) = YearText(year) { metadata.year = value } else { metadata.year = nil }
@@ -668,7 +672,7 @@ extension BookDraft {
             case .series: series = metadata.series ?? ""
             case .seriesNumber: seriesNumber = metadata.seriesNumber ?? ""
             case .genre:
-                genre = GenreText.shown(metadata.genres)
+                genres = metadata.genres
                 genreSource = metadata.genreSource
             case .year: year = metadata.year.map(String.init) ?? ""
             case .publisher: publisher = metadata.publisher ?? ""

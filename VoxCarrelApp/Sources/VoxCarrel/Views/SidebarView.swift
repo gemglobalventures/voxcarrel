@@ -47,6 +47,32 @@ struct SidebarView: View {
                 }
             }
 
+            // G34–G36: the genres by group, then the books that have none.
+            Section("Genres") {
+                ForEach(model.genreTree) { group in
+                    DisclosureGroup(isExpanded: isOpen(group.group)) {
+                        ForEach(group.genres) { genre in
+                            Text(genre.name)
+                                .lineLimit(1)
+                                .badge(genre.count)
+                                .tag(genre.item)
+                                .accessibilityIdentifier("sidebar.genre.\(genre.name)")
+                        }
+                    } label: {
+                        Label(group.title, systemImage: group.item.symbol)
+                            .badge(group.count)
+                    }
+                    .tag(group.item)
+                    .accessibilityIdentifier("sidebar.genreGroup.\(group.group.rawValue)")
+                }
+                if model.showsNoGenre {
+                    Label(model.title(of: .noGenre), systemImage: SidebarItem.noGenre.symbol)
+                        .badge(model.noGenreCount)
+                        .tag(SidebarItem.noGenre)
+                        .accessibilityIdentifier("sidebar.noGenre")
+                }
+            }
+
             Section("Collections") {
                 ForEach(model.sidebar.collections) { collection in
                     if let id = collection.id {
@@ -132,6 +158,14 @@ struct SidebarView: View {
             set: { item in
                 if let item { model.sidebarSelection = item }
             })
+    }
+
+    /// G34: whether a group of genres is open, as the model remembers it.
+    private func isOpen(_ group: GenreGroup) -> Binding<Bool> {
+        let model = model
+        return Binding(
+            get: { model.isOpen(group: group) },
+            set: { model.setOpen($0, group: group) })
     }
 
     private func isExpanded(_ field: BrowseField) -> Binding<Bool> {

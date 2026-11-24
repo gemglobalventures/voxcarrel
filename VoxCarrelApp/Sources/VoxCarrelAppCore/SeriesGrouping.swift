@@ -122,7 +122,8 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
                 hasAudio: hasAudio, hasEbook: hasEbook, hasFiles: books.contains { $0.hasAudio && $0.hasFiles }),
             length: totalSeconds, added: newestAdded,
             statusRank: books.map { BookSort.statusRank($0.book.readStatus) }.min() ?? 0,
-            editionRank: books.compactMap(BookSort.editionRank).min())
+            editionRank: books.compactMap(BookSort.editionRank).min(),
+            firstGenre: books.first?.book.genres.first)
     }
 }
 

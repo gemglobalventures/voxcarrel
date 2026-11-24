@@ -16,6 +16,8 @@ extension SidebarItem {
         case .finished: "checkmark.circle"
         case .needsAttention: "exclamationmark.triangle"
         case .browse(let field, _): field.symbol
+        case .genreGroup: "tag"
+        case .noGenre: "tag.slash"
         case .collection: "rectangle.stack"
         case .inbox: "tray"
         }
@@ -44,6 +46,7 @@ extension BookSortKey {
         case .dateAdded: "Date Added"
         case .status: "Status"
         case .edition: "Edition"
+        case .genre: "Genre"
         }
     }
 }

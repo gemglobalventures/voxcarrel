@@ -435,6 +435,10 @@ import VoxCarrelCore
         let offer = session.offers.first { $0.id == .genre }
         #expect(offer?.found == "Thrillers & Spies, Crime & Mystery")
         #expect(offer?.current == "Fantasy, Humour")
+        // GH20: the row holds the genres themselves, the book's and the result's, in order.
+        #expect(offer?.currentGenres == ["Fantasy", "Humour"])
+        #expect(offer?.foundGenres == ["Thrillers & Spies", "Crime & Mystery"])
+        #expect(session.offers.first { $0.id == .title }?.foundGenres == nil)
         // The book has genres, so the row is not ticked to begin with.
         #expect(offer?.ticked == false)
 

@@ -3,7 +3,8 @@ import VoxCarrelCore
 
 extension BrowseField {
     /// The browse fields in the order the sidebar shows them.
-    public static let sidebarOrder: [BrowseField] = [.authors, .series, .narrators, .genre]
+    /// G34: genres are not among them: they are a tree of their own (`AppModel.genreTree`).
+    public static let sidebarOrder: [BrowseField] = [.authors, .series, .narrators]
 
     /// The field's heading in the sidebar.
     public var title: String {
@@ -53,6 +54,8 @@ extension AppModel {
         case .finished: "Finished"
         case .needsAttention: "Needs Attention"
         case .browse(_, let value): value
+        case .genreGroup(let group): group.title
+        case .noGenre: "No genre"
         case .collection(let id): sidebar.collections.first { $0.id == id }?.name ?? "Collection"
         case .inbox: "Inbox"
         }

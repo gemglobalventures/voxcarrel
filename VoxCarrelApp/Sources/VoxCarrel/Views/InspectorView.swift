@@ -96,7 +96,19 @@ private struct BookInspector: View {
                     }
                     .frame(width: 64)
                 }
-                field("Genre", \.genre, .genre, id: "genre")
+                InspectorField("Genre", isAppOnly: markers.contains(.genre)) {
+                    GenreChipsField(
+                        chips: draft.genres.map { GenreChipsField.Chip(name: $0) }, note: draft.genreSourceNote,
+                        identifier: "inspector.genres",
+                        add: { typed in
+                            if let name = model.genreSuggestions(for: typed).createName {
+                                Task { await model.createDraftGenre(name, group: .other) }
+                            } else {
+                                model.addDraftGenre(typed)
+                            }
+                        },
+                        remove: { model.removeDraftGenre($0) })
+                }
                 field("Tags", \.tags, nil, id: "tags", hint: InspectorMetrics.semicolonHint)
                 InspectorField("Rating") {
                     RatingControl(rating: draft.rating)

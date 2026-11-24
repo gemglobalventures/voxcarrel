@@ -42,6 +42,9 @@ public enum UserMessage {
         case let error as WatchFolderError: text(for: error)
         case let error as SeriesListError: text(for: error)
         case let error as SendError: text(for: error)
+        case let error as LibraryService.GenreChangeError: text(for: error)
+        // GP7: said whole, as the library words it. It is no fault of the database's.
+        case let error as LibraryStoreError: error.errorDescription ?? error.localizedDescription
         default:
             // The database's own errors are written for programmers.
             LibraryStore.isDatabaseError(error)
@@ -49,6 +52,22 @@ public enum UserMessage {
                 : error.localizedDescription
         }
     }
+
+    /// Why the list of genres could not be changed. Nothing was changed.
+    private static func text(for error: LibraryService.GenreChangeError) -> String {
+        switch error {
+        case .invalidName:
+            "A genre's name cannot be empty, and cannot have a comma, a semicolon or a slash in it."
+        case .nameInUse(let name): "There is already a genre called \"\(name)\"."
+        case .builtIn: "A built-in genre cannot be deleted. It can be renamed, or merged into another genre."
+        case .unknownGenre: "That genre is no longer on the list."
+        }
+    }
+
+    /// G30: said by Fill in Genres when the network could not be reached.
+    public static let genreFillNotReachable =
+        "Genres could not be looked up because the lookup service could not be reached. Check your internet "
+        + "connection. Nothing was changed."
 
     /// Why the file to send to the phone could not be made. Nothing was changed.
     private static func text(for error: SendError) -> String {

@@ -46,6 +46,14 @@ struct BulkInspectorView: View {
                 }
             }
 
+            InspectorSection("Genres") {
+                GenreChipsField(
+                    chips: draft.genres.map { GenreChipsField.Chip(name: $0.name, detail: $0.detail) }, note: nil,
+                    identifier: "inspector.bulk.genres",
+                    add: { model.addDraftGenre($0) },
+                    remove: { model.removeDraftGenre($0) })
+            }
+
             InspectorSection("Reading") {
                 InspectorField("Mark all as") {
                     // Side by side where the three fit whole (they need 215 points);

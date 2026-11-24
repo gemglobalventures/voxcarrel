@@ -478,3 +478,12 @@ extension ImportReview.Entry {
         return "Add to the existing book \"\(match.title)\""
     }
 }
+
+extension ImportReview.Entry {
+    /// G19: the genres the book will have, in order: what its file's tag came to in
+    /// this library, as the owner has changed them since. They are changed through the
+    /// model (`AppModel.addImportGenre`, `removeImportGenre`, `moveImportGenre`).
+    public var genres: [String] {
+        candidate.metadata.genres
+    }
+}

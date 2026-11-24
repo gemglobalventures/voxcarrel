@@ -16,8 +16,9 @@ public struct BookDraft: Equatable, Sendable {
     public var narrators: String
     public var series: String
     public var seriesNumber: String
-    /// The genres as one line of text (`GenreText`), until the field holds chips.
-    public var genre: String
+    /// G21: the genres, in order, the main one first. Changed a chip at a time with
+    /// `addGenre`, `removeGenre` and `moveGenre`.
+    public var genres: [String]
     /// The wording the genres came from: the book's own, or a lookup's once its genres
     /// have been taken into the draft.
     public var genreSource: String?
@@ -44,7 +45,7 @@ public struct BookDraft: Equatable, Sendable {
         narrators = NameListText.text(from: book.narrators)
         series = book.series ?? ""
         seriesNumber = book.seriesNumber ?? ""
-        genre = GenreText.shown(book.genres)
+        genres = book.genres
         genreSource = book.genreSource
         year = book.year.map(String.init) ?? ""
         publisher = book.publisher ?? ""
@@ -92,6 +93,35 @@ public struct BookDraft: Equatable, Sendable {
     }
 
     var editionKindChanged: Bool { editionKind != original.editionKind }
+
+    // MARK: Genres
+
+    /// G21: puts a genre at the end, unless the book has it already.
+    public mutating func addGenre(_ name: String) {
+        genres = GenreChips.adding(name, to: genres)
+    }
+
+    /// G21: takes a genre away.
+    public mutating func removeGenre(_ name: String) {
+        genres = GenreChips.removing(name, from: genres)
+    }
+
+    /// G21: puts the genre at `source` at `destination`. The first is the main one.
+    public mutating func moveGenre(from source: Int, to destination: Int) {
+        genres = GenreChips.moving(genres, from: source, to: destination)
+    }
+
+    /// G4: the wording the book's genres came in, said only when it differs from the
+    /// genres as they are shown or written: "From the file: Mystery, Thriller & Suspense".
+    /// The book's own, as it was last saved.
+    public var genreSourceNote: String? {
+        guard let wording = original.genreSource?.trimmedOrNil else { return nil }
+        let own = original.genres
+        if GenreName.same(wording, GenreChips.shown(own)) || GenreName.same(wording, GenreTag.text(own) ?? "") {
+            return nil
+        }
+        return "From the file: \(wording)"
+    }
 
     /// MG6: whether there is a title or an author to put in the other's place.
     public var canSwapTitleAndAuthor: Bool {
@@ -147,7 +177,7 @@ public struct BookDraft: Equatable, Sendable {
         if textChanged(series, original.series) { edit.metadata.series = series.trimmedOrNil }
         if textChanged(seriesNumber, original.seriesNumber) { edit.metadata.seriesNumber = seriesNumber.trimmedOrNil }
         if genreChanged {
-            edit.metadata.genres = GenreText.genres(typed: genre)
+            edit.metadata.genres = genres
             edit.metadata.genreSource = genreSource
         }
         if yearChanged {
@@ -176,7 +206,7 @@ public struct BookDraft: Equatable, Sendable {
             case .narrators: !NameListText.names(from: narrators).isEmpty
             case .series: !series.trimmed.isEmpty
             case .seriesNumber: !seriesNumber.trimmed.isEmpty
-            case .genre: !genre.trimmed.isEmpty
+            case .genre: !genres.isEmpty
             case .year: !year.trimmed.isEmpty
             case .publisher: !publisher.trimmed.isEmpty
             case .summary: !summary.trimmed.isEmpty
@@ -201,7 +231,7 @@ public struct BookDraft: Equatable, Sendable {
         if textChanged(series, original.series) { fresh.series = series }
         if textChanged(seriesNumber, original.seriesNumber) { fresh.seriesNumber = seriesNumber }
         if genreChanged {
-            fresh.genre = genre
+            fresh.genres = genres
             fresh.genreSource = genreSource
         }
         if yearChanged { fresh.year = year }
@@ -224,13 +254,16 @@ public struct BookDraft: Equatable, Sendable {
     public func reapplied(changedSince sent: BookDraft, onto book: Book) -> BookDraft {
         var fresh = BookDraft(book: book)
         let texts: [WritableKeyPath<BookDraft, String>] = [
-            \.title, \.subtitle, \.authors, \.narrators, \.series, \.seriesNumber, \.genre, \.year,
+            \.title, \.subtitle, \.authors, \.narrators, \.series, \.seriesNumber, \.year,
             \.publisher, \.summary, \.language, \.isbn, \.asin, \.tags,
         ]
         for text in texts where self[keyPath: text] != sent[keyPath: text] {
             fresh[keyPath: text] = self[keyPath: text]
         }
-        if genre != sent.genre { fresh.genreSource = genreSource }
+        if genres != sent.genres {
+            fresh.genres = genres
+            fresh.genreSource = genreSource
+        }
         if rating != sent.rating { fresh.rating = rating }
         if editionKind != sent.editionKind { fresh.editionKind = editionKind }
         if cover != sent.cover { fresh.cover = cover }
@@ -243,8 +276,8 @@ public struct BookDraft: Equatable, Sendable {
     private var ratingChanged: Bool { clampedRating != original.rating }
     private var titleChanged: Bool { title.trimmed != original.title.trimmed }
     private var yearChanged: Bool { year.trimmed != (original.year.map(String.init) ?? "") }
-    /// Whether the genre line is no longer the book's genres as they are shown.
-    var genreChanged: Bool { textChanged(genre, GenreText.shown(original.genres)) }
+    /// Whether the genres are no longer the book's own, in the book's order.
+    var genreChanged: Bool { genres != original.genres }
 
     private func textChanged(_ text: String, _ value: String?) -> Bool {
         text.trimmed != (value ?? "").trimmed

@@ -140,6 +140,11 @@ extension BookRow {
         book.authors.joined(separator: ", ")
     }
 
+    /// G37: the book's genres on one line, in the book's order; empty when it has none.
+    public var genreText: String {
+        GenreChips.shown(book.genres)
+    }
+
     /// The first author that is not blank; empty when there is none.
     public var firstAuthorText: String {
         book.authors.lazy.compactMap(\.trimmedOrNil).first ?? ""

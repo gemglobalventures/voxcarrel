@@ -101,7 +101,7 @@ import VoxCarrelFixtures
         h.model.cancelImport()
 
         // Unsaved edits: the merge would take the edited books away.
-        h.model.setBulkText("Science Fiction", for: .genre)
+        h.model.setBulkText("Science Fiction", for: .publisher)
         #expect(h.model.hasUnsavedChanges)
         #expect(!h.model.canMergeBooks)
         h.recordBusyLabels()
@@ -555,7 +555,7 @@ import VoxCarrelFixtures
         #expect(h.model.canAcceptMergeOffer)
 
         // With unsaved edits the offer still stands, but waits for them to be saved.
-        h.model.updateDraft { $0.genre = "Trading" }
+        h.model.updateDraft { $0.genres = ["Trading"] }
         #expect(h.model.mergeOffer?.bookId == books.pdf)
         #expect(!h.model.canAcceptMergeOffer)
         h.recordBusyLabels()

@@ -230,8 +230,8 @@ import VoxCarrelFixtures
     private func books() -> [Book] {
         var a = fullBook(id: 1, title: "A")
         var b = fullBook(id: 2, title: "B")
-        a.genres = ["Fantasy"]
-        b.genres = ["Fantasy"]
+        a.language = "en"
+        b.language = "en"
         a.publisher = "Gollancz"
         b.publisher = "Corgi"
         a.tags = ["funny"]
@@ -242,8 +242,8 @@ import VoxCarrelFixtures
     /// N8
     @Test func aBulkFieldShowsTheSharedValueOrMixed() {
         var draft = BulkDraft(books: books())
-        #expect(draft.text(for: .genre) == "Fantasy")
-        #expect(draft.placeholder(for: .genre) == "")
+        #expect(draft.text(for: .language) == "en")
+        #expect(draft.placeholder(for: .language) == "")
         #expect(draft.text(for: .publisher) == "")
         #expect(draft.placeholder(for: .publisher) == "Mixed")
         #expect(draft.text(for: .authors) == "Terry Pratchett; Neil Gaiman")
@@ -281,14 +281,14 @@ import VoxCarrelFixtures
     /// N8: clearing a value every book has does clear it on every book, and says so.
     @Test func clearingASharedValueSaysHowManyBooksItClears() {
         var draft = BulkDraft(books: books())
-        #expect(draft.note(for: .genre) == nil)
-        draft.setText("Fantas", for: .genre)
-        #expect(draft.note(for: .genre) == nil)
-        draft.setText("", for: .genre)
-        #expect(draft.values[.genre] == "")
+        #expect(draft.note(for: .language) == nil)
+        draft.setText("e", for: .language)
+        #expect(draft.note(for: .language) == nil)
+        draft.setText("", for: .language)
+        #expect(draft.values[.language] == "")
         #expect(draft.isDirty)
-        #expect(draft.note(for: .genre) == "Will be cleared on 2 books")
-        #expect(draft.makeEdits()?.map(\.metadata.genres) == [[], []])
+        #expect(draft.note(for: .language) == "Will be cleared on 2 books")
+        #expect(draft.makeEdits()?.map(\.metadata.language) == [nil, nil])
 
         draft.setText("  ", for: .authors)
         #expect(draft.note(for: .authors) == "Will be cleared on 2 books")
@@ -314,17 +314,17 @@ import VoxCarrelFixtures
     /// N8: typing a shared value back to what it was leaves nothing to save.
     @Test func textThatIsWhatEveryBookHasLeavesTheFieldUntouched() {
         var draft = BulkDraft(books: books())
-        draft.setText("Fantas", for: .genre)
-        #expect(draft.values[.genre] == "Fantas")
+        draft.setText("e", for: .language)
+        #expect(draft.values[.language] == "e")
         #expect(draft.isDirty)
-        draft.setText("Fantasy", for: .genre)
-        #expect(draft.values[.genre] == nil)
+        draft.setText("en", for: .language)
+        #expect(draft.values[.language] == nil)
         #expect(!draft.isDirty)
 
         // A shared value can be cleared.
-        draft.setText("", for: .genre)
-        #expect(draft.values[.genre] == "")
-        #expect(draft.text(for: .genre) == "")
+        draft.setText("", for: .language)
+        #expect(draft.values[.language] == "")
+        #expect(draft.text(for: .language) == "")
 
         // Nothing typed into the empty box of a field whose books differ.
         draft = BulkDraft(books: books())
@@ -338,14 +338,14 @@ import VoxCarrelFixtures
         let h = try await Harness.demo()
         try await h.select(["Salt Road", "Quiet Rivers"])
         #expect(!h.model.hasUnsavedChanges)
-        h.model.setBulkText("Travel", for: .genre)
-        #expect(h.bulkDraft?.values[.genre] == "Travel")
+        h.model.setBulkText("Travel", for: .publisher)
+        #expect(h.bulkDraft?.values[.publisher] == "Travel")
         #expect(h.model.hasUnsavedChanges)
 
         // One book inspected: nothing to set.
         h.model.discardChanges()
         try await h.select("Salt Road")
-        h.model.setBulkText("Travel", for: .genre)
+        h.model.setBulkText("Travel", for: .publisher)
         #expect(!h.model.hasUnsavedChanges)
     }
 
@@ -355,7 +355,7 @@ import VoxCarrelFixtures
     @Test func bulkFieldsHaveLabelsAndTheHeadlineCountsTheBooks() {
         #expect(
             BulkField.allCases.map(\.title)
-                == ["Author", "Narrator", "Series", "Genre", "Year", "Publisher", "Language", "Add tags"])
+                == ["Author", "Narrator", "Series", "Year", "Publisher", "Language", "Add tags"])
         #expect(BulkField.allCases.filter(\.takesSeveral) == [.authors, .narrators, .tags])
         #expect(BulkDraft(books: books()).headline == "2 books selected")
         #expect(BulkDraft(books: [bareBook()]).headline == "1 book selected")
@@ -380,12 +380,12 @@ import VoxCarrelFixtures
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)
 
-        h.model.updateDraft { $0.genre = "Sea Stories" }
+        h.model.updateDraft { $0.genres = ["Sea Stories"] }
         #expect(h.model.editedBookIds == [id])
         #expect(h.model.inspectorEditedText == "Edited · not saved")
 
         // Typed back to what it was: nothing to save, nothing to mark.
-        h.model.updateDraft { $0.genre = $0.original.genres.joined(separator: ", ") }
+        h.model.updateDraft { $0.genres = $0.original.genres }
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)
 
@@ -395,7 +395,7 @@ import VoxCarrelFixtures
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)
 
-        h.model.updateDraft { $0.genre = "Sea Stories" }
+        h.model.updateDraft { $0.genres = ["Sea Stories"] }
         await h.model.save()
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)
@@ -419,14 +419,14 @@ import VoxCarrelFixtures
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)
 
-        h.model.setBulkText("Travel", for: .genre)
+        h.model.setBulkText("Travel", for: .publisher)
         #expect(h.model.editedBookIds == ids)
         #expect(h.model.inspectorEditedText == "Edited · not saved")
 
         h.model.discardChanges()
         #expect(h.model.editedBookIds.isEmpty)
 
-        h.model.setBulkText("Travel", for: .genre)
+        h.model.setBulkText("Travel", for: .publisher)
         await h.model.save()
         #expect(h.model.editedBookIds.isEmpty)
         #expect(h.model.inspectorEditedText == nil)

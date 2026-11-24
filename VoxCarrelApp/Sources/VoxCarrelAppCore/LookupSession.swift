@@ -58,6 +58,11 @@ public struct LookupSession: Equatable, Sendable {
         /// another edition: "Different edition: read by Rory Kinnear, not Frank Muller".
         /// Nil for every other offer.
         public var reason: String? = nil
+        /// G20: for the Genre offer, the book's genres and the result's, each in its
+        /// order, to show as chips; `current` and `found` are the same on one line.
+        /// Nil for every other offer.
+        public var currentGenres: [String]? = nil
+        public var foundGenres: [String]? = nil
     }
 
     /// What kind of edition the book is taken to be from what was found, offered beside
@@ -781,8 +786,15 @@ public struct LookupSession: Equatable, Sendable {
         case .narrators: return hasAudio ? names(found.narrators, current.narrators) : nil
         case .series: return text(found.series, current.series)
         case .seriesNumber: return text(found.seriesNumber, current.seriesNumber)
-        // Shown as one line until the offer holds chips.
-        case .genre: return text(GenreText.shown(found.genres), GenreText.shown(current.genres))
+        // G20: the result's genres, as the library names them, against the book's.
+        case .genre:
+            let theirs = GenreName.distinct(Self.names(found.genres))
+            let ours = Self.names(current.genres)
+            let differs = theirs.map { $0.lowercased() } != ours.map { $0.lowercased() }
+            guard !theirs.isEmpty, differs else { return nil }
+            return Offer(
+                id: field, label: Self.label(field), current: GenreChips.shown(ours),
+                found: GenreChips.shown(theirs), ticked: ours.isEmpty, currentGenres: ours, foundGenres: theirs)
         case .year: return text(found.year.map(String.init), current.year.map(String.init))
         case .publisher: return text(found.publisher, current.publisher)
         case .language: return text(found.language, current.language)

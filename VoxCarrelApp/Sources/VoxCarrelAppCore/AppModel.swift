@@ -113,6 +113,9 @@ public final class AppModel {
         // GS10
         storedGroupsBySeries = defaults.object(forKey: Keys.groupsBySeries) as? Bool ?? false
         storedSendSquareCover = defaults.object(forKey: SendKeys.squareCover) as? Bool ?? true
+        // G34
+        closedGenreGroups = Set(
+            (defaults.array(forKey: GenreKeys.closedGroups) as? [String] ?? []).compactMap(GenreGroup.init))
     }
 
     private enum Keys {
@@ -236,6 +239,8 @@ public final class AppModel {
         endSend()
         // MG7: a merge was of books of the library shown before.
         mergeSession = nil
+        // The genres, and anything open about them, were those of the library shown before.
+        closeGenreSheets()
         worker = nil
         // WF10: the inbox was the inbox of the library shown before.
         closeInbox()
@@ -312,7 +317,7 @@ public final class AppModel {
 
     // MARK: Browsing
 
-    public private(set) var sidebar = SidebarData(counts: [:], browse: [:], collections: [])
+    public internal(set) var sidebar = SidebarData(counts: [:], browse: [:], collections: [])
 
     /// Setting it reloads `rows`.
     public var sidebarSelection: SidebarItem {
@@ -322,6 +327,8 @@ public final class AppModel {
             storedSidebarSelection = newValue
             // GS19: chosen by the owner, not by going back from a series.
             if !isGoingBack { forgetSeriesReturn() }
+            // GH-b: nor is it where a change to the genres left it.
+            genreUndo?.selection = nil
             browseChanged()
         }
     }
@@ -594,6 +601,8 @@ public final class AppModel {
         do {
             sidebar = try await worker.sidebar()
             undoLabel = try await worker.undoLabel()
+            // GH-b: what Undo would reverse is no longer the change to the genres.
+            if undoLabel != genreUndo?.label { genreUndo = nil }
             // FL9: the layout setting follows the library's pattern whenever that has
             // changed; a draft is otherwise left as it was typed.
             let pattern = try await worker.folderPattern()
@@ -605,6 +614,8 @@ public final class AppModel {
                 showLibraryLayout()
             }
             if generation == rowsGeneration {
+                // GH-b: the selection goes with a genre that was renamed or merged.
+                if let moved = genreSelection(following: sidebar) { storedSidebarSelection = moved }
                 // A browse value or a collection that no longer exists has no books to show.
                 if !sidebar.contains(storedSidebarSelection) { storedSidebarSelection = .allBooks }
                 // WF13
@@ -842,9 +853,14 @@ public final class AppModel {
     public func undo() async {
         // FL12
         guard filesCanChange else { return }
+        // GH-b: when it is a change to the genres that is undone, the selection goes back with it.
+        if let undone = genreUndo, undone.label == undoLabel, busyLabel == nil {
+            genreFollow = GenreFollow(renames: undone.renames, selection: undone.selection)
+        }
         await perform("Undoing…") { worker in
             _ = try await worker.undoLast()
         }
+        genreFollow = nil
         // WF20: an import from the Inbox that is undone leaves its books waiting again,
         // and a copy that is undone changes nothing in the watch folder for the watcher to see.
         if showsInbox { requestInboxCheck() }
@@ -1133,10 +1149,14 @@ public final class AppModel {
                 var draft = BulkDraft(books: books)
                 if case .many(let old) = inspecting {
                     if keepEdits {
-                        if old.isDirty { draft.values = old.values }
+                        if old.isDirty {
+                            draft.values = old.values
+                            draft.takeGenreChanges(of: old)
+                        }
                     } else if case .many(let sent)? = sentDraft {
                         // A10: saved, but more was typed while the save ran.
                         draft.values = old.values.filter { sent.values[$0.key] != $0.value }
+                        draft.takeGenreChanges(of: old, since: sent)
                     }
                 }
                 inspecting = .many(draft)
@@ -1299,6 +1319,25 @@ public final class AppModel {
     /// PH25: whether the Mac is being kept awake for a transfer.
     @ObservationIgnored var sendKeepsAwake = false
 
+    // MARK: Genres
+
+    enum GenreKeys {
+        static let closedGroups = "closedGenreGroups"
+    }
+
+    /// G34: the groups of the sidebar's tree that the owner has closed. Remembered.
+    var closedGenreGroups: Set<GenreGroup>
+    /// G23: Manage Genres; not nil shows the sheet.
+    public internal(set) var genreManager: GenreManager?
+    /// G14: the preview of "Update files…"; not nil shows the sheet.
+    public internal(set) var genreFilesUpdate: GenreFilesUpdate?
+    /// G29: Fill in Genres; not nil shows the sheet.
+    public internal(set) var genreFill: GenreFillSession?
+    /// GH-b: where the sidebar selection is to go when the list is next read.
+    @ObservationIgnored var genreFollow: GenreFollow?
+    /// GH-b: how the selection goes back if the last change to the genres is undone.
+    @ObservationIgnored var genreUndo: GenreUndo?
+
     // MARK: Merge Books
 
     /// The merge that is open; not nil shows the sheet.
@@ -1358,6 +1397,9 @@ extension SidebarData {
     func contains(_ item: SidebarItem) -> Bool {
         switch item {
         case .browse(let field, let value): browse[field]?.contains(value) ?? false
+        // G34, G36: a group is shown while it has books, and "No genre" while a book has none.
+        case .genreGroup(let group): (genreGroupCounts[group] ?? 0) > 0
+        case .noGenre: noGenreCount > 0
         case .collection(let id): collections.contains { $0.id == id }
         default: true
         }

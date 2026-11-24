@@ -12,7 +12,7 @@ import VoxCarrelCore
         #expect(draft.narrators == "Martin Jarvis")
         #expect(draft.series == "Standalones")
         #expect(draft.seriesNumber == "1.5")
-        #expect(draft.genre == "Fantasy")
+        #expect(draft.genres == ["Fantasy"])
         #expect(draft.year == "1990")
         #expect(draft.publisher == "Gollancz")
         #expect(draft.summary == "The world will end on Saturday.")
@@ -81,7 +81,7 @@ import VoxCarrelCore
         change { $0.narrators = "Martin Jarvis; Someone Else" }
         change { $0.series = "Other" }
         change { $0.seriesNumber = "2" }
-        change { $0.genre = "Comedy" }
+        change { $0.genres = ["Comedy"] }
         change { $0.year = "1991" }
         change { $0.publisher = "Corgi" }
         change { $0.summary = "Different." }
@@ -119,7 +119,7 @@ import VoxCarrelCore
         draft.narrators = "N One"
         draft.series = "Hainish"
         draft.seriesNumber = "2.5"
-        draft.genre = "SF"
+        draft.genres = ["SF"]
         draft.year = "1969"
         draft.publisher = "Ace"
         draft.summary = "Line one.\nLine two.\n"
@@ -137,8 +137,7 @@ import VoxCarrelCore
         expected.narrators = ["N One"]
         expected.series = "Hainish"
         expected.seriesNumber = "2.5"
-        // What is typed in the genre field is read as a file's genre tag would be.
-        expected.genres = ["Science Fiction"]
+        expected.genres = ["SF"]
         expected.year = 1969
         expected.publisher = "Ace"
         expected.summary = "Line one.\nLine two."
@@ -157,7 +156,7 @@ import VoxCarrelCore
         draft.subtitle = "  "
         draft.series = ""
         draft.seriesNumber = " "
-        draft.genre = ""
+        draft.genres = []
         draft.year = "  "
         draft.publisher = ""
         draft.summary = "\n"
@@ -323,7 +322,7 @@ import VoxCarrelCore
         #expect(carried.title == "Better Omens")
         #expect(carried.tags == "funny; end times")
         #expect(carried.cover == .set(image))
-        #expect(carried.genre == "Comedy")
+        #expect(carried.genres == ["Comedy"])
         #expect(carried.rating == 1)
         #expect(carried.isDirty)
     }
@@ -337,7 +336,7 @@ import VoxCarrelCore
         draft.narrators = "N"
         draft.series = "Se"
         draft.seriesNumber = "9"
-        draft.genre = "G"
+        draft.genres = ["G"]
         draft.year = "2001"
         draft.publisher = "P"
         draft.summary = "Su"
@@ -358,7 +357,7 @@ import VoxCarrelCore
         expected.narrators = "N"
         expected.series = "Se"
         expected.seriesNumber = "9"
-        expected.genre = "G"
+        expected.genres = ["G"]
         expected.year = "2001"
         expected.publisher = "P"
         expected.summary = "Su"
@@ -373,45 +372,93 @@ import VoxCarrelCore
 
     // MARK: Genres
 
-    /// The genre field is one line until it holds chips: the book's genres joined with
-    /// ", ". A book opened and left alone keeps its genres and their wording exactly.
-    @Test func GH1_theGenreFieldShowsTheBooksGenresOnOneLine() throws {
+    /// GH21, GH-a: the genre field holds the book's genres in the book's order. A book
+    /// opened and left alone keeps its genres and their wording exactly.
+    @Test func GH21_theGenreFieldHoldsTheBooksGenresInOrder() throws {
         var book = fullBook()
         book.genres = ["Thrillers & Spies", "Crime & Mystery", "Pub Quiz"]
         book.genreSource = "Mystery, Thriller & Suspense, Mystery; Pub Quiz"
-        var draft = BookDraft(book: book)
-        #expect(draft.genre == "Thrillers & Spies, Crime & Mystery, Pub Quiz")
-        #expect(!draft.isDirty)
-        #expect(try #require(draft.makeEdit()).metadata == book.metadata)
-
-        // Spaces around the line are no change.
-        draft.genre = "  Thrillers & Spies, Crime & Mystery, Pub Quiz "
+        let draft = BookDraft(book: book)
+        #expect(draft.genres == ["Thrillers & Spies", "Crime & Mystery", "Pub Quiz"])
         #expect(!draft.isDirty)
         #expect(try #require(draft.makeEdit()).metadata == book.metadata)
     }
 
-    /// Names of the built-in list typed on the line are those genres in the order typed;
-    /// any other text is read as a file's genre tag would be. The wording the book came
-    /// with stays.
-    @Test func GH1_whatIsTypedOnTheGenreLineBecomesGenres() throws {
+    /// GH21: chips are added at the end, removed, and put in another order. The wording
+    /// the book came with stays.
+    @Test func GH21_genresAreAddedRemovedAndReordered() throws {
         var book = fullBook()
-        book.genreSource = "Fantasy fiction"
-        let cases: [(typed: String, genres: [String])] = [
-            ("Crime & Mystery, Thrillers & Spies", ["Crime & Mystery", "Thrillers & Spies"]),
-            ("horror; fantasy, Horror", ["Horror", "Fantasy"]),
-            ("Mystery, Thriller & Suspense", ["Thrillers & Spies"]),
-            ("Sci-Fi", ["Science Fiction"]),
-            ("Pub Quiz", ["Pub Quiz"]),
-            ("Audiobook", []),
-            ("   ", []),
-        ]
-        for (typed, genres) in cases {
-            var draft = BookDraft(book: book)
-            draft.genre = typed
-            #expect(draft.isDirty, "\(typed)")
-            let edit = try #require(draft.makeEdit())
-            #expect(edit.metadata.genres == genres, "\(typed)")
-            #expect(edit.metadata.genreSource == "Fantasy fiction", "\(typed)")
-        }
+        book.genres = ["Fantasy", "Humour"]
+        book.genreSource = "Fantasy fiction; Humor"
+        var draft = BookDraft(book: book)
+
+        draft.addGenre("History")
+        #expect(draft.genres == ["Fantasy", "Humour", "History"])
+        #expect(draft.isDirty)
+        // G1: not twice, whatever the capitals.
+        draft.addGenre("humour")
+        #expect(draft.genres == ["Fantasy", "Humour", "History"])
+
+        draft.moveGenre(from: 2, to: 0)
+        #expect(draft.genres == ["History", "Fantasy", "Humour"])
+        draft.removeGenre("fantasy")
+        #expect(draft.genres == ["History", "Humour"])
+
+        let edit = try #require(draft.makeEdit())
+        #expect(edit.metadata.genres == ["History", "Humour"])
+        #expect(edit.metadata.genreSource == "Fantasy fiction; Humor")
+
+        // Back as the book has them: nothing to save.
+        draft.genres = ["Fantasy", "Humour"]
+        #expect(!draft.isDirty)
+        // Another order is a change: the first genre is the main one.
+        draft.moveGenre(from: 1, to: 0)
+        #expect(draft.isDirty)
+        // Taking every genre away is a change too.
+        draft.genres = []
+        #expect(draft.isDirty)
+        #expect(try #require(draft.makeEdit()).metadata.genres == [])
+    }
+
+    /// GH21: genres changed in a draft are carried over the book as it is read again,
+    /// and a draft whose genres were left alone takes the book's.
+    @Test func GH21_changedGenresAreCarriedOverAFreshBook() {
+        var fresh = fullBook()
+        fresh.genres = ["Humour"]
+        var draft = BookDraft(book: fullBook())
+        #expect(draft.reapplied(onto: fresh).genres == ["Humour"])
+        draft.addGenre("History")
+        #expect(draft.reapplied(onto: fresh).genres == ["Fantasy", "History"])
+
+        // What was added while a save ran is kept over what was saved.
+        let sent = draft
+        draft.addGenre("Horror")
+        var saved = fullBook()
+        saved.genres = ["Fantasy", "History"]
+        let after = draft.reapplied(changedSince: sent, onto: saved)
+        #expect(after.genres == ["Fantasy", "History", "Horror"])
+        #expect(after.isDirty)
+        #expect(!sent.reapplied(changedSince: sent, onto: saved).isDirty)
+    }
+
+    /// GH4: the wording a book's genres came in is shown only when it differs from them.
+    @Test func GH4_theSourceWordingIsShownOnlyWhenItDiffersFromTheGenres() {
+        var book = fullBook()
+        book.genres = ["Thrillers & Spies", "Crime & Mystery"]
+        book.genreSource = "Mystery, Thriller & Suspense, Mystery"
+        #expect(BookDraft(book: book).genreSourceNote == "From the file: Mystery, Thriller & Suspense, Mystery")
+        // As the app writes them into a file, or as they are shown: nothing to add.
+        book.genreSource = "Thrillers & Spies; Crime & Mystery"
+        #expect(BookDraft(book: book).genreSourceNote == nil)
+        book.genreSource = "thrillers & spies, crime & mystery"
+        #expect(BookDraft(book: book).genreSourceNote == nil)
+        book.genreSource = "  "
+        #expect(BookDraft(book: book).genreSourceNote == nil)
+        book.genreSource = nil
+        #expect(BookDraft(book: book).genreSourceNote == nil)
+        // A wording that came to nothing is still said.
+        book.genres = []
+        book.genreSource = "Audiobook"
+        #expect(BookDraft(book: book).genreSourceNote == "From the file: Audiobook")
     }
 }

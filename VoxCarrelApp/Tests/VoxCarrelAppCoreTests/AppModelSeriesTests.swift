@@ -706,7 +706,7 @@ private let notChecked = "Not checked against Audible"
 
             await h.model.save()
             h.model.updateDraft { $0.title = "Changed" }
-            h.model.updateBulkDraft { $0.setText("Changed", for: .genre) }
+            h.model.updateBulkDraft { $0.setText("Changed", for: .publisher) }
             h.model.discardChanges()
             h.model.removeCover()
             h.model.setCover(data: MediaFixtures.makeImage(.jpeg))

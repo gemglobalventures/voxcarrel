@@ -5,6 +5,8 @@ public enum BookSortKey: String, CaseIterable, Sendable {
     case title, author, series, formats, length, dateAdded, status
     /// Unabridged, abridged, dramatised; books whose edition is not known last.
     case edition
+    /// G37: by a book's first genre; books with no genre last.
+    case genre
 }
 
 /// How the grid and the list order their books.
@@ -96,10 +98,12 @@ public struct BookSort: Equatable, Sendable {
         var added: Date
         var statusRank: Int
         var editionRank: Int?
+        var firstGenre: String?
 
         init(
             title: String, id: Int64, firstAuthor: String?, series: String?, seriesNumber: String?,
-            formatRank: Int?, length: Double?, added: Date, statusRank: Int, editionRank: Int?
+            formatRank: Int?, length: Double?, added: Date, statusRank: Int, editionRank: Int?,
+            firstGenre: String? = nil
         ) {
             self.title = title
             self.id = id
@@ -111,6 +115,7 @@ public struct BookSort: Equatable, Sendable {
             self.added = added
             self.statusRank = statusRank
             self.editionRank = editionRank
+            self.firstGenre = BookSort.text(firstGenre)
         }
 
         init(row: BookRow) {
@@ -119,7 +124,8 @@ public struct BookSort: Equatable, Sendable {
                 seriesNumber: row.book.seriesNumber,
                 formatRank: BookSort.formatRank(hasAudio: row.hasAudio, hasEbook: row.hasEbook, hasFiles: row.hasFiles),
                 length: row.book.durationSeconds, added: row.book.dateAdded,
-                statusRank: BookSort.statusRank(row.book.readStatus), editionRank: BookSort.editionRank(row))
+                statusRank: BookSort.statusRank(row.book.readStatus), editionRank: BookSort.editionRank(row),
+                firstGenre: row.book.genres.first)
         }
     }
 
@@ -168,6 +174,7 @@ public struct BookSort: Equatable, Sendable {
         case .formats: values.formatRank != nil
         case .length: values.length != nil
         case .edition: values.editionRank != nil
+        case .genre: values.firstGenre != nil
         }
     }
 
@@ -218,6 +225,8 @@ public struct BookSort: Equatable, Sendable {
             result = Self.compareValues(a.statusRank, b.statusRank)
         case .edition:
             result = Self.compareValues(a.editionRank ?? .max, b.editionRank ?? .max)
+        case .genre:
+            result = Self.compareText(a.firstGenre ?? "", b.firstGenre ?? "")
         }
         if result == .orderedSame { result = Self.compareText(a.title, b.title) }
         if result == .orderedSame { result = Self.compareValues(a.id, b.id) }
@@ -242,6 +251,8 @@ extension BookRow {
         guard let kind = book.editionKind?.kind, kind != .notKnown else { return "" }
         return kind.rawValue
     }
+    /// G37: the first genre.
+    public var genreSortKey: String { book.genres.first ?? "" }
 }
 
 extension BookSortKey {
@@ -262,6 +273,7 @@ extension BookSortKey {
         case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
         case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
         case .edition: KeyPathComparator(\.editionSortKey, comparator: text, order: order)
+        case .genre: KeyPathComparator(\.genreSortKey, comparator: text, order: order)
         }
     }
 }
@@ -350,6 +362,14 @@ extension LibraryItem {
                 .editionSortKey ?? ""
         }
     }
+
+    /// G37: a series stands where its first book's first genre puts it.
+    public var genreSortKey: String {
+        switch self {
+        case .book(let row): row.genreSortKey
+        case .series(let group): group.books.first?.genreSortKey ?? ""
+        }
+    }
 }
 
 extension BookSortKey {
@@ -366,6 +386,7 @@ extension BookSortKey {
         case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
         case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
         case .edition: KeyPathComparator(\.editionSortKey, comparator: text, order: order)
+        case .genre: KeyPathComparator(\.genreSortKey, comparator: text, order: order)
         }
     }
 }

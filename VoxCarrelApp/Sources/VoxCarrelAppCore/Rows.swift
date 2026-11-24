@@ -6,7 +6,13 @@ public enum SidebarItem: Hashable, Sendable {
     case allBooks, audiobooks, ebooks, unread, inProgress, finished, needsAttention
     /// Every book marked as owned on Audible, with or without files here.
     case onAudible
+    /// The books that have one value of a browse field. A genre is one of these:
+    /// `.browse(.genre, name)` is the one way a genre is selected.
     case browse(BrowseField, String)
+    /// G35: every book with a genre of this group, each once.
+    case genreGroup(GenreGroup)
+    /// G36: the books that have no genre.
+    case noGenre
     case collection(Int64)
     /// The books that have arrived in the watch folders and wait to be reviewed. Shown
     /// only while there is a watch folder (`AppModel.showsInbox`), and not one of `fixed`:
@@ -155,14 +161,32 @@ public struct BookDetail: Equatable, Sendable {
 public struct SidebarData: Equatable, Sendable {
     /// The eight fixed items, each with its number of books (zero included).
     public var counts: [SidebarItem: Int]
-    /// Every browse field's values, sorted ignoring case; blank values left out.
+    /// Every browse field's values, sorted ignoring case; blank values left out. For
+    /// genres: the genres that have books, in the order the sidebar's tree shows them.
     public var browse: [BrowseField: [String]]
     public var collections: [BookCollection]
+    /// The library's list of genres, those merged away included, each with its number
+    /// of books: by group, the built-in ones in their own order, then the owner's own.
+    public var genres: [GenreEntry]
+    /// G35: how many books have a genre of each group, each book counted once.
+    public var genreGroupCounts: [GenreGroup: Int]
+    /// G36: how many books have no genre.
+    public var noGenreCount: Int
+    /// G13: how many books have files whose genre tag differs from what would be written.
+    public var genreFilesToUpdate: Int
 
-    public init(counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection]) {
+    public init(
+        counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection],
+        genres: [GenreEntry] = [], genreGroupCounts: [GenreGroup: Int] = [:], noGenreCount: Int = 0,
+        genreFilesToUpdate: Int = 0
+    ) {
         self.counts = counts
         self.browse = browse
         self.collections = collections
+        self.genres = genres
+        self.genreGroupCounts = genreGroupCounts
+        self.noGenreCount = noGenreCount
+        self.genreFilesToUpdate = genreFilesToUpdate
     }
 }
 

@@ -20,8 +20,9 @@ import VoxCarrelFixtures
                 "All Books", "Audiobooks", "Ebooks", "On Audible", "Unread", "In Progress", "Finished",
                 "Needs Attention",
             ])
-        #expect(BrowseField.sidebarOrder.map(\.title) == ["Authors", "Series", "Narrators", "Genres"])
-        #expect(Set(BrowseField.sidebarOrder) == Set(BrowseField.allCases))
+        // GH34: genres are a tree of their own, under the browse fields.
+        #expect(BrowseField.sidebarOrder.map(\.title) == ["Authors", "Series", "Narrators"])
+        #expect(Set(BrowseField.sidebarOrder) == Set(BrowseField.allCases).subtracting([.genre]))
     }
 
     /// W1: a browse value is named by the value, a collection by its name.
