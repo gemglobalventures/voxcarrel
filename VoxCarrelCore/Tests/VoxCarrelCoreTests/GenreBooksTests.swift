@@ -166,6 +166,15 @@ import ZIPFoundation
         #expect(try f.store.books(where: .genre, equals: Self.crime).map(\.id) == [spies])
     }
 
+    @Test func G35_theBooksOfAGenreAndOfAGroupComeByTitle() throws {
+        let f = try F()
+        let zebra = try importM4B(f, title: "Zebra", tag: "Horror")
+        let apple = try importM4B(f, title: "apple", tag: "Fantasy; Horror")
+        let mango = try importM4B(f, title: "Mango", tag: "Horror; Romance")
+        #expect(try f.service.books(inGenre: "Horror") == [apple, mango, zebra])
+        #expect(try f.service.books(inGroup: .fiction) == [apple, mango, zebra])
+    }
+
     // MARK: G4 The wording
 
     @Test func G4_theWordingABookCameWithStaysWhenItsGenresAreChanged() throws {
