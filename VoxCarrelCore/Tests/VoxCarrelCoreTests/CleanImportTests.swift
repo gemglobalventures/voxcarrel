@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import VoxCarrelCore
+import VoxCarrelFixtures
 
 /// Reading a messy folder: what a program left in the tags, where books were put, and
 /// names as download sites write them. Cases are from a real folder of 238 files.
@@ -119,5 +120,54 @@ import Testing
         #expect(FilenameParser.downloadSiteName("Mick Herron - Slow Horses (2010)") == nil)
         #expect(FilenameParser.downloadSiteName("Catch-22 (1961)") == nil)
         #expect(FilenameParser.downloadSiteName("Spider-Man-The Novel-Marvel") == nil)
+    }
+
+    // MARK: An audiobook kept disc by disc
+
+    @Test func CI7_discFoldersAreOneAudiobookWithItsPartsInDiscOrder() throws {
+        typealias F = LibraryFixture
+        let f = try F()
+        var tags = BookMetadata()
+        tags.title = "Track  1"
+        let book = "Way of the Turtle - The Secret Methods"
+        for disc in ["CD1", "CD2", "CD10"] {
+            for part in ["01.mp3", "02.mp3"] { _ = try f.makeMP3("\(book)/\(disc)/\(part)", tags: tags) }
+        }
+        try Data("%PDF".utf8).write(to: f.inbox.appendingPathComponent("\(book)/notes.txt"))
+
+        let result = f.service.scan([f.inbox.appendingPathComponent(book, isDirectory: true)])
+        #expect(result.candidates.count == 1)
+        let candidate = try #require(result.candidates.first)
+        let order = candidate.files.map { $0.url.deletingLastPathComponent().lastPathComponent + "/" + $0.url.lastPathComponent }
+        #expect(order == ["CD1/01.mp3", "CD1/02.mp3", "CD2/01.mp3", "CD2/02.mp3", "CD10/01.mp3", "CD10/02.mp3"])
+        #expect(candidate.sourceFolder?.lastPathComponent == book)
+        // "Track  1" is not the book's title: the folder's name is read.
+        #expect(!candidate.metadata.title.lowercased().contains("track"))
+
+        // Every part arrives, though the discs use the same names.
+        let outcome = try #require(try f.service.importItems([ImportItem(candidate: candidate)]).outcomes.first)
+        guard case .imported(let id, _) = outcome else {
+            Issue.record("not imported: \(outcome)")
+            return
+        }
+        #expect(try f.store.files(bookId: id).filter { $0.role == .audio }.count == 6)
+    }
+
+    @Test func CI7_foldersThatAreNotDiscsAreLeftAsTheyWere() throws {
+        #expect(BookScanner.isDiscName("CD1") && BookScanner.isDiscName("Disc 03") && BookScanner.isDiscName("disk-4"))
+        #expect(BookScanner.isDiscName("Part 2"))
+        #expect(!BookScanner.isDiscName("Dune") && !BookScanner.isDiscName("CD") && !BookScanner.isDiscName("Partners 2"))
+        #expect(!BookScanner.isDiscName("Disc 1 - Extras"))
+        let root = try makeTempDir()
+        // Two books side by side are two books.
+        for book in ["Dune", "Emma"] {
+            for part in ["1.mp3", "2.mp3"] { try touch(root.appendingPathComponent("Shelf/\(book)/\(part)")) }
+        }
+        #expect(BookScanner().scan([root.appendingPathComponent("Shelf")]).candidates.count == 2)
+        // A disc folder beside something that is not one: nothing is gathered.
+        for folder in ["CD1", "Bonus"] {
+            for part in ["1.mp3", "2.mp3"] { try touch(root.appendingPathComponent("Mixed/\(folder)/\(part)")) }
+        }
+        #expect(BookScanner().scan([root.appendingPathComponent("Mixed")]).candidates.count == 2)
     }
 }

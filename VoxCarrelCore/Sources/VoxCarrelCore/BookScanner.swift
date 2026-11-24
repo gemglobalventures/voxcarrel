@@ -216,7 +216,15 @@ public struct BookScanner {
 
         var files: [URL] = []
         var below = Contents()
+        // An audiobook kept disc by disc is one book: its parts are gathered in the
+        // order of the discs, as if they lay in this folder.
+        let discs = discFolders(among: children, from: source)
         for child in children {
+            if let parts = discs[child.path] {
+                files += parts.audio
+                result.skipped += parts.others
+                continue
+            }
             switch source.kind(child) {
             case .folder:
                 let sub = scanFolder(child, from: source, into: &result)
@@ -236,6 +244,49 @@ public struct BookScanner {
         return Contents(
             hasAudio: below.hasAudio || formats.contains { $0.defaultRole == .audio },
             hasBooks: below.hasBooks || !formats.isEmpty)
+    }
+
+    private struct DiscParts {
+        var audio: [URL]
+        var others: [URL]
+    }
+
+    /// True for the name of a folder that is one disc or part of an audiobook: "CD1",
+    /// "CD 2", "Disc 03", "Disk-4", "Part 2".
+    static func isDiscName(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        for word in ["cd", "disc", "disk", "part"] where lower.hasPrefix(word) {
+            let rest = lower.dropFirst(word.count).drop { $0 == " " || $0 == "-" || $0 == "_" || $0 == "." }
+            if !rest.isEmpty, rest.count <= 3, rest.allSatisfy(\.isNumber) { return true }
+        }
+        return false
+    }
+
+    /// The folders among `children` that are the discs of one audiobook, each with
+    /// its parts in order: two or more folders named as discs, every one holding
+    /// audio of the one kind (MP3 or M4A) and no folder, and no other folder beside
+    /// them. Empty when the folder is not laid out so.
+    private func discFolders(among children: [URL], from source: Source) -> [String: DiscParts] {
+        let folders = children.filter { source.kind($0) == .folder }
+        guard folders.count >= 2, folders.allSatisfy({ Self.isDiscName($0.lastPathComponent) }) else { return [:] }
+        var found: [String: DiscParts] = [:]
+        var formats = Set<FileFormat>()
+        for folder in folders {
+            guard let inside = source.children(folder) else { return [:] }
+            var parts = DiscParts(audio: [], others: [])
+            for item in Self.inNameOrder(inside) {
+                guard source.kind(item) == .file else { return [:] }
+                if let format = FileFormat(url: item), format.defaultRole == .audio {
+                    formats.insert(format)
+                    parts.audio.append(item)
+                } else {
+                    parts.others.append(item)
+                }
+            }
+            guard !parts.audio.isEmpty else { return [:] }
+            found[folder.path] = parts
+        }
+        return formats == [.mp3] || formats == [.m4a] ? found : [:]
     }
 
     // MARK: Grouping the files of one folder
