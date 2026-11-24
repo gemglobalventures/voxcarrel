@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import VoxCarrelCore
 import VoxCarrelFixtures
@@ -151,6 +152,20 @@ import VoxCarrelFixtures
         try f.service.moveGenre("Pub Quiz", to: .nonFiction)
         #expect(try f.service.genreFillCandidates(includingGeneral: true).map(\.id) == [renamed, movedIn])
         _ = movedOut
+    }
+
+    @Test func G29_aNameTheListLacksCountsAsOneInOther() throws {
+        let f = try F()
+        let stray = try book(f, "A Stray")
+        let mixed = try book(f, "B Mixed")
+        // Stored behind the service's back: a name it stores always joins the list.
+        try f.store.dbQueue.write { db in
+            try db.execute(sql: #"UPDATE book SET genres = '["Unlisted"]' WHERE id = ?"#, arguments: [stray])
+            try db.execute(sql: #"UPDATE book SET genres = '["Horror","Unlisted"]' WHERE id = ?"#, arguments: [mixed])
+        }
+        #expect(try f.service.genreList().contains { $0.name == "Unlisted" } == false)
+        #expect(try f.service.genreFillCandidates(includingGeneral: false).isEmpty)
+        #expect(try f.service.genreFillCandidates(includingGeneral: true).map(\.id) == [stray])
     }
 
     // MARK: G30 What is asked
