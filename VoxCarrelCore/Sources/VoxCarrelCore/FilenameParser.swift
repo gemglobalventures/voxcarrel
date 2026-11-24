@@ -110,7 +110,11 @@ public enum FilenameParser {
     }
 
     /// Decides which side of "A - B" is the author.
-    private static func read(_ a: String, _ b: String, known: KnownNames, into guess: inout FilenameGuess) {
+    private static func read(_ first: String, _ second: String, known: KnownNames, into guess: inout FilenameGuess) {
+        // "(Unabridged)" says which edition it is: no part of a person's name, and
+        // nothing to judge a side by. It is set aside and goes with the title.
+        let (a, tailA) = TitleMatch.settingAsideEditionWords(first)
+        let (b, tailB) = TitleMatch.settingAsideEditionWords(second)
         let shapes = (NameShape.looksLikePerson(a), NameShape.looksLikePerson(b))
         let authors = (known.hasAuthor(a), known.hasAuthor(b))
         let titles = (known.hasTitle(a), known.hasTitle(b))
@@ -135,7 +139,7 @@ public enum FilenameParser {
         }
 
         guess.author = authorIsFirst ? a : b
-        guess.title = authorIsFirst ? b : a
+        guess.title = ([authorIsFirst ? b : a, tailA, tailB].filter { !$0.isEmpty }).joined(separator: " ")
         if !authorIsFirst { guess.notes.insert(.orderSwapped) }
         let titleIsShaped = authorIsFirst ? shapes.1 : shapes.0
         let authorIsShaped = authorIsFirst ? shapes.0 : shapes.1

@@ -137,6 +137,21 @@ public enum TitleMatch {
         return out
     }
 
+    /// The text without the edition words at its end, and those words as they were
+    /// written: "Tom Clancy (Unabridged)" is "Tom Clancy" and "(Unabridged)". The tail
+    /// is empty when there are none.
+    static func settingAsideEditionWords(_ text: String) -> (body: String, tail: String) {
+        let characters = Array(text)
+        let end = endWithoutEditionWords(characters[...])
+        let body = String(characters[..<end]).trimmingCharacters(in: .whitespaces)
+        // Never when nothing else would be left.
+        guard end < characters.count, !body.isEmpty else { return (text, "") }
+        return (
+            body,
+            String(characters[end...]).trimmingCharacters(in: .whitespaces)
+        )
+    }
+
     /// The index the text ends at once the edition words at its end are dropped. Each
     /// step looks at no more than the few characters an edition word takes.
     private static func endWithoutEditionWords(_ characters: ArraySlice<Character>) -> Int {

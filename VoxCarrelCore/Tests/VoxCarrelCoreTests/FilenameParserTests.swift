@@ -295,6 +295,53 @@ import Testing
         #expect(guess("dune - Frank Herbert.epub").notes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
     }
 
+    /// IM11: words that say which edition it is ("(Unabridged)") are no part of a
+    /// person's name or of what is judged; they stay with the title, whichever side
+    /// they were written on.
+    @Test func IM11_editionWordsAreSetAsideBeforeTheSidesAreJudged() {
+        // Both sides name-shaped once the bracket is set aside: unsure, and asked about.
+        let both = guess("Slow Horses - Mick Herron (Unabridged).m4b")
+        #expect(both.author == "Slow Horses")
+        #expect(both.title == "Mick Herron (Unabridged)")
+        #expect(both.notes == [.fromFileName, .orderUnsure])
+
+        // Only the second side is a name: turned round, the edition kept on the title.
+        let swapped = guess("Debt of Honor - Tom Clancy (Unabridged).m4b")
+        #expect(swapped.title == "Debt of Honor (Unabridged)")
+        #expect(swapped.author == "Tom Clancy")
+        #expect(swapped.notes == [.fromFileName, .orderSwapped, .orderGuessedByShape])
+        let square = guess("Debt of Honor - Tom Clancy [Audiobook].m4b")
+        #expect(square.title == "Debt of Honor [Audiobook]")
+        #expect(square.author == "Tom Clancy")
+
+        // The usual way round is as it was.
+        let usual = guess("Tom Clancy - Debt of Honor (Unabridged).m4b")
+        #expect(usual.title == "Debt of Honor (Unabridged)")
+        #expect(usual.author == "Tom Clancy")
+        #expect(usual.notes == [.fromFileName, .orderGuessedByShape])
+        // Written after the author, it still belongs to the title.
+        let afterAuthor = guess("Tom Clancy (Unabridged) - Debt of Honor.m4b")
+        #expect(afterAuthor.title == "Debt of Honor (Unabridged)")
+        #expect(afterAuthor.author == "Tom Clancy")
+
+        // A known author is found with the edition written after the name.
+        let known = guess(
+            "Slow Horses - Mick Herron (Unabridged).m4b", known: knowing(authors: ["Mick Herron"]))
+        #expect(known.title == "Slow Horses (Unabridged)")
+        #expect(known.author == "Mick Herron")
+        #expect(known.notes == [.fromFileName, .orderSwapped])
+
+        // Edition words that are all a side holds are that side.
+        let alone = guess("(Unabridged) - Tom Clancy.m4b")
+        #expect(alone.title == "(Unabridged)")
+        #expect(alone.author == "Tom Clancy")
+
+        // Other brackets are not edition words and are left where they are.
+        let other = guess("Debt of Honor - Tom Clancy (2019).m4b")
+        #expect(other.author == "Debt of Honor")
+        #expect(other.title == "Tom Clancy (2019)")
+    }
+
     // IM11: when the same is known of both sides, that evidence decides nothing.
     @Test func IM11_evidenceOnBothSidesDecidesNothing() {
         let authors = knowing(authors: ["Mick Herron", "Slow Horses"])
