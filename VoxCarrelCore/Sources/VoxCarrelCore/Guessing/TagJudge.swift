@@ -11,8 +11,7 @@ public enum TagJudge {
 
     /// Titles that say nothing, compared without regard to case.
     static let emptyTitles: Set<String> = [
-        "untitled", "untitled document", "title", "unknown", "no title", "document", "ebook", "book", "cover",
-        "introduction", "contents", "table of contents", "front matter", "presentation",
+        "untitled", "untitled document", "unknown", "no title", "table of contents", "front matter",
     ]
 
     /// Authors that are whoever was logged in, not who wrote the book.
