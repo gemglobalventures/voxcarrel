@@ -414,6 +414,152 @@ import VoxCarrelFixtures
         #expect(h.model.sidebarSelection == .allBooks)
     }
 
+    // MARK: GH27 Unsaved edits follow the list
+
+    /// "Salt Road" with a genre of the owner's own beside its Fantasy, selected, and
+    /// History added to it without saving.
+    private func unsavedSeaStories() async throws -> (h: Harness, id: Int64) {
+        let h = try await Harness.demo()
+        try await h.give("Sea Stories", in: .fiction, to: ["Salt Road"])
+        let id = try await h.select("Salt Road")
+        h.model.addDraftGenre("History")
+        #expect(h.draft?.genres == ["Fantasy", "Sea Stories", "History"])
+        return (h, id)
+    }
+
+    @Test func GH27_anUnsavedDraftFollowsARenamedGenre() async throws {
+        let (h, id) = try await unsavedSeaStories()
+        try await h.rename("Sea Stories", to: "Sea Tales")
+        #expect(h.draft?.genres == ["Fantasy", "Sea Tales", "History"])
+        #expect(h.model.hasUnsavedChanges)
+
+        await h.model.save()
+        #expect(try h.book(id).genres == ["Fantasy", "Sea Tales", "History"])
+        // The old name has not come back as a genre.
+        #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
+    }
+
+    @Test func GH27_anUnsavedDraftGoesBackWhenARenameIsUndone() async throws {
+        let (h, id) = try await unsavedSeaStories()
+        try await h.rename("Sea Stories", to: "Sea Tales")
+        await h.model.undo()
+        #expect(h.draft?.genres == ["Fantasy", "Sea Stories", "History"])
+
+        // What was changed after the rename is kept when it is undone.
+        try await h.rename("Sea Stories", to: "Sea Tales")
+        h.model.removeDraftGenre("History")
+        h.model.addDraftGenre("Horror")
+        await h.model.undo()
+        #expect(h.draft?.genres == ["Fantasy", "Sea Stories", "Horror"])
+        await h.model.save()
+        #expect(try h.book(id).genres == ["Fantasy", "Sea Stories", "Horror"])
+        #expect(h.model.genreCatalogue.listed("Sea Tales") == nil)
+    }
+
+    @Test func GH27_anUnsavedDraftTakesTheTargetOfAMergeOnceOnly() async throws {
+        let (h, id) = try await unsavedSeaStories()
+        let manager = try h.manager()
+        await manager.merge("Sea Stories", into: "History")
+        #expect(h.draft?.genres == ["Fantasy", "History"])
+
+        // Undone, the draft is as it was before the merge.
+        await h.model.undo()
+        #expect(h.draft?.genres == ["Fantasy", "Sea Stories", "History"])
+
+        await manager.merge("Sea Stories", into: "History")
+        await h.model.save()
+        #expect(try h.book(id).genres == ["Fantasy", "History"])
+        #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
+    }
+
+    @Test func GH27_anUnsavedDraftDropsADeletedGenre() async throws {
+        let (h, id) = try await unsavedSeaStories()
+        let manager = try h.manager()
+        manager.requestDelete("Sea Stories")
+        await manager.confirmQuestion()
+        #expect(h.draft?.genres == ["Fantasy", "History"])
+
+        // Undone, the draft has it again, where it was.
+        await h.model.undo()
+        #expect(h.draft?.genres == ["Fantasy", "Sea Stories", "History"])
+
+        manager.requestDelete("Sea Stories")
+        await manager.confirmQuestion()
+        await h.model.save()
+        #expect(try h.book(id).genres == ["Fantasy", "History"])
+        #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
+    }
+
+    @Test func GH27_aDraftWithOtherUnsavedEditsHasTheBooksGenresAfterAChange() async throws {
+        let h = try await Harness.demo()
+        try await h.give("Sea Stories", in: .fiction, to: ["Salt Road"])
+        let id = try await h.select("Salt Road")
+        h.model.updateDraft { $0.title = "Salt Roads" }
+        try await h.rename("Sea Stories", to: "Sea Tales")
+        #expect(h.draft?.genres == ["Fantasy", "Sea Tales"])
+        #expect(h.draft?.title == "Salt Roads")
+        await h.model.save()
+        #expect(try h.book(id).genres == ["Fantasy", "Sea Tales"])
+        #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
+    }
+
+    @Test func GH27_genresToAddToOrTakeFromSeveralBooksFollowTheList() async throws {
+        let h = try await Harness.demo()
+        try await h.give("Pub Quiz", in: .other, to: ["Salt Road"])
+        try await h.select(["Salt Road", "Quiet Rivers"])
+        await h.model.createDraftGenre("Sea Stories", group: .fiction)
+        h.model.removeDraftGenre("Pub Quiz")
+        #expect(h.bulkDraft?.genreAdds == ["Sea Stories"])
+        #expect(h.bulkDraft?.genreRemoves == ["Pub Quiz"])
+
+        try await h.rename("Sea Stories", to: "Sea Tales")
+        try await h.rename("Pub Quiz", to: "Quizzes")
+        #expect(h.bulkDraft?.genreAdds == ["Sea Tales"])
+        #expect(h.bulkDraft?.genreRemoves == ["Quizzes"])
+        await h.model.undo()
+        #expect(h.bulkDraft?.genreRemoves == ["Pub Quiz"])
+
+        let manager = try h.manager()
+        manager.requestDelete("Sea Tales")
+        await manager.confirmQuestion()
+        #expect(h.bulkDraft?.genreAdds == [])
+        await h.model.undo()
+        #expect(h.bulkDraft?.genreAdds == ["Sea Tales"])
+
+        // A genre to add that is merged into another is added as that one.
+        await manager.merge("Sea Tales", into: "History")
+        #expect(h.bulkDraft?.genreAdds == ["History"])
+        await h.model.save()
+        #expect(try h.book(try h.id("Salt Road")).genres == ["Fantasy", "History"])
+        #expect(h.model.genreCatalogue.listed("Sea Tales") == nil)
+    }
+
+    @Test func GH27_theGenresOfAnImportBeingReviewedFollowTheList() async throws {
+        let h = try await Harness.demo()
+        await h.model.beginImport([try taggedBook("Far Stars", tag: "Sci-Fi, Pub Quiz")])
+        let entry = try #require(h.model.review?.entries.first).id
+        await h.model.createImportGenre("Sea Stories", group: .fiction, for: entry)
+        #expect(h.model.review?.entry(entry)?.genres == ["Science Fiction", "Pub Quiz", "Sea Stories"])
+
+        try await h.rename("Sea Stories", to: "Sea Tales")
+        #expect(h.model.review?.entry(entry)?.genres == ["Science Fiction", "Pub Quiz", "Sea Tales"])
+        await h.model.undo()
+        #expect(h.model.review?.entry(entry)?.genres == ["Science Fiction", "Pub Quiz", "Sea Stories"])
+
+        let manager = try h.manager()
+        await manager.merge("Sea Stories", into: "Science Fiction")
+        #expect(h.model.review?.entry(entry)?.genres == ["Science Fiction", "Pub Quiz"])
+        await h.model.undo()
+        #expect(h.model.review?.entry(entry)?.genres == ["Science Fiction", "Pub Quiz", "Sea Stories"])
+
+        manager.requestDelete("Sea Stories")
+        await manager.confirmQuestion()
+        #expect(h.model.review?.entry(entry)?.genres == ["Science Fiction", "Pub Quiz"])
+        await h.model.confirmImport()
+        #expect(try h.book(try h.id("Far Stars")).genres == ["Science Fiction", "Pub Quiz"])
+        #expect(h.model.genreCatalogue.listed("Sea Stories") == nil)
+    }
+
     // MARK: G19 Import
 
     /// An ebook whose genre tag is `tag`, loose in a folder of its own.

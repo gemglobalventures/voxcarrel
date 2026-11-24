@@ -100,6 +100,20 @@ public struct BulkDraft: Equatable, Sendable {
         genreRemoves.append(name)
     }
 
+    /// GH27: the genres to add and to take away after a change to the library's list
+    /// of genres: `follow` gives each name as it is now. A genre that is then both to
+    /// be added and taken away is added.
+    mutating func followGenres(_ follow: ([String]) -> [String]) {
+        genreAdds = follow(genreAdds)
+        genreRemoves = follow(genreRemoves).filter { !Self.holds(genreAdds, $0) }
+    }
+
+    /// GH27: puts them back as they were before a change to the list that has been undone.
+    mutating func restoreGenres(adds: [String], removes: [String]) {
+        genreAdds = adds
+        genreRemoves = removes
+    }
+
     /// Takes the unsaved genre changes of another draft, for when the books are read again.
     mutating func takeGenreChanges(of other: BulkDraft, since sent: BulkDraft? = nil) {
         for name in other.genreAdds where !(sent.map { Self.holds($0.genreAdds, name) } ?? false) { addGenre(name) }

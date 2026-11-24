@@ -854,11 +854,15 @@ public final class AppModel {
         // FL12
         guard filesCanChange else { return }
         // GH-b: when it is a change to the genres that is undone, the selection goes back with it.
-        if let undone = genreUndo, undone.label == undoLabel, busyLabel == nil {
-            genreFollow = GenreFollow(renames: undone.renames, selection: undone.selection)
+        var undone: GenreUndo?
+        if let last = genreUndo, last.label == undoLabel, busyLabel == nil {
+            genreFollow = GenreFollow(renames: last.renames, selection: last.selection)
+            undone = last
         }
         await perform("Undoing…") { worker in
             _ = try await worker.undoLast()
+            // GH27: what is not saved yet goes back with the list, before it is read again.
+            if let undone { self.returnUnsavedGenres(undone) }
         }
         genreFollow = nil
         // WF20: an import from the Inbox that is undone leaves its books waiting again,

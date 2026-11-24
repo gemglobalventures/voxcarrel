@@ -107,11 +107,57 @@ struct GenreFollow: Equatable {
 }
 
 /// GH-b: how the selection goes back when the change Undo would reverse is undone.
+/// GH27: and how unsaved genres go back with it.
 struct GenreUndo: Equatable {
     /// The undo label of the change.
     var label: String
     var renames: [GenreRenamed] = []
     var selection: GenreSelectionReturn?
+    /// The unsaved genres as the change found them and as it left them; nil when it
+    /// changed none.
+    var unsaved: UnsavedGenresChange?
+}
+
+/// GH27: what a change to the list does to the names of genres that are not saved yet.
+struct GenreNameChange: Equatable {
+    var renames: [GenreRenamed] = []
+    /// The genres that are no more.
+    var drops: [String] = []
+
+    var isEmpty: Bool { renames.isEmpty && drops.isEmpty }
+
+    /// The names as they are after the change, in their order: a renamed or merged
+    /// genre by the name it has now, a deleted one left out, and none twice.
+    func names(_ names: [String]) -> [String] {
+        GenreName.distinct(
+            names.compactMap { name in
+                if drops.contains(where: { GenreName.same($0, name) }) { return nil }
+                return renames.first { GenreName.same($0.from, name) }?.to ?? name
+            })
+    }
+}
+
+/// GH27: the genres that are in the app and not yet in the library: those of the
+/// inspector's draft, those to add to and take from several books, and those of the
+/// entries of an import being reviewed.
+struct UnsavedGenres: Equatable {
+    struct Draft: Equatable {
+        var bookId: Int64?
+        var genres: [String]
+        /// The genres of the book the draft was made from.
+        var own: [String]
+    }
+
+    var draft: Draft?
+    var adds: [String]?
+    var removes: [String]?
+    var entries: [UUID: [String]] = [:]
+}
+
+/// GH27: the unsaved genres on either side of a change to the list.
+struct UnsavedGenresChange: Equatable {
+    var before: UnsavedGenres
+    var after: UnsavedGenres
 }
 
 extension AppModel {
@@ -353,8 +399,95 @@ extension AppModel {
         case .move:
             break
         }
+        // GH27: what is not saved yet follows the change now, before it is read again.
+        var names = GenreNameChange(renames: follow.renames)
+        if case .delete(let name) = change { names.drops = [name] }
+        let before = unsavedGenres
+        followUnsavedGenres(names)
+        let after = unsavedGenres
+        if after != before { undo.unsaved = UnsavedGenresChange(before: before, after: after) }
         genreFollow = follow
         genreUndo = undo
+    }
+
+    // MARK: Unsaved genres follow the list (GH27)
+
+    /// The genres that are not saved yet, as they are now.
+    var unsavedGenres: UnsavedGenres {
+        var unsaved = UnsavedGenres()
+        switch inspecting {
+        case .one(_, let draft):
+            unsaved.draft = UnsavedGenres.Draft(
+                bookId: draft.original.id, genres: draft.genres, own: draft.original.genres)
+        case .many(let draft):
+            unsaved.adds = draft.genreAdds
+            unsaved.removes = draft.genreRemoves
+        case .nothing, .missing:
+            break
+        }
+        for entry in review?.entries ?? [] { unsaved.entries[entry.id] = entry.genres }
+        return unsaved
+    }
+
+    /// GH27: gives every unsaved genre the name it has after a change to the list, so
+    /// that saving cannot bring back a name the list no longer has: a renamed genre by
+    /// its new name, a merged one by the genre it went into, a deleted one not at all.
+    func followUnsavedGenres(_ change: GenreNameChange) {
+        guard !change.isEmpty else { return }
+        switch inspecting {
+        case .one: updateDraft { $0.followGenres(change.names) }
+        case .many: updateBulkDraft { $0.followGenres(change.names) }
+        case .nothing, .missing: break
+        }
+        let entries = (review?.entries ?? []).filter { change.names($0.genres) != $0.genres }.map(\.id)
+        guard !entries.isEmpty else { return }
+        updateReview { review in
+            for id in entries {
+                review.update(id) { $0.candidate.metadata.genres = change.names($0.candidate.metadata.genres) }
+            }
+        }
+    }
+
+    /// GH27: when a change to the list has been undone, puts the unsaved genres back as
+    /// the change found them. Any that were changed since are left as they are, but
+    /// for the names the undo gave back.
+    func returnUnsavedGenres(_ undone: GenreUndo) {
+        let back = GenreNameChange(renames: undone.renames)
+        guard let change = undone.unsaved else {
+            followUnsavedGenres(back)
+            return
+        }
+        let now = unsavedGenres
+        switch inspecting {
+        case .one:
+            if let before = change.before.draft, let after = change.after.draft, let draft = now.draft,
+               draft.bookId == after.bookId, draft.genres == after.genres {
+                updateDraft { $0.restoreGenres(before.genres, original: before.own) }
+            } else {
+                updateDraft { $0.followGenres(back.names) }
+            }
+        case .many:
+            if let adds = change.before.adds, let removes = change.before.removes,
+               now.adds == change.after.adds, now.removes == change.after.removes {
+                updateBulkDraft { $0.restoreGenres(adds: adds, removes: removes) }
+            } else {
+                updateBulkDraft { $0.followGenres(back.names) }
+            }
+        case .nothing, .missing:
+            break
+        }
+        var genres: [UUID: [String]] = [:]
+        for (id, shown) in now.entries {
+            let restored = change.after.entries[id] == shown ? change.before.entries[id] : nil
+            let wanted = restored ?? back.names(shown)
+            if wanted != shown { genres[id] = wanted }
+        }
+        guard !genres.isEmpty else { return }
+        updateReview { review in
+            for (id, wanted) in genres {
+                review.update(id) { $0.candidate.metadata.genres = wanted }
+            }
+        }
     }
 
     /// GH-b: where the sidebar selection goes now that the list has been read again;

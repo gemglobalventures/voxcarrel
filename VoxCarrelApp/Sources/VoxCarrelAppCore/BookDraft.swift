@@ -8,7 +8,7 @@ import VoxCarrelCore
 /// started with. A field that was not changed keeps the book's own value exactly, so
 /// opening a book and saving it never alters anything.
 public struct BookDraft: Equatable, Sendable {
-    public let original: Book
+    public private(set) var original: Book
     public var title: String
     public var subtitle: String
     /// "; " separated.
@@ -109,6 +109,21 @@ public struct BookDraft: Equatable, Sendable {
     /// G21: puts the genre at `source` at `destination`. The first is the main one.
     public mutating func moveGenre(from source: Int, to destination: Int) {
         genres = GenreChips.moving(genres, from: source, to: destination)
+    }
+
+    /// GH27: the draft after a change to the library's list of genres: `follow` gives
+    /// each name as it is now. The book's own genres follow too, so that only what was
+    /// changed here still counts as changed.
+    mutating func followGenres(_ follow: ([String]) -> [String]) {
+        genres = follow(genres)
+        original.genres = follow(original.genres)
+    }
+
+    /// GH27: puts the genres back as they were before a change to the list that has
+    /// been undone.
+    mutating func restoreGenres(_ genres: [String], original own: [String]) {
+        self.genres = genres
+        original.genres = own
     }
 
     /// G4: the wording the book's genres came in, said only when it differs from the
