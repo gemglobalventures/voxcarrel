@@ -94,6 +94,27 @@ import VoxCarrelFixtures
         #expect(try f.service.genreFileDifferences().isEmpty)
     }
 
+    @Test func G13_aBookCataloguedWhereItIsIsCountedByTheTagItsFileHolds() throws {
+        let f = try F()
+        var tags = F.meta("Loose", "Mick Herron")
+        tags.genres = ["Fantasy"]
+        let url = try f.makeM4B("loose/Loose.m4b", tags: tags)
+        let bytes = try Data(contentsOf: url)
+        // No author: it cannot be filed, so it is catalogued where it is and not written.
+        let result = try f.service.importItems([ImportItem(candidate: f.candidate([url], BookMetadata(title: "Loose")))])
+        guard case .needsAttention(let id) = try #require(result.outcomes.first) else {
+            Issue.record("expected the book to be catalogued in place, got \(result.outcomes)")
+            return
+        }
+        #expect(try Data(contentsOf: url) == bytes)
+        let book = try #require(try f.store.book(id: id))
+        #expect(book.genres == [])
+        #expect(book.genreTag == "Fantasy")
+        #expect(try f.service.genreFileDifferences() == [
+            LibraryService.GenreFileDifference(id: id, title: "Loose", fileCount: 1, tagNow: "Fantasy", tagAfter: nil),
+        ])
+    }
+
     @Test func G13_theCountOpensNoFile() throws {
         let f = try F()
         let id = try importM4B(f, title: "Gone", tag: "Fantasy")
