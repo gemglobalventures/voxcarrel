@@ -323,9 +323,13 @@ import Testing
         expected.year = 2021
         expected.language = "en"
         expected.durationSeconds = 970 * 60
-        // Three of its four ladders are under this; the first listed is not.
-        expected.genres = ["Science Fiction"]
-        expected.genreSource = "Science Fiction & Fantasy"
+        // G20: all four of its paths are kept as the wording, and each gives its genre,
+        // in the order Audible lists them.
+        expected.genres = ["Thrillers & Spies", "Science Fiction"]
+        expected.genreSource = "Mystery, Thriller & Suspense > Thriller & Suspense > Suspense; "
+            + "Science Fiction & Fantasy > Science Fiction > Adventure; "
+            + "Science Fiction & Fantasy > Science Fiction > Hard Science Fiction; "
+            + "Science Fiction & Fantasy > Science Fiction > Space Opera"
         expected.asin = "B08G9PRS1K"
         expected.summary = summary
         // No subtitle, no series, no ISBN, no page count: nothing invented.
@@ -349,7 +353,7 @@ import Testing
         #expect(book.metadata.publisher == "Macmillan Audio")
         #expect(book.metadata.year == 2010)
         #expect(book.metadata.durationSeconds == 163_800.0)
-        #expect(book.metadata.genres == ["Science Fiction"])
+        #expect(book.metadata.genres == ["Fantasy"])
         #expect(book.note == "Audible · Unabridged · 45h 30m · English")
         // Paragraphs set apart by line breaks inside one <p>.
         #expect(book.metadata.summary == """
@@ -371,7 +375,7 @@ import Testing
         #expect(fallback.map(\.metadata.year) == [1999, 2005, nil, 2001])
     }
 
-    @Test func U3_genreIsTheMostCommonTopOfTheGenresLadders() async throws {
+    @Test func G20_everyPathFiledUnderGenresIsHandedToTheMapping() async throws {
         let found = try await search("""
         {"products": [
           {"asin": "B000000001", "title": "A", "category_ladders": [
@@ -389,8 +393,15 @@ import Testing
             {"root": "Genres", "ladder": [{"name": " Science Fiction "}]}]}
         ]}
         """)
-        // A tie goes to the first listed; otherwise the most common top name, whatever is under it.
-        #expect(found.map(\.metadata.genres) == [["History"], [], [], ["Science Fiction"]])
+        // Only ladders whose root is "Genres" count. Each path gives its genre; a name
+        // that cannot be read ends its path, and a path said twice counts once.
+        #expect(found.map(\.metadata.genres) == [
+            ["History", "Biography & Memoir"], [], [], ["Science Fiction", "Thrillers & Spies"],
+        ])
+        #expect(found.map(\.metadata.genreSource) == [
+            "History > Europe; Biographies", nil, nil,
+            "Thrillers > Science Fiction; Science Fiction > Thrillers; Science Fiction",
+        ])
     }
 
     /// Whatever the service sends is made safe to keep before anything else sees it.

@@ -183,9 +183,11 @@ public struct AudibleProvider: LookupProvider {
         metadata.summary = LookupText.cleaned(
             (product["publisher_summary"] as? String).map(LookupText.plainText(fromHTML:)),
             limit: LookupText.summaryLimit, multiline: true)
-        let genres = GenreSource.text(Self.genre(product["category_ladders"]) ?? "")
-        metadata.genres = GenreMapping.map(genres).names
-        metadata.genreSource = GenreMapping.wording(of: genres)
+        // Every path it is filed under goes to the mapping together: what a name means
+        // can depend on the names beside it.
+        let filedUnder = GenreSource.paths(Self.genrePaths(product["category_ladders"]))
+        metadata.genres = GenreMapping.map(filedUnder).names
+        metadata.genreSource = GenreMapping.wording(of: filedUnder)
         (metadata.series, metadata.seriesNumber) = Self.series(product["series"], main: line("publication_name", limit: LookupText.nameLimit))
 
         var note = [source.title]
@@ -239,21 +241,22 @@ public struct AudibleProvider: LookupProvider {
         return LookupText.year(Int(digits))
     }
 
-    /// The top name that most of the ladders filed under "Genres" share: a book is often
-    /// filed under a second genre as well as its own. Among equals, the first listed.
-    private static func genre(_ ladders: Any?) -> String? {
-        var order: [String] = []
-        var counts: [String: Int] = [:]
+    /// The category paths the book is filed under: each ladder whose root is "Genres",
+    /// from its top name down, in the order listed. A name that cannot be read ends its
+    /// path there, and a path with no name is left out.
+    static func genrePaths(_ ladders: Any?) -> [[String]] {
+        var paths: [[String]] = []
         for ladder in (ladders as? [Any] ?? []).prefix(100) {
-            guard let ladder = ladder as? [String: Any], ladder["root"] as? String == "Genres",
-                  let top = (ladder["ladder"] as? [Any])?.first as? [String: Any],
-                  let name = LookupText.cleaned(top["name"] as? String, limit: LookupText.lineLimit)
-            else { continue }
-            if counts[name] == nil { order.append(name) }
-            counts[name, default: 0] += 1
+            guard let ladder = ladder as? [String: Any], ladder["root"] as? String == "Genres" else { continue }
+            var path: [String] = []
+            for step in (ladder["ladder"] as? [Any] ?? []).prefix(20) {
+                guard let name = LookupText.cleaned((step as? [String: Any])?["name"] as? String, limit: LookupText.lineLimit)
+                else { break }
+                path.append(name)
+            }
+            if !path.isEmpty, !paths.contains(path) { paths.append(path) }
         }
-        let most = counts.values.max()
-        return order.first { counts[$0] == most }
+        return paths
     }
 
     /// A book can sit in several series (a universe and a series within it). The one with a

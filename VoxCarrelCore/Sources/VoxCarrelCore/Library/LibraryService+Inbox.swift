@@ -128,7 +128,7 @@ extension LibraryService {
         let known = everything.isEmpty ? KnownNames.none : (try? knownNames()) ?? .none
         let scanner = BookScanner(
             reader: LibraryTagReader { [self] url in
-                try cachedInboxTags(of: url, as: identities[url.path])
+                inLibrary(try cachedInboxTags(of: url, as: identities[url.path]))
             }, known: known)
         var arrivals: [InboxArrival] = []
         var outdated: [Int64] = []

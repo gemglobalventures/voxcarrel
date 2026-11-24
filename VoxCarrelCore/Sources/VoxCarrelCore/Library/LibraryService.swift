@@ -143,7 +143,9 @@ public final class LibraryService {
     /// leave out is guessed from names, read with the authors and titles the library
     /// already has (`knownNames()`).
     public func scan(_ urls: [URL]) -> ScanResult {
-        BookScanner(reader: metadataIO, known: (try? knownNames()) ?? .none).scan(urls)
+        // G19: what a file's genre tag comes to is for the library's list to say.
+        let reader = LibraryTagReader { [self] url in inLibrary(try metadataIO.readMetadata(at: url)) }
+        return BookScanner(reader: reader, known: (try? knownNames()) ?? .none).scan(urls)
     }
 
     /// Every author and every title in the library, normalised for comparing

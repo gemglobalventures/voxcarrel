@@ -66,6 +66,16 @@ public struct OpenLibraryProvider: LookupProvider {
         return docs
     }
 
+    /// The most subjects taken from one work: a work can list hundreds.
+    static let subjectLimit = 50
+
+    /// A work's subjects as listed, each made safe to keep, the first `subjectLimit` of them.
+    static func subjects(_ list: Any?) -> [String] {
+        Array((list as? [Any] ?? []).prefix(500)
+            .compactMap { LookupText.cleaned($0 as? String, limit: LookupText.lineLimit) }
+            .prefix(subjectLimit))
+    }
+
     /// Nil for a result without a usable key and title.
     private func candidate(from doc: Any, askedISBN: String?) -> LookupCandidate? {
         guard let doc = doc as? [String: Any],
@@ -92,6 +102,10 @@ public struct OpenLibraryProvider: LookupProvider {
             metadata.isbn = isbns.first { $0.count == 13 } ?? isbns.first
         }
         if let askedISBN { metadata.isbn = askedISBN }
+        // The subjects go to the mapping together; one it does not know is dropped there.
+        let subjects = GenreSource.subjects(Self.subjects(doc["subject"]))
+        metadata.genres = GenreMapping.map(subjects).names
+        metadata.genreSource = GenreMapping.wording(of: subjects)
 
         var note = [source.title]
         if let year = metadata.year { note.append(String(year)) }
@@ -147,6 +161,9 @@ public struct OpenLibraryProvider: LookupProvider {
             title: LookupText.cleaned(entry["title"] as? String, limit: LookupText.nameLimit) ?? work.metadata.title)
         metadata.subtitle = LookupText.cleaned(entry["subtitle"] as? String, limit: LookupText.nameLimit)
         metadata.authors = work.metadata.authors
+        // An edition is of the work, and has the work's subjects.
+        metadata.genres = work.metadata.genres
+        metadata.genreSource = work.metadata.genreSource
         metadata.publisher = publishers.first.flatMap { LookupText.cleaned($0, limit: LookupText.lineLimit) }
         metadata.year = (entry["publish_date"] as? String).flatMap(Self.year)
         let isbns = ["isbn_13", "isbn_10"].flatMap { (entry[$0] as? [Any] ?? []).prefix(50) }

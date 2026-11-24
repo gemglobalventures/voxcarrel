@@ -136,7 +136,10 @@ import Testing
         expected.year = 2021
         expected.pageCount = 496
         // Publisher, ISBN and language across 32 editions are a jumble: left empty.
-        // O4: no genre. Nothing else is invented.
+        // G20: its subjects are the wording, and the ones the mapping knows give the genres.
+        expected.genres = ["Science Fiction"]
+        expected.genreSource = "hard science-fiction; science-fiction; sci-fi; hard sci-fi; nyt:hardcover-fiction=2021-05-23"
+        // Nothing else is invented.
         #expect(work.metadata == expected)
         #expect(work.source == .openLibrary)
         // O5
@@ -157,8 +160,9 @@ import Testing
         expected.publisher = "Ballantine Books"
         expected.isbn = "9781637990520"
         expected.language = "en"
+        expected.genres = ["Science Fiction"]     // G20
+        expected.genreSource = "Fiction, science fiction, general; Anthology"
         #expect(boxSet.metadata == expected)
-        #expect(boxSet.metadata.genres == [])     // O4
         #expect(boxSet.coverURL == nil)           // O5: no cover_i
         #expect(boxSet.id == "openLibrary:/works/OL36735881W")
         #expect(boxSet.note == "Open Library · 2022 · 1 edition")
@@ -200,6 +204,8 @@ import Testing
         expected.year = 2021
         expected.pageCount = 496
         expected.isbn = "0593135202"
+        expected.genres = ["Science Fiction"]
+        expected.genreSource = "hard science-fiction; science-fiction; sci-fi; hard sci-fi; nyt:hardcover-fiction=2021-05-23"
         #expect(work.metadata == expected)
         #expect(work.note == "Open Library · 2021")
         #expect(work.coverURL == URL(string: "https://covers.openlibrary.org/b/id/11200092-L.jpg"))
