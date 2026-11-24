@@ -139,15 +139,28 @@ public final class LibraryService {
         self.organiser = organiser
     }
 
-    /// Scans dropped files and folders using the real tags inside them.
+    /// Scans dropped files and folders using the real tags inside them. What the tags
+    /// leave out is guessed from names, read with the authors and titles the library
+    /// already has (`knownNames()`).
     public func scan(_ urls: [URL]) -> ScanResult {
-        BookScanner(reader: metadataIO).scan(urls)
+        BookScanner(reader: metadataIO, known: (try? knownNames()) ?? .none).scan(urls)
     }
 
-    /// The library book a candidate most likely belongs to: `existingMatch(for:)` for the
-    /// candidate's details. So a candidate without an ASIN is matched by title and first
-    /// author, ignoring case and surrounding spaces; one whose tags carry an ASIN finds
-    /// the book with that Audible ID even if its title differs.
+    /// Every author and every title in the library, normalised for comparing
+    /// (`KnownNames.authorKey`, `KnownNames.titleKey`): evidence for which side of a
+    /// name "A - B" is the author. One query for each.
+    public func knownNames() throws -> KnownNames {
+        let authors = try store.distinctValues(.authors).map(KnownNames.authorKey)
+        let titles = try store.distinctTitles().map(KnownNames.titleKey)
+        return KnownNames(
+            authors: Set(authors.filter { !$0.isEmpty }), titles: Set(titles.filter { !$0.isEmpty }))
+    }
+
+    /// The library book a candidate belongs to, when that is sure enough to join it
+    /// without asking: `existingMatch(for:)` for the candidate's details. So a candidate
+    /// without an ASIN is matched by first author and title, edition words aside; one
+    /// whose tags or name carry an ASIN finds the book with that Audible ID even if its
+    /// title differs. A possible match (`existingMatches(for:)`) is none here.
     ///
     /// Of several matches the earliest added is returned. Books flagged as needing
     /// attention are never matched.

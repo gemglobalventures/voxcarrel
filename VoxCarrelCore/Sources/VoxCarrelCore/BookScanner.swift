@@ -13,10 +13,16 @@ public struct CandidateBook: Equatable, Sendable {
     /// Set when a folder of audio parts was grouped into this book.
     public var sourceFolder: URL?
 
-    public init(files: [CandidateFile], metadata: BookMetadata, sourceFolder: URL? = nil) {
+    /// What was guessed from names and not read from tags, for the review to say.
+    public var guessNotes: GuessNotes
+
+    public init(
+        files: [CandidateFile], metadata: BookMetadata, sourceFolder: URL? = nil, guessNotes: GuessNotes = []
+    ) {
         self.files = files
         self.metadata = metadata
         self.sourceFolder = sourceFolder
+        self.guessNotes = guessNotes
     }
 
     public var hasAudio: Bool {
@@ -37,8 +43,13 @@ public struct ScanResult: Equatable, Sendable {
 public struct BookScanner {
     private let reader: (any MetadataReader)?
 
-    public init(reader: (any MetadataReader)? = nil) {
+    private let known: KnownNames
+
+    /// - Parameter known: The authors and titles the library already has, as evidence
+    ///   for reading a name "A - B" either way round.
+    public init(reader: (any MetadataReader)? = nil, known: KnownNames = .none) {
         self.reader = reader
+        self.known = known
     }
 
     /// Scans dropped files and folders (folders recursively) into candidate books.
@@ -331,27 +342,66 @@ public struct BookScanner {
         // Read tags from the audio if there is any, otherwise from the first file.
         let primary = (group.files.first { $0.role == .audio } ?? group.files[0]).url
         var metadata = (try? reader?.readMetadata(at: primary)) ?? BookMetadata()
+        // Tags always win: only what they leave empty is taken from names.
+        let needsTitle = metadata.title.isEmpty
+        let needsAuthor = metadata.authors.isEmpty
+        let needsASIN = (metadata.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        // What the tags do say is evidence for reading the name, like what the library has.
+        var evidence = known
+        if needsTitle != needsAuthor {
+            if !needsTitle { evidence.titles.insert(KnownNames.titleKey(metadata.title)) }
+            for author in metadata.authors { evidence.authors.insert(KnownNames.authorKey(author)) }
+        }
         let guess = FilenameParser.guess(
             from: group.folder ?? primary, isFolder: group.folder != nil,
-            parentIsBookFolder: group.folder == nil && group.ownsFolder)
-        if metadata.title.isEmpty { metadata.title = guess.title }
-        if metadata.authors.isEmpty, let author = guess.author { metadata.authors = [author] }
-        return CandidateBook(files: group.files, metadata: metadata, sourceFolder: group.folder)
+            parentIsBookFolder: group.folder == nil && group.ownsFolder, known: evidence)
+
+        var notes: GuessNotes = []
+        var usedName = false
+        if needsTitle {
+            metadata.title = guess.title
+            usedName = true
+        }
+        if needsAuthor, let author = guess.author {
+            metadata.authors = [author]
+            usedName = true
+        }
+        if usedName {
+            notes.formUnion(
+                guess.notes.intersection([.fromFileName, .orderUnsure, .orderSwapped, .orderGuessedByShape]))
+        }
+        // An author from the tags is the author, whatever the title looks like.
+        if needsTitle, needsAuthor, guess.notes.contains(.titleLooksLikePerson) {
+            notes.insert(.titleLooksLikePerson)
+        }
+        if needsASIN, let asin = guess.asin {
+            metadata.asin = asin
+            notes.insert(.audibleIDFromName)
+        }
+        return CandidateBook(
+            files: group.files, metadata: metadata, sourceFolder: group.folder, guessNotes: notes)
     }
 
     // MARK: Merging across folders
 
     /// 6. Merges an audiobook that has no ebook yet with a candidate that has no
-    /// audio when they share a title and first author. Only an unambiguous pair
-    /// is merged: exactly one such audiobook and exactly one no-audio candidate
-    /// for that title and author. Anything else is left for the review sheet, so
-    /// the outcome does not depend on the order things were scanned in.
-    /// The audio candidate's metadata wins.
+    /// audio when they are one book: they have the same Audible ID, or the same first
+    /// author and the same title, edition words aside (`TitleMatch.core`); never when
+    /// one title is only the other up to a subtitle. Only an unambiguous pair is
+    /// merged: exactly one such audiobook and exactly one no-audio candidate for that
+    /// ID, or for that title and author. Anything else is left for the review sheet,
+    /// so the outcome does not depend on the order things were scanned in.
+    /// The audio candidate's metadata, and what was guessed for it, wins.
     private func mergeMatching(_ candidates: [CandidateBook]) -> [CandidateBook] {
+        mergePairs(mergePairs(candidates, by: audibleIDKey), by: matchKey)
+    }
+
+    private func mergePairs(_ candidates: [CandidateBook], by key: (CandidateBook) -> String?) -> [CandidateBook] {
         var audioOnly: [String: [Int]] = [:]
         var withoutAudio: [String: [Int]] = [:]
         for (index, candidate) in candidates.enumerated() {
-            guard let key = matchKey(candidate) else { continue }
+            guard let key = key(candidate) else { continue }
             if !candidate.hasAudio {
                 withoutAudio[key, default: []].append(index)
             } else if !candidate.files.contains(where: { $0.role == .ebook }) {
@@ -372,11 +422,16 @@ public struct BookScanner {
         return merged.compactMap { $0 }
     }
 
+    /// Nil when the candidate has no Audible ID.
+    private func audibleIDKey(_ candidate: CandidateBook) -> String? {
+        let id = (candidate.metadata.asin ?? "").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        return id.isEmpty ? nil : id
+    }
+
     /// Nil when the candidate lacks a title or author and so cannot be matched.
     private func matchKey(_ candidate: CandidateBook) -> String? {
-        let title = candidate.metadata.title.trimmingCharacters(in: .whitespaces).lowercased()
-        let author = (candidate.metadata.authors.first ?? "")
-            .trimmingCharacters(in: .whitespaces).lowercased()
+        let title = KnownNames.titleKey(candidate.metadata.title)
+        let author = KnownNames.authorKey(candidate.metadata.authors.first ?? "")
         guard !title.isEmpty, !author.isEmpty else { return nil }
         return title + "\u{0}" + author
     }

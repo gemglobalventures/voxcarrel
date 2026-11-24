@@ -438,6 +438,233 @@ import VoxCarrelCore
                 == "Cannot be added yet: “Atlas” has no author in the library, and neither have these files")
     }
 
+    // MARK: IH1, IH4–IH6 Guessing (plan 14)
+
+    private func guessed(
+        _ notes: GuessNotes, title: String = "Slow Horses", author: String? = "Mick Herron", asin: String? = nil,
+        match: ImportMatch? = nil
+    ) -> ImportSeed {
+        var metadata = BookMetadata(title: title, authors: author.map { [$0] } ?? [])
+        metadata.asin = asin
+        return ImportSeed(
+            candidate: CandidateBook(files: [file("book.epub")], metadata: metadata, guessNotes: notes),
+            cover: nil, match: match)
+    }
+
+    private func possible(_ title: String = "Mind Over Markets (Unabridged)") -> ImportMatch {
+        ImportMatch(book: libraryBook(title), strength: .possible)
+    }
+
+    private static let checkOrder = "Read from the file name; check the title and author are the right way round."
+
+    /// IH1: a possible match is worded as a question; the others as before.
+    @Test func IH1_aPossibleMatchIsAskedAbout() {
+        let review = review([
+            guessed([], match: possible()),
+            guessed([], match: ImportMatch(book: libraryBook("Atlas"), strength: .sure)),
+            guessed([], match: ImportMatch(book: libraryBook("Atlas"), strength: .audibleID)),
+        ])
+        #expect(
+            review.entries.map(\.existingMatchText) == [
+                "Looks like “Mind Over Markets (Unabridged)”, which is already in your library. Add these files to it?",
+                "Add to the existing book \"Atlas\"", "Add to the existing book \"Atlas\"",
+            ])
+    }
+
+    /// IH4: one line under the title and authors, only when a note applies.
+    @Test func IH4_theNoteSaysWhatWasReadFromTheName() {
+        let review = review([
+            guessed([]),
+            guessed([.fromFileName]),
+            guessed([.fromFileName, .orderSwapped]),
+            guessed([.fromFileName, .orderUnsure]),
+            guessed([.fromFileName, .orderGuessedByShape]),
+            guessed([.fromFileName, .orderSwapped, .orderGuessedByShape]),
+            guessed([.fromFileName, .titleLooksLikePerson]),
+            guessed([.fromFileName, .orderUnsure, .titleLooksLikePerson]),
+            guessed([.audibleIDFromName]),
+        ])
+        #expect(
+            review.entries.map { review.guessNote(of: $0.id) } == [
+                nil,
+                "Read from the file name.",
+                "Read from the file name as “Title - Author”.",
+                Self.checkOrder,
+                // Read the usual way round: nothing to ask, even though shape decided it.
+                "Read from the file name.",
+                Self.checkOrder,
+                "This title looks like a person's name.",
+                Self.checkOrder,
+                nil,
+            ])
+        #expect(review.guessNote(of: UUID()) == nil)
+    }
+
+    /// IH4: the note about the Audible ID stands beside the ID, and only for one read from a name.
+    @Test func IH4_theAudibleIDNoteStandsBesideTheID() {
+        var review = review([
+            guessed([.audibleIDFromName], asin: "B09WXN61GL"),
+            guessed([], asin: "B09WXN61GL"),
+            guessed([.fromFileName]),
+        ])
+        let id = review.entries[0].id
+        #expect(review.entries.map { review.guessedAudibleIDText(of: $0.id) } == ["Audible ID B09WXN61GL", nil, nil])
+        #expect(
+            review.entries.map { review.audibleIDNote(of: $0.id) }
+                == ["The Audible ID was read from the file name.", nil, nil])
+
+        // Editing the title leaves it; another ID (from a lookup, say) is not the name's.
+        review.setText("Another Title", for: .title, of: id)
+        #expect(review.audibleIDNote(of: id) != nil)
+        review.update(id) { $0.candidate.metadata.asin = "B000000001" }
+        #expect(review.audibleIDNote(of: id) == nil)
+        #expect(review.guessedAudibleIDText(of: id) == nil)
+    }
+
+    /// IH4: editing the title or the authors by hand clears the notes about them.
+    @Test func IH4_editingAFieldClearsItsNotes() {
+        for field in [ImportReview.Field.title, .authors] {
+            var review = review([
+                guessed([.fromFileName, .orderUnsure, .titleLooksLikePerson, .audibleIDFromName], asin: "B09WXN61GL")
+            ])
+            let id = review.entries[0].id
+            // Typing what is there already is no edit.
+            review.setText(review.text(for: field, of: id), for: field, of: id)
+            #expect(review.guessNote(of: id) == Self.checkOrder)
+
+            review.setText("Something Else", for: field, of: id)
+            #expect(review.guessNote(of: id) == nil)
+            #expect(review.entries[0].guessNotes == [.audibleIDFromName])
+            #expect(review.question(of: id) == nil)
+            // The scan's own notes are not the review's to change.
+            #expect(review.entries[0].candidate.guessNotes.contains(.orderUnsure))
+        }
+        // Another field says nothing about the title and authors.
+        var review = review([guessed([.fromFileName, .orderUnsure])])
+        review.setText("A Series", for: .series, of: review.entries[0].id)
+        #expect(review.guessNote(of: review.entries[0].id) == Self.checkOrder)
+    }
+
+    /// IH4, IH5: Swap answers the question of the order, and clears the notes.
+    @Test func IH4_swappingClearsTheNotes() {
+        var review = review([guessed([.fromFileName, .orderUnsure, .titleLooksLikePerson])])
+        let id = review.entries[0].id
+        review.swapTitleAndAuthor(for: id)
+        #expect(review.text(for: .title, of: id) == "Mick Herron")
+        #expect(review.guessNote(of: id) == nil)
+        #expect(!review.offersProminentSwap(of: id))
+        #expect(review.question(of: id) == nil)
+    }
+
+    /// IH4: details taken from a lookup are no longer what the name said.
+    @Test func IH4_detailsChangedThroughTheEntryClearTheNotesToo() {
+        var review = review([guessed([.fromFileName, .orderSwapped, .orderGuessedByShape])])
+        let id = review.entries[0].id
+        review.update(id) { $0.included = false }
+        #expect(review.guessNote(of: id) == Self.checkOrder)
+        review.update(id) { $0.candidate.metadata.authors = ["M. Herron"] }
+        #expect(review.guessNote(of: id) == nil)
+    }
+
+    /// IH5: Swap stands out while the order is in question or the title looks like a
+    /// person, and there are two to exchange.
+    @Test func IH5_swapStandsOutWhileTheOrderIsInQuestion() {
+        let review = review([
+            guessed([.fromFileName, .orderUnsure]),
+            guessed([.fromFileName, .orderGuessedByShape]),
+            guessed([.fromFileName, .orderSwapped, .orderGuessedByShape]),
+            guessed([.fromFileName, .titleLooksLikePerson]),
+            guessed([.fromFileName, .orderSwapped]),
+            guessed([.fromFileName]),
+            guessed([]),
+            // Nothing to exchange it with.
+            guessed([.fromFileName, .titleLooksLikePerson], author: nil),
+        ])
+        #expect(
+            review.entries.map { review.offersProminentSwap(of: $0.id) }
+                == [true, false, true, true, false, false, false, false])
+        #expect(!review.offersProminentSwap(of: UUID()))
+    }
+
+    /// IH6: an entry with a question says which, for its caution mark's tooltip.
+    @Test func IH6_anEntrySaysWhatThereIsToCheck() {
+        let order = "Check that the title and author are the right way round."
+        let person = "This title looks like a person's name."
+        let match = "This may be “Mind Over Markets (Unabridged)”, which is already in your library."
+        let review = review([
+            guessed([]),
+            guessed([.fromFileName]),
+            guessed([.fromFileName, .orderSwapped]),
+            guessed([.audibleIDFromName], asin: "B09WXN61GL"),
+            guessed([.fromFileName, .orderGuessedByShape]),
+            guessed([.fromFileName, .orderUnsure]),
+            guessed([.fromFileName, .orderSwapped, .orderGuessedByShape]),
+            guessed([.fromFileName, .titleLooksLikePerson], author: nil),
+            guessed([.fromFileName, .orderUnsure, .titleLooksLikePerson]),
+            guessed([], match: possible()),
+            guessed([.fromFileName, .orderUnsure], match: possible()),
+            guessed([], match: ImportMatch(book: libraryBook("Atlas"), strength: .sure)),
+        ])
+        #expect(
+            review.entries.map { review.question(of: $0.id) } == [
+                nil, nil, nil, nil, nil, order, order, person, "\(order) \(person)", match, "\(order) \(match)", nil,
+            ])
+        #expect(review.entries.map(\.question) == review.entries.map { review.question(of: $0.id) })
+        #expect(review.question(of: UUID()) == nil)
+    }
+
+    /// IH6: touching the switch answers a possible match, whichever way; a new lookup
+    /// that offers another possible book asks again.
+    @Test func IH6_touchingTheSwitchAnswersAPossibleMatch() {
+        var review = review([guessed([], match: possible()), guessed([], match: possible())])
+        let (yes, no) = (review.entries[0].id, review.entries[1].id)
+        #expect(review.entries.map(\.isPossibleMatchUnanswered) == [true, true])
+
+        review.setAddToExisting(true, for: yes)
+        #expect(review.question(of: yes) == nil)
+        // On and off again is an answer too: no.
+        review.setAddToExisting(true, for: no)
+        review.setAddToExisting(false, for: no)
+        #expect(!review.entries[1].addToExisting)
+        #expect(review.question(of: no) == nil)
+        #expect(review.questionsText == nil)
+
+        // Looked up again and the same book found: still answered.
+        review.setMatch(possible(), for: no, matchingMetadata: review.entries[1].candidate.metadata)
+        #expect(review.question(of: no) == nil)
+        // Another possible book is another question.
+        review.setText("Dune Messiah", for: .title, of: no)
+        var other = possible("Dune")
+        other.book.id = 99
+        review.setMatch(other, for: no, matchingMetadata: review.entries[1].candidate.metadata)
+        #expect(review.question(of: no) == "This may be “Dune”, which is already in your library.")
+    }
+
+    /// The count line gains a quiet second line while a book that will be imported has
+    /// a question; a question never stops the import.
+    @Test func theCountOfBooksWithAQuestion() {
+        var review = review([
+            guessed([.fromFileName, .orderUnsure]),
+            guessed([], match: possible()),
+            guessed([.fromFileName]),
+        ])
+        #expect(review.questionsText == "2 books have a question to check.")
+        #expect(review.countText == "3 of 3 books will be imported")
+        #expect(review.canImport)
+
+        // A book that is left out is not counted.
+        review.update(review.entries[0].id) { $0.included = false }
+        #expect(review.questionsText == "1 book has a question to check.")
+        // Saying no is an answer.
+        review.setAddToExisting(false, for: review.entries[1].id)
+        #expect(review.questionsText == nil)
+        review.update(review.entries[0].id) { $0.included = true }
+        #expect(review.questionsText == "1 book has a question to check.")
+        review.swapTitleAndAuthor(for: review.entries[0].id)
+        #expect(review.questionsText == nil)
+        #expect(ImportReview(seeds: [], skipped: [], copyInsteadOfMove: false).questionsText == nil)
+    }
+
     // MARK: Q9 Skipped
 
     /// Q9

@@ -369,7 +369,7 @@ public actor LibraryWorker {
             .compactMap { (try? reader.read($0.url))?.cover }
             .first
         return ImportSeed(
-            candidate: candidate, cover: cover, existingMatch: try service.existingMatch(for: candidate),
+            candidate: candidate, cover: cover, match: try importMatch(for: candidate.metadata),
             measuredAudio: Self.measuredAudio(of: candidate, reader: reader))
     }
 
@@ -401,6 +401,18 @@ public actor LibraryWorker {
     /// the same Audible ID, else the same title and first author; nil when neither.
     public func existingMatch(for metadata: BookMetadata) throws -> Book? {
         try service.existingMatch(for: metadata)
+    }
+
+    /// IH1, IH3: the library book a candidate with these details may be added to, sure
+    /// or only possible (`LibraryService.existingMatches(for:)`), with what the review
+    /// needs to know of that book's files; nil when there is none.
+    public func importMatch(for metadata: BookMetadata) throws -> ImportMatch? {
+        guard let match = try service.existingMatches(for: metadata) else { return nil }
+        let files = try match.book.id.map { try store.files(bookId: $0) } ?? []
+        return ImportMatch(
+            book: match.book, strength: match.strength,
+            hasAudio: files.contains { $0.role == .audio },
+            hasPDFEbook: files.contains { $0.role == .ebook && $0.format == .pdf })
     }
 
     public func importItems(_ items: [ImportItem], options: ImportOptions) throws -> ImportResult {

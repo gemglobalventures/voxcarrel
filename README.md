@@ -24,6 +24,7 @@ The books in these pictures are generated samples from the demo library.
 **Organising**
 
 - Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI and AZW3 are filed but never modified), by move or copy, through a review sheet.
+- Reads a file's name when its tags say too little (either way round, with an Audible ID if the name has one), says in the review what it guessed, and asks before adding files to a book that only might be the same one.
 - Keeps an audiobook, its ebook and companion files together as one book, in folders arranged the way you choose: `Author/Series/Title` to begin with, or another layout or a pattern of your own.
 - Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
 - Merges entries that are really one book (an audiobook, its ebook and a companion PDF imported separately) into one, choosing which to keep and what each file is.

@@ -1,10 +1,31 @@
 import Foundation
 
+/// How sure it is that a library book is the one some details describe.
+public enum MatchStrength: Equatable, Sendable {
+    /// The same Audible ID.
+    case audibleID
+    /// The same first author and the same title, edition words aside.
+    case sure
+    /// Worth asking about, and never to be joined without asking.
+    case possible
+}
+
+/// A library book that some details most likely describe.
+public struct ExistingMatch: Equatable, Sendable {
+    public var book: Book
+    public var strength: MatchStrength
+
+    public init(book: Book, strength: MatchStrength) {
+        self.book = book
+        self.strength = strength
+    }
+}
+
 extension LibraryService {
     /// Adds a book that is owned elsewhere and has no files here.
     ///
     /// When the library already has the book (`existingMatch(for:)`: the same Audible ID,
-    /// else the same title and first author) that book is given the copy instead and
+    /// else the same title and first author; a possible match is not enough) that book is given the copy instead and
     /// nothing else about it changes: its details, cover and files are left alone, and no
     /// file is opened. Its `asin` is filled in from an Audible copy only when it had none
     /// (and, when it has files, is then listed among its `appOnlyFields`). A book that
@@ -74,16 +95,22 @@ extension LibraryService {
         }
     }
 
-    /// The library book a set of details most likely is: the same Audible ID, else the
-    /// same title and first author. Nil when neither.
+    /// The library book a set of details most likely is, and how sure that is.
     ///
-    /// The Audible ID is the details' ASIN, compared ignoring case and surrounding
-    /// spaces with each book's own ASIN and with the item IDs of its Audible copies.
-    /// The title and first author are compared the same way, and both must be there.
+    /// - `.audibleID`: a book with the same Audible ID. The ID is the details' ASIN,
+    ///   compared ignoring case and surrounding spaces with each book's own ASIN and
+    ///   with the item IDs of its Audible copies.
+    /// - `.sure`: failing that, a book with the same first author
+    ///   (`KnownNames.authorKey`) and the same title, edition words aside
+    ///   (`TitleMatch.relation` is `.same`).
+    /// - `.possible`: failing that, a book with the same first author whose title is the
+    ///   same up to a subtitle; or, when the details name no author, a book with the
+    ///   same title.
     ///
-    /// Of several matches of one sort the earliest added is returned. Books flagged as
-    /// needing attention are never matched.
-    public func existingMatch(for metadata: BookMetadata) throws -> Book? {
+    /// Nil when there is none. Of several matches of one strength the earliest added is
+    /// returned. Books flagged as needing attention are never matched. Different first
+    /// authors never match without an Audible ID.
+    public func existingMatches(for metadata: BookMetadata) throws -> ExistingMatch? {
         func key(_ text: String?) -> String {
             (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         }
@@ -98,13 +125,37 @@ extension LibraryService {
                 key(book.asin) == asin
                     || book.externalCopies.contains { $0.kind == .audible && key($0.itemId) == asin }
             }
-            if let match = earliest(sameId) { return match }
+            if let match = earliest(sameId) { return ExistingMatch(book: match, strength: .audibleID) }
         }
 
-        let title = key(metadata.title)
-        let author = key(metadata.authors.first)
-        guard !title.isEmpty, !author.isEmpty else { return nil }
-        return earliest(books.filter { key($0.title) == title && key($0.authors.first) == author })
+        let title = TitleMatch.parts(metadata.title)
+        guard !title.core.isEmpty else { return nil }
+        let author = KnownNames.authorKey(metadata.authors.first ?? "")
+        var sure: [Book] = []
+        var possible: [Book] = []
+        for book in books {
+            if author.isEmpty {
+                // No author to compare: the same title is worth asking about, no more.
+                if TitleMatch.relation(title, TitleMatch.parts(book.title)) == .same { possible.append(book) }
+                continue
+            }
+            guard KnownNames.authorKey(book.authors.first ?? "") == author else { continue }
+            switch TitleMatch.relation(title, TitleMatch.parts(book.title)) {
+            case .same: sure.append(book)
+            case .sameUpToSubtitle: possible.append(book)
+            case .different: break
+            }
+        }
+        if let match = earliest(sure) { return ExistingMatch(book: match, strength: .sure) }
+        return earliest(possible).map { ExistingMatch(book: $0, strength: .possible) }
+    }
+
+    /// The library book a set of details is, when that is sure enough to join it without
+    /// asking: `existingMatches(for:)` when its strength is `.audibleID` or `.sure`. A
+    /// possible match is none.
+    public func existingMatch(for metadata: BookMetadata) throws -> Book? {
+        guard let match = try existingMatches(for: metadata), match.strength != .possible else { return nil }
+        return match.book
     }
 
     // MARK: Helpers

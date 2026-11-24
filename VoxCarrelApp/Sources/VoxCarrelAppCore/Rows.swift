@@ -172,10 +172,16 @@ public struct ImportSeed: Equatable, Sendable {
     /// Found in the candidate's files.
     public var cover: CoverImage?
     public var existingMatch: Book?
+    /// IH1: how sure `existingMatch` is. Means nothing without one.
+    public var matchStrength: MatchStrength = .sure
+    /// IH3: whether that book has an audio file in the library, and a PDF as its ebook.
+    public var matchHasAudio = false
+    public var matchHasPDFEbook = false
     /// The measured length of the candidate's one audio file; nil when it has none or
     /// several, or the file's length could not be measured.
     public var measuredAudio: MeasuredAudio?
 
+    /// A seed whose match, when it has one, is a sure one.
     public init(
         candidate: CandidateBook, cover: CoverImage?, existingMatch: Book?, measuredAudio: MeasuredAudio? = nil
     ) {
@@ -183,6 +189,42 @@ public struct ImportSeed: Equatable, Sendable {
         self.candidate = candidate
         self.cover = cover
         self.existingMatch = existingMatch
+    }
+
+    public init(
+        candidate: CandidateBook, cover: CoverImage?, match: ImportMatch?, measuredAudio: MeasuredAudio? = nil
+    ) {
+        self.init(candidate: candidate, cover: cover, existingMatch: match?.book, measuredAudio: measuredAudio)
+        if let match {
+            matchStrength = match.strength
+            matchHasAudio = match.hasAudio
+            matchHasPDFEbook = match.hasPDFEbook
+        }
+    }
+
+    /// The match with its strength and what the book has; nil when there is none.
+    public var match: ImportMatch? {
+        existingMatch.map {
+            ImportMatch(book: $0, strength: matchStrength, hasAudio: matchHasAudio, hasPDFEbook: matchHasPDFEbook)
+        }
+    }
+}
+
+/// A library book that files being imported may be added to, how sure it is that they
+/// are that book, and what the book already has.
+public struct ImportMatch: Equatable, Sendable {
+    public var book: Book
+    public var strength: MatchStrength
+    /// Whether the book has an audio file in the library.
+    public var hasAudio: Bool
+    /// Whether the book has a PDF as its ebook.
+    public var hasPDFEbook: Bool
+
+    public init(book: Book, strength: MatchStrength, hasAudio: Bool = false, hasPDFEbook: Bool = false) {
+        self.book = book
+        self.strength = strength
+        self.hasAudio = hasAudio
+        self.hasPDFEbook = hasPDFEbook
     }
 }
 

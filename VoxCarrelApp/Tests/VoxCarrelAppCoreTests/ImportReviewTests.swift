@@ -723,6 +723,299 @@ import VoxCarrelFixtures
         #expect(!review.isLocked(.series, of: atlas))
     }
 
+    // MARK: IH1–IH3, IH8 Guessing (plan 14)
+
+    private func offered(
+        _ strength: MatchStrength, title: String = "Atlas", id: Int64 = 7, hasAudio: Bool = false,
+        hasPDFEbook: Bool = false
+    ) -> ImportMatch {
+        ImportMatch(book: libraryBook(title, id: id), strength: strength, hasAudio: hasAudio, hasPDFEbook: hasPDFEbook)
+    }
+
+    private func seed(_ title: String, author: String? = "Ann Author", files: [CandidateFile], offered: ImportMatch?)
+        -> ImportSeed
+    {
+        ImportSeed(
+            candidate: CandidateBook(
+                files: files, metadata: BookMetadata(title: title, authors: author.map { [$0] } ?? [])),
+            cover: nil, match: offered)
+    }
+
+    private func roles(_ review: ImportReview, _ entry: Int = 0) -> [FileRole] {
+        review.entries[entry].candidate.files.map(\.role)
+    }
+
+    /// IH1: on for a match by Audible ID and a sure one, off for a possible one, which is
+    /// still offered.
+    @Test func IH1_theSwitchStartsOnForASureMatchAndOffForAPossibleOne() {
+        let review = review([
+            seed("Atlas", files: [file("a.m4b")], offered: offered(.audibleID)),
+            seed("Atlas", files: [file("b.m4b")], offered: offered(.sure)),
+            seed("Atlas: A Journey", files: [file("c.m4b")], offered: offered(.possible)),
+            seed("Rivers", files: [file("d.m4b")], offered: nil),
+        ])
+        #expect(review.entries.map(\.addToExisting) == [true, true, false, true])
+        #expect(review.entries.map(\.isAddedToExisting) == [true, true, false, false])
+        #expect(review.entries.map(\.matchStrength).prefix(3) == [.audibleID, .sure, .possible])
+        #expect(review.entries[2].existingMatch == libraryBook("Atlas"))
+        // A possible match left as it is offered is imported as a new book.
+        #expect(review.items().map(\.target) == [.existing(bookId: 7), .existing(bookId: 7), .newBook, .newBook])
+    }
+
+    /// IH1: a seed made the old way has a sure match.
+    @Test func IH1_aSeedWithOnlyABookIsASureMatch() {
+        let review = review([seed("Atlas", files: [file("a.m4b")], match: libraryBook("Atlas"))])
+        #expect(review.entries[0].matchStrength == .sure)
+        #expect(review.entries[0].addToExisting)
+    }
+
+    /// IH1: the owner's yes to a possible match joins the book.
+    @Test func IH1_answeringYesToAPossibleMatchAddsToTheBook() {
+        var review = review([seed("Atlas: A Journey", files: [file("c.m4b")], offered: offered(.possible))])
+        let id = review.entries[0].id
+        review.setAddToExisting(true, for: id)
+        #expect(review.entries[0].isAddedToExisting)
+        #expect(review.items().map(\.target) == [.existing(bookId: 7)])
+        #expect(review.entries[0].destination == "Ann Author/Atlas")
+    }
+
+    /// IH2: looked up again, the switch follows the new strength while the owner has
+    /// not touched it.
+    @Test func IH2_theSwitchFollowsTheStrengthOfANewLookup() {
+        var review = review([seed("Atlas", author: nil, files: [file("c.m4b")], offered: offered(.possible))])
+        let id = review.entries[0].id
+        #expect(!review.entries[0].addToExisting)
+
+        // The owner types the author: the same book, now sure.
+        review.setText("Ann Author", for: .authors, of: id)
+        #expect(review.entriesNeedingMatch == [id])
+        review.setMatch(offered(.sure), for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entriesNeedingMatch.isEmpty)
+        #expect(review.entries[0].matchStrength == .sure)
+        #expect(review.entries[0].addToExisting)
+
+        // And back to only possible: off again.
+        review.setText("Atlas: A Journey", for: .title, of: id)
+        review.setMatch(offered(.possible), for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(!review.entries[0].addToExisting)
+
+        // No match at all, then another book by its Audible ID: on.
+        review.setText("Maps", for: .title, of: id)
+        review.setMatch(nil, for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entries[0].existingMatch == nil)
+        review.setText("Maps of Home", for: .title, of: id)
+        review.setMatch(
+            offered(.audibleID, title: "Maps of Home", id: 43), for: id,
+            matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entries[0].addToExisting)
+    }
+
+    /// IH2: an answer for details the entry no longer has is ignored, as before.
+    @Test func IH2_aLateAnswerIsIgnored() {
+        var review = review([seed("Atlas", files: [file("c.m4b")], offered: nil)])
+        let id = review.entries[0].id
+        let asked = review.entries[0].candidate.metadata
+        review.setText("Maps", for: .title, of: id)
+        review.setMatch(offered(.possible), for: id, matchingMetadata: asked)
+        #expect(review.entries[0].existingMatch == nil)
+        #expect(review.entriesNeedingMatch == [id])
+    }
+
+    /// IH2: what the owner set by hand for a book stays, however that book is found again.
+    @Test func IH2_theOwnersChoiceForABookSurvivesANewLookup() {
+        // Refused by hand (on, then off again), then the match becomes sure: still off.
+        var review = review([seed("Atlas", author: nil, files: [file("c.m4b")], offered: offered(.possible))])
+        let id = review.entries[0].id
+        review.setAddToExisting(true, for: id)
+        review.setAddToExisting(false, for: id)
+        review.setText("Ann Author", for: .authors, of: id)
+        review.setMatch(offered(.sure), for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entries[0].matchStrength == .sure)
+        #expect(!review.entries[0].addToExisting)
+
+        // Accepted by hand, then the match becomes only possible: still on.
+        var accepted = self.review([seed("Atlas", files: [file("c.m4b")], offered: offered(.sure))])
+        let other = accepted.entries[0].id
+        accepted.setAddToExisting(false, for: other)
+        accepted.setAddToExisting(true, for: other)
+        accepted.setText("Atlas: A Journey", for: .title, of: other)
+        accepted.setMatch(offered(.possible), for: other, matchingMetadata: accepted.entries[0].candidate.metadata)
+        #expect(accepted.entries[0].addToExisting)
+    }
+
+    /// IH2: the choice is for that book: another book is offered by its own strength,
+    /// and the first one, offered again, is as the owner left it.
+    @Test func IH2_theOwnersChoiceIsForThatBookOnly() {
+        var review = review([seed("Atlas", files: [file("c.m4b")], offered: offered(.sure))])
+        let id = review.entries[0].id
+        review.update(id) { $0.addToExisting = false }
+
+        review.setText("Maps", for: .title, of: id)
+        review.setMatch(offered(.sure, title: "Maps", id: 43), for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(review.entries[0].addToExisting)
+
+        review.setText("Atlas", for: .title, of: id)
+        review.setMatch(offered(.sure), for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(!review.entries[0].addToExisting)
+
+        // Through no match at all, too.
+        review.setText("Nothing", for: .title, of: id)
+        review.setMatch(nil, for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        review.setText("Atlas", for: .title, of: id)
+        review.setMatch(offered(.audibleID), for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(!review.entries[0].addToExisting)
+    }
+
+    /// IH3: a PDF that joins a book known by its Audible ID that has audio, or a book
+    /// that has a PDF ebook already, is guessed to be an extra; any other is the ebook.
+    @Test func IH3_aPDFJoiningABookIsGuessedAnExtraOrAnEbook() {
+        let review = review([
+            seed("Atlas", files: [file("a.pdf")], offered: offered(.audibleID, hasAudio: true)),
+            seed("Atlas", files: [file("b.pdf")], offered: offered(.audibleID)),
+            seed("Atlas", files: [file("c.pdf")], offered: offered(.sure, hasAudio: true)),
+            seed("Atlas", files: [file("d.pdf")], offered: offered(.sure, hasPDFEbook: true)),
+            seed("Atlas", files: [file("e.pdf")], offered: offered(.audibleID, hasAudio: true, hasPDFEbook: true)),
+            seed("Atlas", files: [file("f.pdf")], offered: nil),
+            // Only PDFs are guessed about, and only those that are ebooks.
+            seed(
+                "Atlas", files: [file("g.m4b"), file("g.epub"), file("g.pdf"), file("notes.pdf", .extra)],
+                offered: offered(.audibleID, hasAudio: true)),
+        ])
+        #expect((0..<6).map { roles(review, $0) } == [[.extra], [.ebook], [.ebook], [.extra], [.extra], [.ebook]])
+        #expect(roles(review, 6) == [.audio, .ebook, .extra, .extra])
+        #expect(review.entries.allSatisfy { review.readiness(of: $0.id) == .ready })
+    }
+
+    /// IH3: the guess holds only while the switch is on.
+    @Test func IH3_theGuessFollowsTheSwitch() {
+        var review = review([
+            seed("Atlas: A Journey", files: [file("a.pdf")], offered: offered(.possible, hasPDFEbook: true)),
+            seed("Atlas", files: [file("b.pdf")], offered: offered(.audibleID, hasAudio: true)),
+        ])
+        let (possible, sure) = (review.entries[0].id, review.entries[1].id)
+        // Off: an ebook, and a book of its own that can be imported.
+        #expect(roles(review, 0) == [.ebook])
+        #expect(review.readiness(of: possible) == .ready)
+
+        review.setAddToExisting(true, for: possible)
+        #expect(roles(review, 0) == [.extra])
+        review.setAddToExisting(false, for: possible)
+        #expect(roles(review, 0) == [.ebook])
+
+        // The same through the entry itself, as a view may change it.
+        review.update(sure) { $0.addToExisting = false }
+        #expect(roles(review, 1) == [.ebook])
+        #expect(review.readiness(of: sure) == .ready)
+        review.update(sure) { $0.addToExisting = true }
+        #expect(roles(review, 1) == [.extra])
+    }
+
+    /// IH3: the guess follows the match as it is looked up again.
+    @Test func IH3_theGuessFollowsANewLookup() {
+        var review = review([seed("Atlas", files: [file("a.pdf")], offered: nil)])
+        let id = review.entries[0].id
+        func lookedUp(_ match: ImportMatch?) {
+            review.setMatch(match, for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        }
+        lookedUp(offered(.audibleID, hasAudio: true))
+        #expect(roles(review) == [.extra])
+        lookedUp(offered(.sure, hasAudio: true))
+        #expect(roles(review) == [.ebook])
+        lookedUp(offered(.sure, hasPDFEbook: true))
+        #expect(roles(review) == [.extra])
+        lookedUp(offered(.possible, hasPDFEbook: true))
+        #expect(roles(review) == [.ebook])
+        lookedUp(offered(.sure, hasPDFEbook: true))
+        #expect(roles(review) == [.extra])
+        lookedUp(nil)
+        #expect(roles(review) == [.ebook])
+        #expect(review.readiness(of: id) == .ready)
+    }
+
+    /// IH3: the guess is only where the role control starts: what the owner chooses there is kept.
+    @Test func IH3_theOwnersChoiceOfRoleIsKept() {
+        var review = review([
+            seed("Atlas", files: [file("a.pdf")], offered: offered(.audibleID, hasAudio: true)),
+            seed("Atlas", files: [file("b.pdf")], offered: offered(.sure)),
+        ])
+        let (guessed, plain) = (review.entries[0].id, review.entries[1].id)
+
+        // Guessed an extra; the owner says it is the ebook.
+        review.setRole(.ebook, file: url("a.pdf"), in: guessed)
+        #expect(roles(review, 0) == [.ebook])
+        review.setAddToExisting(false, for: guessed)
+        review.setAddToExisting(true, for: guessed)
+        review.setMatch(
+            offered(.audibleID, hasAudio: true, hasPDFEbook: true), for: guessed,
+            matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(roles(review, 0) == [.ebook])
+
+        // Guessed the ebook; the owner says it is an extra: it stays one with the switch off,
+        // as it did before there were guesses.
+        review.setRole(.extra, file: url("b.pdf"), in: plain)
+        review.setAddToExisting(false, for: plain)
+        #expect(roles(review, 1) == [.extra])
+        #expect(review.readiness(of: plain) == .blocked("A book needs at least one audiobook or ebook file"))
+    }
+
+    /// IH3: an extra the scan made is not the guess's to change back.
+    @Test func IH3_anExtraThatWasNotGuessedIsLeftAlone() {
+        var review = review([
+            seed(
+                "Atlas", files: [file("a.m4b"), file("booklet.pdf", .extra)],
+                offered: offered(.audibleID, hasAudio: true))
+        ])
+        let id = review.entries[0].id
+        review.setAddToExisting(false, for: id)
+        #expect(roles(review) == [.audio, .extra])
+        review.setMatch(nil, for: id, matchingMetadata: review.entries[0].candidate.metadata)
+        #expect(roles(review) == [.audio, .extra])
+    }
+
+    /// IH3: a guessed extra moved out to be a book of its own is an ebook there, and
+    /// merged into another entry it is still the guess's.
+    @Test func IH3_theGuessSurvivesDetachAndMerge() {
+        var review = review([
+            seed("Atlas", files: [file("a.m4b"), file("a.pdf")], offered: offered(.audibleID, hasAudio: true)),
+            seed("Atlas", files: [file("b.pdf")], offered: offered(.audibleID, hasAudio: true)),
+        ])
+        #expect(roles(review, 0) == [.audio, .extra])
+        review.merge(Set(review.entries.map(\.id)))
+        #expect(roles(review, 0) == [.audio, .extra, .extra])
+        let id = review.entries[0].id
+        review.setAddToExisting(false, for: id)
+        #expect(roles(review, 0) == [.audio, .ebook, .ebook])
+        review.setAddToExisting(true, for: id)
+
+        review.detach(file: url("b.pdf"), from: id)
+        #expect(roles(review, 0) == [.audio, .extra])
+        #expect(roles(review, 1) == [.ebook])
+        #expect(review.entries[1].existingMatch == nil)
+    }
+
+    /// IH8: what is imported is what the entry shows: the candidate as it was scanned
+    /// (its own notes included), the guessed role, and the target the switch says.
+    @Test func IH8_itemsCarryTheEntryAsTheOwnerLeftIt() {
+        var candidate = CandidateBook(
+            files: [file("a.pdf")], metadata: BookMetadata(title: "Atlas", authors: ["Ann Author"]),
+            guessNotes: [.fromFileName, .orderUnsure])
+        var review = review([
+            ImportSeed(candidate: candidate, cover: nil, match: offered(.audibleID, hasAudio: true)),
+            ImportSeed(candidate: candidate, cover: nil, match: offered(.possible)),
+            ImportSeed(candidate: candidate, cover: nil, match: nil),
+        ])
+        review.setText("Atlas ", for: .title, of: review.entries[2].id)
+
+        let items = review.items()
+        #expect(items.map(\.target) == [.existing(bookId: 7), .newBook, .newBook])
+        candidate.files[0].role = .extra
+        #expect(items[0].candidate == candidate)
+        candidate.files[0].role = .ebook
+        #expect(items[1].candidate == candidate)
+        // Edited by hand: the scan's notes still go with the candidate.
+        #expect(items[2].candidate == candidate)
+    }
+
     // MARK: End to end
 
     private struct Library {

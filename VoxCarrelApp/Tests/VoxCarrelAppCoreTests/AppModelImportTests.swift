@@ -1,3 +1,4 @@
+import CoreGraphics
 import DemoContent
 import Foundation
 import Testing
@@ -527,6 +528,243 @@ import VoxCarrelFixtures
         #expect(matched.existingMatch?.id == (try h.id("Quiet Rivers")))
         #expect(matched.isAddedToExisting)
         #expect(matched.destination == (try h.book(try h.id("Quiet Rivers")).folderPath))
+    }
+
+    // MARK: IH1–IH8 Guessing (plan 14)
+
+    private static let untaggedName = "Mind Over Markets_ Power Tradin - James F. Dalton.pdf"
+    private static let companionName =
+        "Mind Over Markets\u{A789} Power Trading with Market Generated Information, Updated Edition [B09WXN61GL].pdf"
+    private static let audiobookTitle = "Mind Over Markets (Unabridged)"
+    private static let askedAbout =
+        "Looks like “Mind Over Markets (Unabridged)”, which is already in your library. Add these files to it?"
+
+    /// A started model on a library that holds one audiobook, imported from a real file:
+    /// "Mind Over Markets (Unabridged)" by James F. Dalton, Audible ID B09WXN61GL.
+    private func ownersLibrary() async throws -> (h: Harness, audiobook: Int64) {
+        let h = try await Harness.empty()
+        var tags = BookMetadata(title: Self.audiobookTitle, authors: ["James F. Dalton"])
+        tags.asin = "B09WXN61GL"
+        let audio = try makeAudiobook("library.m4b", tags: tags, in: try makeTempDir())
+        await h.model.beginImport([audio])
+        await h.model.confirmImport()
+        let id = try h.id(Self.audiobookTitle)
+        #expect(try h.book(id).asin == "B09WXN61GL")
+        #expect(try h.fileURLs(id).count == 1)
+        return (h, id)
+    }
+
+    private func makeAudiobook(_ name: String, tags: BookMetadata, in folder: URL) throws -> URL {
+        let url = folder.appendingPathComponent(name)
+        try MediaFixtures.makeAAC(at: url, seconds: 1)
+        try FileMetadataIO().write(tags, cover: .keep, to: url)
+        return url
+    }
+
+    /// A PDF with nothing in its information dictionary.
+    private func makeUntaggedPDF(_ name: String, in folder: URL) throws -> URL {
+        let url = folder.appendingPathComponent(name)
+        var box = CGRect(x: 0, y: 0, width: 612, height: 792)
+        let context = try #require(CGContext(url as CFURL, mediaBox: &box, nil))
+        context.beginPDFPage(nil)
+        context.endPDFPage()
+        context.closePDF()
+        return url
+    }
+
+    /// The PDF that came with the audiobook: its name has the Audible ID, its tags name
+    /// another title and author.
+    private func makeCompanionPDF(in folder: URL) throws -> URL {
+        let url = folder.appendingPathComponent(Self.companionName)
+        MediaFixtures.makePDF(at: url)
+        return url
+    }
+
+    /// What IH1–IH6 say of the untagged PDF and the companion PDF, whichever way they came.
+    private func expectTheOwnersPDFs(_ h: Harness, audiobook: Int64) throws {
+        let review = try #require(h.model.review)
+        let folder = try h.book(audiobook).folderPath
+
+        // The tagless PDF: read as "Title - Author", offered the audiobook, switched off.
+        let untagged = try entry(h, "Mind Over Markets: Power Tradin")
+        #expect(untagged.candidate.metadata.authors == ["James F. Dalton"])
+        #expect(untagged.existingMatch?.id == audiobook)
+        #expect(untagged.matchStrength == .possible)
+        #expect(!untagged.addToExisting)
+        #expect(!untagged.isAddedToExisting)
+        #expect(untagged.existingMatchText == Self.askedAbout)
+        #expect(untagged.candidate.files.map(\.role) == [.ebook])
+        #expect(untagged.destination != nil)
+        #expect(untagged.destination != folder)
+        #expect(review.guessNote(of: untagged.id) == "Read from the file name as “Title - Author”.")
+        #expect(!review.offersProminentSwap(of: untagged.id))
+        #expect(
+            review.question(of: untagged.id)
+                == "This may be “Mind Over Markets (Unabridged)”, which is already in your library.")
+
+        // The companion PDF: joins by the Audible ID in its name, as an extra.
+        let companion = try entry(h, "Original Title")
+        #expect(companion.candidate.metadata.asin == "B09WXN61GL")
+        #expect(companion.existingMatch?.id == audiobook)
+        #expect(companion.matchStrength == .audibleID)
+        #expect(companion.addToExisting)
+        #expect(companion.isAddedToExisting)
+        #expect(companion.existingMatchText == "Add to the existing book \"Mind Over Markets (Unabridged)\"")
+        #expect(companion.candidate.files.map(\.role) == [.extra])
+        #expect(companion.destination == folder)
+        #expect(review.guessNote(of: companion.id) == nil)
+        #expect(review.guessedAudibleIDText(of: companion.id) == "Audible ID B09WXN61GL")
+        #expect(review.audibleIDNote(of: companion.id) == "The Audible ID was read from the file name.")
+        #expect(review.question(of: companion.id) == nil)
+    }
+
+    /// IH1, IH3, IH4, IH6: the three files that prompted the plan, through the review.
+    @Test func IH_theOwnersThreeFilesInTheReview() async throws {
+        let (h, audiobook) = try await ownersLibrary()
+        let inbox = try makeTempDir()
+        let untagged = try makeUntaggedPDF(Self.untaggedName, in: inbox)
+        let companion = try makeCompanionPDF(in: inbox)
+        let audio = try makeAudiobook(
+            "download.m4b", tags: BookMetadata(title: "Mind Over Markets", authors: ["James F. Dalton"]), in: inbox)
+
+        await h.model.beginImport([untagged, companion, audio])
+        let review = try #require(h.model.review)
+        #expect(review.entries.count == 3)
+        try expectTheOwnersPDFs(h, audiobook: audiobook)
+
+        // The audiobook tagged without the edition word: surely the same book.
+        let tagged = try entry(h, "Mind Over Markets")
+        #expect(tagged.existingMatch?.id == audiobook)
+        #expect(tagged.matchStrength == .sure)
+        #expect(tagged.addToExisting)
+        #expect(tagged.guessNotes == [])
+        #expect(review.guessNote(of: tagged.id) == nil)
+        #expect(review.question(of: tagged.id) == nil)
+
+        #expect(review.questionsText == "1 book has a question to check.")
+        #expect(review.countText == "3 of 3 books will be imported")
+        #expect(review.canImport)
+    }
+
+    /// IH8, and the plan's first principle: left as offered, the doubtful PDF becomes a
+    /// book of its own and the companion joins the audiobook as an extra.
+    @Test func IH8_importingTheOwnersFilesAsOfferedJoinsOnlyWhatIsSure() async throws {
+        let (h, audiobook) = try await ownersLibrary()
+        let inbox = try makeTempDir()
+        let untagged = try makeUntaggedPDF(Self.untaggedName, in: inbox)
+        let companion = try makeCompanionPDF(in: inbox)
+        await h.model.beginImport([untagged, companion])
+        #expect(h.model.review?.entries.count == 2)
+
+        await h.model.confirmImport()
+
+        let store = try h.store()
+        #expect(Set(try store.books().map(\.title)) == [Self.audiobookTitle, "Mind Over Markets: Power Tradin"])
+        #expect(try store.files(bookId: audiobook).map(\.role) == [.audio, .extra])
+        #expect(try store.files(bookId: audiobook).map(\.format) == [.m4b, .pdf])
+        let own = try h.id("Mind Over Markets: Power Tradin")
+        #expect(try h.book(own).authors == ["James F. Dalton"])
+        #expect(try store.files(bookId: own).map(\.role) == [.ebook])
+    }
+
+    /// IH1, IH3: the owner's yes to the possible match adds the PDF to the audiobook, as its ebook.
+    @Test func IH1_sayingYesToThePossibleMatchJoinsTheBook() async throws {
+        let (h, audiobook) = try await ownersLibrary()
+        let untagged = try makeUntaggedPDF(Self.untaggedName, in: try makeTempDir())
+        await h.model.beginImport([untagged])
+        let id = try entry(h, "Mind Over Markets: Power Tradin").id
+
+        h.model.updateReview { $0.setAddToExisting(true, for: id) }
+        await h.model.settle()
+        let joined = try #require(h.model.review?.entry(id))
+        #expect(joined.isAddedToExisting)
+        #expect(joined.destination == (try h.book(audiobook).folderPath))
+        #expect(h.model.review?.question(of: id) == nil)
+        #expect(h.model.review?.questionsText == nil)
+
+        await h.model.confirmImport()
+        #expect(try h.store().books().count == 1)
+        #expect(try h.store().files(bookId: audiobook).map(\.role) == [.audio, .ebook])
+    }
+
+    /// IH2: a file with a title and no author is offered the book of that title, off;
+    /// once the owner types the author the match is sure and the switch goes on.
+    @Test func IH2_typingTheAuthorMakesAPossibleMatchSure() async throws {
+        let (h, audiobook) = try await ownersLibrary()
+        // "Downloads" is a place, not an author.
+        let downloads = try makeTempDir().appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let pdf = try makeUntaggedPDF("Mind Over Markets.pdf", in: downloads)
+        await h.model.beginImport([pdf])
+        let before = try entry(h, "Mind Over Markets")
+        #expect(before.candidate.metadata.authors == [])
+        #expect(before.existingMatch?.id == audiobook)
+        #expect(before.matchStrength == .possible)
+        #expect(!before.addToExisting)
+        #expect(h.model.review?.guessNote(of: before.id) == "Read from the file name.")
+
+        h.model.updateReview { $0.setText("James F. Dalton", for: .authors, of: before.id) }
+        await h.model.settle()
+        let sure = try #require(h.model.review?.entry(before.id))
+        #expect(sure.existingMatch?.id == audiobook)
+        #expect(sure.matchStrength == .sure)
+        #expect(sure.addToExisting)
+        #expect(sure.existingMatchText == "Add to the existing book \"Mind Over Markets (Unabridged)\"")
+        #expect(h.model.review?.question(of: before.id) == nil)
+        #expect(h.model.review?.guessNote(of: before.id) == nil)
+
+        // Another author: no longer that book at all.
+        h.model.updateReview { $0.setText("Somebody Else", for: .authors, of: before.id) }
+        await h.model.settle()
+        #expect(h.model.review?.entry(before.id)?.existingMatch == nil)
+    }
+
+    /// IH2: the owner's own setting of the switch is not undone when the same book is found again.
+    @Test func IH2_aSwitchSetByHandIsKeptWhenTheSameBookIsFoundAgain() async throws {
+        let (h, audiobook) = try await ownersLibrary()
+        let downloads = try makeTempDir().appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
+        let pdf = try makeUntaggedPDF("Mind Over Markets.pdf", in: downloads)
+        await h.model.beginImport([pdf])
+        let id = try entry(h, "Mind Over Markets").id
+
+        // Looked at, and refused.
+        h.model.updateReview { $0.setAddToExisting(true, for: id) }
+        h.model.updateReview { $0.setAddToExisting(false, for: id) }
+        h.model.updateReview { $0.setText("James F. Dalton", for: .authors, of: id) }
+        await h.model.settle()
+        let entry = try #require(h.model.review?.entry(id))
+        #expect(entry.existingMatch?.id == audiobook)
+        #expect(entry.matchStrength == .sure)
+        #expect(!entry.addToExisting)
+        #expect(entry.destination == "James F. Dalton/Mind Over Markets")
+    }
+
+    /// IH7: arrivals reviewed from the Inbox come with the same strengths, notes and guesses.
+    @Test func IH7_arrivalsFromTheInboxAreGuessedAboutTheSameWay() async throws {
+        let (h, audiobook) = try await ownersLibrary()
+        let folder = try makeTempDir()
+        await h.model.addWatchFolder(folder)
+        await h.model.settle()
+        let row = try #require(h.model.watchFolderRows.first)
+        await h.model.setWatchFolder(row.id, includesPDFs: true)
+        await h.model.settle()
+        _ = try makeUntaggedPDF(Self.untaggedName, in: folder)
+        _ = try makeCompanionPDF(in: folder)
+        // The watcher reports; a settle interval later the second look is taken.
+        h.watcher.fire()
+        await h.model.settle()
+        h.clock.now += 11
+        #expect(h.ticker.run(delay: 11), "no check was scheduled 11 seconds on")
+        await h.model.settle()
+        #expect(h.model.inboxRows.count == 2)
+
+        await h.model.reviewInbox(opening: Set(h.model.inboxRows.map(\.id)))
+        let review = try #require(h.model.review)
+        #expect(review.isFromInbox)
+        #expect(review.entries.count == 2)
+        try expectTheOwnersPDFs(h, audiobook: audiobook)
+        #expect(review.questionsText == "1 book has a question to check.")
     }
 
     /// A22

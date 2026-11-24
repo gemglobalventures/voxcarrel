@@ -79,15 +79,21 @@ struct ImportReviewSheet: View {
 // MARK: - The list
 
 private struct EntryList: View {
+    @Environment(AppModel.self) private var model
     let review: ImportReview
     @Binding var selection: Set<UUID>
 
     var body: some View {
+        // A row in the list does not read the model itself: it is handed what it does.
+        let model = model
         List(selection: $selection) {
             ForEach(Array(review.entries.enumerated()), id: \.element.id) { index, entry in
                 EntryRow(
-                    entry: entry, status: review.status(of: entry.id), index: index,
-                    isSelected: selection.contains(entry.id))
+                    entry: entry, status: review.status(of: entry.id), question: review.question(of: entry.id),
+                    index: index, isSelected: selection.contains(entry.id),
+                    setIncluded: { included in
+                        model.updateReview { $0.update(entry.id) { $0.included = included } }
+                    })
             }
         }
         .listStyle(.inset)
@@ -97,12 +103,15 @@ private struct EntryList: View {
 
 /// X2: the checkbox, the cover, and what the book is.
 private struct EntryRow: View {
-    @Environment(AppModel.self) private var model
     let entry: ImportReview.Entry
     let status: ImportReview.Status?
+    /// IH6: what there is to check about the book; nil when nothing.
+    let question: String?
     let index: Int
     /// Whether the list shows this row as selected, on its highlight.
     let isSelected: Bool
+    /// Ticks or unticks the book for import.
+    let setIncluded: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -116,9 +125,20 @@ private struct EntryRow: View {
                 EntryCover(entry: entry, side: 44, cornerRadius: 2)
                     .frame(width: 30, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.titleText)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("review.entry.\(index).title")
+                    HStack(spacing: 4) {
+                        Text(entry.titleText)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("review.entry.\(index).title")
+                        if let question {
+                            // IH6: the caution mark says what, when pointed at.
+                            Image(systemName: ImportReview.questionSymbol)
+                                .font(.caption)
+                                .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.orange))
+                                .help(question)
+                                .accessibilityLabel(question)
+                                .accessibilityIdentifier("review.entry.\(index).question")
+                        }
+                    }
                     Text(entry.authorsText)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -169,13 +189,7 @@ private struct EntryRow: View {
     }
 
     private var included: Binding<Bool> {
-        let model = model
-        let id = entry.id
-        return Binding(
-            get: { entry.included },
-            set: { included in
-                model.updateReview { $0.update(id) { $0.included = included } }
-            })
+        Binding(get: { entry.included }, set: setIncluded)
     }
 }
 
@@ -235,6 +249,14 @@ private struct EntryDetail: View {
                         InspectorField("Authors", hint: InspectorMetrics.semicolonHint) {
                             textField("Authors", text: $authors, id: "authors")
                         }
+                        // IH4: what of these was read from the file's name.
+                        if let note = review.guessNote(of: entry.id) {
+                            Text(note)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("review.guessNote")
+                        }
                         HStack(spacing: 8) {
                             // V1
                             Button("Look Up…") {
@@ -249,9 +271,25 @@ private struct EntryDetail: View {
                                 // The authors box keeps its own text: it takes the entry's again.
                                 authors = (model.review ?? review).text(for: .authors, of: entry.id)
                             }
+                            // IH5: it stands out while the two may be in each other's place.
+                            .modifier(StandingOut(isOn: review.offersProminentSwap(of: entry.id)))
                             .disabled(!model.canSwapReviewTitleAndAuthor(for: entry.id))
                             .help("Exchange the title and the first author")
                             .accessibilityIdentifier("review.swapTitleAndAuthor")
+                        }
+                        // IH4: an Audible ID that was read from the file's name.
+                        if let audibleID = review.guessedAudibleIDText(of: entry.id),
+                           let note = review.audibleIDNote(of: entry.id) {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(audibleID)
+                                    .textSelection(.enabled)
+                                    .accessibilityIdentifier("review.audibleID")
+                                Text(note)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("review.audibleIDNote")
+                            }
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -285,10 +323,14 @@ private struct EntryDetail: View {
 
                 InspectorSection("Where It Goes") {
                     if let offer = entry.existingMatchText {
-                        Toggle(offer, isOn: addToExisting)
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("review.addToExisting")
+                        Toggle(isOn: addToExisting) {
+                            // IH1: a possible match is a question, and a long one.
+                            Text(offer)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("review.addToExisting")
                     }
                     Label(review.destinationText(of: entry.id), systemImage: "folder")
                         .foregroundStyle(.secondary)
@@ -345,7 +387,8 @@ private struct EntryDetail: View {
         return Binding(
             get: { entry.addToExisting },
             set: { add in
-                model.updateReview { $0.update(id) { $0.addToExisting = add } }
+                // IH2: the owner's own choice for the book that is offered.
+                model.updateReview { $0.setAddToExisting(add, for: id) }
             })
     }
 
@@ -357,6 +400,21 @@ private struct EntryDetail: View {
         .textFieldStyle(.roundedBorder)
         .accessibilityLabel(title)
         .accessibilityIdentifier("review.\(id)")
+    }
+}
+
+/// IH5: a button that stands out, or stands as the others do.
+private struct StandingOut: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+        } else {
+            content
+        }
     }
 }
 
@@ -493,10 +551,19 @@ private struct BottomBar: View {
                     .accessibilityIdentifier("review.moveOnly")
             }
             Spacer(minLength: 12)
-            Text(review.countText)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .accessibilityIdentifier("review.count")
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(review.countText)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("review.count")
+                // A question never stops the import: it is only said.
+                if let questions = review.questionsText {
+                    Text(questions)
+                        .font(.callout)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("review.questions")
+                }
+            }
+            .foregroundStyle(.secondary)
             Button("Cancel") {
                 model.cancelImport()
             }
