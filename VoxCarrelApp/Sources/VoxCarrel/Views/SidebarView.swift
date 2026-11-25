@@ -40,7 +40,7 @@ struct SidebarView: View {
 
             // The smart shelves, each with the number of books it holds now. The
             // header has the button that makes one.
-            Section {
+            Section(isExpanded: .constant(true)) {
                 ForEach(model.shelves) { shelf in
                     Label(shelf.name, systemImage: shelf.item.symbol)
                         .lineLimit(1)
@@ -69,7 +69,8 @@ struct SidebarView: View {
             } header: {
                 ShelvesHeader(model: model)
             }
-            // The header's own button stands where the button that hides a section would.
+            // The header's own button stands where the button that hides a section would:
+            // the section cannot be folded, by the pointer or by anything else.
             .collapsible(false)
 
             Section("Browse") {
@@ -90,7 +91,7 @@ struct SidebarView: View {
 
             // G34–G36: the genres by group, each with its count, then the books that
             // have none. G13, G23, G29: the header has what is done with genres.
-            Section {
+            Section(isExpanded: .constant(true)) {
                 ForEach(model.genreTree) { group in
                     DisclosureGroup(isExpanded: isOpen(group.group)) {
                         ForEach(group.genres) { genre in
@@ -126,7 +127,8 @@ struct SidebarView: View {
             } header: {
                 GenresHeader(model: model)
             }
-            // The header's own controls stand where the button that hides a section would.
+            // The header's own controls stand where the button that hides a section would:
+            // the section cannot be folded, by the pointer or by anything else.
             .collapsible(false)
 
             Section("Collections") {
