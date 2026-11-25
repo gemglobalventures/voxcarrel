@@ -159,6 +159,14 @@ private struct ViewModeCommands: View {
         Toggle("Group by Series", isOn: groupsBySeries)
             .accessibilityIdentifier("menu.view.groupBySeries")
         Divider()
+        // "Show Hidden Books…", which asks for Touch ID or the Mac's password first;
+        // "Stop Showing Hidden Books" while they are shown.
+        Button(model.hiddenBooksMenuTitle) {
+            Task { await model.toggleHiddenBooks() }
+        }
+        .disabled(!model.canToggleHiddenBooks)
+        .accessibilityIdentifier("menu.view.hiddenBooks")
+        Divider()
     }
 
     private var groupsBySeries: Binding<Bool> {

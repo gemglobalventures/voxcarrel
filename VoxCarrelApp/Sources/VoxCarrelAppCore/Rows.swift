@@ -31,6 +31,9 @@ public enum SidebarItem: Hashable, Sendable {
     /// only while there is a watch folder (`AppModel.showsInbox`), and not one of `fixed`:
     /// it lists arrivals, not books of the library.
     case inbox
+    /// The books the owner has hidden. Shown only while hidden books are being shown
+    /// (`AppModel.showsHiddenBooks`), and not one of `fixed`: no other list has them.
+    case hidden
 
     /// The eight items every library has, in sidebar order.
     public static let fixed: [SidebarItem] = [
@@ -210,6 +213,8 @@ public struct SidebarData: Equatable, Sendable {
     public var kindleCount = 0
     /// How many books have a highlight.
     public var highlightedCount = 0
+    /// How many books are hidden. Nothing else here counts them.
+    public var hiddenCount = 0
 
     public init(
         counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection],

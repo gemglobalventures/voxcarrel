@@ -31,6 +31,34 @@ final class RecordingOpener: FileOpener, @unchecked Sendable {
     }
 }
 
+/// An `OwnerCheck` that asks nobody: it answers as a test tells it to, and remembers
+/// what it was asked for.
+final class FakeOwnerCheck: OwnerCheck, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedAnswer = OwnerCheckResult.confirmed
+    private var storedReasons: [String] = []
+    private var storedGate: Gate?
+
+    /// What the next checks answer. Confirmed, until a test says otherwise.
+    var answer: OwnerCheckResult {
+        get { lock.withLock { storedAnswer } }
+        set { lock.withLock { storedAnswer = newValue } }
+    }
+    /// The reason given with each check, in order.
+    var reasons: [String] { lock.withLock { storedReasons } }
+    /// Holds a check until it is released, as while the system's question is up.
+    var gate: Gate? {
+        get { lock.withLock { storedGate } }
+        set { lock.withLock { storedGate = newValue } }
+    }
+
+    func confirm(reason: String) async -> OwnerCheckResult {
+        lock.withLock { storedReasons.append(reason) }
+        await gate?.wait()
+        return answer
+    }
+}
+
 /// A `FolderWatching` that watches nothing: a test says when something changed, with `fire()`.
 @MainActor
 final class FakeFolderWatcher: FolderWatching {
@@ -178,6 +206,8 @@ final class Harness {
     let readwiseTokenFile: URL
     /// What the model writes to as the clipboard.
     let clipboardWriter = FakeClipboardWriter()
+    /// What the model asks the owner to prove who they are with: never the system's.
+    let ownerCheck = FakeOwnerCheck()
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -201,7 +231,8 @@ final class Harness {
         model = AppModel(
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
             watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
-            audibleKeys: audibleKeys, audibleTransport: audible, readwiseTokens: readwiseTokens)
+            audibleKeys: audibleKeys, audibleTransport: audible, readwiseTokens: readwiseTokens,
+            ownerCheck: ownerCheck)
         model.lookupLanguage = "en"
         sendTemp = try makeTempDir()
         model.network = network
@@ -291,7 +322,7 @@ final class Harness {
             lookupService: lookup.service(for:),
             watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now },
             phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible,
-            readwiseTokens: readwiseTokens)
+            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck)
         model.network = network
         model.sendTempRoot = sendTemp
         giveAudibleSeams(to: model)

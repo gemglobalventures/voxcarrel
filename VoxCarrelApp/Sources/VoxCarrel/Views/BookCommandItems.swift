@@ -109,6 +109,13 @@ struct BookCommandItems: View {
         .disabled(!model.canRemoveFromUpNext(books))
         .accessibilityIdentifier("\(prefix).removeFromUpNext")
 
+        // "Hide", or "Unhide" in the Hidden list.
+        Button(model.hideTitle(for: books)) {
+            Task { await model.toggleHidden(for: books) }
+        }
+        .disabled(!model.canHide(books))
+        .accessibilityIdentifier("\(prefix).hide")
+
         Button("Rewrite Tags") {
             Task { await model.rewriteTags(for: books) }
         }

@@ -50,6 +50,13 @@ struct SidebarView: View {
                             .accessibilityIdentifier("sidebar.onKindle")
                     }
                 }
+                // Last, and only while hidden books are being shown.
+                if model.showsHiddenBooks {
+                    Label(model.title(of: .hidden), systemImage: SidebarItem.hidden.symbol)
+                        .badge(Text("\(model.hiddenBookCount)"))
+                        .tag(SidebarItem.hidden)
+                        .accessibilityIdentifier("sidebar.hidden")
+                }
             }
 
             // The smart shelves, each with the number of books it holds now. The

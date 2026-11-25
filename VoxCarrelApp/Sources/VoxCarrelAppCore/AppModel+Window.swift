@@ -60,6 +60,7 @@ extension AppModel {
         case .noGenre: "No genre"
         case .collection(let id): sidebar.collections.first { $0.id == id }?.name ?? "Collection"
         case .inbox: "Inbox"
+        case .hidden: "Hidden"
         case .upNext: "Up Next"
         case .shelf(let id): sidebar.shelves.first { $0.id == id }?.name ?? "Shelf"
         }
@@ -194,6 +195,7 @@ extension AppModel {
         guard sidebarSelection != .inbox else { return nil }
         // R10
         if sidebarSelection == .onAudible, sidebar.counts[.onAudible] == 0 { return .noAudibleBooks }
+        if sidebarSelection == .hidden, sidebar.hiddenCount == 0 { return .noHiddenBooks }
         if all == 0 { return .emptyLibrary }
         // Nothing is being read, begun or waiting: not a search that found nothing.
         if sidebarSelection == .upNext, searchText.trimmed.isEmpty { return .nothingUpNext }
@@ -259,6 +261,8 @@ public enum EmptyState: Equatable, Sendable {
     case noAudibleBooks
     /// Up Next is what the sidebar shows, and it has no lines.
     case nothingUpNext
+    /// The Hidden list is what the sidebar shows, and no book is hidden.
+    case noHiddenBooks
 
     public var title: String {
         switch self {
@@ -266,6 +270,7 @@ public enum EmptyState: Equatable, Sendable {
         case .noMatches: "No books match"
         case .noAudibleBooks: "No Audible books yet"
         case .nothingUpNext: "Nothing up next"
+        case .noHiddenBooks: "No hidden books"
         }
     }
 
@@ -276,6 +281,7 @@ public enum EmptyState: Equatable, Sendable {
         case .noAudibleBooks: "Choose Book ▸ Add Audible Book…"
         case .nothingUpNext:
             "Books you are reading, the next book of a series you have begun, and books you add here will be listed."
+        case .noHiddenBooks: "To hide books, select them and choose Book ▸ Hide."
         }
     }
 }

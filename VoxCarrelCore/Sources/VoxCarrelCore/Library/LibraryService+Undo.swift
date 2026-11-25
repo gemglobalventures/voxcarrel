@@ -50,9 +50,26 @@ extension LibraryService {
     }
 
     /// The label of the operation that `undoLast` would reverse, or nil.
+    ///
+    /// Inside `BookScope.visible` a label that names a book which is hidden now says
+    /// "1 book" in place of its title: "Edit 1 book".
     public func undoLabel() throws -> String? {
-        if case .undoable(let batch, _) = try recordedOperation() { return batch.label }
-        return nil
+        guard case .undoable(let batch, let snapshot) = try recordedOperation() else { return nil }
+        guard BookScope.visibleOnly else { return batch.label }
+        var label = batch.label
+        for book in snapshot?.books ?? [] {
+            guard let current = try store.book(id: book.bookId), current.isHidden else { continue }
+            // The title it had when the operation was named, and the one it has now:
+            // the longer first, since one may be the start of the other.
+            let titles = [book.bookBefore?.title, current.title]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .sorted { $0.count > $1.count }
+            for name in titles {
+                label = label.replacingOccurrences(of: name, with: "1 book")
+            }
+        }
+        return label
     }
 
     /// Reverses the most recent import or edit. Returns its label. (A change of folder
@@ -141,8 +158,15 @@ extension LibraryService {
         // A merge joined the entries' read status and where else they are owned: undoing
         // it puts those back with the rest, for the kept book as for the others.
         let merge = snapshot?.merge
+        // Not part of undo either: whether a book is hidden. An entry a merge removed
+        // comes back hidden when the book it was merged into is hidden now.
+        var keptIsHidden = false
         for book in snapshot?.books ?? [] {
             if var before = book.bookBefore {
+                if let current = try store.book(id: book.bookId) {
+                    before.isHidden = current.isHidden
+                    keptIsHidden = keptIsHidden || current.isHidden
+                }
                 // Not part of undo: where the reader is with the book.
                 if merge == nil, let current = try store.book(id: book.bookId) {
                     before.readStatus = current.readStatus
@@ -191,6 +215,7 @@ extension LibraryService {
         for removed in merge?.removed ?? [] {
             guard let id = removed.book.id else { continue }
             var book = removed.book
+            if keptIsHidden { book.isHidden = true }
             if removed.files.contains(where: { !FileManager.default.fileExists(atPath: store.url(for: $0).path) }) {
                 book.needsAttention = true
             }

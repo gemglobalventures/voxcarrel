@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import VoxCarrelCore
 
-/// HB1–HB5: books the owner keeps out of sight.
+/// HB1–HB7: books the owner keeps out of sight.
 @Suite struct HiddenBookTests {
     typealias F = LibraryFixture
 
@@ -127,5 +127,70 @@ import Testing
         // A book written down before there was hiding (an undo record, say).
         let old = try JSONSerialization.data(withJSONObject: ["title": "Old", "authors": ["A"]])
         #expect(try JSONDecoder().decode(Book.self, from: old).isHidden == false)
+    }
+
+    @Test func HB6_undoingAnEditMadeBeforeABookWasHiddenLeavesItHiddenAndDoesNotNameIt() throws {
+        let f = try F()
+        let (shown, hidden) = try pair(f)
+        try f.store.setHidden(false, bookIds: [hidden])
+        var edit = BookEdit(book: try #require(try f.store.book(id: hidden)))
+        edit.metadata.title = "Closed Door Again"
+        #expect(try f.service.save([edit]).count == 1)
+        #expect(try f.service.undoLabel() == "Edit Closed Door Again")
+        try f.store.setHidden(true, bookIds: [hidden])
+
+        // Shown, the label does not name the book, by the title it has or the one it had.
+        #expect(try BookScope.visible { try f.service.undoLabel() } == "Edit 1 book")
+        #expect(try f.service.undoLabel() == "Edit Closed Door Again")
+
+        _ = try f.service.undoLast()
+        let back = try #require(try f.store.book(id: hidden))
+        #expect(back.title == "Closed Door" && back.isHidden)
+
+        // The other way round: a book brought back since stays in view.
+        try f.store.setHidden(true, bookIds: [shown])
+        var other = BookEdit(book: try #require(try f.store.book(id: shown)))
+        other.metadata.title = "Open Water Again"
+        _ = try f.service.save([other])
+        #expect(try f.store.book(id: shown)?.isHidden == true)
+        try f.store.setHidden(false, bookIds: [shown])
+        #expect(try BookScope.visible { try f.service.undoLabel() } == "Edit Open Water Again")
+        _ = try f.service.undoLast()
+        #expect(try f.store.book(id: shown)?.isHidden == false)
+    }
+
+    @Test func HB7_aHiddenBookOfACheckedSeriesIsNotListedAsMissingFromIt() throws {
+        let f = try F()
+        func add(_ title: String, number: String, series: String? = "Jack Ryan", asin: String? = nil) throws -> Int64 {
+            var metadata = BookMetadata(title: title, authors: ["Tom Clancy"])
+            metadata.series = series
+            metadata.seriesNumber = number
+            metadata.asin = asin
+            return try #require(try f.store.insert(Book(metadata: metadata), files: []).id)
+        }
+        let first = try add("The Hunt for Red October", number: "1")
+        // One hidden book is found by its title, the other by its Audible ID though it
+        // is filed under another series.
+        let second = try add("Patriot Games", number: "2")
+        let third = try add("Another Name Altogether", number: "9", series: "Elsewhere", asin: "B000000003")
+        try f.service.saveSeriesList(SeriesStoreTests.list(SeriesStoreTests.four), forSeries: "Jack Ryan", now: Date())
+        try f.store.setHidden(true, bookIds: [second, third])
+
+        let seen = try #require(try BookScope.visible { try f.service.seriesCompleteness(forSeries: "Jack Ryan") })
+        #expect(seen.missing.map(\.entry.preferred.title) == ["Clear and Present Danger"])
+        #expect(seen.ownedCount == 1 && seen.totalCount == 2)
+        // Nor is one of them what comes next.
+        try f.service.setReadStatus(.finished, for: [first])
+        let next = try BookScope.visible { try f.service.upNext().items }
+        #expect(next.count == 1)
+        if case .missing(let entry, _)? = next.first {
+            #expect(entry.entry.preferred.title == "Clear and Present Danger")
+        } else {
+            Issue.record("the next book of the series should be the one the library lacks")
+        }
+
+        // The library's own work still counts them.
+        let all = try #require(try f.service.seriesCompleteness(forSeries: "Jack Ryan"))
+        #expect(all.ownedCount == 3 && all.missing.count == 1)
     }
 }

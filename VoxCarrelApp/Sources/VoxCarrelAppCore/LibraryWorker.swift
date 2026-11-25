@@ -113,7 +113,20 @@ public actor LibraryWorker {
 
     /// The item's books in the store's order (by title), narrowed to those that match
     /// `search` when it is not blank.
+    ///
+    /// Hidden books are in the Hidden list and in no other.
     public func rows(for item: SidebarItem, search: String) throws -> [BookRow] {
+        try seeing(item) { try readRows(for: item, search: search) }
+    }
+
+    /// Runs a reading of what an item shows: the Hidden list sees every book, so that
+    /// its own are found with their files and highlights; any other list sees only the
+    /// books that are not hidden.
+    private func seeing<T>(_ item: SidebarItem, _ read: () throws -> T) rethrows -> T {
+        try item == .hidden ? read() : BookScope.visible(read)
+    }
+
+    private func readRows(for item: SidebarItem, search: String) throws -> [BookRow] {
         if item == .upNext { return try upNextRows(search: search).rows }
         var books = try self.books(for: item)
         if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -139,15 +152,22 @@ public actor LibraryWorker {
     /// about that series (plan 9, SV5, SV13): read in one turn, so that the books and
     /// the list are of the same moment. Asks nothing of the network.
     public func shownBooks(for item: SidebarItem, search: String) throws -> ShownBooks {
+        try seeing(item) { try readShownBooks(for: item, search: search) }
+    }
+
+    private func readShownBooks(for item: SidebarItem, search: String) throws -> ShownBooks {
         if item == .upNext {
             let upNext = try upNextRows(search: search)
             var shown = ShownBooks(rows: upNext.rows, series: nil, missingLinks: upNext.links)
             shown.highlightCounts = try store.highlightCounts()
             return shown
         }
-        let rows = try self.rows(for: item, search: search)
+        let rows = try readRows(for: item, search: search)
         var shown = ShownBooks(rows: rows, series: nil)
-        shown.highlightCounts = try store.highlightCounts()
+        // In the Hidden list, the counts of its own books and of no others.
+        shown.highlightCounts = item == .hidden
+            ? Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.highlightCount) }).filter { $0.value > 0 }
+            : try store.highlightCounts()
         guard case .browse(.series, let name) = item else { return shown }
         let books = try service.librarySeriesBooks(named: name)
         shown.series = ShownSeries(
@@ -184,7 +204,16 @@ public actor LibraryWorker {
         return (rows, links)
     }
 
+    ///
+    /// Everything in it is of the books that are not hidden, but for the number of
+    /// hidden books itself.
     public func sidebar() throws -> SidebarData {
+        var data = try BookScope.visible { try readSidebar() }
+        data.hiddenCount = try store.hiddenBookCount()
+        return data
+    }
+
+    private func readSidebar() throws -> SidebarData {
         var counts: [SidebarItem: Int] = [:]
         for item in SidebarItem.fixed {
             counts[item] = try books(for: item).count
@@ -229,7 +258,7 @@ public actor LibraryWorker {
 
     /// The library's list of genres, each with its number of books.
     public func genreList() throws -> [GenreEntry] {
-        try service.genreList()
+        try BookScope.visible { try service.genreList() }
     }
 
     /// G22: adds a genre of the owner's own to a group, and returns its name as listed
@@ -250,9 +279,9 @@ public actor LibraryWorker {
     }
 
     /// G13, G14: the books whose files hold another genre tag than would be written.
-    /// Reads the catalogue only.
+    /// Reads the catalogue only. Hidden books are not listed, and so are not written.
     public func genreFileDifferences() throws -> [LibraryService.GenreFileDifference] {
-        try service.genreFileDifferences()
+        try BookScope.visible { try service.genreFileDifferences() }
     }
 
     /// G14: writes the books' genres into their files, as one operation that Undo reverses.
@@ -262,9 +291,9 @@ public actor LibraryWorker {
         return try service.updateGenreFiles(ids)
     }
 
-    /// G29: the books Fill in Genres covers.
+    /// G29: the books Fill in Genres covers. Hidden books are not among them.
     public func genreFillCandidates(includingGeneral: Bool) throws -> [GenreFillBook] {
-        try service.genreFillCandidates(includingGeneral: includingGeneral)
+        try BookScope.visible { try service.genreFillCandidates(includingGeneral: includingGeneral) }
     }
 
     /// G30: what looks genres up, with the library's list as it is now. It does not run
@@ -413,8 +442,9 @@ public actor LibraryWorker {
         detail.unfiledReason = try service.unfiledReason(for: bookId)
         // PH29
         detail.lastSent = try service.sentRecords(for: bookId).first?.sentAt
-        // MG5
-        if let other = try service.bookUsingFolder(of: bookId), let otherId = other.id {
+        // MG5. A hidden book is not named on a book that is not hidden.
+        if let other = try service.bookUsingFolder(of: bookId), let otherId = other.id,
+           !other.isHidden || book.isHidden {
             detail.mergeOffer = MergeOffer(bookId: otherId, title: other.title)
         }
         return detail
@@ -469,8 +499,10 @@ public actor LibraryWorker {
 
     /// FL3: the first book of the library, by title, that is in a series: what a
     /// layout is shown with. Nil when no book is in one. Reads the catalogue only.
+    /// Never a hidden book.
     public func layoutSample() throws -> LayoutSample? {
-        guard let book = try store.books().first(where: { $0.series?.trimmedOrNil != nil }), let id = book.id
+        let books = try BookScope.visible { try store.books() }
+        guard let book = books.first(where: { $0.series?.trimmedOrNil != nil }), let id = book.id
         else { return nil }
         return LayoutSample(
             metadata: book.metadata, hasAudio: try store.files(bookId: id).contains { $0.role == .audio })
@@ -540,6 +572,8 @@ public actor LibraryWorker {
             try service.smartShelves().first { $0.id == id }.map { try service.books(on: $0) } ?? []
         // The inbox lists arrivals, which are not yet books.
         case .inbox: []
+        // Asked for by name: these are the books every other list leaves out.
+        case .hidden: try store.hiddenBooks()
         }
     }
 
@@ -770,6 +804,14 @@ public actor LibraryWorker {
         try service.setRole(role, forFile: fileId)
     }
 
+    /// Hides books, or brings them back into view. Only the catalogue changes, and it
+    /// is not an operation Undo reverses.
+    public func setHidden(_ hidden: Bool, for bookIds: [Int64]) throws {
+        let ids = self.bookIds(bookIds)
+        guard !ids.isEmpty else { return }
+        try store.setHidden(hidden, bookIds: ids)
+    }
+
     public func setReadStatus(_ status: ReadStatus, for bookIds: [Int64]) throws {
         let ids = self.bookIds(bookIds)
         guard !ids.isEmpty else { return }
@@ -857,8 +899,9 @@ public actor LibraryWorker {
         try service.locateFile(fileId: fileId, at: url)
     }
 
+    /// The name of what Undo would reverse, as it is shown: a hidden book is not named in it.
     public func undoLabel() throws -> String? {
-        try service.undoLabel()
+        try BookScope.visible { try service.undoLabel() }
     }
 
     public func undoLast() throws -> String {
@@ -874,9 +917,10 @@ public actor LibraryWorker {
     // The series is named exactly as the sidebar names it. None of these is undone by
     // Undo, and none touches a file.
 
-    /// The books of a series as Check Series asks Audible about them, by id.
+    /// The books of a series as Check Series asks Audible about them, by id. Hidden
+    /// books are not asked about.
     public func seriesCheckBooks(named name: String) throws -> [SeriesCheckBook] {
-        try service.librarySeriesBooks(named: name).map { book in
+        try BookScope.visible { try service.librarySeriesBooks(named: name) }.map { book in
             let author = try store.book(id: book.id)?.authors.lazy.compactMap(\.trimmedOrNil).first
             return SeriesCheckBook(
                 id: book.id, title: book.title, author: author, number: book.number, asin: book.asins.first)
@@ -898,9 +942,10 @@ public actor LibraryWorker {
     }
 
     /// One edit for each book of the series that Audible numbers differently: to be
-    /// saved with `save`.
+    /// saved with `save`. Only the books that are shown: a hidden book of the series is
+    /// left as it is numbered.
     public func editsUsingAudibleNumbers(forSeries name: String) throws -> [BookEdit] {
-        try service.editsUsingAudibleNumbers(forSeries: name)
+        try BookScope.visible { try service.editsUsingAudibleNumbers(forSeries: name) }
     }
 
     // MARK: Watch folders and the inbox
@@ -970,7 +1015,7 @@ public actor LibraryWorker {
 
     /// How many books a shelf would hold now; the shelf need not be a stored one.
     public func shelfCount(_ shelf: SmartShelf) throws -> Int {
-        try service.books(on: shelf).count
+        try BookScope.visible { try service.books(on: shelf).count }
     }
 
     /// Stores a shelf and returns it as stored; nil for one with a blank name.

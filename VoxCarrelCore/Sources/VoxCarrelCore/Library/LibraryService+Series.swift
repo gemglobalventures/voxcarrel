@@ -156,6 +156,21 @@ extension LibraryService {
         // when there is an entry to look for.
         var ownedEntries = result.owned.map(\.entry)
         var unmatched = result.missing
+        // Inside `BookScope.visible` the books above are those that are not hidden. An
+        // entry that a hidden book is must not then be listed as missing, which would
+        // name the book: it is left out altogether, neither owned nor missing.
+        if BookScope.visibleOnly, !unmatched.isEmpty {
+            let everyBook = try BookScope.$visibleOnly.withValue(false) {
+                (ofSeries: try librarySeriesBooks(named: name), hiddenASINs: try libraryASINs(hiddenOnly: true))
+            }
+            let shown = Set(books.map(\.id))
+            let hiddenOfSeries = everyBook.ofSeries.filter { !shown.contains($0.id) }
+            let theirs = Set(SeriesMatch.match(unmatched, with: hiddenOfSeries).owned.map { key($0.entry) })
+            unmatched.removeAll { entry in
+                theirs.contains(key(entry))
+                    || entry.asins.contains { everyBook.hiddenASINs.contains(SeriesMatch.tidyASIN($0)) }
+            }
+        }
         if !unmatched.isEmpty {
             let held = try libraryASINs()
             let (elsewhere, rest) = unmatched.reduce(into: ([SeriesEntry](), [SeriesEntry]())) { parts, entry in
@@ -200,9 +215,10 @@ extension LibraryService {
 
     /// Every ASIN the library holds: each book's own, and the item IDs of its Audible
     /// copies, tidied for comparing. One read of the catalogue.
-    private func libraryASINs() throws -> Set<String> {
+    /// - Parameter hiddenOnly: Only those of the hidden books.
+    private func libraryASINs(hiddenOnly: Bool = false) throws -> Set<String> {
         var held: Set<String> = []
-        for book in try store.books() {
+        for book in try hiddenOnly ? store.hiddenBooks() : store.books() {
             let own = [book.asin] + book.externalCopies.filter { $0.kind == .audible }.map(\.itemId)
             for asin in own.compactMap({ $0?.nonBlank }) { held.insert(SeriesMatch.tidyASIN(asin)) }
         }

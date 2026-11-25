@@ -94,6 +94,9 @@ public final class AppModel {
     ///     Readwise for highlights. Tests give one that answers by itself.
     ///   - readwiseTokens: Where the owner's Readwise token is kept: the Mac's Keychain.
     ///     Tests give one that only remembers.
+    ///   - ownerCheck: Asks the person at the Mac to prove they are its owner, before
+    ///     hidden books are shown: Touch ID or the Mac's password. Tests give one that
+    ///     answers by itself.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
         lookupService: ((LookupConfiguration) -> LookupService)? = nil,
@@ -102,7 +105,8 @@ public final class AppModel {
         phoneLink: PhoneLinking = PhoneLinkServer(), sleepGuard: SleepGuarding = SystemSleepGuard(),
         audibleKeys: any AudibleKeyStore = AudibleKeyStores.standard(),
         audibleTransport: any AudibleTransport = AudibleNetwork(),
-        readwiseTokens: any ReadwiseTokenStore = ReadwiseTokenStores.standard()
+        readwiseTokens: any ReadwiseTokenStore = ReadwiseTokenStores.standard(),
+        ownerCheck: any OwnerCheck = SystemOwnerCheck()
     ) {
         self.location = location
         self.opener = opener
@@ -116,6 +120,7 @@ public final class AppModel {
         self.audibleTransport = audibleTransport
         audibleAccount = audibleKeys.load()
         self.readwiseTokens = readwiseTokens
+        self.ownerCheck = ownerCheck
         hasReadwiseToken = readwiseTokens.load() != nil
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
@@ -283,6 +288,9 @@ public final class AppModel {
         closeHighlightsImport()
         highlights = nil
         highlightCounts = [:]
+        // Hidden books are out of sight again in every library that is opened.
+        showsHiddenBooks = false
+        if storedSidebarSelection == .hidden { storedSidebarSelection = .allBooks }
         selection = []
         anchor = nil
         inspecting = .nothing
@@ -371,6 +379,8 @@ public final class AppModel {
         get { storedSidebarSelection }
         set {
             guard newValue != storedSidebarSelection else { return }
+            // The Hidden list is there to be chosen only while hidden books are shown.
+            if newValue == .hidden, !showsHiddenBooks { return }
             storedSidebarSelection = newValue
             // GS19: chosen by the owner, not by going back from a series.
             if !isGoingBack { forgetSeriesReturn() }
@@ -669,6 +679,7 @@ public final class AppModel {
                 if !sidebar.contains(storedSidebarSelection) { storedSidebarSelection = .allBooks }
                 // WF13
                 if storedSidebarSelection == .inbox, !showsInbox { storedSidebarSelection = .allBooks }
+                if storedSidebarSelection == .hidden, !showsHiddenBooks { storedSidebarSelection = .allBooks }
                 let item = storedSidebarSelection
                 let search = storedSearchText
                 // WF24
@@ -694,6 +705,25 @@ public final class AppModel {
             show(error)
         }
         await refreshInspector(keepEdits: keepEdits)
+    }
+
+    // MARK: Hidden books
+
+    @ObservationIgnored let ownerCheck: any OwnerCheck
+    /// Whether hidden books are being shown: the Hidden list is in the sidebar. Kept
+    /// nowhere: off at every launch, and whenever another library is opened.
+    public internal(set) var showsHiddenBooks = false
+    /// True while the owner is being asked to prove who they are.
+    var isCheckingOwner = false
+
+    /// Empties the list until the library has been read again, as before the first
+    /// reading: for when what was listed must be out of sight at once.
+    func forgetShownRows() {
+        rowsGeneration += 1
+        rows = []
+        rowsLoaded = false
+        shownSeries = nil
+        shownMissingLinks = [:]
     }
 
     // MARK: Missing books of a series
