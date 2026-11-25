@@ -12,6 +12,9 @@ struct LibraryView: View {
         NavigationSplitView {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
+                // At the head of the sidebar, as in the system's own Books: in the
+                // toolbar the field stood across the edge of the inspector.
+                .searchable(text: $model.searchText, placement: .sidebar, prompt: "Search")
         } detail: {
             BooksView()
                 .frame(minWidth: 320, minHeight: 300)
@@ -25,7 +28,6 @@ struct LibraryView: View {
                     LibraryToolbar(model: model, inspectorShown: $inspectorShown)
                 }
         }
-        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search")
     }
 }
 
