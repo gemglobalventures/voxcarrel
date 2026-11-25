@@ -176,6 +176,9 @@ public struct SidebarData: Equatable, Sendable {
     public var genreFilesToUpdate: Int
     /// The length of all the library's audio, in seconds, for the status bar.
     public var audioSeconds: Double = 0
+    /// What the library's files take on disk, in bytes, for the status bar. Files that
+    /// cannot be found count for nothing.
+    public var diskBytes: Int64 = 0
 
     public init(
         counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection],

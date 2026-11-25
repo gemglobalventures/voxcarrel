@@ -165,7 +165,8 @@ public enum DemoContent {
         let generic = folder.appendingPathComponent(genericFolderName, isDirectory: true)
         try fm.moveItem(at: inbox.appendingPathComponent(genericFolderName, isDirectory: true), to: generic)
 
-        let service = LibraryService(store: try LibraryStore(libraryRoot: folder))
+        let store = try LibraryStore(libraryRoot: folder)
+        let service = LibraryService(store: store)
         let scan = service.scan(try topLevelItems(of: inbox) + [generic])
         guard scan.skipped.isEmpty else {
             throw DemoError.importFailed("skipped " + scan.skipped.map(\.lastPathComponent).joined(separator: ", "))
@@ -173,6 +174,9 @@ public enum DemoContent {
 
         let result = try service.importItems(
             scan.candidates.map { ImportItem(candidate: $0) }, options: ImportOptions(mode: .move))
+        // The sample inbox holds these same books again, to show a book joining the one
+        // the library has: so the library must not know them for files it already holds.
+        try store.forgetArrivedPrints()
         var unfiled = 0
         for (candidate, outcome) in zip(scan.candidates, result.outcomes) {
             let title = candidate.metadata.title
@@ -192,7 +196,6 @@ public enum DemoContent {
         }
 
         // What the user would have done since: reading, tagging, rating, collecting.
-        let store = service.store
         var books: [String: Book] = [:]
         for book in try store.books() { books[book.title] = book }
         func book(_ title: String) throws -> Book {

@@ -23,4 +23,11 @@ extension LibraryStore {
             return found
         }
     }
+
+    /// Forgets what every file was when it arrived, so that the same files met again
+    /// are offered like any others. For a library of samples, whose books are met
+    /// again on purpose.
+    public func forgetArrivedPrints() throws {
+        try dbQueue.write { db in try db.execute(sql: "UPDATE bookFile SET arrivedPrint = NULL") }
+    }
 }

@@ -164,6 +164,11 @@ public actor LibraryWorker {
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
         data.audioSeconds = try store.totalAudioSeconds()
+        // Asked of the file system, one file at a time; no file is opened.
+        data.diskBytes = try store.allFiles().reduce(Int64(0)) { total, file in
+            let size = (try? store.url(for: file).resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            return total + Int64(size)
+        }
         return data
     }
 

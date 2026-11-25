@@ -34,6 +34,22 @@ import VoxCarrelCore
         #expect(StatusBarText.number(999) == "999" && StatusBarText.number(1000) == "1,000" && StatusBarText.number(1_234_567) == "1,234,567")
     }
 
+    @Test func SB5_whatTheLibraryTakesOnDisk() {
+        #expect(StatusBarText.size(0) == nil && StatusBarText.size(999_999) == nil)
+        #expect(StatusBarText.size(1_000_000) == "1 MB")
+        #expect(StatusBarText.size(640_400_000) == "640 MB")
+        #expect(StatusBarText.size(38_240_000_000) == "38.2 GB")
+        #expect(StatusBarText.size(2_000_000_000) == "2 GB")
+        #expect(StatusBarText.size(1_440_000_000_000) == "1.4 TB")
+        #expect(StatusBarText.library(books: 22, audiobooks: 14, ebooks: 9, unread: 8, audioSeconds: 763_200, diskBytes: 38_240_000_000)
+            == "Library: 22 books · 14 audiobooks · 9 ebooks · 212 h of audio · 8 unread · 38.2 GB")
+    }
+
+    @Test @MainActor func SB5_theDemoLibrarysSizeIsCounted() async throws {
+        let h = try await Harness.demo()
+        #expect(h.model.sidebar.diskBytes > 0)
+    }
+
     @Test @MainActor func SB1_theModelGivesTheBarForTheDemoLibraryAndNoneForTheInbox() async throws {
         let h = try await Harness.demo()
         let bar = try #require(h.model.statusBar)
