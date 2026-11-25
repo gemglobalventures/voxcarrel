@@ -116,6 +116,8 @@ What is planned, roughly in order. This is a direction, not a promise: things mo
 **After that**
 
 - Kindle highlights without Readwise, from a Kindle's own clippings file.
+- A cover made for a book that has none.
+- Page and word counts for ebooks.
 - Import from an Audiobookshelf server, with its progress and bookmarks.
 - A better copy of a book you already have (a higher bitrate, an EPUB where you had a MOBI) offered as a replacement at import.
 - Finding books scattered across the Mac and network drives.
