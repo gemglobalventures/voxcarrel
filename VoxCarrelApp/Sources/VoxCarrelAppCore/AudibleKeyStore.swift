@@ -3,7 +3,8 @@ import Security
 import VoxCarrelCore
 
 /// Where the keys of the linked Audible account are kept. The app's own is the Mac's
-/// Keychain; tests use one that only remembers.
+/// Keychain, or a private file for a build no developer signed (`AudibleKeyStores`);
+/// tests use one that only remembers.
 ///
 /// The keys are never written anywhere else: not to the preferences, not to a log.
 public protocol AudibleKeyStore: Sendable {
@@ -66,6 +67,70 @@ public struct KeychainAudibleKeyStore: AudibleKeyStore {
 
     public func remove() {
         SecItemDelete(Self.item as CFDictionary)
+    }
+}
+
+/// The keys as one file that only the owner's account on this Mac can read.
+///
+/// For a build of the app that no developer's certificate has signed: the Keychain
+/// lets an item be read only by the very build that made it, and would ask for the
+/// login password again after every rebuild.
+public struct FileAudibleKeyStore: AudibleKeyStore {
+    let url: URL
+
+    public init(url: URL) {
+        self.url = url
+    }
+
+    /// `Application Support/VoxCarrel/audible-account.json` in the owner's Library.
+    public static var standardURL: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return support.appendingPathComponent("VoxCarrel", isDirectory: true).appendingPathComponent("audible-account.json")
+    }
+
+    public func load() -> AudibleAccount? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(AudibleAccount.self, from: data)
+    }
+
+    public func save(_ account: AudibleAccount) throws {
+        let data = try JSONEncoder().encode(account)
+        let folder = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // Made private before anything is in it, then filled.
+        remove()
+        guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        else { throw AudibleKeyStoreError(status: -1) }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+        try handle.write(contentsOf: data)
+    }
+
+    public func remove() {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+public enum AudibleKeyStores {
+    /// Where this build of the app keeps the keys: the Keychain when a developer's
+    /// certificate signed it, a private file when none did.
+    public static func standard() -> any AudibleKeyStore {
+        isSignedByADeveloper ? KeychainAudibleKeyStore() : FileAudibleKeyStore(url: FileAudibleKeyStore.standardURL)
+    }
+
+    /// True when the running app carries a team's signature.
+    static var isSignedByADeveloper: Bool {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return false }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let details = info as? [String: Any]
+        else { return false }
+        return (details[kSecCodeInfoTeamIdentifier as String] as? String)?.isEmpty == false
     }
 }
 

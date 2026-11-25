@@ -46,7 +46,7 @@ public final class AudibleLinkSession {
         "You sign in on Amazon's own page, in your browser. VoxCarrel never sees your password.",
         "A device named like \"Your name's Audible for iPhone\" is added to your Amazon account. You can remove "
             + "it there, under Content & Devices, or here with Unlink.",
-        "The device's keys are kept in this Mac's Keychain. They let VoxCarrel read your Audible library, as the "
+        "The device's keys are kept on this Mac, where only you can read them. They let VoxCarrel read your Audible library, as the "
             + "Audible app on a phone can.",
         "Nothing is bought, changed or removed at Audible.",
         "This is not an official Amazon interface, and it may stop working if Amazon changes it.",

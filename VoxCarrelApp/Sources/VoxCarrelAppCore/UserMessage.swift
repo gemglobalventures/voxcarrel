@@ -79,7 +79,7 @@ public enum UserMessage {
 
     /// Said when the keys of a device that was registered could not be kept.
     public static let audibleKeysNotKept =
-        "The device's keys could not be kept in this Mac's Keychain, so the account was not linked."
+        "The device's keys could not be kept on this Mac, so the account was not linked."
 
     /// Said when Amazon did not confirm that it removed the device.
     public static let audibleUnlinkNotConfirmed =

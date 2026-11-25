@@ -98,7 +98,7 @@ public final class AppModel {
         watcher: FolderWatching = FSEventsFolderWatcher(), ticker: Ticking = TimerTicker(),
         inboxNow: @escaping @MainActor () -> Date = { Date() },
         phoneLink: PhoneLinking = PhoneLinkServer(), sleepGuard: SleepGuarding = SystemSleepGuard(),
-        audibleKeys: any AudibleKeyStore = KeychainAudibleKeyStore(),
+        audibleKeys: any AudibleKeyStore = AudibleKeyStores.standard(),
         audibleTransport: any AudibleTransport = AudibleNetwork()
     ) {
         self.location = location

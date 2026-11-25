@@ -36,6 +36,31 @@ import VoxCarrelFixtures
             KeychainAudibleKeyStore.whenReadable as String == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
     }
 
+    @Test func AL10_keysInAFileAreReadableOnlyByTheOwnerAndComeBackAsTheyWere() throws {
+        let url = try makeTempDir().appendingPathComponent("VoxCarrel/audible-account.json")
+        let store = FileAudibleKeyStore(url: url)
+        #expect(store.load() == nil)
+        let account = AudibleAccount(
+            store: .uk, serial: "S", adpToken: "{adp}", devicePrivateKey: "KEY", accessToken: "A", refreshToken: "R",
+            deviceName: "Ann's 2nd Audible for iPhone")
+        try store.save(account)
+        #expect(store.load() == account)
+        let mode = try #require(try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)
+        #expect(mode.int16Value & 0o777 == 0o600)
+        // Saved again, it is replaced, and private still.
+        var other = account
+        other.deviceName = "Another"
+        try store.save(other)
+        #expect(store.load() == other)
+        store.remove()
+        #expect(store.load() == nil && !FileManager.default.fileExists(atPath: url.path))
+        // What is no account reads as none.
+        try Data("not json".utf8).write(to: url)
+        #expect(store.load() == nil)
+        // A build made here carries no team's signature, so its keys go in a file.
+        #expect(!AudibleKeyStores.isSignedByADeveloper)
+    }
+
     @Test func AL10_aTestsModelNeverHasTheKeychainTheClipboardOrTheHomeFolder() async throws {
         let h = try await Harness.empty()
         #expect(h.model.audibleKeys is InMemoryAudibleKeyStore)
@@ -71,7 +96,7 @@ import VoxCarrelFixtures
         #expect(said.contains("Amazon's own page"))
         #expect(said.contains("never sees your password"))
         #expect(said.contains("Audible for iPhone"))
-        #expect(said.contains("Keychain"))
+        #expect(said.contains("kept on this Mac"))
         #expect(said.contains("Nothing is bought"))
         #expect(said.contains("not an official Amazon interface"))
         #expect(!session.offersExistingLink)
