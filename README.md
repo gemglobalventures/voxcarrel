@@ -75,6 +75,7 @@ The books in these pictures are generated samples from the demo library.
 - **Edit details and covers** for one book or many. They are written into the files, and checked before they replace the originals.
 - **Look books up** on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress. You choose which fields to take, from one result or several.
 - **Editions are told apart:** results that are your exact edition are marked, and an audiobook is recognised as unabridged, abridged or a dramatisation.
+- **Convert to EPUB:** for a book whose ebook is MOBI, AZW3 or another older format, an EPUB is made and added beside the original, which is left as it is. This uses calibre's own converter, so it needs calibre installed.
 - **MP3 lengths are measured,** and a header that states the wrong length can be repaired so the file plays in full everywhere.
 
 ### Series and what to read next
@@ -109,7 +110,6 @@ What is planned, roughly in order. This is a direction, not a promise: things mo
 **Before the first release**
 
 - Leaving as cleanly as you came: a standard `metadata.opf` written beside each book, as well as the details inside the files, so another library manager can pick the library up.
-- Converting ebooks to EPUB (from MOBI, AZW3 and others).
 - Send to Kindle: an ebook from the library to your Kindle.
 - A signed download, so the app can be installed without building it, and `brew install --cask voxcarrel`.
 - Export Diagnostics in the Help menu: a zip of logs and settings, with no book titles unless you choose to include them, for reporting the odd file that trips the app up. Nothing is sent anywhere by itself.
