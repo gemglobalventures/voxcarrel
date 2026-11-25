@@ -45,13 +45,14 @@ The books in these pictures are generated samples from the demo library.
 
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
 - Links to your Audible account and brings in your Audible library: every book you own there, with what you have finished and begun, as entries marked "on Audible". Books you already have are marked, not added twice, and no file is touched.
+- Brings in your Kindle library too, with the same link: every ebook you own on Kindle, as entries marked "on Kindle" with their covers. The list is read from Amazon's Kindle web reader, which is not an official interface and could stop working; nothing is changed at Amazon and no Kindle file is touched.
 - Checks a series against Audible's own list of it and shows the books you do not have, in order.
 - Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
 
 **Highlights**
 
 - Shows a book's highlights on the book: brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own, added to any book. Search finds books by the words of their highlights.
-- Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle", beside your files and your Audible books. Only highlighted Kindle books come in this way; your whole Kindle library is not read.
+- Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle", beside your files and your Audible books. The rest of your Kindle library comes in with Import Kindle Library.
 - The same highlight arriving from two places is kept once. Looking again brings in only what changed, and a highlight deleted at its source goes here too. Readwise is read with your own access token, which stays on your Mac; nothing is sent to it.
 
 **Your phone**
