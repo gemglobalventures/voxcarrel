@@ -270,8 +270,7 @@ extension ImportReview {
 
     /// Endings of book files VoxCarrel cannot import, with what to call them.    /// Endings of book files VoxCarrel cannot import, with what to call them.
     static let unreadableBookKinds: [(ending: String, name: String)] = [
-        ("djvu", "DjVu"), ("doc", "Word"), ("docx", "Word"), ("prc", "PRC"), ("lit", "LIT"), ("fb2", "FB2"),
-        ("cbz", "comic"), ("cbr", "comic"), ("chm", "CHM"), ("rtf", "RTF"), ("kfx", "KFX"), ("azw", "AZW"),
+        ("doc", "Word"), ("docx", "Word"), ("rtf", "RTF"), ("cbz", "comic"), ("cbr", "comic"), ("kfx", "KFX"),
         ("flac", "FLAC"), ("ogg", "Ogg"), ("opus", "Opus"), ("wma", "WMA"), ("aax", "Audible AAX"),
     ]
 

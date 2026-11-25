@@ -669,9 +669,12 @@ import VoxCarrelFixtures
 
     // MARK: G19 Import
 
-    /// An ebook whose genre tag is `tag`, loose in a folder of its own.
+    /// An audiobook whose genre tag is `tag`, loose in a folder of its own. (An audio
+    /// file's tag: a name in it that the list lacks becomes a genre of the owner's own,
+    /// where an ebook's unknown subject is left out.)
     private func taggedBook(_ title: String, tag: String) throws -> URL {
-        let url = try MediaFixtures.makeEPUB3(in: try makeTempDir(), name: "\(title).epub")
+        let url = try makeTempDir().appendingPathComponent("\(title).m4b")
+        try MediaFixtures.makeAAC(at: url, seconds: 1)
         var metadata = BookMetadata(title: title, authors: ["Ann Lee"])
         metadata.genres = [tag]
         _ = try FileMetadataIO().write(metadata, to: url)

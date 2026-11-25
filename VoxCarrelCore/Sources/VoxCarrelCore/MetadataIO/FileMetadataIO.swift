@@ -16,7 +16,7 @@ public struct FileMetadataIO: MetadataReader {
         case .m4b, .m4a, .mp3: return all
         case .epub: return all.subtracting(EpubIO.unstorable)
         case .pdf: return all.subtracting(PDFIO.unstorable).subtracting([.cover])
-        case .mobi, .azw3: return []
+        case .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm: return []
         }
     }
 
@@ -27,7 +27,7 @@ public struct FileMetadataIO: MetadataReader {
         case .m4b, .m4a, .mp3: return try AudioTagIO.read(url)
         case .epub: return try EpubIO.read(url)
         case .pdf: return try PDFIO.read(url)
-        case .mobi, .azw3: return FileContents()
+        case .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm: return FileContents()
         }
     }
 
@@ -39,7 +39,7 @@ public struct FileMetadataIO: MetadataReader {
     public func readTrackTags(at url: URL) throws -> TrackTags? {
         switch try format(of: url) {
         case .m4b, .m4a, .mp3: return try AudioTagIO.readTrackTags(url)
-        case .epub, .pdf, .mobi, .azw3: return nil
+        case .epub, .pdf, .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm: return nil
         }
     }
 
@@ -63,7 +63,7 @@ public struct FileMetadataIO: MetadataReader {
             return try EpubIO.write(metadata, cover: cover, to: url)
         case .pdf:
             return try PDFIO.write(metadata, cover: cover, to: url)
-        case .mobi, .azw3:
+        case .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm:
             let fields = Set(MetadataField.allCases)
             return WriteReport(notWritten: cover == .keep ? fields.subtracting([.cover]) : fields)
         }

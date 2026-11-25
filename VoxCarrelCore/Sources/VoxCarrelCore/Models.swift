@@ -12,6 +12,17 @@ public enum FileRole: String, Codable, Sendable, CaseIterable {
 
 public enum FileFormat: String, Codable, Sendable, CaseIterable {
     case m4b, m4a, mp3, epub, pdf, mobi, azw3
+    /// Ebooks that are filed and listed but never opened or changed, like MOBI and
+    /// AZW3: their details come from their names and from lookups.
+    case djvu, prc, azw, fb2, lit, chm
+
+    /// True for a format the app files without reading or writing what is inside.
+    public var isKeptAsItIs: Bool {
+        switch self {
+        case .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm: true
+        case .m4b, .m4a, .mp3, .epub, .pdf: false
+        }
+    }
 
     /// Nil when the extension is not a supported book format.
     public init?(url: URL) {
@@ -22,7 +33,7 @@ public enum FileFormat: String, Codable, Sendable, CaseIterable {
     public var defaultRole: FileRole {
         switch self {
         case .m4b, .m4a, .mp3: .audio
-        case .epub, .pdf, .mobi, .azw3: .ebook
+        case .epub, .pdf, .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm: .ebook
         }
     }
 }

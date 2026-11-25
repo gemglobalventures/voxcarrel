@@ -440,4 +440,33 @@ import VoxCarrelFixtures
         #expect(f.service.genres(fromTag: "Invest; Financial crises", asSubjects: true).isEmpty)
         #expect(try f.service.genreList().count == before)
     }
+
+    // MARK: Ebooks that are kept as they are
+
+    @Test func CI19_djvuAndTheLikeAreFiledAndNeverOpenedOrChanged() throws {
+        for ending in ["djvu", "prc", "azw", "fb2", "lit", "chm", "mobi", "azw3"] {
+            let format = try #require(FileFormat(rawValue: ending))
+            #expect(format.isKeptAsItIs && format.defaultRole == .ebook)
+            #expect(FileMetadataIO.storableFields(for: format).isEmpty)
+        }
+        #expect(!FileFormat.epub.isKeptAsItIs && !FileFormat.pdf.isKeptAsItIs && !FileFormat.mp3.isKeptAsItIs)
+        #expect(FileFormat(url: URL(fileURLWithPath: "/x/notes.doc")) == nil)
+
+        let f = try LibraryFixture()
+        let source = f.inbox.appendingPathComponent("Mark Douglas - The Disciplined Trader.djvu")
+        let bytes = Data(repeating: 5, count: 6000)
+        try bytes.write(to: source)
+        let candidate = try #require(f.service.scan([source]).candidates.first)
+        #expect(candidate.metadata.title == "The Disciplined Trader" && candidate.metadata.authors == ["Mark Douglas"])
+        #expect(candidate.files.map(\.role) == [.ebook])
+        let outcome = try #require(try f.service.importItems([ImportItem(candidate: candidate)]).outcomes.first)
+        guard case .imported(let id, _) = outcome else {
+            Issue.record("not imported: \(outcome)")
+            return
+        }
+        let filed = try #require(try f.store.files(bookId: id).first)
+        #expect(filed.format == .djvu)
+        // Not a byte of it was changed.
+        #expect(try Data(contentsOf: f.store.url(for: filed)) == bytes)
+    }
 }

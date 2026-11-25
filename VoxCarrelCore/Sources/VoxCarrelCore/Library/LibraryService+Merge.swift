@@ -318,7 +318,7 @@ extension LibraryService {
                 switch file.row.format {
                 case .m4b, .m4a, .mp3:
                     guess = .audio
-                case .epub, .mobi, .azw3:
+                case .epub, .mobi, .azw3, .djvu, .prc, .azw, .fb2, .lit, .chm:
                     guess = .ebook
                 case .pdf:
                     let named = Self.holdsAudibleId(file.name) || Self.holdsAudibleId(file.row.originalName ?? "")

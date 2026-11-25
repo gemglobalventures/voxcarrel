@@ -689,12 +689,12 @@ import VoxCarrelCore
         var two = seed("B", files: [file("b.epub")])
         two.candidate.filesNotOnThisMac = 2
         let r = review([one, two], skipped: [
-            url("a.djvu"), url("b.DJVU"), url("c.doc"), url("film.mkv"), url("cover.jpg"), url("d.prc"),
+            url("a.cbz"), url("b.CBZ"), url("c.doc"), url("film.mkv"), url("cover.jpg"), url("d.aax"),
         ])
         #expect(r.tidyingLines == [
             "2 files are copies of others and are left where they are.",
             "3 files are in iCloud and not on this Mac. Their details come from their names, and importing fetches them, which can take a while.",
-            "Not imported, as VoxCarrel cannot read them yet: 2 DjVu files, 1 Word file, 1 PRC file.",
+            "Not imported, as VoxCarrel cannot read them yet: 2 comic files, 1 Word file, 1 Audible AAX file.",
         ])
         #expect(r.copiesText(of: r.entries[0].id) == "2 copies of this book's files were found and left where they are.")
         #expect(r.copiesText(of: r.entries[1].id) == nil)
