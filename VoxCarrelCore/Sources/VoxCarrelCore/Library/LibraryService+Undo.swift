@@ -199,6 +199,7 @@ extension LibraryService {
                     var row = row
                     // It holds for the file as it was then, and is found again if need be.
                     row.lengthUnmeasured = nil
+                    row.lengthMeasured = nil
                     if stillRepaired.contains(store.url(for: row).path) { row.lengthProblem = nil }
                     return row
                 }
@@ -222,6 +223,7 @@ extension LibraryService {
             let files = removed.files.map { row -> BookFile in
                 var row = row
                 row.lengthUnmeasured = nil
+                row.lengthMeasured = nil
                 return row
             }
             change.restoredBooks.append(LibraryChange.BookWrite(book: book, files: files))

@@ -425,6 +425,9 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     /// file was last read: the length counted for it is the one it states. It holds for
     /// the file as it was then (`UnmeasuredLength.describes`).
     public var lengthUnmeasured: UnmeasuredLength? = nil
+    /// Set when the file was read through and found to state its length rightly, so
+    /// that it need not be read through again while it stays as it is.
+    public var lengthMeasured: MeasuredLength? = nil
     /// What told this file from every other when it came into the library, before
     /// anything was written into it (`BookScanner.fingerprint`): so that the same file
     /// met again is known. Nil for a file that came in before this was kept.
@@ -459,6 +462,7 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
         // row, or an undo snapshot holding it, unreadable.
         lengthProblem = (try? c.decodeIfPresent(LengthProblem.self, forKey: .lengthProblem)) ?? nil
         lengthUnmeasured = (try? c.decodeIfPresent(UnmeasuredLength.self, forKey: .lengthUnmeasured)) ?? nil
+        lengthMeasured = (try? c.decodeIfPresent(MeasuredLength.self, forKey: .lengthMeasured)) ?? nil
         arrivedPrint = (try? c.decodeIfPresent(String.self, forKey: .arrivedPrint)) ?? nil
         contentPrint = (try? c.decodeIfPresent(String.self, forKey: .contentPrint)) ?? nil
     }

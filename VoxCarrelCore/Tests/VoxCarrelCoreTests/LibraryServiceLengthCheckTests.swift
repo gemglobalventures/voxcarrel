@@ -103,8 +103,79 @@ import VoxCarrelFixtures
         #expect(try f.service.reconcile() == ReconcileReport(correctedLengths: 1))
 
         #expect(abs(try length(f, id) - trueTotal) < 0.01)
-        // The wrong part counts for what was measured; only the others are read.
-        #expect(opened == Array(try f.fileURLs(id).prefix(4)))
+        // The wrong part counts for what was measured, and the others for what they
+        // were found to be at the launch before: none is opened.
+        #expect(opened.isEmpty)
+    }
+
+    @Test func partsReadThroughAndFoundRightAreNotReadAgainWhileTheyStayAsTheyAre() throws {
+        let f = try F()
+        let (id, trueTotal, _) = try importMixedBook(f)
+        var opened: [URL] = []
+        f.service.willMeasure = { opened.append($0) }
+        let good = Array(try f.fileURLs(id).prefix(4))
+
+        // The first launch reads the four good parts, and remembers each as right.
+        _ = try f.service.reconcile()
+        #expect(opened == good)
+        let rows = try f.store.files(bookId: id)
+        #expect(rows.prefix(4).allSatisfy { $0.lengthMeasured != nil } && rows[4].lengthMeasured == nil)
+        #expect(abs((rows[0].lengthMeasured?.seconds ?? 0) - Self.trueSeconds) < 0.01)
+        #expect(rows[0].lengthMeasured?.describes(fileAt: good[0]) == true)
+
+        // Every launch after that opens none, and the total stays right.
+        for _ in 0..<2 {
+            opened = []
+            #expect(try f.service.reconcile() == ReconcileReport())
+            #expect(opened.isEmpty)
+            #expect(abs(try length(f, id) - trueTotal) < 0.01)
+        }
+
+        // A part that has changed since is read again, and only that one.
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -86_400)], ofItemAtPath: good[1].path)
+        opened = []
+        _ = try f.service.reconcile()
+        #expect(opened == [good[1]])
+        #expect(try f.store.files(bookId: id)[1].lengthMeasured?.describes(fileAt: good[1]) == true)
+        opened = []
+        _ = try f.service.reconcile()
+        #expect(opened.isEmpty)
+    }
+
+    @Test func aPartWhoseTagsWereRewrittenIsReadOnceMoreAndThenRemembered() throws {
+        let f = try F()
+        let (id, trueTotal, _) = try importMixedBook(f)
+        _ = try f.service.reconcile()
+        try edit(f, id, genre: "Fantasy")
+        var opened = 0
+        f.service.willMeasure = { _ in opened += 1 }
+        _ = try f.service.reconcile()
+        let afterEdit = opened
+        opened = 0
+        _ = try f.service.reconcile()
+        // Whatever the save left to be read, the launch after it reads nothing.
+        #expect(opened == 0 && afterEdit <= 4)
+        #expect(abs(try length(f, id) - trueTotal) < 0.01)
+        // What is remembered is of the files as they are now.
+        for (row, url) in zip(try f.store.files(bookId: id), try f.fileURLs(id)) {
+            if let state = row.lengthMeasured { #expect(state.describes(fileAt: url)) }
+        }
+    }
+
+    @Test func aRememberedLengthIsNotUsedForAFileThatHasBecomeWrong() throws {
+        // Recorded as right, then recorded as wrong: the wrong record is the one that counts.
+        let state = MeasuredLength(size: 10, modified: 5, seconds: 60)
+        #expect(state == MeasuredLength(size: 10, modified: 5, seconds: 60))
+        let folder = try makeTempDir()
+        let file = folder.appendingPathComponent("a.mp3")
+        try Data(count: 10).write(to: file)
+        let now = try #require(MeasuredLength(fileAt: file, seconds: 60))
+        #expect(now.describes(fileAt: file) && now.size == 10)
+        try Data(count: 11).write(to: file)
+        #expect(!now.describes(fileAt: file))
+        #expect(MeasuredLength(fileAt: folder.appendingPathComponent("none.mp3"), seconds: 1) == nil)
+        #expect(!now.describes(fileAt: folder.appendingPathComponent("none.mp3")))
     }
 
     @Test func repairingPutsTheTotalRightAndItStaysRight() throws {

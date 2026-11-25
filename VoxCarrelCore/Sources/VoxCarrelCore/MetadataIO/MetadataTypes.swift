@@ -108,6 +108,38 @@ public struct UnmeasuredLength: Codable, Equatable, Sendable {
     }
 }
 
+/// An MP3 that was read through because its book's length looked wrong for its size,
+/// and was found to state its length rightly. Recorded with the size and date of the
+/// file as it was then, so that the same file is not read through again at every
+/// launch: a file that has changed since is read again.
+public struct MeasuredLength: Codable, Equatable, Sendable {
+    public var size: Int64
+    /// When the file was last modified, in seconds since the reference date.
+    public var modified: Double
+    /// The length it was measured to have.
+    public var seconds: Double
+
+    public init(size: Int64, modified: Double, seconds: Double) {
+        self.size = size
+        self.modified = modified
+        self.seconds = seconds
+    }
+
+    /// For the file at `url` as it is now; nil when it cannot be looked at.
+    public init?(fileAt url: URL, seconds: Double) {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? Int64, let date = attributes[.modificationDate] as? Date
+        else { return nil }
+        self.init(size: size, modified: date.timeIntervalSinceReferenceDate, seconds: seconds)
+    }
+
+    /// Whether the file at `url` is still the one that was measured.
+    public func describes(fileAt url: URL) -> Bool {
+        guard let now = MeasuredLength(fileAt: url, seconds: seconds) else { return false }
+        return now.size == size && abs(now.modified - modified) < 0.001
+    }
+}
+
 /// Everything read from one file.
 public struct FileContents: Equatable, Sendable {
     /// `durationSeconds` is set for audio and `pageCount` for PDFs. For an MP3 whose

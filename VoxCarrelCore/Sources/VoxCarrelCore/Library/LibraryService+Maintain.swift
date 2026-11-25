@@ -491,8 +491,11 @@ extension LibraryService {
     /// recorded as measured, unless the book's length is implausible; and a file that
     /// could not be measured before, and has not changed since, counts for the length
     /// it states. A book that is picked and has nothing wrong after all (a short file
-    /// with a large picture in it) is read again at the next launch; no frames are
-    /// counted for it. Nothing is recorded in the journal and the book is not flagged.
+    /// with a large picture in it) is read once: each of its files is recorded as
+    /// measured and right (`BookFile.lengthMeasured`), with its size and date, and
+    /// counts for that length at later launches for as long as it stays as it is. A
+    /// file that has changed since is read again. Nothing is recorded in the journal
+    /// and the book is not flagged.
     func checkLengths(of book: Book, files rows: [BookFile], lookingAtHeaders: Bool) throws -> LengthCheck {
         let audio = rows.filter { $0.role == .audio }
         guard let id = book.id, audio.contains(where: { $0.format == .mp3 }) else { return LengthCheck() }
@@ -513,6 +516,7 @@ extension LibraryService {
         var found = LengthCheck()
         var problems: [Int64: LengthProblem?] = [:]
         var unmeasured: [Int64: UnmeasuredLength?] = [:]
+        var measured: [Int64: MeasuredLength?] = [:]
         for row in audio {
             let url = store.url(for: row)
             if !implausible, let problem = row.lengthProblem {
@@ -522,6 +526,11 @@ extension LibraryService {
             }
             if let state = row.lengthUnmeasured, state.describes(fileAt: url) {
                 total += state.statedSeconds
+                continue
+            }
+            // Read through before, found right, and not changed since.
+            if row.lengthProblem == nil, let state = row.lengthMeasured, state.describes(fileAt: url) {
+                total += state.seconds
                 continue
             }
             willMeasure?(url)
@@ -537,12 +546,18 @@ extension LibraryService {
             let state = contents.lengthCouldNotBeMeasured
                 ? UnmeasuredLength(fileAt: url, statedSeconds: seconds) : nil
             if state != row.lengthUnmeasured { unmeasured[fileId] = state }
+            // Right as it stands: remembered, so that it is not read through again.
+            let right = contents.lengthProblem == nil && !contents.lengthCouldNotBeMeasured
+                ? MeasuredLength(fileAt: url, seconds: seconds) : nil
+            if right != row.lengthMeasured { measured[fileId] = right }
         }
         found.corrected = anyWrong && abs(total - recorded) > 0.5
-        guard found.corrected || !problems.isEmpty || !unmeasured.isEmpty else { return LengthCheck() }
+        guard found.corrected || !problems.isEmpty || !unmeasured.isEmpty || !measured.isEmpty else { return LengthCheck() }
         try store.setMeasuredLength(
             bookId: id, durationSeconds: found.corrected ? total : nil, lengthProblems: problems,
-            unmeasured: unmeasured)
+            unmeasured: unmeasured, measured: measured)
+        // Remembering that a file is right is no finding.
+        guard found.corrected || !problems.isEmpty || !unmeasured.isEmpty else { return LengthCheck() }
         return found
     }
 
@@ -554,6 +569,7 @@ extension LibraryService {
             guard row.format == .mp3, row.lengthProblem == nil else { return false }
             let url = store.url(for: row)
             if let state = row.lengthUnmeasured, state.describes(fileAt: url) { return false }
+            if let state = row.lengthMeasured, state.describes(fileAt: url) { return false }
             let onRead = didReadHeader.map { seam in { (bytes: Int) in seam(url, bytes) } }
             guard let opening = try? MP3FrameScan.open(url, onRead: onRead) else { return false }
             return MP3Length.needsScan(statedSeconds: nil, opening: opening)

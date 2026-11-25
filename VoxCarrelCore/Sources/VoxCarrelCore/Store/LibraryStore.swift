@@ -381,6 +381,12 @@ public final class LibraryStore: Sendable {
                 t.add(column: "isHidden", .boolean).notNull().defaults(to: false)
             }
         }
+        migrator.registerMigration("v19") { db in
+            // A file read through and found to state its length rightly, as it was then.
+            try db.alter(table: "bookFile") { t in
+                t.add(column: "lengthMeasured", .text)
+            }
+        }
         return migrator
     }
 
@@ -553,16 +559,17 @@ public final class LibraryStore: Sendable {
     /// rows keep their ids.
     public func setMeasuredLength(
         bookId: Int64, durationSeconds: Double?, lengthProblems: [Int64: LengthProblem?],
-        unmeasured: [Int64: UnmeasuredLength?] = [:]
+        unmeasured: [Int64: UnmeasuredLength?] = [:], measured: [Int64: MeasuredLength?] = [:]
     ) throws {
         try dbQueue.write { db in
             if let durationSeconds {
                 try Book.filter(key: bookId).updateAll(db, Column("durationSeconds").set(to: durationSeconds))
             }
-            for fileId in Set(lengthProblems.keys).union(unmeasured.keys) {
+            for fileId in Set(lengthProblems.keys).union(unmeasured.keys).union(measured.keys) {
                 guard var file = try BookFile.fetchOne(db, key: fileId), file.bookId == bookId else { continue }
                 if let problem = lengthProblems[fileId] { file.lengthProblem = problem }
                 if let state = unmeasured[fileId] { file.lengthUnmeasured = state }
+                if let state = measured[fileId] { file.lengthMeasured = state }
                 try file.update(db)
             }
         }

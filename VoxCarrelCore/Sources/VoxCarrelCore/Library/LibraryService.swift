@@ -424,6 +424,8 @@ public final class LibraryService {
                         : nil
                 } else {
                     row.lengthUnmeasured = file.existing?.lengthUnmeasured
+                    // A file this operation did not read is as it was when it was measured.
+                    row.lengthMeasured = file.existing?.lengthMeasured
                 }
             }
             return row
