@@ -52,6 +52,25 @@ enum Panels {
         Task { await model.beginImport(urls) }
     }
 
+    /// Asks for a calibre library's folder and begins importing its books. The panel
+    /// opens at the folder calibre makes for a library unless told otherwise, when
+    /// there is one.
+    static func importCalibreLibrary(into model: AppModel) {
+        let panel = NSOpenPanel()
+        panel.identifier = NSUserInterfaceItemIdentifier("panel.importCalibre")
+        panel.title = "Import Calibre Library"
+        panel.message = "Choose your calibre library's folder. Its books are copied; the calibre library is left as it is."
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+        let usual = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Calibre Library", isDirectory: true)
+        if FileManager.default.fileExists(atPath: usual.path) { panel.directoryURL = usual }
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { await model.beginCalibreImport(folder) }
+    }
+
     /// I5: asks for an image and makes it the inspected book's cover, not yet saved.
     static func chooseCover(for model: AppModel) {
         let panel = NSOpenPanel()

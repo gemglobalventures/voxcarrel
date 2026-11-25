@@ -663,6 +663,24 @@ public actor LibraryWorker {
         return ImportScan(seeds: seeds, skipped: scan.skipped, alreadyInLibrary: scan.alreadyInLibrary)
     }
 
+    /// Reads a calibre library for importing: its books as `prepareImport(_:)` gives
+    /// them, with what calibre says of each beyond its files. Nothing is changed, here
+    /// or there. Hidden books are seen too, so that one of them is not brought in twice.
+    public func prepareCalibreImport(_ folder: URL) throws -> CalibreImportScan {
+        let read = try service.scanCalibreLibrary(folder)
+        let reader = FileMetadataIO()
+        let seeds = try read.scan.candidates.map { try seed(for: $0, reader: reader) }
+        return CalibreImportScan(
+            scan: ImportScan(seeds: seeds, skipped: read.scan.skipped, alreadyInLibrary: read.scan.alreadyInLibrary),
+            extras: read.extras, withoutFiles: read.withoutFiles, formatsLeftOut: read.formatsLeftOut)
+    }
+
+    /// Gives a book that was imported from calibre what calibre said of it beyond its
+    /// files. It only adds: what the book has is never lost.
+    public func applyCalibreExtras(_ extras: CalibreExtras, toBook bookId: Int64) throws {
+        try service.apply(extras, toBook: bookId)
+    }
+
     /// The candidate with what the review shows beside it.
     private func seed(for candidate: CandidateBook, reader: FileMetadataIO) throws -> ImportSeed {
         // A file kept in iCloud and not fetched is not read here: that would fetch it.

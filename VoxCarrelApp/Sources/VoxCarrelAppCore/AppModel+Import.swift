@@ -187,6 +187,9 @@ extension AppModel {
             for case .imported(let id, _) in outcome.outcomes { imported.insert(id) }
             for case .needsAttention(let id) in outcome.outcomes { imported.insert(id) }
             summary = UserMessage.summary(of: outcome, titles: titles)
+            if let calibre = review.calibre {
+                try await applyCalibreExtras(calibre, to: items, outcomes: outcome.outcomes, with: worker)
+            }
             if wasOfUntracked {
                 // A22: the files that are now a book's are no longer on offer.
                 var taken = Set<String>()

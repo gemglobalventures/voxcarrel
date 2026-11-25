@@ -601,7 +601,12 @@ private struct BottomBar: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if review.offersCopy {
+            if let note = review.calibreNote {
+                Text(note)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("review.calibreNote")
+            } else if review.offersCopy {
                 Toggle("Copy files, leave originals in place", isOn: copy)
                     .toggleStyle(.checkbox)
                     .accessibilityIdentifier("review.copy")

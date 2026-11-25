@@ -257,6 +257,19 @@ public struct ImportScan: Equatable, Sendable {
     public var alreadyInLibrary: [URL] = []
 }
 
+/// What reading a calibre library for importing found.
+public struct CalibreImportScan: Equatable, Sendable {
+    /// Its books as an import reviews them; nothing was skipped.
+    public var scan: ImportScan
+    /// What calibre says of each book beyond its files, by the book's folder in the
+    /// calibre library.
+    public var extras: [URL: CalibreExtras]
+    /// Titles calibre lists that have no file the library keeps.
+    public var withoutFiles: [String]
+    /// Kinds of file that were passed over, each with how many.
+    public var formatsLeftOut: [String: Int]
+}
+
 public struct ImportSeed: Equatable, Sendable {
     public var candidate: CandidateBook
     /// Found in the candidate's files, or failing that beside them.

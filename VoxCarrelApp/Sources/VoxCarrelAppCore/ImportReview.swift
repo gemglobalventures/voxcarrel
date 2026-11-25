@@ -242,14 +242,52 @@ public struct ImportReview: Equatable, Sendable {
     /// WF19: said beside the Copy tick when it was preset for a reason worth telling;
     /// nil otherwise.
     public let inboxNote: String?
+    /// What came with the books when they were read from a calibre library; nil for
+    /// any other import. Such an import always copies: the calibre library is left as
+    /// it is.
+    public let calibre: CalibreSource?
+
+    /// What a calibre library said besides the books it gave to review.
+    public struct CalibreSource: Equatable, Sendable {
+        /// What calibre says of each book beyond its files, by the path of the book's
+        /// folder in the calibre library.
+        var extras: [String: CalibreExtras]
+        /// How many books calibre lists that have no file the library keeps.
+        public var withoutFiles: Int
+        /// Kinds of file that were passed over, each with how many.
+        public var formatsLeftOut: [String: Int]
+
+        public init(extras: [URL: CalibreExtras], withoutFiles: Int, formatsLeftOut: [String: Int]) {
+            self.extras = Dictionary(extras.map { (Self.key($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
+            self.withoutFiles = withoutFiles
+            self.formatsLeftOut = formatsLeftOut
+        }
+
+        private static func key(_ folder: URL) -> String { folder.standardizedFileURL.path }
+
+        /// What calibre said of the books this candidate is made of. They are found by
+        /// the calibre folders its files are in, and the folder it was read from: so a
+        /// file moved out to be a book of its own keeps what was said of it, and books
+        /// merged in the review bring what was said of each.
+        public func extras(for candidate: CandidateBook) -> [CalibreExtras] {
+            var folders = candidate.sourceFolder.map { [Self.key($0)] } ?? []
+            for file in candidate.files {
+                let folder = Self.key(file.url.deletingLastPathComponent())
+                if !folders.contains(folder) { folders.append(folder) }
+            }
+            return folders.compactMap { extras[$0] }
+        }
+    }
 
     /// Said when the books come from watch folders that do not agree on Move or Copy.
     public static let mixedModesNote = "These books come from folders set to Move and to Copy, so Copy is ticked."
 
     public init(
         seeds: [ImportSeed], skipped: [URL], copyInsteadOfMove: Bool, moveOnly: Bool = false,
-        isFromInbox: Bool = false, inboxNote: String? = nil, alreadyInLibrary: Int = 0
+        isFromInbox: Bool = false, inboxNote: String? = nil, alreadyInLibrary: Int = 0,
+        calibre: CalibreSource? = nil
     ) {
+        self.calibre = calibre
         self.alreadyInLibrary = alreadyInLibrary
         self.isFromInbox = isFromInbox
         self.inboxNote = inboxNote
@@ -270,11 +308,12 @@ public struct ImportReview: Equatable, Sendable {
         }
         self.skipped = skipped
         self.moveOnly = moveOnly
-        self.copyInsteadOfMove = copyInsteadOfMove && !moveOnly
+        self.copyInsteadOfMove = calibre != nil || (copyInsteadOfMove && !moveOnly)
     }
 
-    /// Whether "copy, leave originals in place" is a choice the user has.
-    public var offersCopy: Bool { !moveOnly }
+    /// Whether "copy, leave originals in place" is a choice the user has. It is none
+    /// for books from a calibre library, which are always copied.
+    public var offersCopy: Bool { !moveOnly && calibre == nil }
 
     // MARK: Readiness
 
@@ -525,6 +564,9 @@ public struct ImportReview: Equatable, Sendable {
     }
 
     public var options: ImportOptions {
-        ImportOptions(mode: copyInsteadOfMove && !moveOnly ? .copy : .move)
+        // Books from a calibre library are copied whatever else is set: nothing of
+        // calibre's is ever moved out of it.
+        if calibre != nil { return ImportOptions(mode: .copy) }
+        return ImportOptions(mode: copyInsteadOfMove && !moveOnly ? .copy : .move)
     }
 }

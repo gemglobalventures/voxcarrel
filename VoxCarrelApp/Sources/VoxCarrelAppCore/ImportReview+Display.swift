@@ -203,8 +203,27 @@ extension ImportReview {
         if !kinds.isEmpty {
             lines.append("Not imported, as VoxCarrel cannot read them yet: \(kinds.joined(separator: ", ")).")
         }
+        if let calibre {
+            if calibre.withoutFiles == 1 {
+                lines.append("1 book calibre lists has no file VoxCarrel keeps and is left out.")
+            } else if calibre.withoutFiles > 1 {
+                lines.append("\(Self.count(calibre.withoutFiles)) books calibre lists have no file VoxCarrel keeps and are left out.")
+            }
+            let kinds = calibre.formatsLeftOut.filter { $0.value > 0 }.sorted { $0.key < $1.key }
+            if !kinds.isEmpty {
+                lines.append("Left out by kind: \(kinds.map { "\($0.key) \(Self.count($0.value))" }.joined(separator: ", ")).")
+            }
+        }
         return lines
     }
+
+    /// Said in place of the choice between moving and copying, for books from a
+    /// calibre library; nil for any other import.
+    public var calibreNote: String? {
+        calibre == nil ? nil : Self.copiedFromCalibre
+    }
+
+    public static let copiedFromCalibre = "Copied from your calibre library, which is left as it is."
 
     /// What is said when every file that was read is in the library already.
     public static func allAlreadyInLibrary(_ files: Int) -> String {

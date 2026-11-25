@@ -152,6 +152,11 @@ private struct ImportCommand: View {
         .keyboardShortcut("i", modifiers: .command)
         .disabled(!model.canImport)
         .accessibilityIdentifier("menu.file.import")
+        Button(AppModel.calibreImportMenuTitle) {
+            Panels.importCalibreLibrary(into: model)
+        }
+        .disabled(!model.canImport)
+        .accessibilityIdentifier("menu.file.importCalibre")
         // The selected arrivals, or all of them when none is selected.
         Button("Review Inbox…") {
             Task { await model.reviewInbox() }
