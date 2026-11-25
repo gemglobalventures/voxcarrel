@@ -70,20 +70,21 @@ The books in these pictures are generated samples from the demo library.
 
 What is being worked on and what is planned, roughly in order. This is a direction, not a promise: things move as real libraries show what matters.
 
-**Next**
+**Before the first release**
 
-- Marks into words: for a place you marked in an audiobook you have as a file, transcribe that stretch on your Mac so the mark becomes a quote, and send it on to Readwise.
-- Import from other libraries: a calibre library with its details, series, tags and ratings; an Audiobookshelf server with its progress and bookmarks.
+- Moving from calibre in one step, without being locked in: a calibre library is read (its catalogue, the details file beside each book, and the covers) and its books are copied in, leaving the calibre library exactly as it was. VoxCarrel keeps writing standard details, inside the files and in a `metadata.opf` beside each book, so you can always leave as cleanly as you came.
+- Converting ebooks to EPUB (from MOBI, AZW3 and others).
+- Send to Kindle: an ebook from the library to your Kindle.
+- A signed download, so the app can be installed without building it, and `brew install --cask voxcarrel`.
+- Export Diagnostics in the Help menu: a zip of logs and settings, with no book titles unless you choose to include them, for reporting the odd file that trips the app up. Nothing is sent anywhere by itself.
+
+**After that**
+
 - Kindle highlights without Readwise, from a Kindle's own clippings file.
+- Import from an Audiobookshelf server, with its progress and bookmarks.
 - A better copy of a book you already have (a higher bitrate, an EPUB where you had a MOBI) offered as a replacement at import.
-- Send to a swim player: the book from where you are, as short numbered pieces, so the last one you heard tells you where you got to.
-
-**Later**
-
 - Finding books scattered across the Mac and network drives.
 - Library health checks and backups of the catalogue.
-- Joining the parts of an audiobook into one chaptered file.
-- A signed download, so the app can be installed without building it.
 
 Ideas and reports from real libraries are welcome in the issues.
 
