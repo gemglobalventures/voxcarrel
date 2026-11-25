@@ -266,6 +266,8 @@ private struct ShelvesHeader: View {
             .accessibilityLabel("New Smart Shelf")
             .accessibilityIdentifier("sidebar.shelves.new")
         }
+        // Clear of the list's scroll bar, which is drawn over the header's end when it shows.
+        .padding(.trailing, 14)
     }
 }
 
@@ -312,6 +314,8 @@ private struct GenresHeader: View {
             .accessibilityLabel("Genres")
             .accessibilityIdentifier("sidebar.genres.menu")
         }
+        // Clear of the list's scroll bar, which is drawn over the header's end when it shows.
+        .padding(.trailing, 14)
     }
 }
 
