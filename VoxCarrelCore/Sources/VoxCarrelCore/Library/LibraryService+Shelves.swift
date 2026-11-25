@@ -3,8 +3,8 @@ import Foundation
 extension LibraryService {
     /// Every book of the library as a shelf's conditions see it, by title.
     func shelfBooks() throws -> [ShelfBook] {
-        let audio = Set(try store.books(having: .audio).compactMap(\.id))
-        let ebook = Set(try store.books(having: .ebook).compactMap(\.id))
+        let audio = try store.bookIds(having: .audio)
+        let ebook = try store.bookIds(having: .ebook)
         var groups: [String: GenreGroup] = [:]
         for entry in try genreList() where !entry.isHidden { groups[entry.name.lowercased()] = entry.group }
         return try store.books().compactMap { book in
@@ -19,6 +19,17 @@ extension LibraryService {
     /// is also how a shelf that is being made is tried out.
     public func books(on shelf: SmartShelf, now: Date = Date()) throws -> [Book] {
         try shelfBooks().filter { shelf.holds($0, now: now) }.map(\.book)
+    }
+
+    /// How many books each of these shelves holds now, by the shelf's id: the library
+    /// is read once for all of them.
+    public func bookCounts(on shelves: [SmartShelf], now: Date = Date()) throws -> [Int64: Int] {
+        let books = try shelfBooks()
+        var counts: [Int64: Int] = [:]
+        for shelf in shelves {
+            if let id = shelf.id { counts[id] = books.filter { shelf.holds($0, now: now) }.count }
+        }
+        return counts
     }
 
     public func smartShelves() throws -> [SmartShelf] {

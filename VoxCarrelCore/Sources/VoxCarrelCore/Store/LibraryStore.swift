@@ -654,35 +654,68 @@ public final class LibraryStore: Sendable {
         having role: FileRole? = nil, needsAttention: Bool? = nil, readStatus: ReadStatus? = nil
     ) throws -> [Book] {
         let visibleOnly = BookScope.visibleOnly
-        return try dbQueue.read { db in
-            var request = Book.order(Column("title").collating(.nocase))
-            if let role {
-                let hasFile = """
-                    EXISTS (SELECT 1 FROM bookFile
-                            WHERE bookFile.bookId = book.id AND bookFile.role = ?)
-                    """
-                if role == .extra {
-                    request = request.filter(sql: hasFile, arguments: [role.rawValue])
-                } else {
-                    request = request.filter(
-                        sql: """
-                            (\(hasFile) OR EXISTS (
-                                SELECT 1 FROM \(Self.storedCopies)
-                                WHERE \(Self.copyField("form")) = ?
-                                  AND \(Self.copyField("kind")) IN (\(Self.knownKinds))))
-                            """,
-                        arguments: [role.rawValue, role.rawValue])
-                }
-            }
-            if let needsAttention {
-                request = request.filter(Column("needsAttention") == needsAttention)
-            }
-            if let readStatus {
-                request = request.filter(Column("readStatus") == readStatus.rawValue)
-            }
-            if visibleOnly { request = request.filter(Column("isHidden") == false) }
-            return try request.fetchAll(db)
+        let key = "books|\(role?.rawValue ?? "")|\(needsAttention.map(String.init) ?? "")|\(readStatus?.rawValue ?? "")|\(visibleOnly)"
+        if let kept = BookScope.memo?.books[key] { return kept }
+        let found = try dbQueue.read { db in
+            try Self.request(having: role, needsAttention: needsAttention, readStatus: readStatus, visibleOnly: visibleOnly)
+                .order(Column("title").collating(.nocase)).fetchAll(db)
         }
+        BookScope.memo?.books[key] = found
+        return found
+    }
+
+    /// How many books `books(having:needsAttention:readStatus:)` would give, without
+    /// reading them.
+    public func bookCount(
+        having role: FileRole? = nil, needsAttention: Bool? = nil, readStatus: ReadStatus? = nil
+    ) throws -> Int {
+        let visibleOnly = BookScope.visibleOnly
+        return try dbQueue.read { db in
+            try Self.request(having: role, needsAttention: needsAttention, readStatus: readStatus, visibleOnly: visibleOnly)
+                .fetchCount(db)
+        }
+    }
+
+    /// The ids of the books `books(having:)` would give, without reading the books.
+    public func bookIds(having role: FileRole) throws -> Set<Int64> {
+        let visibleOnly = BookScope.visibleOnly
+        return try dbQueue.read { db in
+            Set(try Int64.fetchAll(
+                db, Self.request(having: role, needsAttention: nil, readStatus: nil, visibleOnly: visibleOnly).select(Column("id"))))
+        }
+    }
+
+    /// The books that pass these conditions, in no order.
+    private static func request(
+        having role: FileRole?, needsAttention: Bool?, readStatus: ReadStatus?, visibleOnly: Bool
+    ) -> QueryInterfaceRequest<Book> {
+        var request = Book.all()
+        if let role {
+            let hasFile = """
+                EXISTS (SELECT 1 FROM bookFile
+                        WHERE bookFile.bookId = book.id AND bookFile.role = ?)
+                """
+            if role == .extra {
+                request = request.filter(sql: hasFile, arguments: [role.rawValue])
+            } else {
+                request = request.filter(
+                    sql: """
+                        (\(hasFile) OR EXISTS (
+                            SELECT 1 FROM \(Self.storedCopies)
+                            WHERE \(Self.copyField("form")) = ?
+                              AND \(Self.copyField("kind")) IN (\(Self.knownKinds))))
+                        """,
+                    arguments: [role.rawValue, role.rawValue])
+            }
+        }
+        if let needsAttention {
+            request = request.filter(Column("needsAttention") == needsAttention)
+        }
+        if let readStatus {
+            request = request.filter(Column("readStatus") == readStatus.rawValue)
+        }
+        if visibleOnly { request = request.filter(Column("isHidden") == false) }
+        return request
     }
 
     /// Every book with an external copy of this kind, with or without files, sorted by title.
@@ -738,7 +771,14 @@ public final class LibraryStore: Sendable {
     /// Every file row of every book, ordered by book and then position.
     public func allFiles() throws -> [BookFile] {
         let visibleOnly = BookScope.visibleOnly
-        return try dbQueue.read { db in
+        if let kept = BookScope.memo?.files[visibleOnly] { return kept }
+        let found = try readAllFiles(visibleOnly: visibleOnly)
+        BookScope.memo?.files[visibleOnly] = found
+        return found
+    }
+
+    private func readAllFiles(visibleOnly: Bool) throws -> [BookFile] {
+        try dbQueue.read { db in
             guard visibleOnly else { return try BookFile.order(Column("bookId"), Column("position")).fetchAll(db) }
             return try BookFile.fetchAll(db, sql: """
                 SELECT * FROM bookFile WHERE bookId IN (SELECT id FROM book WHERE isHidden = 0)

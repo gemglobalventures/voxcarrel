@@ -28,6 +28,30 @@ public struct CoverStore: Sendable {
         return newest?.url
     }
 
+    /// Every stored cover, by book: where it is and when it was last changed. The
+    /// covers folder is read once, however many covers it holds; for a book with more
+    /// than one file there, the newest, as `url(for:)` gives.
+    public func all() -> [Int64: (url: URL, modified: Date)] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: layout.coversFolder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
+        else { return [:] }
+        var found: [Int64: (url: URL, modified: Date)] = [:]
+        for url in files where Self.extensions.contains(url.pathExtension) {
+            guard let id = Int64(url.deletingPathExtension().lastPathComponent) else { continue }
+            let date = (try? url.resourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast
+            // The same place `url(for:)` names for it, so that the two always agree.
+            let place = location(id, url.pathExtension)
+            if let kept = found[id] {
+                // Two of one age: the kind `url(for:)` comes to first.
+                let rank = { (ext: String) in Self.extensions.firstIndex(of: ext) ?? .max }
+                if kept.modified > date || (kept.modified == date && rank(kept.url.pathExtension) <= rank(url.pathExtension)) { continue }
+            }
+            found[id] = (place, date)
+        }
+        return found
+    }
+
     /// The stored cover's bytes, typed by what they are, or nil when there is none.
     public func image(for bookId: Int64) -> CoverImage? {
         guard let url = url(for: bookId), let data = try? Data(contentsOf: url) else { return nil }

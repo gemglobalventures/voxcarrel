@@ -26,6 +26,8 @@ public actor LibraryWorker {
     /// stands for a book the library does not have has such an id, and nothing should
     /// ever ask the library about it; whatever does is passed over and noted here.
     public nonisolated let strayIds = OSAllocatedUnfairLock<[Int64]>(initialState: [])
+    /// The library's size on disk as last worked out, and for which files (`diskBytes(of:)`).
+    private var keptDiskBytes: (signature: Int, bytes: Int64)?
 
     /// Opens (creating if new) the library at `libraryRoot`.
     ///
@@ -133,23 +135,49 @@ public actor LibraryWorker {
     /// its own are found with their files and highlights; any other list sees only the
     /// books that are not hidden.
     private func seeing<T>(_ item: SidebarItem, _ read: () throws -> T) rethrows -> T {
-        try item == .hidden ? read() : BookScope.visible(read)
+        try BookScope.readingOnce { try item == .hidden ? read() : BookScope.visible(read) }
     }
+
+    /// The most rows a list has for its books to be asked about one by one.
+    static let shortList = 200
 
     private func readRows(for item: SidebarItem, search: String) throws -> [BookRow] {
         if item == .upNext { return try upNextRows(search: search).rows }
-        var books = try self.books(for: item)
-        if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            // W2: text with nothing searchable in it matches nothing.
-            let matching = try booksMatching(search)
-            books = books.filter { $0.id.map(matching.contains) ?? false }
+        let isSearching = !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        var books: [Book]
+        if isSearching, item == .allBooks {
+            // Among every book, what the search finds is the list: the whole library is
+            // not read through to be narrowed down to it.
+            books = try store.search(search)
+            let found = Set(books.compactMap(\.id))
+            let byHighlight = try store.bookIds(withHighlightsMatching: search).subtracting(found)
+            if !byHighlight.isEmpty {
+                books += try byHighlight.compactMap { try store.book(id: $0) }
+                books.sort { $0.title.compare($1.title, options: .caseInsensitive) == .orderedAscending }
+            }
+        } else {
+            books = try self.books(for: item)
+            if isSearching {
+                // W2: text with nothing searchable in it matches nothing.
+                let matching = try booksMatching(search)
+                books = books.filter { $0.id.map(matching.contains) ?? false }
+            }
         }
-        // W3: one read of every file row, however many books there are.
-        let files = Dictionary(grouping: try store.allFiles(), by: \.bookId)
-        // The same for the highlights: counted once for all the rows.
+        // W3: one read of every file row and one of the covers folder, however many
+        // books there are. For a short list in a large library that is the long way
+        // round: its few books are asked about one by one.
+        let isShort = books.count <= Self.shortList
+        var files: [Int64?: [BookFile]] = [:]
+        if isShort {
+            for id in books.compactMap(\.id) { files[id] = try store.files(bookId: id) }
+        } else {
+            files = Dictionary(grouping: try store.allFiles(), by: \.bookId)
+        }
+        // The highlights are counted once for all the rows.
         let highlights = try store.highlightCounts()
+        let covers = isShort ? nil : service.covers.all()
         return books.compactMap { book in
-            book.id.map { row(for: book, id: $0, files: files[$0] ?? [], highlights: highlights[$0] ?? 0) }
+            book.id.map { row(for: book, id: $0, files: files[$0] ?? [], highlights: highlights[$0] ?? 0, covers: covers) }
         }
     }
 
@@ -218,15 +246,28 @@ public actor LibraryWorker {
     /// Everything in it is of the books that are not hidden, but for the number of
     /// hidden books itself.
     public func sidebar() throws -> SidebarData {
-        var data = try BookScope.visible { try readSidebar() }
+        var data = try BookScope.visible { try BookScope.readingOnce { try readSidebar() } }
         data.hiddenCount = try store.hiddenBookCount()
         return data
     }
 
     private func readSidebar() throws -> SidebarData {
         var counts: [SidebarItem: Int] = [:]
+        // Counted by the catalogue where it can count: a large library is not read
+        // through once for every line of the sidebar.
         for item in SidebarItem.fixed {
-            counts[item] = try books(for: item).count
+            counts[item] = switch item {
+            case .allBooks: try store.bookCount()
+            case .audiobooks: try store.bookCount(having: .audio)
+            case .ebooks: try store.bookCount(having: .ebook)
+            case .unread: try store.bookCount(readStatus: .unread)
+            case .inProgress: try store.bookCount(readStatus: .inProgress)
+            case .finished: try store.bookCount(readStatus: .finished)
+            case .needsAttention: try store.bookCount(needsAttention: true)
+            // A book has highlights when it is counted among those that do.
+            case .highlights: try store.highlightCounts().count
+            default: try books(for: item).count
+            }
         }
         var browse: [BrowseField: [String]] = [:]
         for field in BrowseField.allCases where field != .genre {
@@ -246,22 +287,36 @@ public actor LibraryWorker {
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
         data.shelves = try service.smartShelves()
-        for shelf in data.shelves {
-            if let id = shelf.id { data.shelfCounts[id] = try service.books(on: shelf).count }
-        }
+        data.shelfCounts = try service.bookCounts(on: data.shelves)
         data.upNextCount = try service.upNext().items.count
         data.upNextQueued = Set(try store.upNextIds())
-        data.tags = Set(try store.books().flatMap(\.tags).compactMap(\.trimmedOrNil))
+        data.tags = Set(try store.allTags().compactMap(\.trimmedOrNil))
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         data.audioSeconds = try store.totalAudioSeconds()
         data.kindleCount = try store.books(ownedOn: .kindle).count
         data.highlightedCount = try store.highlightCounts().count
         // Asked of the file system, one file at a time; no file is opened.
-        data.diskBytes = try store.allFiles().reduce(Int64(0)) { total, file in
-            let size = (try? store.url(for: file).resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-            return total + Int64(size)
-        }
+        data.diskBytes = diskBytes(of: try store.allFiles())
         return data
+    }
+
+    /// The size on disk of these files together. Asking the file system about every
+    /// file takes a while in a large library, so the answer is kept for as long as the
+    /// library has the same files at the same places, and asked again when it has not.
+    /// A file that only changed inside (its tags rewritten) keeps the size it had until then.
+    private func diskBytes(of files: [BookFile]) -> Int64 {
+        var hasher = Hasher()
+        for file in files {
+            hasher.combine(file.id)
+            hasher.combine(file.path)
+        }
+        let signature = hasher.finalize()
+        if let kept = keptDiskBytes, kept.signature == signature { return kept.bytes }
+        let bytes = files.reduce(Int64(0)) { total, file in
+            total + Int64((try? store.url(for: file).resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+        keptDiskBytes = (signature, bytes)
+        return bytes
     }
 
     // MARK: Genres
@@ -593,15 +648,21 @@ public actor LibraryWorker {
         return try store.books().filter { $0.id.map(wanted.contains) ?? false }
     }
 
-    private func row(for book: Book, id: Int64, files: [BookFile], highlights: Int) -> BookRow {
+    private func row(
+        for book: Book, id: Int64, files: [BookFile], highlights: Int,
+        covers: [Int64: (url: URL, modified: Date)]? = nil
+    ) -> BookRow {
         var formats: [FileFormat] = []
         for file in files where file.role != .extra && !formats.contains(file.format) {
             formats.append(file.format)
         }
-        let cover = service.covers.url(for: id)
-        let coverModified = cover.flatMap {
-            try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        // From the one reading of the covers folder when the caller made one; a single
+        // row asks for its own.
+        let stored = covers.map { $0[id] } ?? service.covers.url(for: id).map { url in
+            (url, (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
         }
+        let cover = stored?.url
+        let coverModified = stored?.modified
         var row = BookRow(
             id: id, book: book,
             // As the store lists them: a book owned elsewhere as an audiobook is one.

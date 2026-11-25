@@ -15,6 +15,22 @@ public enum BookScope {
         try $visibleOnly.withValue(true, operation: body)
     }
 
+    /// What has been read once is kept and given again, for as long as one reading of
+    /// the library for showing lasts: a sidebar counts the same books a dozen ways.
+    /// Only for a stretch in which nothing is written: what is kept is not looked at again.
+    @TaskLocal static var memo: ReadMemo?
+
+    /// Runs `body`, in which each whole list of books or files is read at most once.
+    /// Nothing may be changed in the library inside it.
+    public static func readingOnce<T>(_ body: () throws -> T) rethrows -> T {
+        try $memo.withValue(ReadMemo(), operation: body)
+    }
+
+    final class ReadMemo: @unchecked Sendable {
+        var books: [String: [Book]] = [:]
+        var files: [Bool: [BookFile]] = [:]
+    }
+
     /// What a query of the book table adds to its conditions. Read before the query
     /// runs: the database works on a thread of its own, where the scope is not known.
     static var sql: String { visibleOnly ? " AND isHidden = 0" : "" }
@@ -24,6 +40,14 @@ public enum BookScope {
 }
 
 extension LibraryStore {
+    /// Every tag any book has, each once, in no order.
+    public func allTags() throws -> [String] {
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
+            try String.fetchAll(db, sql: "SELECT DISTINCT j.value FROM book, json_each(book.tags) AS j WHERE j.value <> ''\(scope)")
+        }
+    }
+
     /// The hidden books, sorted by title, whatever the scope.
     public func hiddenBooks() throws -> [Book] {
         try dbQueue.read { db in
