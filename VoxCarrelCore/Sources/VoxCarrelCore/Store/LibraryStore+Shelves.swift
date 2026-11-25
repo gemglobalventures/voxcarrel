@@ -57,9 +57,10 @@ extension LibraryStore {
     /// The books put on the Up Next list by hand, in the order they were put there.
     /// One that is no longer in the library is not given.
     public func upNextIds() throws -> [Int64] {
-        try dbQueue.read { db in
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
             try Int64.fetchAll(
-                db, sql: "SELECT bookId FROM upNext WHERE bookId IN (SELECT id FROM book) ORDER BY position, bookId")
+                db, sql: "SELECT bookId FROM upNext WHERE bookId IN (SELECT id FROM book WHERE 1\(scope)) ORDER BY position, bookId")
         }
     }
 

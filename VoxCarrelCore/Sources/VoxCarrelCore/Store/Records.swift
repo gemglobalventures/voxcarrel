@@ -167,6 +167,8 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     /// Folder relative to the library root; nil while the book is not filed.
     public var folderPath: String?
     public var needsAttention: Bool
+    /// Kept out of every list, count and search until the owner asks to see hidden books.
+    public var isHidden = false
     public var dateAdded: Date
     /// Change with `setReadStatus(_:on:)` so the dates stay consistent.
     public var readStatus: ReadStatus
@@ -200,7 +202,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, authors, narrators, series, seriesNumber, genres, genreSource, genreTag
         case year, publisher, summary
-        case language, isbn, asin, durationSeconds, pageCount, tags, rating, folderPath, needsAttention
+        case language, isbn, asin, durationSeconds, pageCount, tags, rating, folderPath, needsAttention, isHidden
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
         case editionKind, partsAppearMissing
@@ -298,6 +300,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         rating = try c.decodeIfPresent(Int.self, forKey: .rating) ?? 0
         folderPath = try c.decodeIfPresent(String.self, forKey: .folderPath)
         needsAttention = try c.decodeIfPresent(Bool.self, forKey: .needsAttention) ?? false
+        isHidden = try c.decodeIfPresent(Bool.self, forKey: .isHidden) ?? false
         dateAdded = try c.decodeIfPresent(Date.self, forKey: .dateAdded) ?? Date(timeIntervalSinceReferenceDate: 0)
         readStatus = try c.decodeIfPresent(ReadStatus.self, forKey: .readStatus) ?? .unread
         dateStarted = try c.decodeIfPresent(Date.self, forKey: .dateStarted)

@@ -124,11 +124,12 @@ extension LibraryStore {
     /// books that have it: by group, the built-in ones in their own order and then the
     /// owner's own by name.
     public func genreList() throws -> [GenreEntry] {
-        try dbQueue.read { db in
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
             // Counted here and not by the database, which only folds the case of ASCII letters.
             var counts: [String: Int] = [:]
             for row in try Row.fetchAll(db, sql: """
-                SELECT j.value AS name, COUNT(*) AS books FROM book, json_each(book.genres) AS j GROUP BY j.value
+                SELECT j.value AS name, COUNT(*) AS books FROM book, json_each(book.genres) AS j WHERE 1\(scope) GROUP BY j.value
                 """) {
                 let name: String = row["name"]
                 counts[name.lowercased(), default: 0] += row["books"]
@@ -169,10 +170,11 @@ extension LibraryStore {
     /// The ids of the books that have this genre, whatever its place in their lists,
     /// sorted by title.
     public func bookIds(inGenre name: String) throws -> [Int64] {
-        try dbQueue.read { db in
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
             try Int64.fetchAll(db, sql: """
                 SELECT id FROM book
-                WHERE EXISTS (SELECT 1 FROM json_each(book.genres) WHERE value = ? COLLATE NOCASE)
+                WHERE EXISTS (SELECT 1 FROM json_each(book.genres) WHERE value = ? COLLATE NOCASE)\(scope)
                 ORDER BY title COLLATE NOCASE
                 """, arguments: [name])
         }
@@ -180,13 +182,14 @@ extension LibraryStore {
 
     /// The ids of the books with a genre of this group, each once, sorted by title.
     public func bookIds(inGroup group: GenreGroup) throws -> [Int64] {
-        try dbQueue.read { db in
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
             try Int64.fetchAll(db, sql: """
                 SELECT id FROM book
                 WHERE EXISTS (
                     SELECT 1 FROM json_each(book.genres) AS j
                     JOIN genre ON genre.name = j.value COLLATE NOCASE
-                    WHERE genre.genreGroup = ?)
+                    WHERE genre.genreGroup = ?)\(scope)
                 ORDER BY title COLLATE NOCASE
                 """, arguments: [group.rawValue])
         }
@@ -194,9 +197,10 @@ extension LibraryStore {
 
     /// The ids of the books with no genre, sorted by title.
     public func bookIdsWithNoGenre() throws -> [Int64] {
-        try dbQueue.read { db in
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
             try Int64.fetchAll(
-                db, sql: "SELECT id FROM book WHERE json_array_length(genres) = 0 ORDER BY title COLLATE NOCASE")
+                db, sql: "SELECT id FROM book WHERE json_array_length(genres) = 0\(scope) ORDER BY title COLLATE NOCASE")
         }
     }
 }

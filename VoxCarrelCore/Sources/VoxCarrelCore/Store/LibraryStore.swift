@@ -375,6 +375,12 @@ public final class LibraryStore: Sendable {
                 t.primaryKey(["source", "sourceId"])
             }
         }
+        migrator.registerMigration("v18") { db in
+            // Books the owner keeps out of sight.
+            try db.alter(table: "book") { t in
+                t.add(column: "isHidden", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 
@@ -647,7 +653,8 @@ public final class LibraryStore: Sendable {
     public func books(
         having role: FileRole? = nil, needsAttention: Bool? = nil, readStatus: ReadStatus? = nil
     ) throws -> [Book] {
-        try dbQueue.read { db in
+        let visibleOnly = BookScope.visibleOnly
+        return try dbQueue.read { db in
             var request = Book.order(Column("title").collating(.nocase))
             if let role {
                 let hasFile = """
@@ -673,20 +680,22 @@ public final class LibraryStore: Sendable {
             if let readStatus {
                 request = request.filter(Column("readStatus") == readStatus.rawValue)
             }
+            if visibleOnly { request = request.filter(Column("isHidden") == false) }
             return try request.fetchAll(db)
         }
     }
 
     /// Every book with an external copy of this kind, with or without files, sorted by title.
     public func books(ownedOn kind: ExternalKind) throws -> [Book] {
-        try dbQueue.read { db in
+        let visibleOnly = BookScope.visibleOnly
+        return try dbQueue.read { db in
             try Book.fetchAll(db, sql: """
                 SELECT book.* FROM book
                 WHERE EXISTS (SELECT 1 FROM \(Self.storedCopies) WHERE \(Self.copyField("kind")) = ?)
                 ORDER BY book.title COLLATE NOCASE
                 """, arguments: [kind.rawValue])
             // The query finds candidates; what counts is what the book reads as.
-            .filter { $0.isOwned(on: kind) }
+            .filter { $0.isOwned(on: kind) && !(visibleOnly && $0.isHidden) }
         }
     }
 
@@ -700,11 +709,12 @@ public final class LibraryStore: Sendable {
         guard let pattern = FTS5Pattern(matchingAllPrefixesIn: text) else {
             return []
         }
+        let scope = BookScope.sql
         return try dbQueue.read { db in
             try Book.fetchAll(db, sql: """
                 SELECT book.* FROM book
                 JOIN bookSearch ON bookSearch.rowid = book.id
-                WHERE bookSearch MATCH ?
+                WHERE bookSearch MATCH ?\(scope)
                 ORDER BY book.title COLLATE NOCASE
                 """, arguments: [pattern])
         }
@@ -727,8 +737,13 @@ public final class LibraryStore: Sendable {
 
     /// Every file row of every book, ordered by book and then position.
     public func allFiles() throws -> [BookFile] {
-        try dbQueue.read { db in
-            try BookFile.order(Column("bookId"), Column("position")).fetchAll(db)
+        let visibleOnly = BookScope.visibleOnly
+        return try dbQueue.read { db in
+            guard visibleOnly else { return try BookFile.order(Column("bookId"), Column("position")).fetchAll(db) }
+            return try BookFile.fetchAll(db, sql: """
+                SELECT * FROM bookFile WHERE bookId IN (SELECT id FROM book WHERE isHidden = 0)
+                ORDER BY bookId, position
+                """)
         }
     }
 
@@ -748,15 +763,16 @@ public final class LibraryStore: Sendable {
     /// Every distinct value of a browse field, sorted.
     public func distinctValues(_ field: BrowseField) throws -> [String] {
         let column = field.column
+        let scope = BookScope.sql
         let sql = field.isList
             ? """
               SELECT DISTINCT j.value FROM book, json_each(book.\(column)) AS j
-              WHERE j.value <> ''
+              WHERE j.value <> ''\(scope)
               ORDER BY j.value COLLATE NOCASE
               """
             : """
               SELECT DISTINCT \(column) FROM book
-              WHERE \(column) IS NOT NULL AND \(column) <> ''
+              WHERE \(column) IS NOT NULL AND \(column) <> ''\(scope)
               ORDER BY \(column) COLLATE NOCASE
               """
         return try dbQueue.read { db in try String.fetchAll(db, sql: sql) }
@@ -777,10 +793,11 @@ public final class LibraryStore: Sendable {
         let condition = field.isList
             ? "EXISTS (SELECT 1 FROM json_each(book.\(column)) WHERE \(match))"
             : "book.\(column) = ?"
+        let scope = BookScope.sql
         return try dbQueue.read { db in
             try Book.fetchAll(
                 db,
-                sql: "SELECT * FROM book WHERE \(condition) ORDER BY title COLLATE NOCASE",
+                sql: "SELECT * FROM book WHERE \(condition)\(scope) ORDER BY title COLLATE NOCASE",
                 arguments: [value])
         }
     }
@@ -852,11 +869,12 @@ public final class LibraryStore: Sendable {
     }
 
     public func books(inCollection collectionId: Int64) throws -> [Book] {
-        try dbQueue.read { db in
+        let scope = BookScope.sql
+        return try dbQueue.read { db in
             try Book.fetchAll(db, sql: """
                 SELECT book.* FROM book
                 JOIN collectionBook ON collectionBook.bookId = book.id
-                WHERE collectionBook.collectionId = ?
+                WHERE collectionBook.collectionId = ?\(scope)
                 ORDER BY book.title COLLATE NOCASE
                 """, arguments: [collectionId])
         }

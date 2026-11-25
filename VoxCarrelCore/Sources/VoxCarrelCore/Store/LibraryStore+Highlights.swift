@@ -15,9 +15,10 @@ extension LibraryStore {
 
     /// How many highlights each book has; books with none are not in it.
     public func highlightCounts() throws -> [Int64: Int] {
-        try dbQueue.read { db in
+        let scope = BookScope.ofBookIds
+        return try dbQueue.read { db in
             var counts: [Int64: Int] = [:]
-            for row in try Row.fetchAll(db, sql: "SELECT bookId, COUNT(*) AS n FROM highlight GROUP BY bookId") {
+            for row in try Row.fetchAll(db, sql: "SELECT bookId, COUNT(*) AS n FROM highlight WHERE 1\(scope) GROUP BY bookId") {
                 counts[row["bookId"]] = row["n"]
             }
             return counts
@@ -29,6 +30,7 @@ extension LibraryStore {
     public func bookIds(withHighlightsMatching text: String) throws -> Set<Int64> {
         let words = text.split(whereSeparator: \.isWhitespace).map { String($0) }.filter { !$0.isEmpty }
         guard !words.isEmpty else { return [] }
+        let scope = BookScope.ofBookIds
         return try dbQueue.read { db in
             let each = "(text LIKE ? ESCAPE '\\' OR COALESCE(note, '') LIKE ? ESCAPE '\\')"
             let pattern = { (word: String) -> String in
@@ -36,7 +38,7 @@ extension LibraryStore {
                     .replacingOccurrences(of: "_", with: "\\_") + "%"
             }
             let arguments = StatementArguments(words.flatMap { [pattern($0), pattern($0)] })
-            let sql = "SELECT DISTINCT bookId FROM highlight WHERE " + words.map { _ in each }.joined(separator: " AND ")
+            let sql = "SELECT DISTINCT bookId FROM highlight WHERE " + words.map { _ in each }.joined(separator: " AND ") + scope
             return Set(try Int64.fetchAll(db, sql: sql, arguments: arguments))
         }
     }
