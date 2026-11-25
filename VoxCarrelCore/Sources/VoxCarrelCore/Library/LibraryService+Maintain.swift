@@ -340,13 +340,28 @@ extension LibraryService {
         let books = try store.books()
         let rowsByBook = Dictionary(grouping: try store.allFiles(), by: \.bookId)
         var tracked = Set<String>()
+        // Every file of the library is compared by its path, and following links for
+        // each one asks the file system a question a file. Inside the library the
+        // folder's own links are followed once, and the rest of a path is taken as it
+        // is written: the walk below goes through no link, so what it finds is spelled
+        // as the catalogue spells it. Any other path is worked out the long way.
+        let rootResolved = Self.comparablePath(layout.root)
+        let rootSpellings = Set([layout.root.standardizedFileURL.path, layout.root.resolvingSymlinksInPath().standardizedFileURL.path])
+            .map { $0.hasSuffix("/") ? $0 : $0 + "/" }
+        func comparable(_ url: URL) -> String {
+            let path = url.standardizedFileURL.path
+            for spelling in rootSpellings where path.hasPrefix(spelling) {
+                return rootResolved + "/" + path.dropFirst(spelling.count).lowercased()
+            }
+            return Self.comparablePath(url)
+        }
         var recovered: [Int64] = []
         var newlyFlagged: [Int64] = []
         var owners: FolderOwners?
         for book in books.sorted(by: { ($0.id ?? 0) < ($1.id ?? 0) }) {
             guard let id = book.id else { continue }
             let rows = rowsByBook[id] ?? []
-            for row in rows { tracked.insert(Self.comparablePath(store.url(for: row))) }
+            for row in rows { tracked.insert(comparable(store.url(for: row))) }
             switch fileCheck(of: book, files: rows, pattern: pattern, owners: &owners) {
             case .missing(let newly):
                 report.booksWithMissingFiles.append(id)
@@ -409,7 +424,7 @@ extension LibraryService {
                 } else if Self.isWorkingCopy(name), (try? fm.removeItem(at: url)) != nil {
                     report.removedWorkingCopies += 1
                 }
-            } else if FileFormat(url: url) != nil, !tracked.contains(Self.comparablePath(url)) {
+            } else if FileFormat(url: url) != nil, !tracked.contains(comparable(url)) {
                 report.untrackedFiles.append(url)
             }
         }
@@ -501,9 +516,8 @@ extension LibraryService {
         guard let id = book.id, audio.contains(where: { $0.format == .mp3 }) else { return LengthCheck() }
         var bytes: UInt64 = 0
         for row in audio {
-            let size = try? FileManager.default.attributesOfItem(atPath: store.url(for: row).path)[.size] as? UInt64
-            guard let size else { return LengthCheck() }
-            bytes += size
+            guard let stamp = QuickFileStamp(of: store.url(for: row)) else { return LengthCheck() }
+            bytes += UInt64(max(0, stamp.size))
         }
         let recorded = book.durationSeconds ?? 0
         let implausible = recorded > 0 && !MP3Length.isPlausible(seconds: recorded, audioBytes: bytes)

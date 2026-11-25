@@ -75,6 +75,24 @@ public struct LengthProblem: Codable, Equatable, Sendable {
     }
 }
 
+/// A file's size and the date it was last changed: what tells whether it is still the
+/// file it was. Asked of the file system in the plainest way there is, with nothing
+/// else read along with it: the launch check asks it of every audio file.
+struct QuickFileStamp: Equatable {
+    var size: Int64
+    /// In seconds since the reference date.
+    var modified: Double
+
+    /// Nil when there is no such file, or it cannot be looked at. A link is followed.
+    init?(of url: URL) {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        size = Int64(info.st_size)
+        modified = Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1_000_000_000
+            - Date.timeIntervalBetween1970AndReferenceDate
+    }
+}
+
 /// An MP3 whose length could not be measured although something about it called for it:
 /// the length it is taken to have is the one its own header states, which may be wrong.
 /// Recorded with the size and date of the file as it was then, so that the same file is
@@ -95,10 +113,8 @@ public struct UnmeasuredLength: Codable, Equatable, Sendable {
 
     /// For the file at `url` as it is now; nil when it cannot be looked at.
     public init?(fileAt url: URL, statedSeconds: Double) {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attributes[.size] as? Int64, let date = attributes[.modificationDate] as? Date
-        else { return nil }
-        self.init(size: size, modified: date.timeIntervalSinceReferenceDate, statedSeconds: statedSeconds)
+        guard let stamp = QuickFileStamp(of: url) else { return nil }
+        self.init(size: stamp.size, modified: stamp.modified, statedSeconds: statedSeconds)
     }
 
     /// Whether the file at `url` is still the one that could not be measured.
@@ -127,10 +143,8 @@ public struct MeasuredLength: Codable, Equatable, Sendable {
 
     /// For the file at `url` as it is now; nil when it cannot be looked at.
     public init?(fileAt url: URL, seconds: Double) {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attributes[.size] as? Int64, let date = attributes[.modificationDate] as? Date
-        else { return nil }
-        self.init(size: size, modified: date.timeIntervalSinceReferenceDate, seconds: seconds)
+        guard let stamp = QuickFileStamp(of: url) else { return nil }
+        self.init(size: stamp.size, modified: stamp.modified, seconds: seconds)
     }
 
     /// Whether the file at `url` is still the one that was measured.
