@@ -58,6 +58,31 @@ The books in these pictures are generated samples from the demo library.
 - It does not handle protected files such as Audible downloads (`.aax`, `.aaxc`). Books you own on Audible can be listed alongside your files instead.
 - It does not download books, and it never asks for a password. An Audible account is linked by signing in on Amazon's own page, in your browser.
 
+## What's next
+
+What is being worked on and what is planned, roughly in order. This is a direction, not a promise: things move as real libraries show what matters.
+
+**Being built now**
+
+- Highlights on your books: brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own on any book, searchable with the rest of the library.
+
+**Next**
+
+- Marks into words: for a place you marked in an audiobook you have as a file, transcribe that stretch on your Mac so the mark becomes a quote, and send it on to Readwise.
+- Import from other libraries: a calibre library with its details, series, tags and ratings; an Audiobookshelf server with its progress and bookmarks.
+- Kindle highlights without Readwise, from a Kindle's own clippings file.
+- A better copy of a book you already have (a higher bitrate, an EPUB where you had a MOBI) offered as a replacement at import.
+- Send to a swim player: the book from where you are, as short numbered pieces, so the last one you heard tells you where you got to.
+
+**Later**
+
+- Finding books scattered across the Mac and network drives.
+- Library health checks and backups of the catalogue.
+- Joining the parts of an audiobook into one chaptered file.
+- A signed download, so the app can be installed without building it.
+
+Ideas and reports from real libraries are welcome in the issues.
+
 ## Requirements
 
 macOS 15 or later. Building needs the Swift 6 toolchain (Xcode 16 or later). There is no Xcode project; Xcode can open either `Package.swift` directly.
