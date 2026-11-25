@@ -133,7 +133,10 @@ extension LibraryService {
     /// An entry no book of the series matched is still owned when any book of the
     /// library holds one of its ASINs (its own, or an Audible copy's), whatever series
     /// that book is filed under: the book stays where it is, and is no book of this
-    /// series. A title alone counts only for books of the series.
+    /// series. A title alone counts for books of the series, and for a book filed
+    /// under no series that is by an author of the series' own books: so a series can
+    /// be made up of files on this Mac and books owned on Audible and on Kindle, whether
+    /// or not each was given the series' name.
     ///
     /// An entry whose title is the title of an entry the library has (an edition with
     /// no number, listed beside the numbered one) is the same book again: it is not
@@ -182,6 +185,37 @@ extension LibraryService {
             }
             ownedEntries += elsewhere
             unmatched = rest
+        }
+        // Owned by a book that is filed under no series at all: a book brought in from
+        // a Kindle or Audible library often names none. It counts when it has an
+        // entry's title and is by an author of this series' own books, which is as sure
+        // as a title can be; a book filed under another series is another book. One
+        // that is hidden is neither owned nor missing here, as above.
+        if !unmatched.isEmpty {
+            var authors: Set<String> = []
+            for book in try store.books(where: .series, equals: name) {
+                if let first = book.authors.first, !KnownNames.authorKey(first).isEmpty { authors.insert(KnownNames.authorKey(first)) }
+            }
+            func titles(of books: [Book]) -> Set<[String]> {
+                var found: Set<[String]> = []
+                for book in books {
+                    guard (book.series ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                          let first = book.authors.first, authors.contains(KnownNames.authorKey(first))
+                    else { continue }
+                    let title = LookupText.comparable(book.title)
+                    if !title.isEmpty { found.insert(title) }
+                }
+                return found
+            }
+            if !authors.isEmpty {
+                let shownTitles = titles(of: try store.books())
+                let hiddenTitles: Set<[String]> = BookScope.visibleOnly ? titles(of: try store.hiddenBooks()) : []
+                func has(_ entry: SeriesEntry, in set: Set<[String]>) -> Bool {
+                    entry.titles.contains { (title: String) -> Bool in set.contains(LookupText.comparable(title)) }
+                }
+                ownedEntries += unmatched.filter { has($0, in: shownTitles) }
+                unmatched.removeAll { has($0, in: shownTitles) || has($0, in: hiddenTitles) }
+            }
         }
         // The same book again, under the title of one the library has.
         let ownedTitles = Set(ownedEntries.flatMap { $0.titles.map { LookupText.comparable($0) } })

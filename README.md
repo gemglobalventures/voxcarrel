@@ -80,6 +80,7 @@ The books in these pictures are generated samples from the demo library.
 ### Series and what to read next
 
 - **Series in order,** grouped as one row in the list or a stack of covers in the grid.
+- **A series from everything you own:** files on this Mac, books on Audible and books on Kindle all count towards it, so a series shows complete however you own its books.
 - **What is missing:** a series is checked against Audible's own list of it, and the books you do not have are shown in their place.
 - **Up Next:** what you are reading, the next book of each series you have begun, whether you own it or not, and books you add yourself.
 - **Smart shelves:** sets of conditions you save (unread audiobooks under six hours, say), worked out fresh each time you look.
