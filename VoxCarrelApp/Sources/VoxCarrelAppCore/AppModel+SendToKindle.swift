@@ -3,9 +3,9 @@ import VoxCarrelCore
 
 /// The sizes over which a book is not sent to a Kindle, in bytes.
 public struct KindleLimits: Equatable, Sendable {
-    /// The most Amazon accepts by any route.
+    /// The most that is handed over by any route.
     public var any: Int64
-    /// The most Amazon accepts attached to a message.
+    /// The most that is attached to a message.
     public var byEmail: Int64
 
     public init(any: Int64, byEmail: Int64) {
@@ -13,8 +13,9 @@ public struct KindleLimits: Equatable, Sendable {
         self.byEmail = byEmail
     }
 
-    /// Amazon's own: 200 MB, and 50 MB by email.
-    public static let amazons = KindleLimits(any: 200_000_000, byEmail: 50_000_000)
+    /// None of VoxCarrel's own: Amazon's app and the mail program each say when a file
+    /// is more than they take, and their limits are theirs to change.
+    public static let none = KindleLimits(any: .max, byEmail: .max)
 }
 
 /// What of a book can be sent to a Kindle, and how large it is.
@@ -46,11 +47,11 @@ public enum KindleText {
         "Kindle takes EPUB and PDF. Convert this book to EPUB first (Book > Convert to EPUB), then send it."
 
     public static func tooLarge(name: String, bytes: Int64) -> String {
-        "“\(name)” is \(SendText.size(bytes)), which is more than Amazon accepts (200 MB)."
+        "“\(name)” is \(SendText.size(bytes)), which is more than can be sent to Kindle."
     }
 
     public static func tooLargeForEmail(name: String, bytes: Int64) -> String {
-        "“\(name)” is \(SendText.size(bytes)), which is more than Amazon accepts by email (50 MB). "
+        "“\(name)” is \(SendText.size(bytes)), which is more than can be sent by email. "
             + "Install Amazon's Send to Kindle app to send it."
     }
 

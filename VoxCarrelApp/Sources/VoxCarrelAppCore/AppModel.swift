@@ -748,7 +748,7 @@ public final class AppModel {
     /// What the field in Settings holds, kept or not.
     var kindleAddressText: String
     /// The sizes over which a book is not sent. Tests give smaller ones.
-    @ObservationIgnored var kindleLimits = KindleLimits.amazons
+    @ObservationIgnored var kindleLimits = KindleLimits.none
 
     // MARK: Hidden books
 

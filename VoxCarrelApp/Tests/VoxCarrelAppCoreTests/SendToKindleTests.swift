@@ -236,7 +236,8 @@ import VoxCarrelFixtures
     @Test func KD11_aFileOverAmazonsLimitIsNotSentByEitherRoute() async throws {
         // The limits are the model's to be told: these are a few bytes, so that no
         // large file has to be made. The sentences name Amazon's own limits.
-        #expect(KindleLimits.amazons == KindleLimits(any: 200_000_000, byEmail: 50_000_000))
+        // The app sets no limit of its own: Amazon's app and the mail program say theirs.
+        #expect(KindleLimits.none == KindleLimits(any: .max, byEmail: .max))
         let h = try await library()
         let id = try h.id("Quiet Book")
         let epub = try file(h, id, "epub")
@@ -249,7 +250,7 @@ import VoxCarrelFixtures
             h.kindleSender.isAppInstalled = installed
             h.model.alert = nil
             await h.model.sendToKindle(for: [id])
-            #expect(h.model.alert == "“Quiet Book.epub” is \(said), which is more than Amazon accepts (200 MB).")
+            #expect(h.model.alert == "“Quiet Book.epub” is \(said), which is more than can be sent to Kindle.")
         }
 
         // Over the limit for a message only: the app takes it, a message does not.
@@ -259,7 +260,7 @@ import VoxCarrelFixtures
         h.model.alert = nil
         await h.model.sendToKindle(for: [id])
         #expect(h.model.alert
-            == "“Quiet Book.epub” is \(said), which is more than Amazon accepts by email (50 MB). "
+            == "“Quiet Book.epub” is \(said), which is more than can be sent by email. "
             + "Install Amazon's Send to Kindle app to send it.")
         #expect(h.kindleSender.toApp.isEmpty && h.kindleSender.emails.isEmpty && !exists(stagingFolder(h)))
 
