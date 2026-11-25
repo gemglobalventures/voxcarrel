@@ -39,6 +39,8 @@ public struct BookSort: Equatable, Sendable {
     /// come after the library's books, in the order of the series, whichever way the
     /// sort runs: they have no place among books sorted by what a library book has.
     public func sorted(_ rows: [BookRow], showing item: SidebarItem? = nil) -> [BookRow] {
+        // Up Next has an order of its own, whatever the sort.
+        if case .upNext? = item { return rows }
         if key == .title, case .browse(.series, _)? = item {
             var inSeriesOrder = self
             inSeriesOrder.bySeriesNumber = true

@@ -97,6 +97,18 @@ struct BookCommandItems: View {
             .accessibilityIdentifier("\(prefix).removeFromCollection")
         }
 
+        // Put on Up Next by hand, and taken off: only a book put there by hand comes off.
+        Button(model.addToUpNextTitle) {
+            Task { await model.addToUpNext(books) }
+        }
+        .disabled(!model.canAddToUpNext(books))
+        .accessibilityIdentifier("\(prefix).addToUpNext")
+        Button(model.removeFromUpNextTitle) {
+            Task { await model.removeFromUpNext(books) }
+        }
+        .disabled(!model.canRemoveFromUpNext(books))
+        .accessibilityIdentifier("\(prefix).removeFromUpNext")
+
         Button("Rewrite Tags") {
             Task { await model.rewriteTags(for: books) }
         }

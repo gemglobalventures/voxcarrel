@@ -14,6 +14,13 @@ public enum SidebarItem: Hashable, Sendable {
     /// G36: the books that have no genre.
     case noGenre
     case collection(Int64)
+    /// What to pick up now: the books being read, the next book of each series that has
+    /// been begun, whether the library has it or not, and the books put there by hand.
+    /// Always in the sidebar, and not one of `fixed`: its lines are in an order of
+    /// their own, and some stand for books the library does not have.
+    case upNext
+    /// The books a smart shelf holds now, by the shelf's id.
+    case shelf(Int64)
     /// The books that have arrived in the watch folders and wait to be reviewed. Shown
     /// only while there is a watch folder (`AppModel.showsInbox`), and not one of `fixed`:
     /// it lists arrivals, not books of the library.
@@ -179,6 +186,16 @@ public struct SidebarData: Equatable, Sendable {
     /// What the library's files take on disk, in bytes, for the status bar. Files that
     /// cannot be found count for nothing.
     public var diskBytes: Int64 = 0
+    /// The smart shelves, in their order.
+    public var shelves: [SmartShelf] = []
+    /// How many books each shelf holds now, by the shelf's id.
+    public var shelfCounts: [Int64: Int] = [:]
+    /// How many lines Up Next has, those for books the library does not have included.
+    public var upNextCount = 0
+    /// The books that were put on Up Next by hand.
+    public var upNextQueued: Set<Int64> = []
+    /// Every tag a book has, sorted ignoring case.
+    public var tags: [String] = []
 
     public init(
         counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection],
@@ -192,6 +209,23 @@ public struct SidebarData: Equatable, Sendable {
         self.genreGroupCounts = genreGroupCounts
         self.noGenreCount = noGenreCount
         self.genreFilesToUpdate = genreFilesToUpdate
+    }
+}
+
+/// A smart shelf as the sidebar lists it.
+public struct ShelfRow: Identifiable, Equatable, Sendable {
+    public var id: Int64
+    public var name: String
+    /// How many books it holds now.
+    public var count: Int
+
+    /// What the sidebar selects to show the shelf's books.
+    public var item: SidebarItem { .shelf(id) }
+
+    public init(id: Int64, name: String, count: Int) {
+        self.id = id
+        self.name = name
+        self.count = count
     }
 }
 

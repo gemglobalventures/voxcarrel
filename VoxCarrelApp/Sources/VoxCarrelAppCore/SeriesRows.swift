@@ -126,10 +126,14 @@ public struct ShownSeries: Equatable, Sendable {
 public struct ShownBooks: Equatable, Sendable {
     public var rows: [BookRow]
     public var series: ShownSeries?
+    /// For each row that stands for a book the library does not have and is not of
+    /// `series` (a line of Up Next): the series it is missing from, by the row's id.
+    public var missingLinks: [Int64: SeriesLink]
 
-    public init(rows: [BookRow], series: ShownSeries?) {
+    public init(rows: [BookRow], series: ShownSeries?, missingLinks: [Int64: SeriesLink] = [:]) {
         self.rows = rows
         self.series = series
+        self.missingLinks = missingLinks
     }
 }
 

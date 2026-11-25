@@ -114,6 +114,7 @@ public actor LibraryWorker {
     /// The item's books in the store's order (by title), narrowed to those that match
     /// `search` when it is not blank.
     public func rows(for item: SidebarItem, search: String) throws -> [BookRow] {
+        if item == .upNext { return try upNextRows(search: search).rows }
         var books = try self.books(for: item)
         if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             // W2: text with nothing searchable in it matches nothing.
@@ -131,6 +132,10 @@ public actor LibraryWorker {
     /// about that series (plan 9, SV5, SV13): read in one turn, so that the books and
     /// the list are of the same moment. Asks nothing of the network.
     public func shownBooks(for item: SidebarItem, search: String) throws -> ShownBooks {
+        if item == .upNext {
+            let upNext = try upNextRows(search: search)
+            return ShownBooks(rows: upNext.rows, series: nil, missingLinks: upNext.links)
+        }
         let rows = try self.rows(for: item, search: search)
         guard case .browse(.series, let name) = item else { return ShownBooks(rows: rows, series: nil) }
         let books = try service.librarySeriesBooks(named: name)
@@ -139,6 +144,33 @@ public actor LibraryWorker {
             series: ShownSeries(
                 name: name, completeness: try service.seriesCompleteness(forSeries: name),
                 bookIds: Set(books.map(\.id))))
+    }
+
+    /// The lines of Up Next in the list's own order, narrowed to those that match
+    /// `search` when it is not blank: a book of the library as its ordinary row, a book
+    /// the library does not have as a missing row, with the series it is missing from.
+    /// A missing row matches when its title or an author contains the search text.
+    private func upNextRows(search: String) throws -> (rows: [BookRow], links: [Int64: SeriesLink]) {
+        let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matching = text.isEmpty ? nil : Set(try store.search(search).compactMap(\.id))
+        let files = Dictionary(grouping: try store.allFiles(), by: \.bookId)
+        var rows: [BookRow] = []
+        var links: [Int64: SeriesLink] = [:]
+        for item in try service.upNext().items {
+            switch item {
+            case .book(let book):
+                guard let id = book.id, matching?.contains(id) ?? true else { continue }
+                rows.append(row(for: book, id: id, files: files[id] ?? []))
+            case .missing(let entry, let link):
+                let row = SeriesRows.row(for: entry, link: link)
+                let words = [row.book.title] + row.book.authors
+                guard text.isEmpty || words.contains(where: { $0.localizedCaseInsensitiveContains(text) })
+                else { continue }
+                rows.append(row)
+                links[row.id] = link
+            }
+        }
+        return (rows, links)
     }
 
     public func sidebar() throws -> SidebarData {
@@ -163,6 +195,14 @@ public actor LibraryWorker {
             genreGroupCounts: groupCounts, noGenreCount: try service.booksWithNoGenre().count,
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
+        data.shelves = try service.smartShelves()
+        for shelf in data.shelves {
+            if let id = shelf.id { data.shelfCounts[id] = try service.books(on: shelf).count }
+        }
+        data.upNextCount = try service.upNext().items.count
+        data.upNextQueued = Set(try store.upNextIds())
+        data.tags = Set(try store.books().flatMap(\.tags).compactMap(\.trimmedOrNil))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         data.audioSeconds = try store.totalAudioSeconds()
         // Asked of the file system, one file at a time; no file is opened.
         data.diskBytes = try store.allFiles().reduce(Int64(0)) { total, file in
@@ -385,6 +425,15 @@ public actor LibraryWorker {
         case .genreGroup(let group): try books(withIds: try service.books(inGroup: group))
         case .noGenre: try books(withIds: try service.booksWithNoGenre())
         case .collection(let id): try store.books(inCollection: id)
+        // The library's own books of the list; its rows are made by `upNextRows`.
+        case .upNext:
+            try service.upNext().items.compactMap { item in
+                if case .book(let book) = item { return book }
+                return nil
+            }
+        // A shelf that is gone holds nothing.
+        case .shelf(let id):
+            try service.smartShelves().first { $0.id == id }.map { try service.books(on: $0) } ?? []
         // The inbox lists arrivals, which are not yet books.
         case .inbox: []
         }
@@ -807,6 +856,32 @@ public actor LibraryWorker {
         return try candidates
             .filter { $0.files.allSatisfy { FileManager.default.fileExists(atPath: $0.url.path) } }
             .map { try seed(for: $0, reader: reader) }
+    }
+
+    // MARK: Smart shelves and Up Next
+
+    // None of these is undone by Undo, and none touches a file.
+
+    /// How many books a shelf would hold now; the shelf need not be a stored one.
+    public func shelfCount(_ shelf: SmartShelf) throws -> Int {
+        try service.books(on: shelf).count
+    }
+
+    /// Stores a shelf and returns it as stored; nil for one with a blank name.
+    public func saveSmartShelf(_ shelf: SmartShelf) throws -> SmartShelf? {
+        try service.saveSmartShelf(shelf)
+    }
+
+    public func deleteSmartShelf(id: Int64) throws {
+        try service.deleteSmartShelf(id: id)
+    }
+
+    public func addToUpNext(_ ids: [Int64]) throws {
+        try service.addToUpNext(bookIds(ids))
+    }
+
+    public func removeFromUpNext(_ ids: [Int64]) throws {
+        try service.removeFromUpNext(bookIds(ids))
     }
 
     // MARK: Collections

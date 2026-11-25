@@ -182,9 +182,16 @@ extension AppModel {
     /// The one missing row that is selected, with the series it is missing from; nil
     /// when anything else is selected.
     private var selectedMissing: (entry: MissingEntry, link: SeriesLink)? {
-        guard selection.count == 1, case .missing(let entry) = inspecting, let link = shownSeries?.completeness?.link
+        guard selection.count == 1, let id = selection.first, case .missing(let entry) = inspecting,
+              let link = missingLink(forRow: id)
         else { return nil }
         return (entry, link)
+    }
+
+    /// The series a missing row is missing from: the series shown, or, for a line of
+    /// Up Next, the series that line is the next book of.
+    private func missingLink(forRow id: Int64) -> SeriesLink? {
+        shownSeries?.completeness?.link ?? shownMissingLinks[id]
     }
 
     /// The missing row these ids are, with the series it is missing from; nil unless
@@ -192,7 +199,7 @@ extension AppModel {
     /// does not have.
     private func shownMissing(_ ids: Set<Int64>) -> (entry: MissingEntry, link: SeriesLink)? {
         guard ids.count == 1, let id = ids.first, let entry = rows.first(where: { $0.id == id })?.missing,
-              let link = shownSeries?.completeness?.link
+              let link = missingLink(forRow: id)
         else { return nil }
         return (entry, link)
     }

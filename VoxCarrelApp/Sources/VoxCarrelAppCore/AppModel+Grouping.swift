@@ -33,7 +33,8 @@ extension AppModel {
     /// view, not the Inbox, and not the results of a search.
     static func allowsGrouping(_ item: SidebarItem, search: String) -> Bool {
         switch item {
-        case .browse(.series, _), .inbox: false
+        // Up Next is a list in its own order: a group would take its books out of it.
+        case .browse(.series, _), .inbox, .upNext: false
         default: search.trimmed.isEmpty
         }
     }

@@ -32,6 +32,7 @@ The books in these pictures are generated samples from the demo library.
 - Merges entries that are really one book (an audiobook, its ebook and a companion PDF imported separately) into one, choosing which to keep and what each file is.
 - Gives each book one or more genres from a short built-in list, which you can rename, merge and add to. Whatever a file's tag or a lookup says is mapped onto that list, and wording it does not know is kept as a genre of its own. Update files writes the library's genres into the files' tags when you ask, after showing what will change. Fill in Genres looks up the books that have none and shows what it found for you to review before anything is applied.
 - Read status, tags, ratings and collections; a check of the library at launch; undo for the last operation.
+- Smart shelves: sets of conditions you save (unread audiobooks under six hours, say), whose books are worked out fresh each time you look. Up Next lists what to pick up now: what you are reading, the next book of each series you have begun, whether you own it or not, and books you add yourself.
 
 **Details**
 

@@ -61,6 +61,8 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case genreFiles(SheetObject<GenreFilesUpdate>)
     /// G29: Fill in Genres.
     case genreFill(SheetObject<GenreFillSession>)
+    /// A smart shelf being made or changed.
+    case shelfEditor(SheetObject<ShelfEditor>)
 
     public var id: String {
         switch self {
@@ -76,6 +78,7 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .manageGenres: "manageGenres"
         case .genreFiles: "genreFiles"
         case .genreFill: "genreFill"
+        case .shelfEditor: "shelfEditor"
         }
     }
 }
@@ -99,16 +102,19 @@ extension AppModel {
     /// wanted, the first of: progress, the import review, a result, the launch check,
     /// the preview of a change of folder layout, the choice between Audible series, a lookup (for the inspected book, or to
     /// add an Audible book), Send to Phone, Merge Books, Manage Genres, the preview of
-    /// "Update files…", and Fill in Genres.
+    /// "Update files…", Fill in Genres, and the editor of a smart shelf.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
     /// which stays up: the progress sheet does not take its place. MG7: the same for
-    /// Merge Books. G23: and for Manage Genres, whose changes are made under it.
+    /// Merge Books. G23: and for Manage Genres, whose changes are made under it, and
+    /// for the editor of a smart shelf while it saves.
     ///
     /// - Parameter progressDue: Whether the operation that is running has run long
     ///   enough for its progress to be shown: a short one shows no sheet.
     public func windowSheet(progressDue: Bool) -> WindowSheet? {
-        if progressDue, sendSession == nil, mergeSession == nil, genreManager == nil, let label = progressSheetLabel {
+        if progressDue, sendSession == nil, mergeSession == nil, genreManager == nil, shelfEditor == nil,
+           let label = progressSheetLabel
+        {
             return .progress(label)
         }
         if let review { return .review(review) }
@@ -124,6 +130,7 @@ extension AppModel {
         if let genreManager { return .manageGenres(SheetObject(genreManager)) }
         if let genreFilesUpdate { return .genreFiles(SheetObject(genreFilesUpdate)) }
         if let genreFill { return .genreFill(SheetObject(genreFill)) }
+        if let shelfEditor { return .shelfEditor(SheetObject(shelfEditor)) }
         return nil
     }
 }

@@ -20,6 +20,8 @@ extension SidebarItem {
         case .noGenre: "tag.slash"
         case .collection: "rectangle.stack"
         case .inbox: "tray"
+        case .upNext: "text.line.first.and.arrowtriangle.forward"
+        case .shelf: "line.3.horizontal.decrease.circle"
         }
     }
 }
@@ -57,6 +59,7 @@ extension EmptyState {
         case .emptyLibrary: "books.vertical"
         case .noMatches: "magnifyingglass"
         case .noAudibleBooks: "cloud"
+        case .nothingUpNext: SidebarItem.upNext.symbol
         }
     }
 
@@ -65,6 +68,7 @@ extension EmptyState {
         case .emptyLibrary: "books.empty.library"
         case .noMatches: "books.empty.noMatches"
         case .noAudibleBooks: "books.empty.onAudible"
+        case .nothingUpNext: "books.empty.upNext"
         }
     }
 }

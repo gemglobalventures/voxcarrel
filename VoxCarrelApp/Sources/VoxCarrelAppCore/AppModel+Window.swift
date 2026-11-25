@@ -58,6 +58,8 @@ extension AppModel {
         case .noGenre: "No genre"
         case .collection(let id): sidebar.collections.first { $0.id == id }?.name ?? "Collection"
         case .inbox: "Inbox"
+        case .upNext: "Up Next"
+        case .shelf(let id): sidebar.shelves.first { $0.id == id }?.name ?? "Shelf"
         }
     }
 
@@ -189,7 +191,10 @@ extension AppModel {
         guard sidebarSelection != .inbox else { return nil }
         // R10
         if sidebarSelection == .onAudible, sidebar.counts[.onAudible] == 0 { return .noAudibleBooks }
-        return all == 0 ? .emptyLibrary : .noMatches
+        if all == 0 { return .emptyLibrary }
+        // Nothing is being read, begun or waiting: not a search that found nothing.
+        if sidebarSelection == .upNext, searchText.trimmed.isEmpty { return .nothingUpNext }
+        return .noMatches
     }
 
     /// What the middle of the window shows: nothing until the open library's books have
@@ -249,12 +254,15 @@ public enum EmptyState: Equatable, Sendable {
     case noMatches
     /// On Audible is what the sidebar shows, and no book is marked as on Audible.
     case noAudibleBooks
+    /// Up Next is what the sidebar shows, and it has no lines.
+    case nothingUpNext
 
     public var title: String {
         switch self {
         case .emptyLibrary: "No books yet"
         case .noMatches: "No books match"
         case .noAudibleBooks: "No Audible books yet"
+        case .nothingUpNext: "Nothing up next"
         }
     }
 
@@ -263,6 +271,8 @@ public enum EmptyState: Equatable, Sendable {
         case .emptyLibrary: "Drag files or folders here, or choose Import."
         case .noMatches: "Try another search, or choose something else in the sidebar."
         case .noAudibleBooks: "Choose Book ▸ Add Audible Book…"
+        case .nothingUpNext:
+            "Books you are reading, the next book of a series you have begun, and books you add here will be listed."
         }
     }
 }
@@ -289,6 +299,11 @@ extension PendingPrompt {
         self == .stopLayoutRecovery || self == .stopMergeRecovery ? "Stop Trying" : nil
     }
 
+    /// What the button that deletes a smart shelf says; nil for any other question.
+    public var deleteShelfTitle: String? {
+        if case .deleteShelf = self { "Delete" } else { nil }
+    }
+
     /// The question, as the dialog's heading.
     public var title: String {
         switch self {
@@ -304,6 +319,8 @@ extension PendingPrompt {
             return "Stop trying to put the folders back?"
         case .stopMergeRecovery:
             return "Stop trying to put the files back?"
+        case .deleteShelf(_, let name):
+            return "Delete the shelf \"\(name)\"?"
         }
     }
 
@@ -353,6 +370,8 @@ extension PendingPrompt {
             return "VoxCarrel will stop trying to put the files of the interrupted merge back. Books whose files "
                 + "moved will show as missing until you move the files back or locate them yourself. Nothing "
                 + "is deleted."
+        case .deleteShelf:
+            return "The books on it stay in the library."
         }
     }
 }

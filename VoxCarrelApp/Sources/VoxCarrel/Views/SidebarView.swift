@@ -2,7 +2,7 @@ import SwiftUI
 import VoxCarrelAppCore
 import VoxCarrelCore
 
-/// V2: Library, Browse and Collections.
+/// V2: Library (with Up Next), Shelves, Browse, Genres and Collections.
 struct SidebarView: View {
     @Environment(AppModel.self) private var model
 
@@ -28,8 +28,49 @@ struct SidebarView: View {
                         .badge(Text("\(model.sidebar.counts[item] ?? 0)"))
                         .tag(item)
                         .accessibilityIdentifier("sidebar.\(String(describing: item))")
+                    // Up Next is always there, straight under All Books. With no lines it has no badge.
+                    if item == .allBooks {
+                        Label(model.title(of: .upNext), systemImage: SidebarItem.upNext.symbol)
+                            .badge(model.upNextCount)
+                            .tag(SidebarItem.upNext)
+                            .accessibilityIdentifier("sidebar.upNext")
+                    }
                 }
             }
+
+            // The smart shelves, each with the number of books it holds now. The
+            // header has the button that makes one.
+            Section {
+                ForEach(model.shelves) { shelf in
+                    Label(shelf.name, systemImage: shelf.item.symbol)
+                        .lineLimit(1)
+                        .badge(Text("\(shelf.count)"))
+                        .tag(shelf.item)
+                        .contextMenu {
+                            Button("Edit Shelf…") {
+                                model.beginEditShelf(shelf.id)
+                            }
+                            .disabled(!model.canBeginShelf)
+                            .accessibilityIdentifier("sidebar.shelf.edit")
+                            Button("Delete Shelf…", role: .destructive) {
+                                model.deleteShelf(shelf.id)
+                            }
+                            .disabled(!model.canDeleteShelf(shelf.id))
+                            .accessibilityIdentifier("sidebar.shelf.delete")
+                            Divider()
+                            Button("New Smart Shelf…") {
+                                model.beginNewShelf()
+                            }
+                            .disabled(!model.canBeginShelf)
+                            .accessibilityIdentifier("sidebar.shelf.new")
+                        }
+                        .accessibilityIdentifier("sidebar.shelf.\(shelf.id)")
+                }
+            } header: {
+                ShelvesHeader(model: model)
+            }
+            // The header's own button stands where the button that hides a section would.
+            .collapsible(false)
 
             Section("Browse") {
                 ForEach(BrowseField.sidebarOrder, id: \.self) { field in
@@ -198,6 +239,31 @@ struct SidebarView: View {
             set: { shown in
                 if !shown { collection.wrappedValue = nil }
             })
+    }
+}
+
+/// The heading of the sidebar's shelves, with the button that makes a new one.
+///
+/// Handed the model: it is drawn by the list, and reads nothing from the environment.
+private struct ShelvesHeader: View {
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Shelves")
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            Button {
+                model.beginNewShelf()
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!model.canBeginShelf)
+            .help("New Smart Shelf…")
+            .accessibilityLabel("New Smart Shelf")
+            .accessibilityIdentifier("sidebar.shelves.new")
+        }
     }
 }
 

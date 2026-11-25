@@ -42,6 +42,9 @@ public enum PendingPrompt: Equatable {
     case stopLayoutRecovery
     /// The same for a merge of books that was interrupted and cannot be put right.
     case stopMergeRecovery
+    /// Whether to delete a smart shelf. Answered with `AppModel.confirmDeleteShelf`, or
+    /// dismissed by setting `prompt` to nil.
+    case deleteShelf(id: Int64, name: String)
 }
 
 public enum UnsavedChoice: Sendable {
@@ -249,7 +252,10 @@ public final class AppModel {
         rows = []
         rowsLoaded = false
         shownSeries = nil
+        shownMissingLinks = [:]
         seriesChoice = nil
+        // A shelf being made or changed was a shelf of the library shown before.
+        shelfEditor = nil
         selection = []
         anchor = nil
         inspecting = .nothing
@@ -586,6 +592,7 @@ public final class AppModel {
                 return
             }
             shownSeries = read.series
+            shownMissingLinks = read.missingLinks
             // Before the rows: the items are worked out from the rows and what they are of.
             shown = (item, search)
             rows = storedSort.sorted(fetched, showing: item)
@@ -643,6 +650,7 @@ public final class AppModel {
                     // SV13: the series' list is read again with its books, from the catalogue.
                     let fetched = withMissingRows(read, search: search)
                     shownSeries = read.series
+                    shownMissingLinks = read.missingLinks
                     shown = (item, search)
                     rows = storedSort.sorted(fetched, showing: item)
                     rowsLoaded = true
@@ -664,6 +672,9 @@ public final class AppModel {
     /// The series the rows are the books of, with what the catalogue holds of Audible's
     /// list of it; nil while the rows are of anything else.
     var shownSeries: ShownSeries?
+    /// For the rows of Up Next that stand for books the library does not have: the
+    /// series each is missing from, by the row's id. Empty while anything else is shown.
+    var shownMissingLinks: [Int64: SeriesLink] = [:]
     /// SV3: the Audible series the owner is being asked to choose between; nil when
     /// they are not being asked.
     var seriesChoice: PendingSeriesChoice?
@@ -676,6 +687,8 @@ public final class AppModel {
         set {
             guard newValue != storedShowsHiddenMissing else { return }
             storedShowsHiddenMissing = newValue
+            // Up Next never has a hidden book, and its missing rows are not a series' own.
+            guard shown.item != .upNext else { return }
             let books = ShownBooks(rows: rows.filter { !$0.isMissing }, series: shownSeries)
             let all = withMissingRows(books, search: shown.search)
             rows = storedSort.sorted(all, showing: shown.item)
@@ -1356,6 +1369,11 @@ public final class AppModel {
     /// GH-b: how the selection goes back if the last change to the genres is undone.
     @ObservationIgnored var genreUndo: GenreUndo?
 
+    // MARK: Smart shelves
+
+    /// The smart shelf being made or changed; not nil shows the sheet.
+    public internal(set) var shelfEditor: ShelfEditor?
+
     // MARK: Merge Books
 
     /// The merge that is open; not nil shows the sheet.
@@ -1419,6 +1437,7 @@ extension SidebarData {
         case .genreGroup(let group): (genreGroupCounts[group] ?? 0) > 0
         case .noGenre: noGenreCount > 0
         case .collection(let id): collections.contains { $0.id == id }
+        case .shelf(let id): shelves.contains { $0.id == id }
         default: true
         }
     }

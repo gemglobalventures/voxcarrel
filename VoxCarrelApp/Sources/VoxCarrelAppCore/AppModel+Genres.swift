@@ -521,7 +521,8 @@ extension AppModel {
     /// Whether none of the three sheets about genres is open. One at a time: what one
     /// shows was read before another could change it.
     var noGenreSheetIsOpen: Bool {
-        genreManager == nil && genreFilesUpdate == nil && genreFill == nil
+        // Nor the editor of a smart shelf, which lists the genres as they were.
+        genreManager == nil && genreFilesUpdate == nil && genreFill == nil && shelfEditor == nil
     }
 
     /// G23: whether Manage Genres can be opened.
