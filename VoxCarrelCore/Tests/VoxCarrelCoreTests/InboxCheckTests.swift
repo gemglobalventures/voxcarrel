@@ -138,7 +138,9 @@ import VoxCarrelFixtures
 
         let dropped = try FileManager.default.contentsOfDirectory(at: added.url, includingPropertiesForKeys: nil)
             .sorted { $0.path < $1.path }
-        let expected = f.service.scan(dropped).candidates
+        // (The sample files hold the same contents whatever book they stand for, so the
+        // drop is scanned without setting copies aside, as a watch folder's check is.)
+        let expected = BookScanner(reader: FileMetadataIO(), tidies: false).scan(dropped).candidates
         #expect(expected.count == 4)
         #expect(report.arrivals.map { shape($0.candidate) }.sorted() == expected.map(shape).sorted())
         // Each group is one arrival, named by its first file, holding the group's files.

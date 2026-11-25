@@ -219,4 +219,25 @@ import VoxCarrelFixtures
         #expect(try f.service.fillInContentPrints(limit: 10) == 0)
         #expect(try f.store.filesLackingContentPrint(limit: 10).map(\.id) == [first.id])
     }
+
+    @Test func CP9_inOneScanTwoFilesThatDifferOnlyInTheirTagsAreOneFileAndACopy() throws {
+        let root = try makeTempDir()
+        let shelf = root.appendingPathComponent("Shelf", isDirectory: true)
+        try FileManager.default.createDirectory(at: shelf.appendingPathComponent("More"), withIntermediateDirectories: true)
+        let first = shelf.appendingPathComponent("Ann Author - Far Stars.m4b")
+        try MediaFixtures.makeAAC(at: first, seconds: 2)
+        let second = shelf.appendingPathComponent("More/far stars (tagged).m4b")
+        try FileManager.default.copyItem(at: first, to: second)
+        try io.write(retagged(), cover: .set(cover(0.4)), to: second)
+        let other = shelf.appendingPathComponent("More/Bob Writer - Something Else.m4b")
+        try MediaFixtures.makeAAC(at: other, seconds: 3)
+
+        let result = BookScanner().scan([shelf])
+        #expect(result.candidates.count == 2)
+        let kept = try #require(result.candidates.first { !$0.copies.isEmpty })
+        #expect(kept.files.count == 1 && kept.copies.count == 1)
+        #expect(Set([kept.files[0].url.lastPathComponent, kept.copies[0].lastPathComponent])
+            == [first.lastPathComponent, second.lastPathComponent])
+        #expect(result.candidates.contains { $0.files[0].url.lastPathComponent == other.lastPathComponent && $0.copies.isEmpty })
+    }
 }

@@ -541,10 +541,19 @@ public enum DemoContent {
     private static func makeAudiobook(at url: URL, _ metadata: BookMetadata, _ cover: CoverImage) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try MediaFixtures.makeChapteredM4B(at: url, seconds: 2, chapters: [
+        // Each sample book has a sound of its own (a length no other has): two files
+        // that hold the same sound are one book and a copy of it.
+        try MediaFixtures.makeChapteredM4B(at: url, seconds: 2 + ownMeasure(of: metadata.title), chapters: [
             (start: 0, title: "Opening"), (start: 0.7, title: "Chapter One"), (start: 1.4, title: "Chapter Two"),
         ])
         try FileMetadataIO().write(metadata, cover: .set(cover), to: url)
+    }
+
+    /// A small number that is a title's own, the same every time: between 0 and 1.
+    private static func ownMeasure(of title: String) -> Double {
+        var sum: UInt64 = 7
+        for scalar in title.unicodeScalars { sum = (sum &* 31 &+ UInt64(scalar.value)) % 9973 }
+        return Double(sum) / 9973
     }
 
     private static func makeEbook(at url: URL, _ metadata: BookMetadata, _ cover: CoverImage) throws {
@@ -553,7 +562,8 @@ public enum DemoContent {
         try MediaFixtures.makeEPUB(at: url, files: [
             ("OEBPS/content.opf", Data(blankOPF().utf8)),
             ("OEBPS/nav.xhtml", Data(MediaFixtures.nav.utf8)),
-            ("OEBPS/ch1.xhtml", Data(MediaFixtures.chapter.utf8)),
+            // Each sample book has a text of its own, for the same reason.
+            ("OEBPS/ch1.xhtml", Data((MediaFixtures.chapter + "\n<!-- \(ownMeasure(of: metadata.title)) -->\n").utf8)),
         ])
         try FileMetadataIO().write(metadata, cover: .set(cover), to: url)
     }

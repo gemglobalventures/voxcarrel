@@ -674,7 +674,8 @@ import VoxCarrelFixtures
     /// where an ebook's unknown subject is left out.)
     private func taggedBook(_ title: String, tag: String) throws -> URL {
         let url = try makeTempDir().appendingPathComponent("\(title).m4b")
-        try MediaFixtures.makeAAC(at: url, seconds: 1)
+        // A sound of its own for each title: two files with the same sound are one book and a copy.
+        try MediaFixtures.makeAAC(at: url, seconds: 1 + Double(title.count) * 0.05)
         var metadata = BookMetadata(title: title, authors: ["Ann Lee"])
         metadata.genres = [tag]
         _ = try FileMetadataIO().write(metadata, to: url)

@@ -64,16 +64,22 @@ public struct BookScanner {
     /// Whether a file's contents are here to be read without fetching them.
     private let isOnThisMac: @Sendable (URL) -> Bool
 
+    /// Whether `scan(_:)` sets aside copies and joins the same book found twice.
+    private let tidies: Bool
+
     /// - Parameter known: The authors and titles the library already has, as evidence
     ///   for reading a name "A - B" either way round.
     /// - Parameter isOnThisMac: For tests; the file system is asked otherwise.
+    /// - Parameter tidies: False to have every file that was found given back, copies
+    ///   and all, each in the book its own folder and name put it in.
     public init(
         reader: (any MetadataReader)? = nil, known: KnownNames = .none,
-        isOnThisMac: @escaping @Sendable (URL) -> Bool = BookScanner.isOnThisMac
+        isOnThisMac: @escaping @Sendable (URL) -> Bool = BookScanner.isOnThisMac, tidies: Bool = true
     ) {
         self.reader = reader
         self.known = known
         self.isOnThisMac = isOnThisMac
+        self.tidies = tidies
     }
 
     /// False for a file kept in iCloud whose contents have not been fetched: reading
@@ -123,7 +129,7 @@ public struct BookScanner {
                      subfoldersHaveBooks: false, into: &result)
         }
 
-        finish(&result, tidying: true)
+        finish(&result, tidying: tidies)
         return result
     }
 
@@ -604,34 +610,57 @@ public struct BookScanner {
 
     /// The candidates with every file that is a copy of an earlier one taken out and
     /// noted as a copy on the book that keeps the first. A candidate left with no
-    /// file is dropped. Only files of the same size are read to be compared.
+    /// file is dropped. A file is a copy of another when the two hold the same sound
+    /// or text, tags aside (`ContentPrint`), or failing a print of that kind are byte
+    /// for byte the same. Only files that could be the same are read through: those
+    /// that share the cheap part of a content print, or a size. The parts of one book
+    /// are never copies of one another, and a file kept in iCloud and not here is not
+    /// read.
     static func withoutCopies(
         _ candidates: [CandidateBook], isOnThisMac: (URL) -> Bool = BookScanner.isOnThisMac
     ) -> [CandidateBook] {
-        var sizes: [Int: Int] = [:]
         // Anything smaller than this is no book, and says nothing by being the same.
         let smallest = 4096
         func size(_ url: URL) -> Int? { (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize }
+
+        // What each file could be told by, and how many files share it.
+        var keys: [String: ContentPrint.Key] = [:]
+        var shared: [String: Int] = [:]
+        var sizes: [Int: Int] = [:]
         for candidate in candidates {
-            for file in candidate.files { if let s = size(file.url), s >= smallest { sizes[s, default: 0] += 1 } }
+            for file in candidate.files {
+                guard let bytes = size(file.url), bytes >= smallest, isOnThisMac(file.url) else { continue }
+                sizes[bytes, default: 0] += 1
+                if let key = ContentPrint.key(of: file.url) {
+                    keys[file.url.path] = key
+                    shared[key.prefix, default: 0] += 1
+                }
+            }
         }
+
+        /// The marks a file can be matched by; empty when no other file could be the same.
+        func marks(of url: URL) -> [String] {
+            guard let bytes = size(url), bytes >= smallest, isOnThisMac(url) else { return [] }
+            var found: [String] = []
+            if let key = keys[url.path], shared[key.prefix, default: 0] > 1, let print = key.full() {
+                found.append("content:" + print)
+            }
+            if sizes[bytes, default: 0] > 1, let print = fingerprint(of: url) { found.append("bytes:" + print) }
+            return found
+        }
+
         var out = candidates
-        // The candidate that holds the first file with each fingerprint.
+        // The candidate that holds the first file with each mark.
         var first: [String: Int] = [:]
         for index in out.indices {
             var kept: [CandidateFile] = []
             for file in out[index].files {
-                guard let s = size(file.url), s >= smallest, sizes[s, default: 0] > 1, isOnThisMac(file.url),
-                      let print = fingerprint(of: file.url)
-                else {
-                    kept.append(file)
-                    continue
-                }
+                let found = marks(of: file.url)
                 // The parts of one book are never copies of one another.
-                if let owner = first[print], owner != index {
+                if let owner = found.compactMap({ first[$0] }).first(where: { $0 != index }) {
                     out[owner].copies.append(file.url)
                 } else {
-                    first[print] = first[print] ?? index
+                    for mark in found where first[mark] == nil { first[mark] = index }
                     kept.append(file)
                 }
             }
