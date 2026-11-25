@@ -4,7 +4,7 @@ A native Mac app for managing a personal library of audiobooks and ebooks: a mod
 
 VoxCarrel files your books into a tidy folder layout, writes details and covers into the files themselves, and looks books up online. It manages files you already own; it is not a store or a downloader.
 
-**Status:** early. It has a large automated test suite, run on generated sample books, and has been used on a small real collection, not yet a large one. Import by copy until you trust it with yours.
+**Status:** early. It has a large automated test suite, run on generated sample books, and has been used on a small real collection, not yet a large one. You build it from source for now. Import by copy until you trust it with yours.
 
 ![The library as a cover grid, with one book open in the inspector and a series shown as a stack of covers](Screenshots/library-grid.jpg)
 
@@ -19,60 +19,95 @@ VoxCarrel files your books into a tidy folder layout, writes details and covers 
 
 The books in these pictures are generated samples from the demo library.
 
+## At a glance
+
+- **One entry per book.** The audiobook, the ebook, a companion PDF, and "I own this on Audible" or "on Kindle" are one book, not four.
+- **Your files, kept tidy.** Books are filed into folders arranged the way you choose, with details and covers written into the files themselves.
+- **Nothing moves until you have reviewed it.** Every import goes through a review sheet, and the last operation can be undone.
+- **Everything you own, in one list.** Your files, your Audible library and your Kindle library, side by side.
+- **Your highlights, on the books.** From Readwise, from marks made while listening on Audible, and your own.
+- **What to read next.** Up Next, smart shelves, and series that show what is missing.
+- **Local and private.** The library is a folder and a database on your Mac. Nothing is sent anywhere until you ask.
+
 ## What it does
 
-**Organising**
+### Bringing books in
 
-- Imports audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF; MOBI, AZW3, AZW, PRC, DjVu, FB2, LIT and CHM are filed but never opened or modified), by move or copy, through a review sheet.
-- Reads a messy folder sensibly: a file that is a copy of another, or of one the library already has, is set aside (told by its sound or its text, whatever its tags say), the same book in several formats or found twice is one entry, an audiobook kept in disc folders is one book, titles a program left in a PDF ("Microsoft Word - draft.doc") are passed over for the file's name, and the details and cover calibre keeps beside a book are used. Files still in iCloud are not fetched until you import.
-- Shows a status bar under the list: how many books are listed or selected and how long they run, and the library's totals (books, audiobooks, ebooks, hours of audio, unread, size on disk).
-- Reads a file's name when its tags say too little (either way round, with an Audible ID if the name has one), says in the review what it guessed, and asks before adding files to a book that only might be the same one.
-- Keeps an audiobook, its ebook and companion files together as one book, in folders arranged the way you choose: `Author/Series/Title` to begin with, or another layout or a pattern of your own.
-- Watches folders you name, such as Downloads: books that arrive are listed in an Inbox, and are filed only when you review them.
-- Merges entries that are really one book (an audiobook, its ebook and a companion PDF imported separately) into one, choosing which to keep and what each file is.
-- Gives each book one or more genres from a short built-in list, which you can rename, merge and add to. Whatever a file's tag or a lookup says is mapped onto that list, and wording it does not know is kept as a genre of its own. Update files writes the library's genres into the files' tags when you ask, after showing what will change. Fill in Genres looks up the books that have none and shows what it found for you to review before anything is applied.
-- Read status, tags, ratings and collections; a check of the library at launch; undo for the last operation.
-- Hides the books you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password. This is for keeping books out of sight in the app; their files stay in the library folder.
-- Smart shelves: sets of conditions you save (unread audiobooks under six hours, say), whose books are worked out fresh each time you look. Up Next lists what to pick up now: what you are reading, the next book of each series you have begun, whether you own it or not, and books you add yourself.
+- **Import** audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF), by move or copy, through a review sheet. MOBI, AZW3, AZW, PRC, DjVu, FB2, LIT and CHM are filed but never opened or modified.
+- **A messy folder is read sensibly.** Copies are set aside, the same book in several formats is one entry, and an audiobook kept in disc folders is one book.
+- **A calibre library comes across in one step.** Its books are copied in with their details, series, covers, tags, ratings and dates. The calibre library is left exactly as it was.
+- **Watch folders**, such as Downloads: books that arrive wait in an Inbox, and are filed only when you review them.
+- **Books you own elsewhere.** Link your Audible account to list every book you own there, and your Kindle library with the same link. They appear as entries marked "on Audible" or "on Kindle"; books you already have are marked, not added twice.
 
-**Details**
+<details>
+<summary>More about importing</summary>
 
-- Edits details and covers for one book or many, written into the files and checked before they replace the originals.
-- Looks books up on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress, which knows many older cassette and CD editions. Results that are your exact edition are marked, as are different editions; you choose which fields to take, from one result or several, and applying them saves in one step.
-- Works out whether an audiobook is unabridged, abridged or a dramatisation, from its title and file names, from a matching catalogue entry, or from its running time.
-- Measures the true length of MP3s whose header states the wrong one, and can repair those headers so the files play in full everywhere.
+- A file is known as a copy by its sound or its text, whatever its tags say, including a copy of a book the library already has.
+- When a file's tags say too little, its name is read (either way round, with an Audible ID if the name has one). The review says what was guessed, and asks before adding files to a book that only might be the same one.
+- Titles a program left in a PDF ("Microsoft Word - draft.doc") are passed over for the file's name.
+- The details and cover calibre keeps beside a book are used even in an ordinary folder import.
+- Files still in iCloud are not fetched until you import.
+- Two entries of the same book in a calibre library come in as one.
+- The Kindle list is read from Amazon's Kindle web reader, which is not an official interface and could stop working. Nothing is changed at Amazon and no Kindle file is touched.
 
-**Series**
+</details>
 
-- Tracks books you own on Audible alongside your local files, so a series shows complete.
-- Links to your Audible account and brings in your Audible library: every book you own there, with what you have finished and begun, as entries marked "on Audible". Books you already have are marked, not added twice, and no file is touched.
-- Brings in your Kindle library too, with the same link: every ebook you own on Kindle, as entries marked "on Kindle" with their covers. The list is read from Amazon's Kindle web reader, which is not an official interface and could stop working; nothing is changed at Amazon and no Kindle file is touched.
-- Checks a series against Audible's own list of it and shows the books you do not have, in order.
-- Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
+### Keeping them in order
 
-**Highlights**
+- **Folders your way:** `Author/Series/Title` to begin with, or another layout or a pattern of your own. Changing it shows what will move, then re-files the whole library in one step.
+- **Merge** entries that are really one book (an audiobook, its ebook and a companion PDF imported separately).
+- **Genres from a short list** you can rename, merge and add to. Whatever a file or a lookup says is mapped onto it.
+- **Read status, tags, ratings and collections.**
+- **Hide books** you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password.
+- **A check of the library at launch**, and **undo** for the last operation.
 
-- Shows a book's highlights on the book: brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own, added to any book. Search finds books by the words of their highlights.
-- Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle", beside your files and your Audible books. The rest of your Kindle library comes in with Import Kindle Library.
-- The same highlight arriving from two places is kept once. Looking again brings in only what changed, and a highlight deleted at its source goes here too. Readwise is read with your own access token, which stays on your Mac; nothing is sent to it.
+<details>
+<summary>More about organising</summary>
 
-**Your phone**
+- Update files writes the library's genres into the files' tags when you ask, after showing what will change. Fill in Genres looks up the books that have none and shows what it found before anything is applied.
+- Hiding keeps books out of sight in the app. Their files stay in the library folder under their own names.
+- A status bar under the list shows how many books are listed or selected and how long they run, and the library's totals (books, audiobooks, ebooks, hours of audio, unread, size on disk).
 
-- Sends an audiobook to your phone: by AirDrop, or by a QR code that makes [BookPlayer](https://github.com/TortugaPower/BookPlayer) download it from your Mac. A book in several parts goes as one zip, and the cover can be made square for the phone, on the copy that is sent.
+</details>
+
+### Details and covers
+
+- **Edit details and covers** for one book or many. They are written into the files, and checked before they replace the originals.
+- **Look books up** on Open Library, the Audible catalogue (several countries' stores at once) and, if you turn it on, the Library of Congress. You choose which fields to take, from one result or several.
+- **Editions are told apart:** results that are your exact edition are marked, and an audiobook is recognised as unabridged, abridged or a dramatisation.
+- **MP3 lengths are measured,** and a header that states the wrong length can be repaired so the file plays in full everywhere.
+
+### Series and what to read next
+
+- **Series in order,** grouped as one row in the list or a stack of covers in the grid.
+- **What is missing:** a series is checked against Audible's own list of it, and the books you do not have are shown in their place.
+- **Up Next:** what you are reading, the next book of each series you have begun, whether you own it or not, and books you add yourself.
+- **Smart shelves:** sets of conditions you save (unread audiobooks under six hours, say), worked out fresh each time you look.
+
+### Highlights
+
+- **On the book they belong to:** brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own, added to any book.
+- **Search** finds books by the words of their highlights.
+- **Kept once:** the same highlight arriving from two places is one highlight. Looking again brings in only what changed.
+- Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle".
+
+### Your phone
+
+- **Send an audiobook to your phone** by AirDrop, or by a QR code that makes [BookPlayer](https://github.com/TortugaPower/BookPlayer) download it from your Mac. A book in several parts goes as one zip.
 
 ## What it does not do
 
 - It does not play or read books; opening one hands it to your usual player or reader.
-- It does not handle protected files such as Audible downloads (`.aax`, `.aaxc`). Books you own on Audible can be listed alongside your files instead.
+- It does not handle protected files such as Audible downloads (`.aax`, `.aaxc`) or protected Kindle books, and it does not remove protection. Books you own on Audible or Kindle are listed alongside your files instead.
 - It does not download books, and it never asks for a password. An Audible account is linked by signing in on Amazon's own page, in your browser.
 
 ## What's next
 
-What is being worked on and what is planned, roughly in order. This is a direction, not a promise: things move as real libraries show what matters.
+What is planned, roughly in order. This is a direction, not a promise: things move as real libraries show what matters.
 
 **Before the first release**
 
-- Moving from calibre in one step, without being locked in: a calibre library is read (its catalogue, the details file beside each book, and the covers) and its books are copied in, leaving the calibre library exactly as it was. VoxCarrel keeps writing standard details, inside the files and in a `metadata.opf` beside each book, so you can always leave as cleanly as you came.
+- Leaving as cleanly as you came: a standard `metadata.opf` written beside each book, as well as the details inside the files, so another library manager can pick the library up.
 - Converting ebooks to EPUB (from MOBI, AZW3 and others).
 - Send to Kindle: an ebook from the library to your Kindle.
 - A signed download, so the app can be installed without building it, and `brew install --cask voxcarrel`.
@@ -95,7 +130,7 @@ macOS 15 or later. Building needs the Swift 6 toolchain (Xcode 16 or later). The
 ## Layout
 
 - `VoxCarrelCore/` — the engine: scanning, filing, tags, the catalogue database, online lookup. No user interface.
-- `VoxCarrelApp/` — the app: `VoxCarrelAppCore` holds everything the window shows and does (tested without a window); `VoxCarrel` holds the SwiftUI views, which contain no logic.
+- `VoxCarrelApp/` — the app: `VoxCarrelAppCore` holds everything the window shows and does (tested without a window); `VoxCarrelUI` holds the SwiftUI views, which contain no logic; `VoxCarrel` is the executable that starts them.
 
 ## Build
 
@@ -152,6 +187,12 @@ Each source can be switched on or off in Settings ▸ Lookup. A source that is o
 Send to Phone's link serves only the one book you chose, only to your local network, for at most ten minutes or one download, and it is not encrypted, so use it on a network you trust. Nothing is sent to any outside service.
 
 Linking an Audible account (Settings ▸ General) is the one time VoxCarrel acts for an account, and only when you ask. You sign in on Amazon's own page, in your browser; VoxCarrel never sees your password. Amazon then registers a device with your account, named like "Your name's Audible for iPhone", and VoxCarrel keeps that device's keys on this Mac, where only your account can read them (in the Keychain for a signed build of the app, in a private file under Application Support/VoxCarrel for one you built yourself), nowhere else. With them, Import Audible Library reads the list of books you own, and downloads their covers from Amazon's image servers. It only reads: nothing is bought, changed or removed at Audible. Unlink removes the device from your Amazon account and the keys from the Keychain; you can also remove the device yourself in your Amazon account, under Content & Devices. This is not an official Amazon interface and may stop working if Amazon changes it.
+
+Import Kindle Library uses the same link. Each time you run it, VoxCarrel asks Amazon for a signed-in web session for your account, sends it only to Amazon's Kindle web reader to read the list of books you own, and keeps it nowhere. A web session can do more on an Amazon account than read a list; VoxCarrel uses it for that one address and nothing else. Covers are downloaded from Amazon's image servers.
+
+Import Highlights reads Readwise with an access token you paste in from your Readwise account. The token is kept on this Mac only, and is sent only to Readwise. VoxCarrel only reads from Readwise: nothing is written to it.
+
+Showing hidden books asks macOS to check Touch ID or your Mac's password. VoxCarrel sees only whether the check passed.
 
 ## Contributing
 
