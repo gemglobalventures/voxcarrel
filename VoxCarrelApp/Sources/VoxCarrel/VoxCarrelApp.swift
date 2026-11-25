@@ -48,6 +48,7 @@ struct AppCommands: Commands {
             GenreCommandItems(model: model, updateTitle: "Update Genre Tags in Files…", prefix: "menu.library")
             Divider()
             AudibleCommandItem(model: model)
+            KindleCommandItem(model: model)
             HighlightsCommandItem(model: model)
         }
     }
@@ -64,6 +65,20 @@ private struct AudibleCommandItem: View {
         }
         .disabled(!model.canUseAudibleMenu)
         .accessibilityIdentifier("menu.library.audibleImport")
+    }
+}
+
+/// Bringing in the Kindle library of the linked account. It is read with the link made
+/// for Audible, so it applies only while an account is linked.
+private struct KindleCommandItem: View {
+    let model: AppModel
+
+    var body: some View {
+        Button(model.kindleMenuTitle) {
+            model.beginKindleImport()
+        }
+        .disabled(!model.canImportKindleLibrary)
+        .accessibilityIdentifier("menu.library.kindleImport")
     }
 }
 

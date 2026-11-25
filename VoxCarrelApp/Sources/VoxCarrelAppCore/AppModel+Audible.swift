@@ -59,8 +59,10 @@ extension AppModel {
     // MARK: Unlinking
 
     public var canUnlinkAudible: Bool {
-        // Nor while Import Highlights is open: it may be reading with the account's keys.
+        // Nor while Import Highlights or Import Kindle Library is open: either may be
+        // reading with the account's keys.
         isAudibleLinked && busyLabel == nil && storedPrompt == nil && audibleImport == nil && highlightsImport == nil
+            && kindleImport == nil
     }
 
     /// Asks whether to unlink: `prompt` becomes `.unlinkAudible`. Nothing is done until

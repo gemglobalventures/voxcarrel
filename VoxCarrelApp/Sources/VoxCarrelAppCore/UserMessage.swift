@@ -104,6 +104,16 @@ public enum UserMessage {
         }
     }
 
+    /// Why the account's Kindle library could not be read. Nothing was changed.
+    public static func kindleLibraryProblem(_ error: Error) -> String {
+        switch error as? AudibleAccountError {
+        case .refused:
+            "Amazon no longer accepts this link. Unlink the Audible account in Settings and link it again."
+        case .notReachable: "Amazon could not be reached. Check your internet connection."
+        default: "Your Kindle library could not be read."
+        }
+    }
+
     /// Why the file to send to the phone could not be made. Nothing was changed.
     private static func text(for error: SendError) -> String {
         switch error {

@@ -67,6 +67,8 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case audibleLink(SheetObject<AudibleLinkSession>)
     /// Import Audible Library.
     case audibleImport(SheetObject<AudibleImportSession>)
+    /// Import Kindle Library.
+    case kindleImport(SheetObject<KindleImportSession>)
     /// The highlights of one book.
     case highlights(SheetObject<HighlightsSession>)
     /// Import Highlights.
@@ -89,6 +91,7 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .shelfEditor: "shelfEditor"
         case .audibleLink: "audibleLink"
         case .audibleImport: "audibleImport"
+        case .kindleImport: "kindleImport"
         case .highlights: "highlights"
         case .highlightsImport: "highlightsImport"
         }
@@ -115,7 +118,8 @@ extension AppModel {
     /// the preview of a change of folder layout, the choice between Audible series, a lookup (for the inspected book, or to
     /// add an Audible book), Send to Phone, Merge Books, Manage Genres, the preview of
     /// "Update files…", Fill in Genres, the editor of a smart shelf, Link Audible
-    /// Account, Import Audible Library, the highlights of a book, and Import Highlights.
+    /// Account, Import Audible Library, Import Kindle Library, the highlights of a book,
+    /// and Import Highlights.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
     /// which stays up: the progress sheet does not take its place. MG7: the same for
@@ -147,6 +151,7 @@ extension AppModel {
         if let shelfEditor { return .shelfEditor(SheetObject(shelfEditor)) }
         if let audibleLink { return .audibleLink(SheetObject(audibleLink)) }
         if let audibleImport { return .audibleImport(SheetObject(audibleImport)) }
+        if let kindleImport { return .kindleImport(SheetObject(kindleImport)) }
         if let highlights { return .highlights(SheetObject(highlights)) }
         if let highlightsImport { return .highlightsImport(SheetObject(highlightsImport)) }
         return nil

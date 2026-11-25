@@ -295,6 +295,24 @@ public actor LibraryWorker {
         try service.audibleBooksWithoutCover()
     }
 
+    // MARK: An Amazon account's Kindle library
+
+    /// Brings an account's Kindle library in, or with `apply` false only says what
+    /// doing so would do.
+    public func kindleLibraryReport(_ books: [KindleOwnedBook], apply: Bool) throws -> KindleLibraryReport {
+        try service.bringInKindleLibrary(books, apply: apply)
+    }
+
+    /// The books owned on Kindle that have no cover stored, each with its Kindle IDs,
+    /// in capitals. An ID a book has anywhere else is left out: it is not a Kindle ID.
+    public func kindleBooksWithoutCover() throws -> [(bookId: Int64, itemIds: [String])] {
+        try Set(service.booksOwnedElsewhereWithoutCover()).sorted().compactMap { id in
+            guard let book = try store.book(id: id) else { return nil }
+            let ids = book.externalCopies.filter { $0.kind == .kindle }.compactMap { $0.itemId?.trimmedOrNil?.uppercased() }
+            return ids.isEmpty ? nil : (id, ids)
+        }
+    }
+
     // MARK: Highlights
 
     /// A book's highlights, in the order of the book.

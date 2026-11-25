@@ -94,6 +94,9 @@ struct Dialogs: ViewModifier {
                 case .audibleImport(let shown):
                     AudibleImportSheet(session: shown.state)
                         .modifier(Questions(isActive: true))
+                case .kindleImport(let shown):
+                    KindleImportSheet(session: shown.state)
+                        .modifier(Questions(isActive: true))
                 case .highlights(let shown):
                     HighlightsSheet(session: shown.state)
                         .modifier(Questions(isActive: true))

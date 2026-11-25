@@ -277,6 +277,7 @@ public final class AppModel {
         // What was to be brought in from Audible was for the library shown before, as
         // are the covers still on their way. The link itself is the Mac's, and stays.
         closeAudibleImport()
+        closeKindleImport()
         audibleCovers?.cancel()
         // The same for highlights: those to bring in, and the sheet of a book's own.
         closeHighlightsImport()
@@ -1424,6 +1425,8 @@ public final class AppModel {
     public internal(set) var audibleLink: AudibleLinkSession?
     /// Import Audible Library; not nil shows the sheet.
     public internal(set) var audibleImport: AudibleImportSession?
+    /// Import Kindle Library; not nil shows the sheet.
+    public internal(set) var kindleImport: KindleImportSession?
     /// The covers being fetched after an import, or the last that were. Tests wait for it.
     @ObservationIgnored var audibleCovers: Task<Void, Never>?
 
