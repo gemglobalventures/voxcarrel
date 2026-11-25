@@ -148,6 +148,13 @@ struct BookCommandItems: View {
         }
         .disabled(!model.canSendToPhone(books))
         .accessibilityIdentifier("\(prefix).sendToPhone")
+        // For one book with an ebook on this Mac: handed to Amazon's own app, or put in
+        // a message to the Kindle's address. An alert says what stands in the way.
+        Button(KindleText.commandTitle) {
+            Task { await model.sendToKindle(for: books) }
+        }
+        .disabled(!model.canSendToKindle(books))
+        .accessibilityIdentifier("\(prefix).sendToKindle")
 
         // Merge books plan: entries that are one book become one. Always in the Book
         // menu; in a context menu when it is for several books.

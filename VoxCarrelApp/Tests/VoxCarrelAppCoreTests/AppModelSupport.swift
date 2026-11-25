@@ -31,6 +31,43 @@ final class RecordingOpener: FileOpener, @unchecked Sendable {
     }
 }
 
+/// Stands in for Amazon's Send to Kindle app and the mail program: records what it
+/// was handed, with the bytes of the file as they were then, and opens nothing.
+@MainActor final class FakeKindleSender: KindleSender {
+    /// One file handed over.
+    struct Handed: Equatable {
+        var file: URL
+        /// What the file held when it was handed over; nil when it could not be read.
+        var bytes: Data?
+        /// Nil for Amazon's app.
+        var address: String?
+        var subject: String?
+    }
+
+    /// Whether Amazon's app is taken to be installed. It is not, until a test says so.
+    var isAppInstalled = false
+    /// Whether Amazon's app opens what it is handed.
+    var appOpens = true
+    /// Whether there is a mail program to write the message.
+    var mailWorks = true
+    /// Everything handed to Amazon's app, in order, opened or not.
+    private(set) var toApp: [Handed] = []
+    /// Every message asked for, in order, written or not.
+    private(set) var emails: [Handed] = []
+
+    nonisolated init() {}
+
+    func sendWithApp(_ file: URL) -> Bool {
+        toApp.append(Handed(file: file, bytes: try? Data(contentsOf: file)))
+        return appOpens
+    }
+
+    func composeEmail(to address: String, subject: String, attaching file: URL) -> Bool {
+        emails.append(Handed(file: file, bytes: try? Data(contentsOf: file), address: address, subject: subject))
+        return mailWorks
+    }
+}
+
 /// An `OwnerCheck` that asks nobody: it answers as a test tells it to, and remembers
 /// what it was asked for.
 final class FakeOwnerCheck: OwnerCheck, @unchecked Sendable {
@@ -249,6 +286,8 @@ final class Harness {
     let ownerCheck = FakeOwnerCheck()
     /// What the model makes an EPUB of an ebook with: never a program of the Mac's.
     let converter = FakeEbookConverter()
+    /// What the model hands a book to for the Kindle: never Amazon's app or a mail program.
+    let kindleSender = FakeKindleSender()
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -273,7 +312,7 @@ final class Harness {
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
             watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
             audibleKeys: audibleKeys, audibleTransport: audible, readwiseTokens: readwiseTokens,
-            ownerCheck: ownerCheck, ebookConverter: converter)
+            ownerCheck: ownerCheck, ebookConverter: converter, kindleSender: kindleSender)
         model.lookupLanguage = "en"
         sendTemp = try makeTempDir()
         model.network = network
@@ -363,7 +402,7 @@ final class Harness {
             lookupService: lookup.service(for:),
             watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now },
             phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible,
-            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck, ebookConverter: converter)
+            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck, ebookConverter: converter, kindleSender: kindleSender)
         model.network = network
         model.sendTempRoot = sendTemp
         giveAudibleSeams(to: model)

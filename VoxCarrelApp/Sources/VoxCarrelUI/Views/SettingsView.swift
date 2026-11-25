@@ -3,7 +3,7 @@ import VoxCarrelAppCore
 import VoxCarrelCore
 
 /// V7; plan 7, V3: the settings, on three tabs: General (the library folder, the folder
-/// layout, copying on import, the Audible account), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
+/// layout, copying on import, the Audible account, the Kindle's address), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
 /// Folders (the folders watched for books that arrive).
 struct SettingsView: View {
     /// Every tab is this wide; the window takes its height from the tab that is shown.
@@ -87,6 +87,7 @@ private struct GeneralSettings: View {
                     .accessibilityIdentifier("settings.copyOnImport")
             }
             AudibleAccountSettings(model: model)
+            KindleAddressSettings(model: model)
             ReadwiseSettings(model: model)
         }
         .formStyle(.grouped)
@@ -129,6 +130,39 @@ private struct AudibleAccountSettings: View {
                     .accessibilityIdentifier("settings.audible.link")
                 }
             }
+        }
+    }
+}
+
+/// The Kindle's email address, for Send to Kindle when Amazon's app is not installed.
+/// What is typed is kept as it is typed; the model says when it is not an address.
+private struct KindleAddressSettings: View {
+    let model: AppModel
+
+    var body: some View {
+        @Bindable var model = model
+
+        Section("Kindle") {
+            LabeledContent(KindleText.addressTitle) {
+                TextField(KindleText.addressTitle, text: $model.kindleAddress)
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .accessibilityLabel(KindleText.addressTitle)
+                    .accessibilityIdentifier("settings.kindle.address")
+            }
+            if let problem = model.kindleAddressProblem {
+                Text(problem)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.kindle.addressProblem")
+            }
+            Text(KindleText.addressHelp)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("settings.kindle.addressHelp")
         }
     }
 }

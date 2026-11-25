@@ -102,6 +102,8 @@ public final class AppModel {
     ///     answers by itself.
     ///   - ebookConverter: Makes an EPUB of an ebook in another format: calibre's own
     ///     converter, when calibre is installed. Tests give one that runs no program.
+    ///   - kindleSender: Hands a book to Amazon's Send to Kindle app, or to the mail
+    ///     program. Tests give one that opens nothing.
     ///   - extensions: What has been added to the app; nothing, unless the app was
     ///     started by a package that adds features.
     public init(
@@ -115,6 +117,7 @@ public final class AppModel {
         readwiseTokens: any ReadwiseTokenStore = ReadwiseTokenStores.standard(),
         ownerCheck: any OwnerCheck = SystemOwnerCheck(),
         ebookConverter: any EbookConverter = CalibreConverter(),
+        kindleSender: any KindleSender = SystemKindleSender(),
         extensions: AppExtensions = AppExtensions()
     ) {
         self.location = location
@@ -132,6 +135,11 @@ public final class AppModel {
         self.readwiseTokens = readwiseTokens
         self.ownerCheck = ownerCheck
         self.ebookConverter = ebookConverter
+        self.kindleSender = kindleSender
+        // Only an address that would be accepted now is taken from the preferences.
+        let kindleAddress = defaults.string(forKey: KindleKeys.address).flatMap(KindleText.address) ?? ""
+        storedKindleAddress = kindleAddress
+        kindleAddressText = kindleAddress
         hasReadwiseToken = readwiseTokens.load() != nil
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
@@ -726,6 +734,21 @@ public final class AppModel {
 
     /// What an EPUB is made of a book's ebook with.
     @ObservationIgnored let ebookConverter: any EbookConverter
+
+    // MARK: Send to Kindle
+
+    enum KindleKeys {
+        static let address = "kindleAddress"
+    }
+
+    /// What a book is handed to, to be sent to the Kindle.
+    @ObservationIgnored let kindleSender: any KindleSender
+    /// The Kindle's address as it is kept; empty when none is.
+    var storedKindleAddress: String
+    /// What the field in Settings holds, kept or not.
+    var kindleAddressText: String
+    /// The sizes over which a book is not sent. Tests give smaller ones.
+    @ObservationIgnored var kindleLimits = KindleLimits.amazons
 
     // MARK: Hidden books
 

@@ -330,7 +330,8 @@ extension Harness {
             lookupService: lookup.service(for:),
             watcher: FakeFolderWatcher(), ticker: FakeTicker(), inboxNow: { clock.now },
             phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible,
-            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck, extensions: extensions)
+            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck, ebookConverter: converter,
+            kindleSender: kindleSender, extensions: extensions)
         model.network = network
         model.sendTempRoot = sendTemp
         model.audibleLinkFile = audibleLinkFile

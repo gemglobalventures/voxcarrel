@@ -816,6 +816,25 @@ public actor LibraryWorker {
         try service.prepareSend(for: check, options: options, in: folder)
     }
 
+    // MARK: Sending to a Kindle
+
+    /// What of the book can be sent to a Kindle, with the name and the size of the
+    /// file when there is one. Changes nothing.
+    public func kindleOffer(ofBook bookId: Int64) throws -> KindleOffer {
+        guard isBookId(bookId) else { return KindleOffer(choice: .nothing) }
+        let choice = try service.kindleChoice(ofBook: bookId)
+        guard case .file(let file) = choice else { return KindleOffer(choice: choice) }
+        let url = store.url(for: file)
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        return KindleOffer(choice: choice, fileName: url.lastPathComponent, bytes: bytes)
+    }
+
+    /// A copy of the file, named by the book's title, in a new folder under `root`,
+    /// which is a temporary folder. The library's file is only read.
+    public func stageForKindle(_ file: BookFile, title: String, under root: URL) throws -> URL {
+        try service.stageForKindle(file, title: title, under: root)
+    }
+
     /// Records that the book was sent. Not something Undo reverses.
     public func recordSent(bookId: Int64, method: SendMethod, fingerprint: SendFingerprint, at date: Date) throws {
         guard isBookId(bookId) else { return }
