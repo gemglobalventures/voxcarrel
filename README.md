@@ -48,6 +48,12 @@ The books in these pictures are generated samples from the demo library.
 - Checks a series against Audible's own list of it and shows the books you do not have, in order.
 - Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
 
+**Highlights**
+
+- Shows a book's highlights on the book: brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own, added to any book. Search finds books by the words of their highlights.
+- Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle", beside your files and your Audible books. Only highlighted Kindle books come in this way; your whole Kindle library is not read.
+- The same highlight arriving from two places is kept once. Looking again brings in only what changed, and a highlight deleted at its source goes here too. Readwise is read with your own access token, which stays on your Mac; nothing is sent to it.
+
 **Your phone**
 
 - Sends an audiobook to your phone: by AirDrop, or by a QR code that makes [BookPlayer](https://github.com/TortugaPower/BookPlayer) download it from your Mac. A book in several parts goes as one zip, and the cover can be made square for the phone, on the copy that is sent.
@@ -61,10 +67,6 @@ The books in these pictures are generated samples from the demo library.
 ## What's next
 
 What is being worked on and what is planned, roughly in order. This is a direction, not a promise: things move as real libraries show what matters.
-
-**Being built now**
-
-- Highlights on your books: brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own on any book, searchable with the rest of the library.
 
 **Next**
 
