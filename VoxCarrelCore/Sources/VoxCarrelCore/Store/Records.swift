@@ -11,10 +11,13 @@ public enum ReadStatus: String, Codable, Sendable, CaseIterable {
 /// A place other than the library's own files where a book can be owned.
 public enum ExternalKind: String, Codable, Sendable, CaseIterable {
     case audible
+    /// Owned as a Kindle book: always an ebook.
+    case kindle
 
     public var title: String {
         switch self {
         case .audible: "Audible"
+        case .kindle: "Kindle"
         }
     }
 }

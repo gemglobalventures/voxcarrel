@@ -39,7 +39,8 @@ import VoxCarrelFixtures
     // MARK: The model
 
     @Test func kindsHaveTitles() {
-        #expect(ExternalKind.allCases == [.audible])
+        #expect(ExternalKind.allCases == [.audible, .kindle])
+        #expect(ExternalKind.kindle.title == "Kindle" && ExternalKind.kindle.rawValue == "kindle")
         #expect(ExternalKind.audible.title == "Audible")
         #expect(ExternalKind.audible.rawValue == "audible")
     }
@@ -204,7 +205,7 @@ import VoxCarrelFixtures
         let store = try makeStore()
         let id = try #require(try store.insert(book("Mixed"), files: []).id)
         let text = """
-            [{"kind":"kindle","form":"ebook","store":"uk","itemId":"K1"},\
+            [{"kind":"kobo","form":"ebook","store":"uk","itemId":"K1"},\
             {"kind":"audible","form":"audio","store":"uk","itemId":"B08G9PRS1K"},\
             {"kind":"audible","form":"hologram"},\
             "not a copy at all",\
@@ -230,7 +231,7 @@ import VoxCarrelFixtures
     @Test func M2_aBookWithOnlyUnknownCopiesReadsAsHavingNone() throws {
         let store = try makeStore()
         let id = try #require(try store.insert(book("Future"), files: []).id)
-        let text = #"[{"kind":"kindle","form":"audio","itemId":"K1"}]"#
+        let text = #"[{"kind":"kobo","form":"audio","itemId":"K1"}]"#
         try store.dbQueue.write { db in
             try db.execute(sql: "UPDATE book SET externalCopies = ? WHERE id = ?", arguments: [text, id])
         }
@@ -243,7 +244,7 @@ import VoxCarrelFixtures
 
         // Saving the book writes back what this version could not read.
         try store.update(fetched)
-        #expect(try storedKinds(id, in: store) == ["kindle"])
+        #expect(try storedKinds(id, in: store) == ["kobo"])
         #expect(try store.book(id: id) == fetched)
     }
 
@@ -255,7 +256,7 @@ import VoxCarrelFixtures
     }
 
     static let fromTheFuture = """
-        [{"kind":"kindle","form":"ebook","store":"uk","itemId":"K1","shelf":{"n":2,"tags":["a",null,true]}},\
+        [{"kind":"kobo","form":"ebook","store":"uk","itemId":"K1","shelf":{"n":2,"tags":["a",null,true]}},\
         {"kind":"audible","form":"audio","store":"uk","itemId":"B08G9PRS1K"},\
         {"kind":"audible","form":"hologram"}]
         """

@@ -345,6 +345,27 @@ public final class LibraryStore: Sendable {
                     arguments: [shelf.name, try Self.ruleText(of: shelf), index])
             }
         }
+        migrator.registerMigration("v16") { db in
+            try db.create(table: "highlight") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("bookId", .integer).notNull().indexed().references("book", onDelete: .cascade)
+                // Where it came from ("readwise", "audible", "own") and what it is called there.
+                t.column("source", .text).notNull()
+                t.column("sourceId", .text).notNull()
+                t.column("text", .text).notNull()
+                t.column("note", .text)
+                // Where in the book: a number and what it counts.
+                t.column("location", .double)
+                t.column("endLocation", .double)
+                t.column("locationKind", .text)
+                t.column("madeAt", .datetime)
+                t.column("colour", .text)
+                t.column("link", .text)
+                t.column("isFavourite", .boolean).notNull().defaults(to: false)
+                t.column("tags", .text).notNull().defaults(to: "[]")
+                t.uniqueKey(["source", "sourceId"])
+            }
+        }
         return migrator
     }
 
