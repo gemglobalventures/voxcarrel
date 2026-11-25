@@ -30,9 +30,11 @@ extension LibraryService {
     /// them; any other tag goes to the mapping, whole. Either way each name is then the
     /// one the library keeps for it (`listedGenres`). Every reading of a file's genre
     /// tag for this library comes through here.
-    public func genres(fromTag tag: String?) -> [String] {
+    ///
+    /// - Parameter asSubjects: True for an ebook's subjects (`GenreTag.genres`).
+    public func genres(fromTag tag: String?, asSubjects: Bool = false) -> [String] {
         let listing = (try? store.genreListing()) ?? GenreListing(rows: [])
-        return listing.names(GenreTag.genres(from: tag, listed: listing.rows.map(\.name)))
+        return listing.names(GenreTag.genres(from: tag, listed: listing.rows.map(\.name), asSubjects: asSubjects))
     }
 
     /// Genres as this library keeps them on a book: no name twice, and each as the list
@@ -61,9 +63,9 @@ extension LibraryService {
 
     /// A file's details as this library reads them: its genres are what its tag gives
     /// here (`genres(fromTag:)`), and the tag itself is kept as the wording.
-    func inLibrary(_ read: BookMetadata) -> BookMetadata {
+    func inLibrary(_ read: BookMetadata, from url: URL) -> BookMetadata {
         var details = read
-        details.genres = genres(fromTag: read.genreSource)
+        details.genres = genres(fromTag: read.genreSource, asSubjects: FileFormat(url: url) == .epub)
         return details
     }
 }

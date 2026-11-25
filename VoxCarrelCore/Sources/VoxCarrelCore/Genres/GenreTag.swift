@@ -19,9 +19,20 @@ public enum GenreTag {
     /// semicolons, is taken as it is written, in the list's spelling: it is what the
     /// app writes, and reads back as the same genres in the same order. Any other tag
     /// goes to the mapping, whole.
-    public static func genres(from tag: String?, listed: [String] = []) -> [String] {
+    ///
+    /// - Parameter asSubjects: True for an ebook's subjects, which are a cataloguer's
+    ///   headings and a shop's keywords as often as genres ("LCSH: Corporations—Finance.",
+    ///   "Trading discipline"): each is a piece of its own, and one the mapping does not
+    ///   know is left out, not made a genre.
+    public static func genres(from tag: String?, listed: [String] = [], asSubjects: Bool = false) -> [String] {
         guard let tag, !tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
         if let written = written(tag, listed: listed) { return written }
+        if asSubjects {
+            let subjects = tag.split(separator: ";").map { GenreName.tidied(String($0)) }.filter { !$0.isEmpty }
+            // A subject that is a name of the list is that genre, as when the app wrote it.
+            let own = subjects.compactMap { subject in listed.first { GenreName.same($0, subject) } }
+            return GenreName.spelled(own + GenreMapping.map(.subjects(subjects)).names, as: listed)
+        }
         return GenreName.spelled(GenreMapping.map(.text(tag)).names, as: listed)
     }
 

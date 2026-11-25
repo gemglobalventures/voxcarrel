@@ -575,8 +575,11 @@ import ZIPFoundation
 
             #expect(f.service.genres(fromTag: try tag(url)) == ["Pub Quiz", "Fantasy"], "\(name)")
             #expect(try f.tags(url).genres == ["Pub Quiz", "Fantasy"], "\(name)")
-            // Without the library's list the mapping decides, and knows only its own names.
-            #expect(try FileMetadataIO().read(url).metadata.genres == ["Fantasy", "Pub Quiz"], "\(name)")
+            // Without the library's list the mapping decides, and knows only its own names:
+            // an ebook's subject it does not know is left out.
+            #expect(
+                try FileMetadataIO().read(url).metadata.genres == (name == "epub" ? ["Fantasy"] : ["Fantasy", "Pub Quiz"]),
+                "\(name)")
         }
     }
 

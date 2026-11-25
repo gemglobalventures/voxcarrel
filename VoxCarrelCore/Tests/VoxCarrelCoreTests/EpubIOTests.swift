@@ -67,8 +67,8 @@ import VoxCarrelFixtures
         m.language = "en-GB"
         m.summary = "New description"
         m.isbn = "9781111111111"
-        m.genres = ["A", "B"]
-        m.genreSource = "A; B"
+        m.genres = ["Fantasy", "Horror"]
+        m.genreSource = "Fantasy; Horror"
         return m
     }
 
@@ -124,13 +124,13 @@ import VoxCarrelFixtures
         #expect(contents.metadata.language == "en-GB")
         #expect(contents.metadata.summary == "New description")
         #expect(contents.metadata.isbn == "9781111111111")
-        #expect(contents.metadata.genres == ["A", "B"])
+        #expect(contents.metadata.genres == ["Fantasy", "Horror"])
         // The manifest says JPEG, so the PNG was converted and the entry path kept.
         #expect(contents.cover?.mime == "image/jpeg")
         #expect(contents.cover?.data.prefix(3) == Data([0xFF, 0xD8, 0xFF]))
         #expect(contents.cover?.data != MediaFixtures.makeImage(.jpeg))
 
-        #expect(try opfValues(url, "//*[local-name()='subject']") == ["A", "B"])
+        #expect(try opfValues(url, "//*[local-name()='subject']") == ["Fantasy", "Horror"])
         let opf = try opfText(url)
         #expect(opf.hasPrefix("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"))
         #expect(opf.contains("New Title &amp; &lt;Tags&gt;"))

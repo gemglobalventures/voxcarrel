@@ -414,4 +414,30 @@ import VoxCarrelFixtures
         let own = try f.store.allFiles().map { f.store.url(for: $0) }
         #expect(f.service.scan(own).alreadyInLibrary.isEmpty)
     }
+
+    // MARK: An ebook's subjects
+
+    @Test func CI18_anEbooksSubjectsThatAreNotGenresAreLeftOut() throws {
+        // As found in real files: headings and keywords among the genres.
+        #expect(GenreTag.genres(from: "Invest", asSubjects: true).isEmpty)
+        #expect(GenreTag.genres(from: "LCSH: Corporations—Finance.", asSubjects: true).isEmpty)
+        #expect(GenreTag.genres(
+            from: "Trading Psychology; Self Development For Traders; Trading discipline; Science fiction", asSubjects: true)
+            == ["Science Fiction"])
+        #expect(GenreTag.genres(from: "Business & Careers; Financial crises; History", asSubjects: true)
+            == ["Business & Careers", "History"])
+        // What the app wrote reads back as it was, an own genre among them.
+        #expect(GenreTag.genres(from: "Pub Quiz; Fantasy", listed: ["Pub Quiz"], asSubjects: true) == ["Pub Quiz", "Fantasy"])
+        // A subject that is one of the owner's own genres is kept beside an unknown one.
+        #expect(GenreTag.genres(from: "Pub Quiz; Large type books; Fantasy", listed: ["Pub Quiz"], asSubjects: true)
+            == ["Pub Quiz", "Fantasy"])
+        // A tag in an audio file is still read as before: an unknown name is a genre of the owner's.
+        #expect(GenreTag.genres(from: "Steampunk Noir; Fantasy") == ["Fantasy", "Steampunk Noir"])
+
+        // In a library, an EPUB with such subjects adds no genre to the list.
+        let f = try LibraryFixture()
+        let before = try f.service.genreList().count
+        #expect(f.service.genres(fromTag: "Invest; Financial crises", asSubjects: true).isEmpty)
+        #expect(try f.service.genreList().count == before)
+    }
 }

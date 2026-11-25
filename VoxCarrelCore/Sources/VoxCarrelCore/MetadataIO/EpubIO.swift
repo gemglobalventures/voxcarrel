@@ -127,7 +127,7 @@ enum EpubIO {
         m.isbn = e.isbn
         // Each subject is one piece of the genre wording.
         m.genreSource = GenreTag.text(e.subjects)
-        m.genres = GenreTag.genres(from: m.genreSource)
+        m.genres = GenreTag.genres(from: m.genreSource, asSubjects: true)
         return m
     }
 

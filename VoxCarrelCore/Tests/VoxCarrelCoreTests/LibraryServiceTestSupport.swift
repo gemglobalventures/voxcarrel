@@ -142,7 +142,7 @@ final class LibraryFixture {
     /// genres are what the file's genre tag gives in this library; the tag as it stands
     /// is `genreSource`.
     func tags(_ url: URL) throws -> BookMetadata {
-        var m = service.inLibrary(try io.read(url).metadata)
+        var m = service.inLibrary(try io.read(url).metadata, from: url)
         m.durationSeconds = nil
         m.pageCount = nil
         return m

@@ -144,7 +144,7 @@ public final class LibraryService {
     /// already has (`knownNames()`).
     public func scan(_ urls: [URL]) -> ScanResult {
         // G19: what a file's genre tag comes to is for the library's list to say.
-        let reader = LibraryTagReader { [self] url in inLibrary(try metadataIO.readMetadata(at: url)) }
+        let reader = LibraryTagReader { [self] url in inLibrary(try metadataIO.readMetadata(at: url), from: url) }
         var result = BookScanner(reader: reader, known: (try? knownNames()) ?? .none).scan(urls)
         setAsideWhatTheLibraryHolds(in: &result)
         return result
@@ -250,7 +250,7 @@ public final class LibraryService {
     ) -> WorkingFile {
         var before = role == .extra || !read ? nil : try? metadataIO.read(url)
         // G18: what a file's tag comes to is for the library's list to say.
-        if let read = before?.metadata { before?.metadata = inLibrary(read) }
+        if let read = before?.metadata { before?.metadata = inLibrary(read, from: url) }
         var file = WorkingFile(url: url, format: format, role: role, existing: existing, before: before)
         if before != nil { file.trackBefore = try? metadataIO.readTrackTags(at: url) }
         file.writeProblem = existing?.writeProblem
