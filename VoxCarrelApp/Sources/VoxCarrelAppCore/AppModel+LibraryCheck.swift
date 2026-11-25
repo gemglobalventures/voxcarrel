@@ -73,6 +73,8 @@ extension AppModel {
     func runLibraryCheck(with worker: LibraryWorker, reloads: Bool = true) async {
         do {
             let report = try await worker.reconcile()
+            // Another library was opened meanwhile: what was found is not about it.
+            guard self.worker === worker else { return }
             // FL12: set before the check is shown, so that nothing is offered that is off.
             // The same for a merge of books that was interrupted.
             mergeRecoveryIsUnresolved = report.mergeProblem != nil

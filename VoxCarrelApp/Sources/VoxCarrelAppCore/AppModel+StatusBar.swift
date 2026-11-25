@@ -22,7 +22,8 @@ extension AppModel {
             shown: StatusBarText.shown(
                 count: listed.count, seconds: StatusBarText.seconds(of: listed),
                 selected: chosen.count, selectedSeconds: StatusBarText.seconds(of: chosen)),
-            library: StatusBarText.library(
+            // While the library is checked behind its list, that is said before its totals.
+            library: (isCheckingLibrary ? "\(Self.checkingLabel) · " : "") + StatusBarText.library(
                 books: sidebar.counts[.allBooks] ?? 0, audiobooks: sidebar.counts[.audiobooks] ?? 0,
                 ebooks: sidebar.counts[.ebooks] ?? 0, unread: sidebar.counts[.unread] ?? 0,
                 audioSeconds: sidebar.audioSeconds, diskBytes: sidebar.diskBytes))

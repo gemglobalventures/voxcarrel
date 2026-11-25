@@ -358,7 +358,10 @@ public final class AppModel {
         guard case .available(let folder) = status else { return }
 
         busyLabel = "Opening library…"
-        defer { busyLabel = nil }
+        // Ended once, by hand: by the time the check below is over, the owner may have
+        // begun something of their own, and that is not this method's to end.
+        var isOpening = true
+        defer { if isOpening { busyLabel = nil } }
         do {
             // Opening reads the disk and may create or migrate the catalogue: not on the main thread.
             let trashItem = trashItem
@@ -374,7 +377,23 @@ public final class AppModel {
         await reloadAll()
 
         guard let worker else { return }
+        // The list first: a large library takes a few seconds to check against the
+        // disk, and its books are there to be looked at meanwhile. What the owner
+        // begins before the check is over waits its turn behind it, as the library
+        // does one thing at a time. Not when a change of folders or a merge was cut
+        // short: then the check puts the library right before anything is offered.
+        let layoutCutShort = await worker.hasInterruptedLayoutChange()
+        let mergeCutShort = await worker.hasInterruptedMerge()
+        let mustPutRightFirst = layoutCutShort || mergeCutShort
+        if !mustPutRightFirst {
+            isOpening = false
+            busyLabel = nil
+            isCheckingLibrary = true
+        }
         await runLibraryCheck(with: worker)
+        isCheckingLibrary = false
+        // Another library was opened while this one was being checked: the rest is not for it.
+        guard self.worker === worker else { return }
         // WF10: the launch check is over.
         await openInbox()
         fillInContentPrints(with: worker)
@@ -394,6 +413,10 @@ public final class AppModel {
     }
 
     // MARK: Browsing
+
+    /// True while the library that was just opened is being checked against the disk
+    /// behind its list (`openLibrary`): the status bar says so.
+    public internal(set) var isCheckingLibrary = false
 
     public internal(set) var sidebar = SidebarData(counts: [:], browse: [:], collections: [])
 
