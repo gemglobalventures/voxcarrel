@@ -78,6 +78,7 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
     public var hasAudio: Bool { books.contains(where: \.hasAudio) }
     public var hasEbook: Bool { books.contains(where: \.hasEbook) }
     public var isOnAudible: Bool { books.contains(where: \.isOnAudible) }
+    public var isOnKindle: Bool { books.contains(where: \.isOnKindle) }
 
     /// Whether any of the books has audio files here, and whether any has an ebook
     /// here: when the group shows the headphones and the book, as a book's own row

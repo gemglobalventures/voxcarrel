@@ -34,6 +34,20 @@ struct SidebarView: View {
                             .badge(model.upNextCount)
                             .tag(SidebarItem.upNext)
                             .accessibilityIdentifier("sidebar.upNext")
+                        // Under it, only while some book has a highlight.
+                        if model.showsHighlights {
+                            Label(model.title(of: .highlights), systemImage: SidebarItem.highlights.symbol)
+                                .badge(Text("\(model.highlightedBookCount)"))
+                                .tag(SidebarItem.highlights)
+                                .accessibilityIdentifier("sidebar.highlights")
+                        }
+                    }
+                    // Under On Audible, only while some book is owned on Kindle.
+                    if item == .onAudible, model.showsOnKindle {
+                        Label(model.title(of: .onKindle), systemImage: SidebarItem.onKindle.symbol)
+                            .badge(Text("\(model.onKindleCount)"))
+                            .tag(SidebarItem.onKindle)
+                            .accessibilityIdentifier("sidebar.onKindle")
                     }
                 }
             }

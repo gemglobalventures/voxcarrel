@@ -59,7 +59,8 @@ extension AppModel {
     // MARK: Unlinking
 
     public var canUnlinkAudible: Bool {
-        isAudibleLinked && busyLabel == nil && storedPrompt == nil && audibleImport == nil
+        // Nor while Import Highlights is open: it may be reading with the account's keys.
+        isAudibleLinked && busyLabel == nil && storedPrompt == nil && audibleImport == nil && highlightsImport == nil
     }
 
     /// Asks whether to unlink: `prompt` becomes `.unlinkAudible`. Nothing is done until
@@ -132,8 +133,7 @@ extension AppModel {
     /// Whether an address is one a cover may be fetched from: Amazon's own image
     /// hosts, over an encrypted connection.
     static func isAudibleCoverAddress(_ url: URL) -> Bool {
-        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
-        return ["media-amazon.com", "ssl-images-amazon.com"].contains { host == $0 || host.hasSuffix("." + $0) }
+        AudibleCoverDownload.allows(url, hosts: AudibleCoverDownload.amazonHosts)
     }
 
     /// Fetches, one at a time and behind everything else, the covers of the books owned
@@ -142,13 +142,29 @@ extension AppModel {
     ///
     /// - Parameter addresses: The cover's address for each Audible ID, in capitals.
     func fetchAudibleCovers(_ addresses: [String: URL], with worker: LibraryWorker) {
+        fetchCovers(addresses, hosts: AudibleCoverDownload.amazonHosts, with: worker) { worker in
+            (try? await worker.audibleBooksWithoutCover())?.map { ($0.bookId, [$0.asin.uppercased()]) }
+        }
+    }
+
+    /// The same for any books owned elsewhere: a cover for each of the wanted books
+    /// that has an address under one of its IDs, when the address is on one of `hosts`.
+    ///
+    /// - Parameter wanted: The books that have no cover, each with the IDs it is known
+    ///   by where it is owned, in capitals; nil when they could not be read.
+    func fetchCovers(
+        _ addresses: [String: URL], hosts: [String], with worker: LibraryWorker,
+        wanted: @escaping @Sendable (LibraryWorker) async -> [(bookId: Int64, itemIds: [String])]?
+    ) {
         audibleCovers?.cancel()
         let fetch = audibleCoverFetch
         audibleCovers = Task { [weak self] in
-            guard let wanted = try? await worker.audibleBooksWithoutCover() else { return }
+            guard let wanted = await wanted(worker) else { return }
             var unseen = 0
-            for (bookId, asin) in wanted {
-                guard let url = addresses[asin.uppercased()], Self.isAudibleCoverAddress(url) else { continue }
+            for (bookId, itemIds) in wanted {
+                guard let url = itemIds.lazy.compactMap({ addresses[$0] }).first,
+                      AudibleCoverDownload.allows(url, hosts: hosts)
+                else { continue }
                 guard !Task.isCancelled, self?.worker === worker else { return }
                 guard let data = await fetch(url), data.count <= AudibleCoverDownload.limit,
                       let mime = CoverImage.sniffedMIME(data), mime == "image/jpeg" || mime == "image/png"
@@ -178,6 +194,18 @@ extension AppModel {
 enum AudibleCoverDownload {
     /// The most a cover may weigh, in bytes.
     static let limit = 5_000_000
+
+    /// Amazon's own image hosts: where Audible's covers are.
+    static let amazonHosts = ["media-amazon.com", "ssl-images-amazon.com"]
+    /// Where the covers of highlighted books are: Amazon's hosts, and Readwise's own.
+    static let highlightHosts = amazonHosts + ["readwise.io"]
+
+    /// Whether an address is one a cover may be fetched from: one of these hosts, or
+    /// a host within one, over an encrypted connection.
+    static func allows(_ url: URL, hosts: [String]) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }
+        return hosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
 
     static let fetch: @Sendable (URL) async -> Data? = { url in
         let configuration = URLSessionConfiguration.ephemeral

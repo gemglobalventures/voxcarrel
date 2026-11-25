@@ -6,6 +6,12 @@ public enum SidebarItem: Hashable, Sendable {
     case allBooks, audiobooks, ebooks, unread, inProgress, finished, needsAttention
     /// Every book marked as owned on Audible, with or without files here.
     case onAudible
+    /// Every book owned as a Kindle book. Shown only while the library has one
+    /// (`AppModel.showsOnKindle`), and not one of `fixed`.
+    case onKindle
+    /// Every book that has a highlight. Shown only while a book has one
+    /// (`AppModel.showsHighlights`), and not one of `fixed`.
+    case highlights
     /// The books that have one value of a browse field. A genre is one of these:
     /// `.browse(.genre, name)` is the one way a genre is selected.
     case browse(BrowseField, String)
@@ -70,6 +76,8 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     /// numbers it differently, "Not on Audible's list" when the list does not have it.
     /// Nil otherwise, and wherever the rows are not those of such a series.
     public var seriesNote: String?
+    /// How many highlights the book has.
+    public var highlightCount = 0
 
     /// Whether the row stands for a book the library does not have.
     public var isMissing: Bool { missing != nil }
@@ -155,6 +163,8 @@ public struct BookDetail: Equatable, Sendable {
     /// MG5: the other book to offer a merge with, when this one is flagged because the
     /// folder it belongs in is that book's; nil otherwise, or when that has not been read.
     public var mergeOffer: MergeOffer?
+    /// The book's highlights, in the order of the book; empty until they have been read.
+    public var highlights: [Highlight] = []
 
     public init(row: BookRow, files: [FileRow], chapterCount: Int, collectionIds: Set<Int64>) {
         self.row = row
@@ -196,6 +206,10 @@ public struct SidebarData: Equatable, Sendable {
     public var upNextQueued: Set<Int64> = []
     /// Every tag a book has, sorted ignoring case.
     public var tags: [String] = []
+    /// How many books are owned on Kindle.
+    public var kindleCount = 0
+    /// How many books have a highlight.
+    public var highlightedCount = 0
 
     public init(
         counts: [SidebarItem: Int], browse: [BrowseField: [String]], collections: [BookCollection],

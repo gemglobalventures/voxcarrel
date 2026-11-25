@@ -102,6 +102,8 @@ extension LibraryService {
             }
 
             report.booksMatched += 1
+            let addedBefore = report.added
+            defer { if report.added > addedBefore { report.booksGaining += 1 } }
             for highlight in incoming.highlights {
                 let before = known[highlight.sourceId]
                 if highlight.isDeleted {

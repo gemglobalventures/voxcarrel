@@ -90,8 +90,10 @@ public final class AppModel {
     ///   - sleepGuard: Keeps the Mac awake while a book is on its way. Tests give one that only counts.
     ///   - audibleKeys: Where the keys of the linked Audible account are kept: the
     ///     Mac's Keychain. Tests give one that only remembers.
-    ///   - audibleTransport: How Amazon and Audible are reached for the account. Tests
-    ///     give one that answers by itself.
+    ///   - audibleTransport: How Amazon and Audible are reached for the account, and
+    ///     Readwise for highlights. Tests give one that answers by itself.
+    ///   - readwiseTokens: Where the owner's Readwise token is kept: the Mac's Keychain.
+    ///     Tests give one that only remembers.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
         lookupService: ((LookupConfiguration) -> LookupService)? = nil,
@@ -99,7 +101,8 @@ public final class AppModel {
         inboxNow: @escaping @MainActor () -> Date = { Date() },
         phoneLink: PhoneLinking = PhoneLinkServer(), sleepGuard: SleepGuarding = SystemSleepGuard(),
         audibleKeys: any AudibleKeyStore = AudibleKeyStores.standard(),
-        audibleTransport: any AudibleTransport = AudibleNetwork()
+        audibleTransport: any AudibleTransport = AudibleNetwork(),
+        readwiseTokens: any ReadwiseTokenStore = ReadwiseTokenStores.standard()
     ) {
         self.location = location
         self.opener = opener
@@ -112,6 +115,8 @@ public final class AppModel {
         self.audibleKeys = audibleKeys
         self.audibleTransport = audibleTransport
         audibleAccount = audibleKeys.load()
+        self.readwiseTokens = readwiseTokens
+        hasReadwiseToken = readwiseTokens.load() != nil
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
             ?? AudibleStore.forRegion(Locale.current.region?.identifier)
@@ -273,6 +278,10 @@ public final class AppModel {
         // are the covers still on their way. The link itself is the Mac's, and stays.
         closeAudibleImport()
         audibleCovers?.cancel()
+        // The same for highlights: those to bring in, and the sheet of a book's own.
+        closeHighlightsImport()
+        highlights = nil
+        highlightCounts = [:]
         selection = []
         anchor = nil
         inspecting = .nothing
@@ -610,6 +619,7 @@ public final class AppModel {
             }
             shownSeries = read.series
             shownMissingLinks = read.missingLinks
+            if item != .inbox { highlightCounts = read.highlightCounts }
             // Before the rows: the items are worked out from the rows and what they are of.
             shown = (item, search)
             rows = storedSort.sorted(fetched, showing: item)
@@ -668,6 +678,7 @@ public final class AppModel {
                     let fetched = withMissingRows(read, search: search)
                     shownSeries = read.series
                     shownMissingLinks = read.missingLinks
+                    if item != .inbox { highlightCounts = read.highlightCounts }
                     shown = (item, search)
                     rows = storedSort.sorted(fetched, showing: item)
                     rowsLoaded = true
@@ -1416,6 +1427,33 @@ public final class AppModel {
     /// The covers being fetched after an import, or the last that were. Tests wait for it.
     @ObservationIgnored var audibleCovers: Task<Void, Never>?
 
+    // MARK: Highlights
+
+    @ObservationIgnored let readwiseTokens: any ReadwiseTokenStore
+    /// Whether a Readwise token is saved. The token itself is shown nowhere.
+    public internal(set) var hasReadwiseToken: Bool
+    /// What is typed into the settings' token field, until it is saved. It is kept
+    /// nowhere else.
+    public var readwiseTokenDraft = ""
+    /// Where a token put on this Mac earlier is kept, when there is one. Tests give a
+    /// file of their own.
+    @ObservationIgnored var readwiseTokenFile = ReadwiseTokenFile.standard
+    /// Waits when Readwise asks to be left alone a while. Tests give one that does not wait.
+    @ObservationIgnored var readwiseWait: @Sendable (TimeInterval) async -> Void = {
+        try? await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
+    }
+    /// Puts text on the clipboard. Tests give their own.
+    @ObservationIgnored var writeClipboard: @MainActor (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+    /// How many highlights each book of the library has, as last read with the rows.
+    var highlightCounts: [Int64: Int] = [:]
+    /// The sheet of the inspected book's highlights; not nil shows it.
+    public internal(set) var highlights: HighlightsSession?
+    /// Import Highlights; not nil shows the sheet.
+    public internal(set) var highlightsImport: HighlightsImportSession?
+
     // MARK: Merge Books
 
     /// The merge that is open; not nil shows the sheet.
@@ -1480,6 +1518,9 @@ extension SidebarData {
         case .noGenre: noGenreCount > 0
         case .collection(let id): collections.contains { $0.id == id }
         case .shelf(let id): shelves.contains { $0.id == id }
+        // Each is shown only while it has books.
+        case .onKindle: kindleCount > 0
+        case .highlights: highlightedCount > 0
         default: true
         }
     }

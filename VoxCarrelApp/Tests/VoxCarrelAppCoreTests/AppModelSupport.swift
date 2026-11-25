@@ -171,6 +171,13 @@ final class Harness {
     /// Where the model looks for a link made earlier: a file of this harness's own,
     /// which is not there until a test writes it.
     let audibleLinkFile: URL
+    /// Where the model keeps the Readwise token: never the Keychain, nor a file of the app's.
+    let readwiseTokens = InMemoryReadwiseTokenStore()
+    /// Where the model looks for a token put on this Mac earlier: a file of this
+    /// harness's own, which is not there until a test writes it.
+    let readwiseTokenFile: URL
+    /// What the model writes to as the clipboard.
+    let clipboardWriter = FakeClipboardWriter()
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -194,12 +201,13 @@ final class Harness {
         model = AppModel(
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
             watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
-            audibleKeys: audibleKeys, audibleTransport: audible)
+            audibleKeys: audibleKeys, audibleTransport: audible, readwiseTokens: readwiseTokens)
         model.lookupLanguage = "en"
         sendTemp = try makeTempDir()
         model.network = network
         model.sendTempRoot = sendTemp
         audibleLinkFile = try makeTempDir().appendingPathComponent("audible.json")
+        readwiseTokenFile = try makeTempDir().appendingPathComponent("readwise-token")
         giveAudibleSeams(to: model)
     }
 
@@ -211,6 +219,12 @@ final class Harness {
         model.audibleClipboard = { clipboard.read() }
         model.audibleLinkFile = audibleLinkFile
         model.audibleCoverFetch = { await covers.fetch($0) }
+        // Nor anything of Readwise's: not the home folder, not the real clipboard, and
+        // no waiting when it asks to be left alone.
+        let writer = clipboardWriter
+        model.readwiseTokenFile = readwiseTokenFile
+        model.writeClipboard = { writer.write($0) }
+        model.readwiseWait = { _ in }
     }
 
     /// What Undo would reverse in a demo library nothing has been done to yet.
@@ -276,7 +290,8 @@ final class Harness {
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),
             watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now },
-            phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible)
+            phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible,
+            readwiseTokens: readwiseTokens)
         model.network = network
         model.sendTempRoot = sendTemp
         giveAudibleSeams(to: model)

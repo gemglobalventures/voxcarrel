@@ -94,6 +94,12 @@ struct Dialogs: ViewModifier {
                 case .audibleImport(let shown):
                     AudibleImportSheet(session: shown.state)
                         .modifier(Questions(isActive: true))
+                case .highlights(let shown):
+                    HighlightsSheet(session: shown.state)
+                        .modifier(Questions(isActive: true))
+                case .highlightsImport(let shown):
+                    HighlightsImportSheet(session: shown.state)
+                        .modifier(Questions(isActive: true))
                 }
             }
             // While a sheet is up, or about to be, the sheet shows them.

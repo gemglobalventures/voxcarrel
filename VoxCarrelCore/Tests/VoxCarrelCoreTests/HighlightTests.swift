@@ -134,6 +134,8 @@ import Testing
         // Done again, it changes nothing.
         let again = try f.service.bringInHighlights(books, apply: true)
         #expect(again.changesNothing && again.unchanged == 2 && again.booksMatched == 1)
+        // Nothing new for the book: it gains nothing.
+        #expect(again.booksGaining == 0)
         #expect(try f.store.books().count == 1)
     }
 
@@ -151,6 +153,7 @@ import Testing
             kindleBook("Quite Another Title", "b00kindle02", [incoming("2", "Two")]),
         ], apply: true)
         #expect(report.booksAdded.isEmpty && report.booksMatched == 2 && report.added == 2)
+        #expect(report.booksGaining == 2)
         #expect(try f.store.books().count == 2)
         #expect(try f.service.highlights(forBook: byName).map(\.text) == ["One"])
         #expect(try f.service.highlights(forBook: byId).map(\.text) == ["Two"])

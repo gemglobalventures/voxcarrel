@@ -67,6 +67,10 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case audibleLink(SheetObject<AudibleLinkSession>)
     /// Import Audible Library.
     case audibleImport(SheetObject<AudibleImportSession>)
+    /// The highlights of one book.
+    case highlights(SheetObject<HighlightsSession>)
+    /// Import Highlights.
+    case highlightsImport(SheetObject<HighlightsImportSession>)
 
     public var id: String {
         switch self {
@@ -85,6 +89,8 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .shelfEditor: "shelfEditor"
         case .audibleLink: "audibleLink"
         case .audibleImport: "audibleImport"
+        case .highlights: "highlights"
+        case .highlightsImport: "highlightsImport"
         }
     }
 }
@@ -109,18 +115,19 @@ extension AppModel {
     /// the preview of a change of folder layout, the choice between Audible series, a lookup (for the inspected book, or to
     /// add an Audible book), Send to Phone, Merge Books, Manage Genres, the preview of
     /// "Update files…", Fill in Genres, the editor of a smart shelf, Link Audible
-    /// Account, and Import Audible Library.
+    /// Account, Import Audible Library, the highlights of a book, and Import Highlights.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
     /// which stays up: the progress sheet does not take its place. MG7: the same for
     /// Merge Books. G23: and for Manage Genres, whose changes are made under it, and
-    /// for the editor of a smart shelf while it saves.
+    /// for the editor of a smart shelf while it saves, and for the sheet of a book's
+    /// highlights, whose changes are made under it.
     ///
     /// - Parameter progressDue: Whether the operation that is running has run long
     ///   enough for its progress to be shown: a short one shows no sheet.
     public func windowSheet(progressDue: Bool) -> WindowSheet? {
         if progressDue, sendSession == nil, mergeSession == nil, genreManager == nil, shelfEditor == nil,
-           let label = progressSheetLabel
+           highlights == nil, let label = progressSheetLabel
         {
             return .progress(label)
         }
@@ -140,6 +147,8 @@ extension AppModel {
         if let shelfEditor { return .shelfEditor(SheetObject(shelfEditor)) }
         if let audibleLink { return .audibleLink(SheetObject(audibleLink)) }
         if let audibleImport { return .audibleImport(SheetObject(audibleImport)) }
+        if let highlights { return .highlights(SheetObject(highlights)) }
+        if let highlightsImport { return .highlightsImport(SheetObject(highlightsImport)) }
         return nil
     }
 }

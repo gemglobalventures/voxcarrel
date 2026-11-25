@@ -48,6 +48,7 @@ struct AppCommands: Commands {
             GenreCommandItems(model: model, updateTitle: "Update Genre Tags in Files…", prefix: "menu.library")
             Divider()
             AudibleCommandItem(model: model)
+            HighlightsCommandItem(model: model)
         }
     }
 }
@@ -63,6 +64,20 @@ private struct AudibleCommandItem: View {
         }
         .disabled(!model.canUseAudibleMenu)
         .accessibilityIdentifier("menu.library.audibleImport")
+    }
+}
+
+/// Bringing in highlights from Readwise and the marks made on Audible. With neither set
+/// up its sheet says what is needed, so that the way in can be found.
+private struct HighlightsCommandItem: View {
+    let model: AppModel
+
+    var body: some View {
+        Button("Import Highlights…") {
+            model.beginHighlightsImport()
+        }
+        .disabled(!model.canImportHighlights)
+        .accessibilityIdentifier("menu.library.importHighlights")
     }
 }
 

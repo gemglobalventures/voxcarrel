@@ -597,8 +597,8 @@ extension ImportReview.Entry {
             return "Looks like “\(match.title)”, which is already in your library. Add these files to it?"
         }
         // R9
-        if matchHasNoFiles, match.isOwned(on: .audible) {
-            return "Add to “\(match.title)”, which is on Audible"
+        if matchHasNoFiles, let kind = ExternalKind.allCases.first(where: match.isOwned(on:)) {
+            return "Add to “\(match.title)”, which is on \(kind.title)"
         }
         return "Add to the existing book \"\(match.title)\""
     }

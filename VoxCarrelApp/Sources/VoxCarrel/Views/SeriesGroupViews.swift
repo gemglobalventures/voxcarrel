@@ -75,7 +75,8 @@ struct SeriesGroupWarningBadge: View {
 }
 
 /// Headphones when any of the series' books has audio here, a book when any has an
-/// ebook here, a cloud when any is on Audible: as `FormatBadges`, for all of them together.
+/// ebook here, a cloud when any is on Audible, the pages of a book when any is on Kindle:
+/// as `FormatBadges`, for all of them together.
 struct SeriesGroupFormatBadges: View {
     let group: SeriesGroup
 
@@ -96,6 +97,12 @@ struct SeriesGroupFormatBadges: View {
                     .help("On Audible")
                     .accessibilityLabel("On Audible")
                     .accessibilityIdentifier("books.group.badge.onAudible")
+            }
+            if group.isOnKindle {
+                Image(systemName: SidebarItem.onKindle.symbol)
+                    .help("On Kindle")
+                    .accessibilityLabel("On Kindle")
+                    .accessibilityIdentifier("books.group.badge.onKindle")
             }
         }
         .foregroundStyle(.secondary)

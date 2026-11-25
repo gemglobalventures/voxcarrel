@@ -109,6 +109,23 @@ extension AppModel {
         return (one?.opensOnAudible ?? false) ? "Open on Audible" : "Listen"
     }
 
+    /// What the Read menu item says for these books: "Open on Kindle" when there is
+    /// one book and reading it opens it in Kindle on the web, "Read" otherwise.
+    public func readTitle(for ids: Set<Int64>) -> String {
+        let one = ids.count == 1 ? rows.first { ids.contains($0.id) } : nil
+        return one?.readTitle ?? "Read"
+    }
+
+    /// Whether the sidebar shows On Kindle: some book is owned there.
+    public var showsOnKindle: Bool {
+        sidebar.kindleCount > 0
+    }
+
+    /// How many books are owned on Kindle.
+    public var onKindleCount: Int {
+        sidebar.kindleCount
+    }
+
     /// V5: what the window's progress sheet says: what is being done, or nil when
     /// nothing is. Nil, too, while an Audible book is being added: the add sheet shows
     /// that itself and stays up until the book is in the library, so the progress sheet
@@ -127,12 +144,17 @@ extension BookDetail {
 
     /// R7: "On Audible (United Kingdom)", with " · not on this Mac" for a book that has
     /// no files. The store is the one the book's Audible copy names; when it names none
-    /// (or one this version does not know) no country is given. Nil for a book that is
-    /// not on Audible.
+    /// (or one this version does not know) no country is given. A Kindle book is "On
+    /// Kindle", and a book on both "On Audible (United Kingdom) and Kindle". Nil for a
+    /// book that is owned nowhere else.
     public var ownershipText: String? {
-        guard let copy = row.book.externalCopies.first(where: { $0.kind == .audible }) else { return nil }
-        var text = "On \(copy.kind.title)"
-        if let store = copy.store.flatMap(AudibleStore.init(rawValue:)) { text += " (\(store.title))" }
+        let places = row.ownedKinds.compactMap { kind -> String? in
+            guard let copy = row.book.externalCopies.first(where: { $0.kind == kind }) else { return nil }
+            guard let store = copy.store.flatMap(AudibleStore.init(rawValue:)) else { return kind.title }
+            return "\(kind.title) (\(store.title))"
+        }
+        guard !places.isEmpty else { return nil }
+        let text = "On " + places.joined(separator: " and ")
         return row.hasFiles ? text : text + " · not on this Mac"
     }
 }

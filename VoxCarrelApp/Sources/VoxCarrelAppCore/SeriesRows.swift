@@ -129,6 +129,9 @@ public struct ShownBooks: Equatable, Sendable {
     /// For each row that stands for a book the library does not have and is not of
     /// `series` (a line of Up Next): the series it is missing from, by the row's id.
     public var missingLinks: [Int64: SeriesLink]
+    /// How many highlights each book of the library has, whether or not it is among
+    /// the rows; books with none are not in it.
+    public var highlightCounts: [Int64: Int] = [:]
 
     public init(rows: [BookRow], series: ShownSeries?, missingLinks: [Int64: SeriesLink] = [:]) {
         self.rows = rows

@@ -150,6 +150,15 @@ private struct BookInspector: View {
                 ReadingControls(detail: detail)
             }
 
+            if let highlights = model.inspectedHighlights {
+                InspectorSection("Highlights") {
+                    // Handed what it shows and what its buttons do.
+                    InspectorHighlights(
+                        summary: highlights, canShow: model.canShowHighlights, canAdd: model.canAddHighlight,
+                        showAll: { model.beginHighlights() }, add: { model.beginHighlights(adding: true) })
+                }
+            }
+
             InspectorSection("Files") {
                 if let none = detail.noFilesText {
                     // Plan 6, V3: a book that is owned on Audible and has no files here.
@@ -471,6 +480,40 @@ private struct EditionControl: View {
     }
 }
 
+/// The inspected book's highlights: how many, the first three, and the way to them all
+/// and to adding one. Both buttons open the sheet.
+private struct InspectorHighlights: View {
+    let summary: HighlightsSummary
+    let canShow: Bool
+    let canAdd: Bool
+    let showAll: () -> Void
+    let add: () -> Void
+
+    var body: some View {
+        Text(summary.countText)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("inspector.highlights.count")
+
+        ForEach(summary.first) { row in
+            HighlightBody(row: row, lineLimit: 4)
+                .accessibilityIdentifier("inspector.highlights.row.\(row.id)")
+        }
+
+        HStack(spacing: 8) {
+            if summary.hasMore || !summary.first.isEmpty {
+                Button("Show All…", action: showAll)
+                    .disabled(!canShow)
+                    .accessibilityIdentifier("inspector.highlights.showAll")
+            }
+            Button("Add Highlight…", action: add)
+                .disabled(!canAdd)
+                .accessibilityIdentifier("inspector.highlights.add")
+        }
+        .controlSize(.small)
+    }
+}
+
 /// Listen and Read, under the cover: the first things to hand for a book with files.
 private struct OpenButtons: View {
     @Environment(AppModel.self) private var model
@@ -478,7 +521,8 @@ private struct OpenButtons: View {
 
     var body: some View {
         let id = detail.row.id
-        if detail.row.hasAudio || detail.row.hasEbook {
+        // A book that is only on Kindle, with no ID to open it by, has nothing to read.
+        if detail.row.hasAudio || detail.row.canRead {
             HStack(spacing: 8) {
                 if detail.row.hasAudio {
                     Button {
@@ -489,13 +533,13 @@ private struct OpenButtons: View {
                     .help(detail.row.listenHelpText)
                     .accessibilityIdentifier("inspector.listen")
                 }
-                if detail.row.hasEbook {
+                if detail.row.canRead {
                     Button {
                         model.read(id)
                     } label: {
-                        Label("Read", systemImage: "book")
+                        Label(detail.row.readTitle, systemImage: detail.row.readSymbol)
                     }
-                    .help("Open the ebook")
+                    .help(detail.row.readHelpText)
                     .accessibilityIdentifier("inspector.read")
                 }
             }
@@ -552,7 +596,7 @@ private struct ReadingControls: View {
         }
 
         if let ownership = model.inspectorOwnershipText {
-            Label(ownership, systemImage: SidebarItem.onAudible.symbol)
+            Label(ownership, systemImage: detail.row.ownershipSymbol)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

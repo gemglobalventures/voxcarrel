@@ -118,14 +118,21 @@ public actor LibraryWorker {
         var books = try self.books(for: item)
         if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             // W2: text with nothing searchable in it matches nothing.
-            let matching = Set(try store.search(search).compactMap(\.id))
+            let matching = try booksMatching(search)
             books = books.filter { $0.id.map(matching.contains) ?? false }
         }
         // W3: one read of every file row, however many books there are.
         let files = Dictionary(grouping: try store.allFiles(), by: \.bookId)
+        // The same for the highlights: counted once for all the rows.
+        let highlights = try store.highlightCounts()
         return books.compactMap { book in
-            book.id.map { row(for: book, id: $0, files: files[$0] ?? []) }
+            book.id.map { row(for: book, id: $0, files: files[$0] ?? [], highlights: highlights[$0] ?? 0) }
         }
+    }
+
+    /// The books a search finds: by their own details, or by the words of a highlight.
+    private func booksMatching(_ search: String) throws -> Set<Int64> {
+        Set(try store.search(search).compactMap(\.id)).union(try store.bookIds(withHighlightsMatching: search))
     }
 
     /// The item's books and, when the item is one series, what the catalogue holds
@@ -134,16 +141,19 @@ public actor LibraryWorker {
     public func shownBooks(for item: SidebarItem, search: String) throws -> ShownBooks {
         if item == .upNext {
             let upNext = try upNextRows(search: search)
-            return ShownBooks(rows: upNext.rows, series: nil, missingLinks: upNext.links)
+            var shown = ShownBooks(rows: upNext.rows, series: nil, missingLinks: upNext.links)
+            shown.highlightCounts = try store.highlightCounts()
+            return shown
         }
         let rows = try self.rows(for: item, search: search)
-        guard case .browse(.series, let name) = item else { return ShownBooks(rows: rows, series: nil) }
+        var shown = ShownBooks(rows: rows, series: nil)
+        shown.highlightCounts = try store.highlightCounts()
+        guard case .browse(.series, let name) = item else { return shown }
         let books = try service.librarySeriesBooks(named: name)
-        return ShownBooks(
-            rows: rows,
-            series: ShownSeries(
-                name: name, completeness: try service.seriesCompleteness(forSeries: name),
-                bookIds: Set(books.map(\.id))))
+        shown.series = ShownSeries(
+            name: name, completeness: try service.seriesCompleteness(forSeries: name),
+            bookIds: Set(books.map(\.id)))
+        return shown
     }
 
     /// The lines of Up Next in the list's own order, narrowed to those that match
@@ -152,15 +162,16 @@ public actor LibraryWorker {
     /// A missing row matches when its title or an author contains the search text.
     private func upNextRows(search: String) throws -> (rows: [BookRow], links: [Int64: SeriesLink]) {
         let text = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matching = text.isEmpty ? nil : Set(try store.search(search).compactMap(\.id))
+        let matching = text.isEmpty ? nil : try booksMatching(search)
         let files = Dictionary(grouping: try store.allFiles(), by: \.bookId)
+        let highlights = try store.highlightCounts()
         var rows: [BookRow] = []
         var links: [Int64: SeriesLink] = [:]
         for item in try service.upNext().items {
             switch item {
             case .book(let book):
                 guard let id = book.id, matching?.contains(id) ?? true else { continue }
-                rows.append(row(for: book, id: id, files: files[id] ?? []))
+                rows.append(row(for: book, id: id, files: files[id] ?? [], highlights: highlights[id] ?? 0))
             case .missing(let entry, let link):
                 let row = SeriesRows.row(for: entry, link: link)
                 let words = [row.book.title] + row.book.authors
@@ -204,6 +215,8 @@ public actor LibraryWorker {
         data.tags = Set(try store.books().flatMap(\.tags).compactMap(\.trimmedOrNil))
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         data.audioSeconds = try store.totalAudioSeconds()
+        data.kindleCount = try store.books(ownedOn: .kindle).count
+        data.highlightedCount = try store.highlightCounts().count
         // Asked of the file system, one file at a time; no file is opened.
         data.diskBytes = try store.allFiles().reduce(Int64(0)) { total, file in
             let size = (try? store.url(for: file).resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
@@ -282,6 +295,54 @@ public actor LibraryWorker {
         try service.audibleBooksWithoutCover()
     }
 
+    // MARK: Highlights
+
+    /// A book's highlights, in the order of the book.
+    public func highlights(forBook bookId: Int64) throws -> [Highlight] {
+        guard isBookId(bookId) else { return [] }
+        return try service.highlights(forBook: bookId)
+    }
+
+    /// Adds a highlight of the owner's own to a book: a passage, a note, or both.
+    public func addHighlight(text: String, note: String?, toBook bookId: Int64) throws {
+        guard isBookId(bookId) else { throw LibraryError.bookNotFound(bookId) }
+        try service.addHighlight(text: text, note: note, toBook: bookId)
+    }
+
+    /// Changes the note on a highlight; a blank one takes it away.
+    public func setNote(_ note: String?, onHighlight id: Int64) throws {
+        try service.setNote(note, onHighlight: id)
+    }
+
+    public func deleteHighlight(id: Int64) throws {
+        try service.deleteHighlight(id: id)
+    }
+
+    /// Brings books' highlights in, or with `apply` false only says what doing so would do.
+    public func highlightsReport(_ books: [HighlightedBook], apply: Bool) throws -> HighlightsReport {
+        try service.bringInHighlights(books, apply: apply)
+    }
+
+    /// The books owned on Audible that have an Audible ID, by title: those whose marks
+    /// can be asked for.
+    public func audibleBooksForMarks() throws -> [AudibleMarkedBook] {
+        try store.books(ownedOn: .audible).compactMap { book in
+            let ids = book.externalCopies.filter { $0.kind == .audible }.map(\.itemId) + [book.asin]
+            guard let asin = ids.lazy.compactMap({ $0?.trimmedOrNil }).first else { return nil }
+            return AudibleMarkedBook(title: book.title, authors: book.authors, asin: asin)
+        }
+    }
+
+    /// The books owned elsewhere that have no cover stored, each with the IDs it is
+    /// known by where it is owned, in capitals.
+    public func booksOwnedElsewhereWithoutCover() throws -> [(bookId: Int64, itemIds: [String])] {
+        try Set(service.booksOwnedElsewhereWithoutCover()).sorted().compactMap { id in
+            guard let book = try store.book(id: id) else { return nil }
+            let ids = (book.externalCopies.map(\.itemId) + [book.asin]).compactMap { $0?.trimmedOrNil?.uppercased() }
+            return ids.isEmpty ? nil : (id, ids)
+        }
+    }
+
     /// Stores a cover for a book that has none. False when it has one, or is not there.
     public func setCoverIfNone(_ cover: CoverImage, for bookId: Int64) throws -> Bool {
         guard isBookId(bookId) else { return false }
@@ -324,9 +385,11 @@ public actor LibraryWorker {
                 collectionIds.insert(id)
             }
         }
+        let highlights = try store.highlights(forBook: bookId)
         var detail = BookDetail(
-            row: row(for: book, id: bookId, files: files), files: fileRows, chapterCount: chapters.count,
-            collectionIds: collectionIds)
+            row: row(for: book, id: bookId, files: files, highlights: highlights.count), files: fileRows,
+            chapterCount: chapters.count, collectionIds: collectionIds)
+        detail.highlights = highlights
         detail.missingForFiling = try service.tokensMissingForFiling(book, files: files)
         // FL14
         detail.unfiledReason = try service.unfiledReason(for: bookId)
@@ -438,6 +501,8 @@ public actor LibraryWorker {
         case .audiobooks: try store.books(having: .audio)
         case .ebooks: try store.books(having: .ebook)
         case .onAudible: try store.books(ownedOn: .audible)
+        case .onKindle: try store.books(ownedOn: .kindle)
+        case .highlights: try service.booksWithHighlights()
         case .unread: try store.books(readStatus: .unread)
         case .inProgress: try store.books(readStatus: .inProgress)
         case .finished: try store.books(readStatus: .finished)
@@ -466,7 +531,7 @@ public actor LibraryWorker {
         return try store.books().filter { $0.id.map(wanted.contains) ?? false }
     }
 
-    private func row(for book: Book, id: Int64, files: [BookFile]) -> BookRow {
+    private func row(for book: Book, id: Int64, files: [BookFile], highlights: Int) -> BookRow {
         var formats: [FileFormat] = []
         for file in files where file.role != .extra && !formats.contains(file.format) {
             formats.append(file.format)
@@ -475,7 +540,7 @@ public actor LibraryWorker {
         let coverModified = cover.flatMap {
             try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
         }
-        return BookRow(
+        var row = BookRow(
             id: id, book: book,
             // As the store lists them: a book owned elsewhere as an audiobook is one.
             hasAudio: files.contains { $0.role == .audio } || book.externalCopies.contains { $0.form == .audio },
@@ -490,6 +555,8 @@ public actor LibraryWorker {
             lengthProblemFiles: files.filter { $0.lengthProblem != nil }.count,
             repairableLengthFiles: files.filter { $0.lengthProblem?.repairable == true }.count,
             unmeasuredLengthFiles: files.filter { $0.lengthUnmeasured != nil }.count)
+        row.highlightCount = highlights
+        return row
     }
 
     /// For each half-moved file, the name of the file it very likely was: the one file

@@ -79,6 +79,7 @@ private struct GeneralSettings: View {
                     .accessibilityIdentifier("settings.copyOnImport")
             }
             AudibleAccountSettings(model: model)
+            ReadwiseSettings(model: model)
         }
         .formStyle(.grouped)
         .frame(width: SettingsView.width)
@@ -118,6 +119,57 @@ private struct AudibleAccountSettings: View {
                     }
                     .disabled(!model.canBeginAudibleLink)
                     .accessibilityIdentifier("settings.audible.link")
+                }
+            }
+        }
+    }
+}
+
+/// The Readwise token: a field to paste it into while none is saved; that one is
+/// saved, and the button that removes it, while one is. A saved token is never shown.
+private struct ReadwiseSettings: View {
+    let model: AppModel
+
+    var body: some View {
+        @Bindable var model = model
+
+        Section("Readwise") {
+            if model.hasReadwiseToken {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(model.readwiseSavedText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("settings.readwise.saved")
+                    Button("Remove") {
+                        model.removeReadwiseToken()
+                    }
+                    .disabled(!model.canRemoveReadwiseToken)
+                    .accessibilityIdentifier("settings.readwise.remove")
+                }
+            } else {
+                Text(model.readwiseSettingsText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("settings.readwise.explanation")
+                HStack(spacing: 12) {
+                    SecureField("Access token", text: $model.readwiseTokenDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .onSubmit { model.saveReadwiseToken() }
+                        .accessibilityLabel("Readwise access token")
+                        .accessibilityIdentifier("settings.readwise.token")
+                    Button("Save") {
+                        model.saveReadwiseToken()
+                    }
+                    .disabled(!model.canSaveReadwiseToken)
+                    .accessibilityIdentifier("settings.readwise.save")
+                }
+                if model.offersReadwiseTokenOnThisMac {
+                    Button(model.useReadwiseTokenTitle) {
+                        model.useReadwiseTokenOnThisMac()
+                    }
+                    .accessibilityIdentifier("settings.readwise.useExisting")
                 }
             }
         }

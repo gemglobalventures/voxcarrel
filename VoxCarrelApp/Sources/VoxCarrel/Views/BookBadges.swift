@@ -6,7 +6,8 @@ import VoxCarrelCore
 // itself when the pointer rests on it.
 
 /// Headphones when the book has audio, a book when it has an ebook; a cloud beside them
-/// when it is also on Audible. A book with no files here shows the cloud alone (plan 6, V2).
+/// when it is also on Audible, and the pages of a book when it is on Kindle. A book with
+/// no files here shows only where it is owned (plan 6, V2).
 struct FormatBadges: View {
     let row: BookRow
     /// A tooltip for every symbol in place of each one's own.
@@ -26,14 +27,39 @@ struct FormatBadges: View {
                     symbol("book.closed", name: "Ebook", opens: "Open the ebook", id: "read", action: onRead)
                 }
             }
-            if let whereabouts = row.whereaboutsText {
-                Image(systemName: SidebarItem.onAudible.symbol)
+            if let whereabouts = row.whereaboutsText(on: .audible) {
+                Image(systemName: ExternalKind.audible.symbol)
                     .help(help ?? whereabouts)
                     .accessibilityLabel(whereabouts)
                     .accessibilityIdentifier("books.badge.onAudible")
             }
+            if let whereabouts = row.whereaboutsText(on: .kindle) {
+                kindle(whereabouts)
+            }
         }
         .foregroundStyle(.secondary)
+    }
+
+    /// The Kindle symbol: a button that opens the book in Kindle on the web when that
+    /// is what reading it does and there is something to do it with.
+    @ViewBuilder
+    private func kindle(_ whereabouts: String) -> some View {
+        if row.opensOnKindle, let onRead {
+            Button(action: onRead) {
+                Image(systemName: ExternalKind.kindle.symbol)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("\(whereabouts). \(row.readHelpText)")
+            .accessibilityLabel(row.readTitle)
+            .accessibilityIdentifier("books.badge.\(row.id).onKindle")
+        } else {
+            Image(systemName: ExternalKind.kindle.symbol)
+                .help(help ?? whereabouts)
+                .accessibilityLabel(whereabouts)
+                .accessibilityIdentifier("books.badge.onKindle")
+        }
     }
 
     /// The symbol alone, or as a button when there is something for it to do.
@@ -57,16 +83,17 @@ struct FormatBadges: View {
     }
 }
 
-/// Plan 6, V2: the small label in a corner of the cover of a book that is on Audible and
-/// has no files here: a cloud and the word, on a material so that it reads over any cover.
+/// Plan 6, V2: the small label in a corner of the cover of a book that is owned elsewhere
+/// and has no files here: the place's symbol and its name ("Audible", "Kindle"), on a
+/// material so that it reads over any cover. A book on both is named for the first.
 struct AudibleCoverLabel: View {
     let row: BookRow
 
     var body: some View {
-        if !row.hasFiles, let whereabouts = row.whereaboutsText {
+        if !row.hasFiles, let kind = row.ownedKinds.first, let whereabouts = row.whereaboutsText {
             CoverCornerLabel(
-                title: ExternalKind.audible.title, symbol: SidebarItem.onAudible.symbol, meaning: whereabouts,
-                identifier: "books.cover.onAudible")
+                title: kind.title, symbol: kind.symbol, meaning: whereabouts,
+                identifier: kind == .audible ? "books.cover.onAudible" : "books.cover.onKindle")
         }
     }
 }

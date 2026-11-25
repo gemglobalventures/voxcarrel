@@ -10,7 +10,9 @@ extension SidebarItem {
         case .allBooks: "books.vertical"
         case .audiobooks: "headphones"
         case .ebooks: "book"
-        case .onAudible: "cloud"
+        case .onAudible: ExternalKind.audible.symbol
+        case .onKindle: ExternalKind.kindle.symbol
+        case .highlights: "highlighter"
         case .unread: "circle"
         case .inProgress: "circle.lefthalf.filled"
         case .finished: "checkmark.circle"
@@ -22,6 +24,17 @@ extension SidebarItem {
         case .inbox: "tray"
         case .upNext: "text.line.first.and.arrowtriangle.forward"
         case .shelf: "line.3.horizontal.decrease.circle"
+        }
+    }
+}
+
+extension ExternalKind {
+    /// What stands for a book owned there: a cloud for Audible, the pages of a book
+    /// for Kindle, which the ebook's own closed book is not mistaken for.
+    var symbol: String {
+        switch self {
+        case .audible: "cloud"
+        case .kindle: "book.pages"
         }
     }
 }
@@ -78,6 +91,20 @@ extension BookRow {
     /// when it opens the book's page on the Audible website.
     var listenSymbol: String {
         opensOnAudible ? "arrow.up.right.square" : "headphones"
+    }
+}
+
+extension BookRow {
+    /// For the button that opens the ebook: a book, or an arrow out of the app when it
+    /// opens the book in Kindle on the web.
+    var readSymbol: String {
+        opensOnKindle ? "arrow.up.right.square" : "book"
+    }
+
+    /// For the inspector's line that says where the book is owned: the symbol of the
+    /// first place it is.
+    var ownershipSymbol: String {
+        (ownedKinds.first ?? .audible).symbol
     }
 }
 

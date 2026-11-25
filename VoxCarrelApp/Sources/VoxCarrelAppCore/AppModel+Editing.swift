@@ -383,6 +383,12 @@ extension AppModel {
                 opener.openWeb(audibleAddress(of: detail.row.book, copy: copy))
                 return
             }
+            // The ebook is on Kindle and not here. Reading goes there; plain opening
+            // does only when there is no file here to open instead.
+            if role != .audio, ebook == nil, role == .ebook || audio == nil, let address = detail.row.kindleAddress {
+                opener.openWeb(address)
+                return
+            }
             let file: FileRow?
             var none: String
             switch role {
@@ -397,7 +403,7 @@ extension AppModel {
                 none = "This book has no audiobook or ebook file to open."
             }
             // Owned elsewhere, and not as something that can be opened from here.
-            if role != .ebook, detail.files.isEmpty { none = "This book has no files on this Mac." }
+            if role != .ebook || detail.row.isOnKindle, detail.files.isEmpty { none = "This book has no files on this Mac." }
             guard let file else {
                 alert = none
                 return

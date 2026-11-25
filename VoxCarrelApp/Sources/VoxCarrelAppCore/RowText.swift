@@ -182,6 +182,54 @@ extension BookRow {
         book.isOwned(on: .audible)
     }
 
+    public var isOnKindle: Bool {
+        book.isOwned(on: .kindle)
+    }
+
+    /// The places the book is owned other than as files, each once: Audible, then Kindle.
+    public var ownedKinds: [ExternalKind] {
+        ExternalKind.allCases.filter(book.isOwned(on:))
+    }
+
+    /// Whether the book has an ebook file here.
+    var hasEbookFile: Bool {
+        formats.contains { $0.defaultRole == .ebook }
+    }
+
+    /// The book in Kindle on the web, for a Kindle book whose copy has its ID; nil for
+    /// any other book, and for an ID that is not one.
+    public var kindleAddress: URL? {
+        guard let id = book.externalCopies.lazy.filter({ $0.kind == .kindle }).compactMap({ $0.itemId?.trimmedOrNil }).first,
+              id.count <= 20, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) })
+        else { return nil }
+        return URL(string: "https://read.amazon.com/?asin=\(id)")
+    }
+
+    /// Whether reading the book opens it in Kindle on the web: it is on Kindle, with
+    /// its ID, and has no ebook file here.
+    public var opensOnKindle: Bool {
+        kindleAddress != nil && !hasEbookFile
+    }
+
+    /// Whether there is an ebook to open: a file here, or the book in Kindle on the
+    /// web. A book that is only on Kindle, with no ID to open it by, has none.
+    public var canRead: Bool {
+        guard hasEbook else { return false }
+        if hasEbookFile || kindleAddress != nil { return true }
+        return book.externalCopies.contains { $0.form == .ebook && $0.kind != .kindle }
+    }
+
+    /// What the button that opens the ebook says: "Open on Kindle" when that opens
+    /// the book in Kindle on the web, "Read" otherwise.
+    public var readTitle: String {
+        opensOnKindle ? "Open on Kindle" : "Read"
+    }
+
+    /// The same button's tooltip.
+    public var readHelpText: String {
+        opensOnKindle ? "Open this book in Kindle on the web" : "Open the ebook"
+    }
+
     /// The book's Audible copy as an audiobook: what Listen opens when there is no audio file.
     var audibleAudioCopy: ExternalCopy? {
         book.externalCopies.first { $0.kind == .audible && $0.form == .audio }
@@ -220,11 +268,22 @@ extension BookRow {
         opensOnAudible ? "Open this book’s page on the Audible website" : "Open the audiobook"
     }
 
-    /// Where the book is, for a book that is on Audible: "On Audible, not on this Mac"
-    /// when it has no files, "Also on Audible" when it has. Nil for any other book.
+    /// Where the book is, for a book that is owned elsewhere: "On Audible, not on this
+    /// Mac" when it has no files, "Also on Audible" when it has; "On Kindle" for a
+    /// Kindle book, and "On Audible and Kindle" for a book on both. Nil for any other book.
     public var whereaboutsText: String? {
-        guard isOnAudible else { return nil }
-        return hasFiles ? "Also on Audible" : "On Audible, not on this Mac"
+        whereaboutsText(of: ownedKinds)
+    }
+
+    /// The same for one place, when the book is owned there: what its own symbol says.
+    public func whereaboutsText(on kind: ExternalKind) -> String? {
+        whereaboutsText(of: ownedKinds.filter { $0 == kind })
+    }
+
+    private func whereaboutsText(of kinds: [ExternalKind]) -> String? {
+        guard !kinds.isEmpty else { return nil }
+        let places = kinds.map(\.title).joined(separator: " and ")
+        return hasFiles ? "Also on \(places)" : "On \(places), not on this Mac"
     }
 
     /// Plan 9: the word on the row of a book that is on Audible's list of the series

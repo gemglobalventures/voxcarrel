@@ -59,6 +59,14 @@ struct BookListView: View {
                 .width(min: 50, ideal: 120, max: 200)
                 .customizationID("genre")
                 .defaultVisibility(.hidden)
+                // How many highlights a book has: hidden until it is chosen, as Genre
+                // is, and its header sorts nothing.
+                TableColumn("Highlights") { item in
+                    ItemHighlightsCell(item: item)
+                }
+                .width(min: 40, ideal: 60, max: 80)
+                .customizationID("highlights")
+                .defaultVisibility(.hidden)
                 TableColumn("Formats", value: \.formatsSortKey) { item in
                     ItemFormatsCell(model: model, item: item)
                 }
@@ -181,6 +189,18 @@ private struct ItemGenreCell: View {
     var body: some View {
         if case .book(let row) = item {
             TextCell(text: row.genreText)
+        }
+    }
+}
+
+/// Nothing for a series' row, nor for a book with none.
+private struct ItemHighlightsCell: View {
+    let item: ListItem
+
+    var body: some View {
+        if case .book(let row) = item {
+            TextCell(text: row.highlightCountText)
+                .monospacedDigit()
         }
     }
 }

@@ -49,6 +49,8 @@ extension AppModel {
         case .audiobooks: "Audiobooks"
         case .ebooks: "Ebooks"
         case .onAudible: "On Audible"
+        case .onKindle: "On Kindle"
+        case .highlights: "Highlights"
         case .unread: "Unread"
         case .inProgress: "In Progress"
         case .finished: "Finished"
@@ -131,9 +133,10 @@ extension AppModel {
         guard isLibraryOpen, !ids.isEmpty, !holdsMissing(ids) else { return commands }
         let shown = rows.first { ids.contains($0.id) }
         if ids.count == 1, let book = shown {
-            commands.open = book.hasAudio || book.hasEbook
+            // A book that is only on Kindle, with no ID to open it by, has nothing to read.
+            commands.open = book.hasAudio || book.canRead
             commands.listen = book.hasAudio
-            commands.read = book.hasEbook
+            commands.read = book.canRead
         }
         // R5: books that have no files have nothing to show in the Finder, and no tags
         // to write. A book that is not shown is taken to have files.

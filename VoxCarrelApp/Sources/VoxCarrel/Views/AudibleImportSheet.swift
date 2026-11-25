@@ -96,8 +96,9 @@ struct AudibleImportSheet: View {
     }
 }
 
-/// A list of titles that scrolls, under its heading: handed what it shows.
-private struct AudibleTitleList: View {
+/// A list of titles that scrolls, under its heading: handed what it shows. Import
+/// Highlights lists its titles with it too.
+struct AudibleTitleList: View {
     let heading: String
     let titles: [String]
     /// "and 120 more" when the list was cut short.

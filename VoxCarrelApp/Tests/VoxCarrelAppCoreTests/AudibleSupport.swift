@@ -34,11 +34,18 @@ final class FakeAudibleTransport: AudibleTransport, @unchecked Sendable {
         lock.withLock { storedAnswers[path] = (data, status) }
     }
 
+    /// An answer for one address of a path that many are asked by: the path with this query.
+    func answer(_ path: String, query: String, with object: Any, status: Int = 200) {
+        answer(path + "?" + query, with: object, status: status)
+    }
+
     func send(_ request: URLRequest) async throws -> (data: Data, status: Int) {
         lock.withLock { storedAsked.append(request) }
         await gate?.wait()
         if fails { throw AudibleAccountError.notReachable }
-        let answer = lock.withLock { storedAnswers[request.url?.path ?? ""] } ?? (Data("{}".utf8), 404)
+        let path = request.url?.path ?? ""
+        let whole = path + "?" + (request.url?.query ?? "")
+        let answer = lock.withLock { storedAnswers[whole] ?? storedAnswers[path] } ?? (Data("{}".utf8), 404)
         return (answer.0, answer.1)
     }
 

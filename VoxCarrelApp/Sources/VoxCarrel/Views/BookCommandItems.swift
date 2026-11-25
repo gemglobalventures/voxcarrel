@@ -34,7 +34,7 @@ struct BookCommandItems: View {
         Button(model.listenTitle(for: books)) { model.listenOne(of: books) }
             .disabled(!applies.listen)
             .accessibilityIdentifier("\(prefix).listen")
-        Button("Read") { model.readOne(of: books) }
+        Button(model.readTitle(for: books)) { model.readOne(of: books) }
             .disabled(!applies.read)
             .accessibilityIdentifier("\(prefix).read")
         Button("Reveal in Finder") { model.reveal(books) }

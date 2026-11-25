@@ -122,6 +122,8 @@ public struct HighlightsReport: Equatable, Sendable {
     public var booksAdded: [String] = []
     /// Books of the library that have highlights from this.
     public var booksMatched = 0
+    /// Of those, the books that get a highlight they did not have.
+    public var booksGaining = 0
     /// Books that are in no library and are owned nowhere the app knows: left out.
     public var booksLeftOut: [String] = []
     public var added = 0
