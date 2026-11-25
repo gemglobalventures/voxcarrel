@@ -327,6 +327,24 @@ public final class LibraryStore: Sendable {
                 t.add(column: "contentPrint", .text)
             }
         }
+        migrator.registerMigration("v15") { db in
+            try db.create(table: "smartShelf") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name", .text).notNull()
+                // The conditions and whether all must be met, as JSON.
+                t.column("rule", .text).notNull()
+                t.column("position", .integer).notNull().defaults(to: 0)
+            }
+            try db.create(table: "upNext") { t in
+                t.column("bookId", .integer).primaryKey().references("book", onDelete: .cascade)
+                t.column("position", .integer).notNull()
+            }
+            for (index, shelf) in SmartShelf.starters.enumerated() {
+                try db.execute(
+                    sql: "INSERT INTO smartShelf (name, rule, position) VALUES (?, ?, ?)",
+                    arguments: [shelf.name, try Self.ruleText(of: shelf), index])
+            }
+        }
         return migrator
     }
 
