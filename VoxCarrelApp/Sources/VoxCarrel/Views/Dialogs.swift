@@ -7,7 +7,8 @@ import VoxCarrelAppCore
 /// import review, a result, the launch check, the preview of a change of folder layout,
 /// the choice between Audible series, a
 /// lookup (for the inspected book, or to add an Audible book), Send to Phone, Merge
-/// Books, the three sheets about genres, and the editor of a smart shelf. Send to Phone, Merge Books and Manage Genres
+/// Books, the three sheets about genres, the editor of a smart shelf, Link Audible Account, and Import Audible
+/// Library. Send to Phone, Merge Books and Manage Genres
 /// show what they are doing themselves: progress does not take their place. Which is up is
 /// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
 /// is up has closed, so each has a sheet window of its own, at its own size.
@@ -86,6 +87,12 @@ struct Dialogs: ViewModifier {
                         .modifier(Questions(isActive: true))
                 case .shelfEditor(let shown):
                     ShelfEditorSheet(editor: shown.state)
+                        .modifier(Questions(isActive: true))
+                case .audibleLink(let shown):
+                    AudibleLinkSheet(session: shown.state)
+                        .modifier(Questions(isActive: true))
+                case .audibleImport(let shown):
+                    AudibleImportSheet(session: shown.state)
                         .modifier(Questions(isActive: true))
                 }
             }
@@ -238,6 +245,24 @@ private struct Questions: ViewModifier {
             } message: {
                 Text(model.prompt?.message ?? "")
             }
+            .confirmationDialog(
+                model.prompt?.title ?? "", isPresented: isAsking(unlinkAudible), titleVisibility: .visible
+            ) {
+                Button(model.prompt?.unlinkAudibleTitle ?? "", role: .destructive) {
+                    Task { await model.confirmUnlinkAudible() }
+                }
+                .accessibilityIdentifier("prompt.unlinkAudible.unlink")
+                Button("Cancel", role: .cancel) {
+                    model.prompt = nil
+                }
+                .accessibilityIdentifier("prompt.unlinkAudible.cancel")
+            } message: {
+                Text(model.prompt?.message ?? "")
+            }
+    }
+
+    private var unlinkAudible: Bool {
+        model.prompt?.unlinkAudibleTitle != nil
     }
 
     private var deleteShelf: Bool {

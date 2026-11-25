@@ -3,7 +3,7 @@ import VoxCarrelAppCore
 import VoxCarrelCore
 
 /// V7; plan 7, V3: the settings, on three tabs: General (the library folder, the folder
-/// layout, copying on import), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
+/// layout, copying on import, the Audible account), Lookup (the sources, the Audible stores, and what a lookup sends) and Watch
 /// Folders (the folders watched for books that arrive).
 struct SettingsView: View {
     /// Every tab is this wide; the window takes its height from the tab that is shown.
@@ -78,10 +78,49 @@ private struct GeneralSettings: View {
                 Toggle("Copy files when importing (leave originals in place)", isOn: $model.copyOnImport)
                     .accessibilityIdentifier("settings.copyOnImport")
             }
+            AudibleAccountSettings(model: model)
         }
         .formStyle(.grouped)
         .frame(width: SettingsView.width)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The Audible account: linking one while none is linked; which is linked, and
+/// unlinking it, while one is. The sheet and the question are the library window's.
+private struct AudibleAccountSettings: View {
+    let model: AppModel
+
+    var body: some View {
+        Section("Audible Account") {
+            if let summary = model.audibleAccountSummary {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(summary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("settings.audible.summary")
+                    Button("Unlink…") {
+                        model.unlinkAudible()
+                    }
+                    .disabled(!model.canUnlinkAudible)
+                    .accessibilityIdentifier("settings.audible.unlink")
+                }
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(model.audibleSettingsText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("settings.audible.explanation")
+                    Button("Link Account…") {
+                        model.beginAudibleLink()
+                    }
+                    .disabled(!model.canBeginAudibleLink)
+                    .accessibilityIdentifier("settings.audible.link")
+                }
+            }
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import VoxCarrelCore
@@ -45,6 +46,9 @@ public enum PendingPrompt: Equatable {
     /// Whether to delete a smart shelf. Answered with `AppModel.confirmDeleteShelf`, or
     /// dismissed by setting `prompt` to nil.
     case deleteShelf(id: Int64, name: String)
+    /// Whether to unlink the Audible account. Answered with
+    /// `AppModel.confirmUnlinkAudible`, or dismissed by setting `prompt` to nil.
+    case unlinkAudible(deviceName: String?)
 }
 
 public enum UnsavedChoice: Sendable {
@@ -84,12 +88,18 @@ public final class AppModel {
     ///   - inboxNow: The time, as the inbox checks are told it. Tests move it by hand.
     ///   - phoneLink: Serves a book to the phone by a link. Tests give one that listens to nothing.
     ///   - sleepGuard: Keeps the Mac awake while a book is on its way. Tests give one that only counts.
+    ///   - audibleKeys: Where the keys of the linked Audible account are kept: the
+    ///     Mac's Keychain. Tests give one that only remembers.
+    ///   - audibleTransport: How Amazon and Audible are reached for the account. Tests
+    ///     give one that answers by itself.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
         lookupService: ((LookupConfiguration) -> LookupService)? = nil,
         watcher: FolderWatching = FSEventsFolderWatcher(), ticker: Ticking = TimerTicker(),
         inboxNow: @escaping @MainActor () -> Date = { Date() },
-        phoneLink: PhoneLinking = PhoneLinkServer(), sleepGuard: SleepGuarding = SystemSleepGuard()
+        phoneLink: PhoneLinking = PhoneLinkServer(), sleepGuard: SleepGuarding = SystemSleepGuard(),
+        audibleKeys: any AudibleKeyStore = KeychainAudibleKeyStore(),
+        audibleTransport: any AudibleTransport = AudibleNetwork()
     ) {
         self.location = location
         self.opener = opener
@@ -99,6 +109,9 @@ public final class AppModel {
         self.inboxNow = inboxNow
         self.phoneLink = phoneLink
         self.sleepGuard = sleepGuard
+        self.audibleKeys = audibleKeys
+        self.audibleTransport = audibleTransport
+        audibleAccount = audibleKeys.load()
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
             ?? AudibleStore.forRegion(Locale.current.region?.identifier)
@@ -256,6 +269,10 @@ public final class AppModel {
         seriesChoice = nil
         // A shelf being made or changed was a shelf of the library shown before.
         shelfEditor = nil
+        // What was to be brought in from Audible was for the library shown before, as
+        // are the covers still on their way. The link itself is the Mac's, and stays.
+        closeAudibleImport()
+        audibleCovers?.cancel()
         selection = []
         anchor = nil
         inspecting = .nothing
@@ -952,6 +969,8 @@ public final class AppModel {
     /// asked for in Settings, and shown by the library window.
     public var wantsToBeSeen: Bool {
         storedPrompt != nil || alert != nil || layoutPreview != nil || busyLabel == LayoutText.planningLabel
+            // Linking is asked for in Settings, and its sheet is the library window's.
+            || audibleLink != nil
     }
 
     // MARK: Quitting
@@ -1373,6 +1392,29 @@ public final class AppModel {
 
     /// The smart shelf being made or changed; not nil shows the sheet.
     public internal(set) var shelfEditor: ShelfEditor?
+
+    // MARK: Audible account
+
+    @ObservationIgnored let audibleKeys: any AudibleKeyStore
+    @ObservationIgnored let audibleTransport: any AudibleTransport
+    /// The text on the clipboard; nil when it holds none. Tests give their own.
+    @ObservationIgnored var audibleClipboard: @MainActor () -> String? = {
+        NSPasteboard.general.string(forType: .string)
+    }
+    /// Where a link made earlier on this Mac is kept, when there is one. Tests give a
+    /// file of their own.
+    @ObservationIgnored var audibleLinkFile = AudibleLinkFile.standard
+    /// Downloads a cover; nil when it could not be had. Tests give their own.
+    @ObservationIgnored var audibleCoverFetch: @Sendable (URL) async -> Data? = AudibleCoverDownload.fetch
+    /// The account that is linked, as the key store holds it; nil when none is. Its
+    /// keys are shown nowhere.
+    var audibleAccount: AudibleAccount?
+    /// Link Audible Account; not nil shows the sheet.
+    public internal(set) var audibleLink: AudibleLinkSession?
+    /// Import Audible Library; not nil shows the sheet.
+    public internal(set) var audibleImport: AudibleImportSession?
+    /// The covers being fetched after an import, or the last that were. Tests wait for it.
+    @ObservationIgnored var audibleCovers: Task<Void, Never>?
 
     // MARK: Merge Books
 

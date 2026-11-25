@@ -523,6 +523,8 @@ extension AppModel {
     var noGenreSheetIsOpen: Bool {
         // Nor the editor of a smart shelf, which lists the genres as they were.
         genreManager == nil && genreFilesUpdate == nil && genreFill == nil && shelfEditor == nil
+            // Nor either sheet about the Audible account: one sheet at a time.
+            && audibleLink == nil && audibleImport == nil
     }
 
     /// G23: whether Manage Genres can be opened.

@@ -63,6 +63,10 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case genreFill(SheetObject<GenreFillSession>)
     /// A smart shelf being made or changed.
     case shelfEditor(SheetObject<ShelfEditor>)
+    /// Link Audible Account.
+    case audibleLink(SheetObject<AudibleLinkSession>)
+    /// Import Audible Library.
+    case audibleImport(SheetObject<AudibleImportSession>)
 
     public var id: String {
         switch self {
@@ -79,6 +83,8 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .genreFiles: "genreFiles"
         case .genreFill: "genreFill"
         case .shelfEditor: "shelfEditor"
+        case .audibleLink: "audibleLink"
+        case .audibleImport: "audibleImport"
         }
     }
 }
@@ -102,7 +108,8 @@ extension AppModel {
     /// wanted, the first of: progress, the import review, a result, the launch check,
     /// the preview of a change of folder layout, the choice between Audible series, a lookup (for the inspected book, or to
     /// add an Audible book), Send to Phone, Merge Books, Manage Genres, the preview of
-    /// "Update files…", Fill in Genres, and the editor of a smart shelf.
+    /// "Update files…", Fill in Genres, the editor of a smart shelf, Link Audible
+    /// Account, and Import Audible Library.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
     /// which stays up: the progress sheet does not take its place. MG7: the same for
@@ -131,6 +138,8 @@ extension AppModel {
         if let genreFilesUpdate { return .genreFiles(SheetObject(genreFilesUpdate)) }
         if let genreFill { return .genreFill(SheetObject(genreFill)) }
         if let shelfEditor { return .shelfEditor(SheetObject(shelfEditor)) }
+        if let audibleLink { return .audibleLink(SheetObject(audibleLink)) }
+        if let audibleImport { return .audibleImport(SheetObject(audibleImport)) }
         return nil
     }
 }

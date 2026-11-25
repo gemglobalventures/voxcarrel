@@ -267,6 +267,27 @@ public actor LibraryWorker {
         return try service.applyGenres(chosen)
     }
 
+    // MARK: An Audible account's library
+
+    /// Brings an Audible account's library in, or with `apply` false only says what
+    /// doing so would do.
+    public func audibleLibraryReport(
+        _ books: [AudibleOwnedBook], store: AudibleStore, apply: Bool
+    ) throws -> AudibleLibraryReport {
+        try service.bringInAudibleLibrary(books, store: store, apply: apply)
+    }
+
+    /// The books owned on Audible that have no cover stored, each with its Audible ID.
+    public func audibleBooksWithoutCover() throws -> [(bookId: Int64, asin: String)] {
+        try service.audibleBooksWithoutCover()
+    }
+
+    /// Stores a cover for a book that has none. False when it has one, or is not there.
+    public func setCoverIfNone(_ cover: CoverImage, for bookId: Int64) throws -> Bool {
+        guard isBookId(bookId) else { return false }
+        return try service.setCoverIfNone(cover, for: bookId)
+    }
+
     /// G20, GP10: what a lookup found, with every result's genres named as the
     /// library's list names them: before any of it is shown or stored.
     public func inLibraryGenres(_ results: LookupResults) -> LookupResults {

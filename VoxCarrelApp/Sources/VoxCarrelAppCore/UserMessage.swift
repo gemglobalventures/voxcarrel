@@ -43,6 +43,7 @@ public enum UserMessage {
         case let error as SeriesListError: text(for: error)
         case let error as SendError: text(for: error)
         case let error as LibraryService.GenreChangeError: text(for: error)
+        case let error as AudibleAccountError: audibleLibraryProblem(error)
         // GP7: said whole, as the library words it. It is no fault of the database's.
         case let error as LibraryStoreError: error.errorDescription ?? error.localizedDescription
         default:
@@ -68,6 +69,40 @@ public enum UserMessage {
     public static let genreFillNotReachable =
         "Genres could not be looked up because the lookup service could not be reached. Check your internet "
         + "connection. Nothing was changed."
+
+    // MARK: An Audible account
+
+    /// Said when what the owner copied is not the address Amazon sent the browser to.
+    public static let audibleNotTheAddress =
+        "What is on the clipboard is not the address of the page Amazon sent you to. Copy it from the "
+        + "browser's address bar and try again."
+
+    /// Said when the keys of a device that was registered could not be kept.
+    public static let audibleKeysNotKept =
+        "The device's keys could not be kept in this Mac's Keychain, so the account was not linked."
+
+    /// Said when Amazon did not confirm that it removed the device.
+    public static let audibleUnlinkNotConfirmed =
+        "The link was removed from this Mac. Amazon did not confirm removing the device: remove it in your "
+        + "Amazon account under Content & Devices."
+
+    /// Why an Audible account could not be linked.
+    public static func audibleLinkProblem(_ error: Error) -> String {
+        switch error as? AudibleAccountError {
+        case .notRegistered: "Amazon did not register the device. Start again from Open Amazon Sign-In."
+        case .notReachable: "Amazon could not be reached. Check your internet connection."
+        default: "The account could not be linked."
+        }
+    }
+
+    /// Why the linked account's library could not be read. Nothing was changed.
+    public static func audibleLibraryProblem(_ error: Error) -> String {
+        switch error as? AudibleAccountError {
+        case .refused: "Audible no longer accepts this link. Unlink the account in Settings and link it again."
+        case .notReachable: "Audible could not be reached. Check your internet connection."
+        default: "Your Audible library could not be read."
+        }
+    }
 
     /// Why the file to send to the phone could not be made. Nothing was changed.
     private static func text(for error: SendError) -> String {

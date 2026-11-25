@@ -160,6 +160,17 @@ final class Harness {
     let network = FakeNetwork()
     /// Where the model makes the temporary folders of its sends: this harness's own.
     let sendTemp: URL
+    /// Where the model keeps the keys of an Audible account: never the Keychain.
+    let audibleKeys = InMemoryAudibleKeyStore()
+    /// Amazon and Audible, as the model reaches them: nothing goes out.
+    let audible = FakeAudibleTransport()
+    /// What the model reads as the clipboard.
+    let clipboard = FakeClipboard()
+    /// What the model downloads covers with.
+    let covers = FakeCoverFetch()
+    /// Where the model looks for a link made earlier: a file of this harness's own,
+    /// which is not there until a test writes it.
+    let audibleLinkFile: URL
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -182,11 +193,24 @@ final class Harness {
         let clock = clock
         model = AppModel(
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
-            watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard)
+            watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
+            audibleKeys: audibleKeys, audibleTransport: audible)
         model.lookupLanguage = "en"
         sendTemp = try makeTempDir()
         model.network = network
         model.sendTempRoot = sendTemp
+        audibleLinkFile = try makeTempDir().appendingPathComponent("audible.json")
+        giveAudibleSeams(to: model)
+    }
+
+    /// Nothing of Audible's that a model reaches is the real thing: not the
+    /// clipboard, not the home folder, not the network.
+    private func giveAudibleSeams(to model: AppModel) {
+        let clipboard = clipboard
+        let covers = covers
+        model.audibleClipboard = { clipboard.read() }
+        model.audibleLinkFile = audibleLinkFile
+        model.audibleCoverFetch = { await covers.fetch($0) }
     }
 
     /// What Undo would reverse in a demo library nothing has been done to yet.
@@ -252,9 +276,10 @@ final class Harness {
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),
             watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now },
-            phoneLink: phoneLink, sleepGuard: sleepGuard)
+            phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible)
         model.network = network
         model.sendTempRoot = sendTemp
+        giveAudibleSeams(to: model)
         return model
     }
 

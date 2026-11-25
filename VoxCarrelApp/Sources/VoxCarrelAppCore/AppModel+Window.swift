@@ -304,6 +304,11 @@ extension PendingPrompt {
         if case .deleteShelf = self { "Delete" } else { nil }
     }
 
+    /// What the button that unlinks the Audible account says; nil for any other question.
+    public var unlinkAudibleTitle: String? {
+        if case .unlinkAudible = self { "Unlink" } else { nil }
+    }
+
     /// The question, as the dialog's heading.
     public var title: String {
         switch self {
@@ -321,6 +326,8 @@ extension PendingPrompt {
             return "Stop trying to put the files back?"
         case .deleteShelf(_, let name):
             return "Delete the shelf \"\(name)\"?"
+        case .unlinkAudible:
+            return "Unlink your Audible account?"
         }
     }
 
@@ -372,6 +379,10 @@ extension PendingPrompt {
                 + "is deleted."
         case .deleteShelf:
             return "The books on it stay in the library."
+        case .unlinkAudible(let deviceName):
+            let device = deviceName?.trimmedOrNil.map { "the device \"\($0)\"" } ?? "the device"
+            return "VoxCarrel asks Amazon to remove \(device) from your account, and forgets its keys. The "
+                + "books already brought in stay in your library."
         }
     }
 }

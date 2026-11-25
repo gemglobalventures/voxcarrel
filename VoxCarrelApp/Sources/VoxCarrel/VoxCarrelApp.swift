@@ -46,7 +46,23 @@ struct AppCommands: Commands {
         CommandMenu("Book") { BookCommandItems(model: model) }
         CommandMenu("Library") {
             GenreCommandItems(model: model, updateTitle: "Update Genre Tags in Files…", prefix: "menu.library")
+            Divider()
+            AudibleCommandItem(model: model)
         }
+    }
+}
+
+/// Bringing in the library of the linked Audible account; linking one, while none is, so
+/// that the way in can be found. Which it is, and whether it applies, is the model's to say.
+private struct AudibleCommandItem: View {
+    let model: AppModel
+
+    var body: some View {
+        Button(model.audibleMenuTitle) {
+            model.audibleMenuCommand()
+        }
+        .disabled(!model.canUseAudibleMenu)
+        .accessibilityIdentifier("menu.library.audibleImport")
     }
 }
 

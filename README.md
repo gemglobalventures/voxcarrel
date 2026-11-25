@@ -44,6 +44,7 @@ The books in these pictures are generated samples from the demo library.
 **Series**
 
 - Tracks books you own on Audible alongside your local files, so a series shows complete.
+- Links to your Audible account and brings in your Audible library: every book you own there, with what you have finished and begun, as entries marked "on Audible". Books you already have are marked, not added twice, and no file is touched.
 - Checks a series against Audible's own list of it and shows the books you do not have, in order.
 - Groups a list by series when you ask: a series is one row that opens and closes in the list, and a stack of covers in the grid.
 
@@ -55,7 +56,7 @@ The books in these pictures are generated samples from the demo library.
 
 - It does not play or read books; opening one hands it to your usual player or reader.
 - It does not handle protected files such as Audible downloads (`.aax`, `.aaxc`). Books you own on Audible can be listed alongside your files instead.
-- It does not sign in to any account or download books.
+- It does not download books, and it never asks for a password. An Audible account is linked by signing in on Amazon's own page, in your browser.
 
 ## Requirements
 
@@ -120,7 +121,7 @@ Each source can be switched on or off in Settings ▸ Lookup. A source that is o
 
 Send to Phone's link serves only the one book you chose, only to your local network, for at most ten minutes or one download, and it is not encrypted, so use it on a network you trust. Nothing is sent to any outside service.
 
-VoxCarrel does not sign in to any account.
+Linking an Audible account (Settings ▸ General) is the one time VoxCarrel acts for an account, and only when you ask. You sign in on Amazon's own page, in your browser; VoxCarrel never sees your password. Amazon then registers a device with your account, named like "Your name's Audible for iPhone", and VoxCarrel keeps that device's keys in this Mac's Keychain, nowhere else. With them, Import Audible Library reads the list of books you own, and downloads their covers from Amazon's image servers. It only reads: nothing is bought, changed or removed at Audible. Unlink removes the device from your Amazon account and the keys from the Keychain; you can also remove the device yourself in your Amazon account, under Content & Devices. This is not an official Amazon interface and may stop working if Amazon changes it.
 
 ## Contributing
 
