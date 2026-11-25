@@ -348,6 +348,12 @@ import VoxCarrelFixtures
         same.unchanged = 40
         #expect(T.summary(highlights: 40, books: 3, report: same) == "40 highlights on 3 books. Everything is already here.")
         #expect(T.lines(for: same).isEmpty)
+        var twice = HighlightsReport()
+        twice.joined = 3
+        #expect(T.lines(for: twice) == ["3 highlights are already here from another source and will not be added twice."])
+        twice.joined = 1
+        #expect(T.lines(for: twice) == ["1 highlight is already here from another source and will not be added twice."])
+        #expect(!twice.changesNothing)
 
         // A long list shows its first 500 titles.
         let many = (1...620).map { "Book \($0)" }
@@ -616,8 +622,9 @@ import VoxCarrelFixtures
         h.model.sidebarSelection = .onKindle
         await h.model.settle()
         let covered = h.model.rows.filter { $0.coverURL != nil }.map(\.book.title)
-        #expect(covered == ["From Amazon", "From Readwise"])
-        #expect(h.model.rows.count == 4)
+        // The library's own book is now owned on Kindle too, and keeps the cover it had.
+        #expect(covered == ["From Amazon", "From Readwise", "Quiet Rivers"])
+        #expect(h.model.rows.count == 5)
     }
 
     // MARK: Stopping

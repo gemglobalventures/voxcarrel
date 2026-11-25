@@ -63,6 +63,38 @@ extension LibraryStore {
         }
     }
 
+    /// Every highlight in the library.
+    func allHighlights() throws -> [Highlight] {
+        try dbQueue.read { db in try Highlight.fetchAll(db, sql: "SELECT * FROM highlight ORDER BY id") }
+    }
+
+    /// The other places each highlight came from, besides the one it is kept under.
+    func highlightOrigins() throws -> [Int64: [HighlightOrigin]] {
+        try dbQueue.read { db in
+            var found: [Int64: [HighlightOrigin]] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT highlightId, source, sourceId FROM highlightOrigin ORDER BY rowid") {
+                guard let source = HighlightSource(rawValue: row["source"]) else { continue }
+                found[row["highlightId"], default: []].append(HighlightOrigin(source: source, sourceId: row["sourceId"]))
+            }
+            return found
+        }
+    }
+
+    /// Every other source a book's highlights also came from, by highlight.
+    public func otherSources(ofHighlightsOfBook bookId: Int64) throws -> [Int64: [HighlightSource]] {
+        try dbQueue.read { db in
+            var found: [Int64: [HighlightSource]] = [:]
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT o.highlightId, o.source FROM highlightOrigin o JOIN highlight h ON h.id = o.highlightId
+                WHERE h.bookId = ? ORDER BY o.rowid
+                """, arguments: [bookId])
+            for row in rows {
+                if let source = HighlightSource(rawValue: row["source"]) { found[row["highlightId"], default: []].append(source) }
+            }
+            return found
+        }
+    }
+
     /// Every stored highlight of one source, by its id there.
     func highlights(from source: HighlightSource) throws -> [String: Highlight] {
         try dbQueue.read { db in

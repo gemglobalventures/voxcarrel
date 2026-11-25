@@ -124,6 +124,8 @@ public struct HighlightsReport: Equatable, Sendable {
     public var booksMatched = 0
     /// Of those, the books that get a highlight they did not have.
     public var booksGaining = 0
+    /// Highlights that were here already from somewhere else, and were not added twice.
+    public var joined = 0
     /// Books that are in no library and are owned nowhere the app knows: left out.
     public var booksLeftOut: [String] = []
     public var added = 0
@@ -133,5 +135,39 @@ public struct HighlightsReport: Equatable, Sendable {
 
     public init() {}
 
-    public var changesNothing: Bool { booksAdded.isEmpty && added == 0 && changed == 0 && removed == 0 }
+    public var changesNothing: Bool { booksAdded.isEmpty && added == 0 && changed == 0 && removed == 0 && joined == 0 }
+}
+
+/// Says when two highlights of one book are the same highlight, however they came.
+enum HighlightMatch {
+    /// The words of a highlight as they are compared: letters and digits only, without
+    /// regard to case or accents.
+    static func key(_ text: String) -> String {
+        let folded = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+        return String(folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+    }
+
+    /// How near two marks made while listening must begin to be one mark, in seconds.
+    static let nearInTime: Double = 2
+    /// The fewest letters a passage must have for a longer one that holds it to be the same.
+    static let fewestToHold = 20
+
+    /// True when the two are one highlight: the same words; or one passage holding the
+    /// other, at the same place or with no place given; or, for marks with no words,
+    /// times that begin within two seconds of one another.
+    static func same(_ a: Highlight, _ b: Highlight) -> Bool {
+        let (ka, kb) = (key(a.text), key(b.text))
+        if ka.isEmpty || kb.isEmpty {
+            guard ka.isEmpty, kb.isEmpty, a.locationKind == .time, b.locationKind == .time,
+                  let ta = a.location, let tb = b.location
+            else { return false }
+            return abs(ta - tb) <= nearInTime
+        }
+        if ka == kb { return true }
+        let (short, long) = ka.count <= kb.count ? (ka, kb) : (kb, ka)
+        guard short.count >= fewestToHold, long.contains(short) else { return false }
+        // Two passages that share words but stand in different places are two.
+        if let la = a.location, let lb = b.location, a.locationKind == b.locationKind { return abs(la - lb) <= 5 }
+        return true
+    }
 }

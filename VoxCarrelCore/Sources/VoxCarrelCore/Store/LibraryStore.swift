@@ -366,6 +366,15 @@ public final class LibraryStore: Sendable {
                 t.uniqueKey(["source", "sourceId"])
             }
         }
+        migrator.registerMigration("v17") { db in
+            // The other places one highlight came from, besides the one it is kept under.
+            try db.create(table: "highlightOrigin") { t in
+                t.column("highlightId", .integer).notNull().indexed().references("highlight", onDelete: .cascade)
+                t.column("source", .text).notNull()
+                t.column("sourceId", .text).notNull()
+                t.primaryKey(["source", "sourceId"])
+            }
+        }
         return migrator
     }
 

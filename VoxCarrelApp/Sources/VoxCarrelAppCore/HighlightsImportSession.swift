@@ -63,6 +63,11 @@ enum HighlightsImportText {
         if report.added > 0, report.unchanged + report.changed > 0 {
             lines.append("\(highlights(report.added)) \(report.added == 1 ? "is" : "are") new.")
         }
+        if report.joined > 0 {
+            lines.append(
+                "\(highlights(report.joined)) \(report.joined == 1 ? "is" : "are") already here from another source and "
+                    + "will not be added twice.")
+        }
         if report.changed > 0 {
             lines.append(
                 "\(highlights(report.changed)) \(report.changed == 1 ? "has" : "have") changed and will be updated.")

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import VoxCarrelCore
 
-/// HL1–HL10: highlights, where they come from, and how they reach a book.
+/// HL1–HL16: highlights, where they come from, and how they reach a book.
 @Suite struct HighlightTests {
     typealias F = LibraryFixture
     typealias FakeTransport = AudibleLibraryTests.FakeTransport
@@ -246,5 +246,150 @@ import Testing
         #expect(try f.service.highlights(forBook: id).first?.locationKind == .time)
         try f.store.dbQueue.write { db in try db.execute(sql: "DELETE FROM book WHERE id = ?", arguments: [id]) }
         #expect(try f.service.highlightCounts().isEmpty || (try f.store.highlights(forBook: id)).isEmpty)
+    }
+
+    // MARK: The same highlight from two places
+
+    private func audibleBook(_ title: String, _ asin: String, _ highlights: [IncomingHighlight], author: String = "Ann Author") -> HighlightedBook {
+        var book = HighlightedBook(title: title, authors: [author], source: .audible, highlights: highlights)
+        book.itemId = asin
+        book.ownedOn = .audible
+        return book
+    }
+
+    private func mark(_ id: String, at seconds: Double, note: String? = nil, text: String = "", deleted: Bool = false) -> IncomingHighlight {
+        var highlight = IncomingHighlight(sourceId: id, text: text)
+        highlight.location = seconds
+        highlight.locationKind = .time
+        highlight.note = note
+        highlight.isDeleted = deleted
+        return highlight
+    }
+
+    @Test func HL11_theSameWordsFromAnotherSourceAreOneHighlightAndTheBookIsOwnedThereToo() throws {
+        let f = try F()
+        _ = try f.service.bringInHighlights([kindleBook("Book", "B1", [incoming("1", "Stay hungry, stay foolish.", at: 120)])], apply: true)
+        let id = try #require(try f.store.books().first?.id)
+        var same = mark("c9", at: 300, note: "heard this", text: "  stay hungry — stay FOOLISH ")
+        same.madeAt = Date(timeIntervalSince1970: 1000)
+        let heard = [audibleBook("Book", "B0AUD", [same, mark("c10", at: 900, text: "Something else entirely")])]
+
+        let preview = try f.service.bringInHighlights(heard, apply: false)
+        #expect(preview.joined == 1 && preview.added == 1 && preview.booksMatched == 1 && preview.booksAdded.isEmpty)
+        #expect(!preview.changesNothing)
+        #expect(try f.service.highlights(forBook: id).count == 1 && f.store.highlightOrigins().isEmpty)
+
+        #expect(try f.service.bringInHighlights(heard, apply: true) == preview)
+        let now = try f.service.highlights(forBook: id)
+        #expect(now.count == 2)
+        let kept = try #require(now.first { $0.sourceId == "1" })
+        // It stays as it was, and gains what it lacked.
+        #expect(kept.source == .readwise && kept.text == "Stay hungry, stay foolish." && kept.location == 120 && kept.locationKind == .location)
+        #expect(kept.note == "heard this" && kept.madeAt == Date(timeIntervalSince1970: 1000))
+        #expect(try f.store.otherSources(ofHighlightsOfBook: id) == [try #require(kept.id): [.audible]])
+        // One book, owned in both places.
+        let book = try #require(try f.store.books().first)
+        #expect(try f.store.books().count == 1)
+        #expect(Set(book.externalCopies.map(\.kind)) == [.kindle, .audible] && book.asin == "B0AUD")
+        // Done again, it changes nothing.
+        let again = try f.service.bringInHighlights(heard, apply: true)
+        #expect(again.changesNothing && again.unchanged == 2 && again.joined == 0)
+        #expect(try f.service.highlights(forBook: id).count == 2)
+        // And from the first source again, likewise.
+        let first = try f.service.bringInHighlights([kindleBook("Book", "B1", [incoming("1", "Stay hungry, stay foolish.", at: 120)])], apply: true)
+        #expect(first.changesNothing)
+        #expect(try f.service.highlights(forBook: id).first { $0.sourceId == "1" }?.note == "heard this")
+    }
+
+    @Test func HL12_aPassageHoldingAnotherIsTheSameAndTheLongerIsKeptButNotAtAnotherPlace() throws {
+        let f = try F()
+        let short = "the quick brown fox jumps over the lazy dog"
+        let long = "And so it was that \(short), twice, before breakfast."
+        _ = try f.service.bringInHighlights([kindleBook("Book", "B1", [incoming("1", short, at: 50), incoming("2", "It was.")])], apply: true)
+        let id = try #require(try f.store.books().first?.id)
+        var typed = HighlightedBook(title: "Book", authors: ["Ann Author"], source: .audible, highlights: [
+            incoming("a", long), incoming("b", "It was. Or was it not, in the end?"),
+        ])
+        typed.itemId = "B0AUD"
+        typed.ownedOn = .audible
+        let report = try f.service.bringInHighlights([typed], apply: true)
+        // The long passage holds the first; too few words are shared with the second for it to be the same.
+        #expect(report.joined == 1 && report.added == 1)
+        let now = try f.service.highlights(forBook: id)
+        #expect(now.count == 3 && now.first { $0.sourceId == "1" }?.text == long)
+
+        // The same words at a place far off are another highlight.
+        #expect(!HighlightMatch.same(
+            Highlight(bookId: 1, source: .readwise, sourceId: "x", text: short, location: 50, locationKind: .location),
+            Highlight(bookId: 1, source: .readwise, sourceId: "y", text: long, location: 4000, locationKind: .location)))
+        #expect(HighlightMatch.key("  Crème — brûlée, 2nd! ") == "cremebrulee2nd")
+    }
+
+    @Test func HL13_twoOfOneAnswerThatAreTheSameAreKeptOnce() throws {
+        let f = try F()
+        let report = try f.service.bringInHighlights(
+            [kindleBook("Book", "B1", [incoming("1", "Stay hungry."), incoming("2", "stay hungry", note: "twice"), incoming("3", "Other")])], apply: true)
+        #expect(report.added == 2 && report.joined == 1 && report.booksAdded == ["Book"])
+        let id = try #require(try f.store.books().first?.id)
+        let now = try f.service.highlights(forBook: id)
+        #expect(now.count == 2 && now.first { $0.sourceId == "1" }?.note == "twice")
+        let again = try f.service.bringInHighlights(
+            [kindleBook("Book", "B1", [incoming("1", "Stay hungry."), incoming("2", "stay hungry", note: "twice"), incoming("3", "Other")])], apply: true)
+        #expect(again.changesNothing && again.unchanged == 3)
+    }
+
+    @Test func HL14_marksWithNoWordsAreOneWhenTheyBeginWithinTwoSeconds() throws {
+        let f = try F()
+        _ = try f.service.bringInHighlights([audibleBook("Heard", "B0AUD", [mark("c1", at: 100)])], apply: true)
+        let id = try #require(try f.store.books().first?.id)
+        var other = HighlightedBook(title: "Heard", authors: ["Ann Author"], source: .readwise, highlights: [
+            mark("r1", at: 101.5, note: "from the other side"), mark("r2", at: 103), mark("r3", at: 100, text: "Words"),
+        ])
+        other.itemId = "B0AUD"
+        let report = try f.service.bringInHighlights([other], apply: true)
+        #expect(report.joined == 1 && report.added == 2)
+        let now = try f.service.highlights(forBook: id)
+        #expect(now.count == 3 && now.first { $0.sourceId == "c1" }?.note == "from the other side")
+    }
+
+    @Test func HL15_aHighlightDeletedAtOneSourceStaysWhileAnotherHasIt() throws {
+        let f = try F()
+        _ = try f.service.bringInHighlights([kindleBook("Book", "B1", [incoming("1", "Stay hungry, stay foolish.")])], apply: true)
+        let id = try #require(try f.store.books().first?.id)
+        _ = try f.service.bringInHighlights([audibleBook("Book", "B0AUD", [mark("c9", at: 300, text: "Stay hungry, stay foolish.")])], apply: true)
+
+        // The source it is kept under deletes it: it is kept under the other.
+        let gone = try f.service.bringInHighlights([kindleBook("Book", "B1", [incoming("1", "Stay hungry, stay foolish.", deleted: true)])], apply: true)
+        #expect(gone.removed == 0)
+        var now = try f.service.highlights(forBook: id)
+        #expect(now.count == 1 && now[0].source == .audible && now[0].sourceId == "c9")
+        #expect(try f.store.highlightOrigins().isEmpty)
+        // That one changes its words: its own source says what it is.
+        let changed = try f.service.bringInHighlights([audibleBook("Book", "B0AUD", [mark("c9", at: 300, text: "Stay hungry.")])], apply: true)
+        #expect(changed.changed == 1)
+        // The last source deletes it: it goes.
+        let last = try f.service.bringInHighlights([audibleBook("Book", "B0AUD", [mark("c9", at: 300, deleted: true)])], apply: true)
+        #expect(last.removed == 1)
+        now = try f.service.highlights(forBook: id)
+        #expect(now.isEmpty)
+    }
+
+    @Test func HL16_aSourceThatIsNotTheOneKeptUnderDeletesAndOnlyItsMarkGoes() throws {
+        let f = try F()
+        _ = try f.service.bringInHighlights([kindleBook("Book", "B1", [incoming("1", "Stay hungry, stay foolish.")])], apply: true)
+        let id = try #require(try f.store.books().first?.id)
+        _ = try f.service.bringInHighlights([audibleBook("Book", "B0AUD", [mark("c9", at: 300, text: "Stay hungry, stay foolish.")])], apply: true)
+        #expect(try f.store.highlightOrigins().count == 1)
+        let report = try f.service.bringInHighlights([audibleBook("Book", "B0AUD", [mark("c9", at: 300, deleted: true)])], apply: true)
+        #expect(report.removed == 0)
+        let now = try f.service.highlights(forBook: id)
+        #expect(now.count == 1 && now[0].source == .readwise)
+        #expect(try f.store.highlightOrigins().isEmpty)
+        // An owner's own highlight with the same words as an arriving one is not doubled either.
+        _ = try f.service.addHighlight(text: "My own words, typed in here by hand.", note: nil, toBook: id)
+        let more = try f.service.bringInHighlights(
+            [kindleBook("Book", "B1", [incoming("1", "Stay hungry, stay foolish."), incoming("7", "my own words typed in here by hand")])], apply: true)
+        #expect(more.joined == 1 && more.added == 0)
+        #expect(try f.service.highlights(forBook: id).count == 2)
     }
 }
