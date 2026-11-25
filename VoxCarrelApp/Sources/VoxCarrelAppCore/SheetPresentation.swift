@@ -73,6 +73,9 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
     case highlights(SheetObject<HighlightsSession>)
     /// Import Highlights.
     case highlightsImport(SheetObject<HighlightsImportSession>)
+    /// EX3: a sheet an extension has put up. Each kind of extension sheet is a kind of
+    /// its own, by the sheet's own id.
+    case `extension`(ExtensionSheetShown)
 
     public var id: String {
         switch self {
@@ -94,6 +97,7 @@ public enum WindowSheet: Identifiable, Equatable, Sendable {
         case .kindleImport: "kindleImport"
         case .highlights: "highlights"
         case .highlightsImport: "highlightsImport"
+        case .extension(let shown): "extension.\(shown.id)"
         }
     }
 }
@@ -119,7 +123,7 @@ extension AppModel {
     /// add an Audible book), Send to Phone, Merge Books, Manage Genres, the preview of
     /// "Update files…", Fill in Genres, the editor of a smart shelf, Link Audible
     /// Account, Import Audible Library, Import Kindle Library, the highlights of a book,
-    /// and Import Highlights.
+    /// Import Highlights, and a sheet an extension has put up.
     ///
     /// PH28: while Send to Phone is open, what it is doing is shown in its own sheet,
     /// which stays up: the progress sheet does not take its place. MG7: the same for
@@ -154,6 +158,7 @@ extension AppModel {
         if let kindleImport { return .kindleImport(SheetObject(kindleImport)) }
         if let highlights { return .highlights(SheetObject(highlights)) }
         if let highlightsImport { return .highlightsImport(SheetObject(highlightsImport)) }
+        if let storedExtensionSheet { return .extension(ExtensionSheetShown(storedExtensionSheet)) }
         return nil
     }
 }

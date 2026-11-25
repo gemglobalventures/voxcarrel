@@ -160,6 +160,19 @@ struct BookCommandItems: View {
         Button("Remove…") { model.requestRemove(books) }
             .disabled(!applies.remove)
             .accessibilityIdentifier("\(prefix).remove")
+
+        // EX2: the commands extensions have added, when there are any. Which they are,
+        // what they are called and whether they apply is the model's to say.
+        let added = model.extensionCommands(for: books)
+        if !added.isEmpty {
+            Divider()
+
+            ForEach(added) { command in
+                Button(command.title) { model.runExtensionCommand(command.id, for: books) }
+                    .disabled(!command.isEnabled)
+                    .accessibilityIdentifier("\(prefix).\(command.id)")
+            }
+        }
     }
 
     /// The start of each item's accessibility identifier.

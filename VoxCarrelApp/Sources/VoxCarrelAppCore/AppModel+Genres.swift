@@ -525,6 +525,8 @@ extension AppModel {
         genreManager == nil && genreFilesUpdate == nil && genreFill == nil && shelfEditor == nil
             // Nor either sheet about the Audible account: one sheet at a time.
             && audibleLink == nil && audibleImport == nil && kindleImport == nil
+            // Nor a sheet an extension has put up.
+            && storedExtensionSheet == nil
     }
 
     /// G23: whether Manage Genres can be opened.

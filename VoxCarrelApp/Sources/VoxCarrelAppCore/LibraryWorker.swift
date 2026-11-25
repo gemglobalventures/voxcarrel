@@ -47,6 +47,16 @@ public actor LibraryWorker {
                     audibleStores: [.forRegion(Locale.current.region?.identifier)])))
     }
 
+    // MARK: For extensions
+
+    /// For extensions: hands `body` the library engine, for work the worker has no
+    /// method for. The closure runs on the worker, so the library still does one thing
+    /// at a time; what it returns must be a plain value, like everything else that
+    /// leaves the worker.
+    public func withService<T: Sendable>(_ body: @Sendable (LibraryService) throws -> T) rethrows -> T {
+        try body(service)
+    }
+
     // MARK: Looking up online
 
     // None of these touches the library, and none runs on the actor: the library goes

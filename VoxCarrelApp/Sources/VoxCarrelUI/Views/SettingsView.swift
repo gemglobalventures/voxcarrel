@@ -29,6 +29,14 @@ struct SettingsView: View {
                     Label("Watch Folders", systemImage: "tray.and.arrow.down")
                         .accessibilityIdentifier("settings.tab.watchFolders")
                 }
+            // The tabs extensions have added, after the app's own.
+            ForEach(model.extensions.settingsPanes) { pane in
+                pane.view(model)
+                    .tabItem {
+                        Label(pane.title, systemImage: pane.systemImage)
+                            .accessibilityIdentifier("settings.tab.\(pane.id)")
+                    }
+            }
         }
         // A question, a message or the preview of a change of folder layout is shown by
         // the main window: it comes in front of this one.

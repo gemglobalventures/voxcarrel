@@ -2,13 +2,31 @@ import AppKit
 import SwiftUI
 import VoxCarrelAppCore
 
-@main
+/// How the app is started: by this package's own program with nothing added, and by a
+/// package that adds features with its extensions.
+public enum VoxCarrelMain {
+    /// What the app was started with. The system makes the `App` itself, so this is
+    /// where its `init` finds them.
+    @MainActor static var extensions = AppExtensions()
+
+    /// Starts the app, and returns only by ending the process.
+    ///
+    /// - Parameter extensions: What has been added to the app; nothing for the app by itself.
+    @MainActor
+    public static func run(extensions: AppExtensions = AppExtensions()) -> Never {
+        self.extensions = extensions
+        VoxCarrelApp.main()
+        exit(0)
+    }
+}
+
 struct VoxCarrelApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var model: AppModel
 
     init() {
-        let model = AppModel(location: LibraryLocation(), opener: SystemFileOpener())
+        let model = AppModel(
+            location: LibraryLocation(), opener: SystemFileOpener(), extensions: VoxCarrelMain.extensions)
         _model = State(initialValue: model)
         // The delegate is made by the system; this is how it is given the model.
         AppDelegate.model = model

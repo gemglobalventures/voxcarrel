@@ -7,8 +7,8 @@ import VoxCarrelAppCore
 /// import review, a result, the launch check, the preview of a change of folder layout,
 /// the choice between Audible series, a
 /// lookup (for the inspected book, or to add an Audible book), Send to Phone, Merge
-/// Books, the three sheets about genres, the editor of a smart shelf, Link Audible Account, and Import Audible
-/// Library. Send to Phone, Merge Books and Manage Genres
+/// Books, the three sheets about genres, the editor of a smart shelf, Link Audible Account, Import Audible
+/// Library, and last a sheet an extension has put up. Send to Phone, Merge Books and Manage Genres
 /// show what they are doing themselves: progress does not take their place. Which is up is
 /// `SheetPresentation`'s to say: a sheet of another kind is shown only when the one that
 /// is up has closed, so each has a sheet window of its own, at its own size.
@@ -102,6 +102,11 @@ struct Dialogs: ViewModifier {
                         .modifier(Questions(isActive: true))
                 case .highlightsImport(let shown):
                     HighlightsImportSheet(session: shown.state)
+                        .modifier(Questions(isActive: true))
+                case .extension(let shown):
+                    // The view is the extension's own. The model keeps no sheet that
+                    // has none, so there is one.
+                    model.extensions.sheetView(for: shown.sheet)
                         .modifier(Questions(isActive: true))
                 }
             }

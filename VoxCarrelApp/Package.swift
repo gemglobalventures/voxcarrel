@@ -4,6 +4,14 @@ import PackageDescription
 let package = Package(
     name: "VoxCarrelApp",
     platforms: [.macOS(.v15)],
+    // The app is two libraries and a short program that starts them, so that a package
+    // that adds features can start the same app with its features installed.
+    products: [
+        .library(name: "VoxCarrelAppCore", targets: ["VoxCarrelAppCore"]),
+        .library(name: "VoxCarrelUI", targets: ["VoxCarrelUI"]),
+        .executable(name: "VoxCarrel", targets: ["VoxCarrel"]),
+        .executable(name: "voxcarrel-demo", targets: ["voxcarrel-demo"]),
+    ],
     dependencies: [
         .package(path: "../VoxCarrelCore"),
     ],
@@ -12,9 +20,16 @@ let package = Package(
             name: "VoxCarrelAppCore",
             dependencies: [.product(name: "VoxCarrelCore", package: "VoxCarrelCore")]
         ),
+        .target(
+            name: "VoxCarrelUI",
+            dependencies: [
+                "VoxCarrelAppCore",
+                .product(name: "VoxCarrelCore", package: "VoxCarrelCore"),
+            ]
+        ),
         .executableTarget(
             name: "VoxCarrel",
-            dependencies: ["VoxCarrelAppCore"]
+            dependencies: ["VoxCarrelUI"]
         ),
         .target(
             name: "DemoContent",

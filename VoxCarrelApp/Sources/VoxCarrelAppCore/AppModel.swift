@@ -68,6 +68,9 @@ public final class AppModel {
     @ObservationIgnored let location: LibraryLocation
     @ObservationIgnored let opener: FileOpener
     @ObservationIgnored let defaults: UserDefaults
+    /// What has been added to the app by a package that adds features; empty when the
+    /// app was started by itself.
+    @ObservationIgnored public let extensions: AppExtensions
     /// The folders that may not be made a library. Another set is given by tests.
     @ObservationIgnored var places = ProtectedPlaces.system
     /// How a removed book's file is sent to the Trash; nil for the system's Trash. Read
@@ -97,6 +100,8 @@ public final class AppModel {
     ///   - ownerCheck: Asks the person at the Mac to prove they are its owner, before
     ///     hidden books are shown: Touch ID or the Mac's password. Tests give one that
     ///     answers by itself.
+    ///   - extensions: What has been added to the app; nothing, unless the app was
+    ///     started by a package that adds features.
     public init(
         location: LibraryLocation, opener: FileOpener, defaults: UserDefaults = .standard,
         lookupService: ((LookupConfiguration) -> LookupService)? = nil,
@@ -106,11 +111,13 @@ public final class AppModel {
         audibleKeys: any AudibleKeyStore = AudibleKeyStores.standard(),
         audibleTransport: any AudibleTransport = AudibleNetwork(),
         readwiseTokens: any ReadwiseTokenStore = ReadwiseTokenStores.standard(),
-        ownerCheck: any OwnerCheck = SystemOwnerCheck()
+        ownerCheck: any OwnerCheck = SystemOwnerCheck(),
+        extensions: AppExtensions = AppExtensions()
     ) {
         self.location = location
         self.opener = opener
         self.defaults = defaults
+        self.extensions = extensions
         self.watcher = watcher
         self.ticker = ticker
         self.inboxNow = inboxNow
@@ -142,6 +149,8 @@ public final class AppModel {
         // G34
         closedGenreGroups = Set(
             (defaults.array(forKey: GenreKeys.closedGroups) as? [String] ?? []).compactMap(GenreGroup.init))
+        // EX4: the model exists now, and each extension is told so, once.
+        for start in extensions.onStart { start(self) }
     }
 
     private enum Keys {
@@ -287,6 +296,8 @@ public final class AppModel {
         // The same for highlights: those to bring in, and the sheet of a book's own.
         closeHighlightsImport()
         highlights = nil
+        // EX3: an extension's sheet was about the library shown before.
+        closeExtensionSheet()
         highlightCounts = [:]
         // Hidden books are out of sight again in every library that is opened.
         showsHiddenBooks = false
@@ -1457,6 +1468,8 @@ public final class AppModel {
     public internal(set) var audibleImport: AudibleImportSession?
     /// Import Kindle Library; not nil shows the sheet.
     public internal(set) var kindleImport: KindleImportSession?
+    /// The sheet an extension has put on the window; see `extensionSheet`.
+    var storedExtensionSheet: (any ExtensionSheet)?
     /// The covers being fetched after an import, or the last that were. Tests wait for it.
     @ObservationIgnored var audibleCovers: Task<Void, Never>?
 
