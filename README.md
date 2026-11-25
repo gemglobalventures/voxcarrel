@@ -93,9 +93,10 @@ The books in these pictures are generated samples from the demo library.
 - **Kept once:** the same highlight arriving from two places is one highlight. Looking again brings in only what changed.
 - Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle".
 
-### Your phone
+### Your phone and your Kindle
 
 - **Send an audiobook to your phone** by AirDrop, or by a QR code that makes [BookPlayer](https://github.com/TortugaPower/BookPlayer) download it from your Mac. A book in several parts goes as one zip.
+- **Send an ebook to your Kindle:** the book's EPUB or PDF is handed to Amazon's own Send to Kindle app, or, without it, attached to a new message to your Kindle's address for you to send. VoxCarrel signs in to nothing and uploads nothing itself.
 
 ## What it does not do
 
@@ -110,7 +111,6 @@ What is planned, roughly in order. This is a direction, not a promise: things mo
 **Before the first release**
 
 - Leaving as cleanly as you came: a standard `metadata.opf` written beside each book, as well as the details inside the files, so another library manager can pick the library up.
-- Send to Kindle: an ebook from the library to your Kindle.
 - A signed download, so the app can be installed without building it, and `brew install --cask voxcarrel`.
 - Export Diagnostics in the Help menu: a zip of logs and settings, with no book titles unless you choose to include them, for reporting the odd file that trips the app up. Nothing is sent anywhere by itself.
 
