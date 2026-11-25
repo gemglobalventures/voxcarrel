@@ -126,6 +126,12 @@ struct BookCommandItems: View {
         }
         .disabled(!applies.repairLengthHeaders)
         .accessibilityIdentifier("\(prefix).repairLength")
+        // An EPUB made with calibre's converter, beside the ebook it is made of.
+        Button(ConversionText.commandTitle) {
+            Task { await model.convertToEPUB(for: books) }
+        }
+        .disabled(!applies.convertToEPUB)
+        .accessibilityIdentifier("\(prefix).convertToEPUB")
         // Plan 7, K8: one lookup for each audiobook; only its edition is changed.
         Button(model.checkEditionTitle) {
             Task { await model.checkEdition(for: books) }

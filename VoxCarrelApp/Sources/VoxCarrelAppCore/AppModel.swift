@@ -100,6 +100,8 @@ public final class AppModel {
     ///   - ownerCheck: Asks the person at the Mac to prove they are its owner, before
     ///     hidden books are shown: Touch ID or the Mac's password. Tests give one that
     ///     answers by itself.
+    ///   - ebookConverter: Makes an EPUB of an ebook in another format: calibre's own
+    ///     converter, when calibre is installed. Tests give one that runs no program.
     ///   - extensions: What has been added to the app; nothing, unless the app was
     ///     started by a package that adds features.
     public init(
@@ -112,6 +114,7 @@ public final class AppModel {
         audibleTransport: any AudibleTransport = AudibleNetwork(),
         readwiseTokens: any ReadwiseTokenStore = ReadwiseTokenStores.standard(),
         ownerCheck: any OwnerCheck = SystemOwnerCheck(),
+        ebookConverter: any EbookConverter = CalibreConverter(),
         extensions: AppExtensions = AppExtensions()
     ) {
         self.location = location
@@ -128,6 +131,7 @@ public final class AppModel {
         audibleAccount = audibleKeys.load()
         self.readwiseTokens = readwiseTokens
         self.ownerCheck = ownerCheck
+        self.ebookConverter = ebookConverter
         hasReadwiseToken = readwiseTokens.load() != nil
         makeLookupService = lookupService ?? { LookupService.standard($0) }
         storedAudibleStore = defaults.string(forKey: Keys.audibleStore).flatMap(AudibleStore.init)
@@ -717,6 +721,11 @@ public final class AppModel {
         }
         await refreshInspector(keepEdits: keepEdits)
     }
+
+    // MARK: Convert to EPUB
+
+    /// What an EPUB is made of a book's ebook with.
+    @ObservationIgnored let ebookConverter: any EbookConverter
 
     // MARK: Hidden books
 

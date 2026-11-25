@@ -34,6 +34,8 @@ public struct SelectionCommands: Equatable, Sendable {
     public var rewriteTags = false
     /// One of the books has a file whose wrong length header can be repaired.
     public var repairLengthHeaders = false
+    /// One of the books has an ebook an EPUB can be made of, and no EPUB yet.
+    public var convertToEPUB = false
     public var remove = false
 
     public init() {}
@@ -156,6 +158,8 @@ extension AppModel {
         guard !layoutChangeIsUnresolved else { return commands }
         commands.rewriteTags = someHaveFiles
         commands.repairLengthHeaders = chosen.contains { $0.repairableLengthFiles > 0 }
+        // Decided from the rows as they were last read: the library is not asked.
+        commands.convertToEPUB = chosen.contains(where: \.canConvertToEPUB)
         // Only books that are shown can be removed, and removing asks first: not while
         // another question is waiting (A24).
         commands.remove = shown != nil && prompt == nil

@@ -59,6 +59,45 @@ final class FakeOwnerCheck: OwnerCheck, @unchecked Sendable {
     }
 }
 
+/// An `EbookConverter` that runs no program: it writes a small real EPUB where it is
+/// asked to, or fails as a test tells it to, and remembers what it was asked for.
+final class FakeEbookConverter: EbookConverter, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedAvailable = true
+    private var storedFailure: ConversionError?
+    private var storedFailures: [String: ConversionError] = [:]
+    private var storedAsked: [(source: URL, destination: URL)] = []
+
+    /// Whether the converter is on this Mac. It is, until a test says otherwise.
+    var isAvailable: Bool {
+        get { lock.withLock { storedAvailable } }
+        set { lock.withLock { storedAvailable = newValue } }
+    }
+    /// How every conversion fails; nil for none.
+    var failure: ConversionError? {
+        get { lock.withLock { storedFailure } }
+        set { lock.withLock { storedFailure = newValue } }
+    }
+    /// How the conversion of a file fails, by words its name holds.
+    var failures: [String: ConversionError] {
+        get { lock.withLock { storedFailures } }
+        set { lock.withLock { storedFailures = newValue } }
+    }
+    /// Each conversion asked for, in order.
+    var asked: [(source: URL, destination: URL)] { lock.withLock { storedAsked } }
+
+    func convert(_ source: URL, to destination: URL) throws {
+        let failure = lock.withLock { () -> ConversionError? in
+            storedAsked.append((source, destination))
+            let name = source.lastPathComponent
+            return storedFailure ?? storedFailures.first { name.contains($0.key) }?.value
+        }
+        if let failure { throw failure }
+        _ = try MediaFixtures.makeEPUB3(
+            in: destination.deletingLastPathComponent(), name: destination.lastPathComponent)
+    }
+}
+
 /// A `FolderWatching` that watches nothing: a test says when something changed, with `fire()`.
 @MainActor
 final class FakeFolderWatcher: FolderWatching {
@@ -208,6 +247,8 @@ final class Harness {
     let clipboardWriter = FakeClipboardWriter()
     /// What the model asks the owner to prove who they are with: never the system's.
     let ownerCheck = FakeOwnerCheck()
+    /// What the model makes an EPUB of an ebook with: never a program of the Mac's.
+    let converter = FakeEbookConverter()
     let model: AppModel
 
     /// `root` is stored as the library folder unless `choose` is false.
@@ -232,7 +273,7 @@ final class Harness {
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
             watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
             audibleKeys: audibleKeys, audibleTransport: audible, readwiseTokens: readwiseTokens,
-            ownerCheck: ownerCheck)
+            ownerCheck: ownerCheck, ebookConverter: converter)
         model.lookupLanguage = "en"
         sendTemp = try makeTempDir()
         model.network = network
@@ -322,7 +363,7 @@ final class Harness {
             lookupService: lookup.service(for:),
             watcher: watcher ?? FakeFolderWatcher(), ticker: ticker ?? FakeTicker(), inboxNow: { clock.now },
             phoneLink: phoneLink, sleepGuard: sleepGuard, audibleKeys: audibleKeys, audibleTransport: audible,
-            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck)
+            readwiseTokens: readwiseTokens, ownerCheck: ownerCheck, ebookConverter: converter)
         model.network = network
         model.sendTempRoot = sendTemp
         giveAudibleSeams(to: model)

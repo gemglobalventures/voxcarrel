@@ -613,6 +613,7 @@ private let notChecked = "Not checked against Audible"
         Can(name: "selectionCommands.removeFromCollection") { model, _ in model.selectionCommands.removeFromCollection },
         Can(name: "selectionCommands.rewriteTags") { model, _ in model.selectionCommands.rewriteTags },
         Can(name: "selectionCommands.repairLengthHeaders") { model, _ in model.selectionCommands.repairLengthHeaders },
+        Can(name: "selectionCommands.convertToEPUB") { model, _ in model.selectionCommands.convertToEPUB },
         Can(name: "selectionCommands.remove") { model, _ in model.selectionCommands.remove },
         Can(name: "commands(for:).open") { model, ids in model.commands(for: ids).open },
         Can(name: "commands(for:).listen") { model, ids in model.commands(for: ids).listen },
@@ -623,6 +624,7 @@ private let notChecked = "Not checked against Audible"
         Can(name: "commands(for:).removeFromCollection") { model, ids in model.commands(for: ids).removeFromCollection },
         Can(name: "commands(for:).rewriteTags") { model, ids in model.commands(for: ids).rewriteTags },
         Can(name: "commands(for:).repairLengthHeaders") { model, ids in model.commands(for: ids).repairLengthHeaders },
+        Can(name: "commands(for:).convertToEPUB") { model, ids in model.commands(for: ids).convertToEPUB },
         Can(name: "commands(for:).remove") { model, ids in model.commands(for: ids).remove },
     ]
 
@@ -666,6 +668,7 @@ private let notChecked = "Not checked against Audible"
             "canSave", "hasUnsavedChanges", "inspectorIsOnAudible", "selectionCommands.read", "commands(for:).read",
             "selectionCommands.removeFromCollection", "commands(for:).removeFromCollection",
             "selectionCommands.repairLengthHeaders", "commands(for:).repairLengthHeaders",
+            "selectionCommands.convertToEPUB", "commands(for:).convertToEPUB",
         ]
         for can in Self.commandValues {
             #expect(can.value(h.model, ids) == !off.contains(can.name), "\(can.name)")
@@ -719,6 +722,8 @@ private let notChecked = "Not checked against Audible"
             await h.model.rewriteTags(for: ids)
             await h.model.repairLengthHeaders()
             await h.model.repairLengthHeaders(for: ids)
+            await h.model.convertToEPUB()
+            await h.model.convertToEPUB(for: ids)
             await h.model.setReadStatus(.finished, for: ids)
             await h.model.setOnAudible(true, for: ids)
             await h.model.toggleOnAudible()

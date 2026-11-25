@@ -85,6 +85,14 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     /// Whether the row stands for a book the library does not have.
     public var isMissing: Bool { missing != nil }
 
+    /// Whether Convert to EPUB is offered for the book: it has files in a folder of its
+    /// own in the library, one of them an ebook of a kind an EPUB can be made of, and
+    /// no EPUB among them yet.
+    public var canConvertToEPUB: Bool {
+        hasFiles && book.folderPath != nil && outsideFiles.isEmpty && !formats.contains(.epub)
+            && formats.contains(where: \.convertsToEPUB)
+    }
+
     public init(
         id: Int64, book: Book, hasAudio: Bool, hasEbook: Bool, formats: [FileFormat], coverURL: URL?,
         coverModified: Date? = nil, hasWriteProblem: Bool, outsideFiles: [String] = [], hasFiles: Bool = true,

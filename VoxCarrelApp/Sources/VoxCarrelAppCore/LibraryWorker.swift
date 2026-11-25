@@ -776,6 +776,31 @@ public actor LibraryWorker {
         return try service.repairLengthHeaders(for: ids)
     }
 
+    /// Makes an EPUB of each book's ebook, one book after another, and adds it to the
+    /// book beside the original. A book that has nothing to convert is passed over and
+    /// has no outcome; a book that fails does not stop the ones after it.
+    ///
+    /// Blocks while the converter runs: seconds for most books, a minute or more for a
+    /// large one.
+    public func convertToEPUB(bookIds: [Int64], with converter: any EbookConverter) -> [EPUBConversionOutcome] {
+        var outcomes: [EPUBConversionOutcome] = []
+        for id in self.bookIds(bookIds) {
+            do {
+                guard try service.fileToConvert(ofBook: id) != nil else { continue }
+                let done = try service.convertToEPUB(bookId: id, with: converter)
+                let name = store.url(for: done.file).lastPathComponent
+                outcomes.append(EPUBConversionOutcome(bookId: id, result: .converted(fileName: name)))
+            } catch ConversionError.nothingToConvert {
+                continue
+            } catch let error as ConversionError {
+                outcomes.append(EPUBConversionOutcome(bookId: id, result: .notConverted(error)))
+            } catch {
+                outcomes.append(EPUBConversionOutcome(bookId: id, result: .problem(UserMessage.text(for: error))))
+            }
+        }
+        return outcomes
+    }
+
     // MARK: Send to Phone
 
     /// Whether the book can be sent to the phone, what to warn of, and which files
