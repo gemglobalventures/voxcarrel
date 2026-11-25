@@ -446,6 +446,12 @@ public actor LibraryWorker {
         return names
     }
 
+    /// Works out the content print of a few library files that have none yet.
+    /// - Returns: How many were done; 0 when nothing is left that can be done now.
+    public func fillInContentPrints() throws -> Int {
+        try service.fillInContentPrints(limit: 20)
+    }
+
     // MARK: Importing
 
     /// Scans what was dropped. Each candidate comes with the cover of its first audio or

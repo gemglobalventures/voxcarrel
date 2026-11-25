@@ -322,6 +322,11 @@ public final class LibraryStore: Sendable {
             }
             try db.create(index: "bookFile_on_arrivedPrint", on: "bookFile", columns: ["arrivedPrint"])
         }
+        migrator.registerMigration("v14") { db in
+            try db.alter(table: "bookFile") { t in
+                t.add(column: "contentPrint", .text)
+            }
+        }
         return migrator
     }
 

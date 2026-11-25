@@ -220,7 +220,11 @@ final class Harness {
 
     /// A started model on a new, empty library.
     static func empty() async throws -> Harness {
-        let harness = try Harness(root: try makeTempDir())
+        let root = try makeTempDir()
+        // The sample files of these tests hold the same silence whatever book they
+        // stand for, so this library does not set aside files it already has.
+        try LibraryStore(libraryRoot: root).setKnowsFilesAgain(false)
+        let harness = try Harness(root: root)
         await harness.model.start()
         return harness
     }

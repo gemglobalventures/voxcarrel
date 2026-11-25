@@ -30,6 +30,17 @@ final class LibraryFixture {
         try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
         store = try LibraryStore(libraryRoot: root)
         service = LibraryService(store: store, metadataIO: FileMetadataIO(), organiser: organiser)
+        // The sample files of these tests all hold the same silence, whatever book they
+        // stand for: a library that set aside what it already has would take the
+        // second for the first. The tests of that say so (`knowsFilesAgain()`).
+        try store.setKnowsFilesAgain(false)
+    }
+
+    /// Lets this library set aside files it already has, as a real one does.
+    @discardableResult
+    func knowsFilesAgain() throws -> LibraryFixture {
+        try store.setKnowsFilesAgain(true)
+        return self
     }
 
     // MARK: Metadata

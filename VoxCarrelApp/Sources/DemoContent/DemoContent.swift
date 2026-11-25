@@ -175,8 +175,8 @@ public enum DemoContent {
         let result = try service.importItems(
             scan.candidates.map { ImportItem(candidate: $0) }, options: ImportOptions(mode: .move))
         // The sample inbox holds these same books again, to show a book joining the one
-        // the library has: so the library must not know them for files it already holds.
-        try store.forgetArrivedPrints()
+        // the library has: so this library does not set aside files it already holds.
+        try store.setKnowsFilesAgain(false)
         var unfiled = 0
         for (candidate, outcome) in zip(scan.candidates, result.outcomes) {
             let title = candidate.metadata.title

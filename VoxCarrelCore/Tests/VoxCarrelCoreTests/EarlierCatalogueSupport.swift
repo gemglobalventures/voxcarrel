@@ -8,7 +8,7 @@ typealias EarlierRow = [String: DatabaseValue]
 /// The columns of the book table that the change to several genres (v12) renamed or
 /// added. They are left out of the comparison, and have tests of their own.
 /// So is the column v13 added to the file table, for what a file was when it arrived.
-private let genreColumns: Set<String> = ["genre", "genreSource", "genres", "genreTag", "arrivedPrint"]
+private let genreColumns: Set<String> = ["genre", "genreSource", "genres", "genreTag", "arrivedPrint", "contentPrint"]
 
 /// A table's rows in row order, the book table's genre columns left out.
 func earlierRows(_ db: Database, of table: String) throws -> [EarlierRow] {

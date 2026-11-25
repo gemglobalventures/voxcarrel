@@ -423,6 +423,10 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
     /// anything was written into it (`BookScanner.fingerprint`): so that the same file
     /// met again is known. Nil for a file that came in before this was kept.
     public var arrivedPrint: String? = nil
+    /// What tells this file by what it holds, its tags aside (`ContentPrint`): it
+    /// stays the same whatever the app writes into the file. Nil until it has been
+    /// worked out; empty for a file it cannot be worked out for.
+    public var contentPrint: String? = nil
 
     public init(path: String, format: FileFormat, role: FileRole, position: Int) {
         self.id = nil
@@ -450,6 +454,7 @@ public struct BookFile: Codable, Equatable, Identifiable, Sendable,
         lengthProblem = (try? c.decodeIfPresent(LengthProblem.self, forKey: .lengthProblem)) ?? nil
         lengthUnmeasured = (try? c.decodeIfPresent(UnmeasuredLength.self, forKey: .lengthUnmeasured)) ?? nil
         arrivedPrint = (try? c.decodeIfPresent(String.self, forKey: .arrivedPrint)) ?? nil
+        contentPrint = (try? c.decodeIfPresent(String.self, forKey: .contentPrint)) ?? nil
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

@@ -564,7 +564,8 @@ import VoxCarrelFixtures
         try f.store.setFolderPatternText(Self.kindPattern)
         #expect(try f.store.folderPatternText() == Self.kindPattern)
         let stored = try f.store.dbQueue.read { db in
-            try Row.fetchAll(db, sql: "SELECT key, value FROM librarySetting").map { [$0["key"] as String, $0["value"] as String] }
+            try Row.fetchAll(db, sql: "SELECT key, value FROM librarySetting WHERE key = 'folderPattern'")
+                .map { [$0["key"] as String, $0["value"] as String] }
         }
         #expect(stored == [["folderPattern", Self.kindPattern]])
     }

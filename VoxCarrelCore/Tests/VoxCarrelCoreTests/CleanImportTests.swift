@@ -392,7 +392,7 @@ import VoxCarrelFixtures
     // MARK: Files the library already has
 
     @Test func CI16_aFileTheLibraryAlreadyHasIsNotOfferedAgain() throws {
-        let f = try LibraryFixture()
+        let f = try LibraryFixture().knowsFilesAgain()
         let first = try f.makeEPUB("Shelf/First.epub")
         let candidate = try #require(f.service.scan([first]).candidates.first)
         _ = try f.service.importItems([ImportItem(candidate: candidate)], options: ImportOptions(mode: .copy))

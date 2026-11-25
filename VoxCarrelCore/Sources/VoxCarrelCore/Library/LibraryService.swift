@@ -150,22 +150,34 @@ public final class LibraryService {
         return result
     }
 
-    /// Takes out of a scan every file that is byte for byte the same as a file was
-    /// when it came into the library (`BookFile.arrivedPrint`), and lists it under
+    /// Takes out of a scan every file the library already has, and lists it under
     /// `alreadyInLibrary`; a candidate left with no audio and no ebook is dropped, its
-    /// extras with it. No library file is opened. A file kept in iCloud and not here
-    /// is not read, and a file that is itself the library's is no copy of it.
+    /// extras with it. A file is one the library has when it is byte for byte what a
+    /// library file was when it arrived (`BookFile.arrivedPrint`), or holds the same
+    /// sound or text as a library file, tags aside (`BookFile.contentPrint`). No
+    /// library file is opened. A file kept in iCloud and not here is not read, and a
+    /// file that is itself the library's is no copy of it. Nothing is set aside in a
+    /// library that was told not to (`LibraryStore.knowsFilesAgain`).
     func setAsideWhatTheLibraryHolds(in result: inout ScanResult) {
-        guard let arrived = try? store.arrivedPrints(), !arrived.isEmpty,
-              let rows = try? store.allFiles()
+        guard (try? store.knowsFilesAgain()) ?? true,
+              let arrived = try? store.arrivedPrints(), let contents = try? store.contentPrints(),
+              !arrived.isEmpty || !contents.isEmpty, let rows = try? store.allFiles()
         else { return }
         let own = Set(rows.filter { $0.bookId != nil }.map { Self.comparablePath(store.url(for: $0)) })
+        // Only a file whose cheap measure a library file shares is read through.
+        let prefixes = Set(contents.compactMap(ContentPrint.prefix(of:)))
+        func isHeld(_ url: URL) -> Bool {
+            if let key = ContentPrint.key(of: url) {
+                if prefixes.contains(key.prefix), let print = key.full(), contents.contains(print) { return true }
+            }
+            guard !arrived.isEmpty, let print = BookScanner.fingerprint(of: url) else { return false }
+            return arrived[print] != nil
+        }
         var kept: [CandidateBook] = []
         for var candidate in result.candidates {
             var files: [CandidateFile] = []
             for file in candidate.files {
-                guard !own.contains(Self.comparablePath(file.url)), BookScanner.isOnThisMac(file.url),
-                      let print = BookScanner.fingerprint(of: file.url), arrived[print] != nil
+                guard !own.contains(Self.comparablePath(file.url)), BookScanner.isOnThisMac(file.url), isHeld(file.url)
                 else {
                     files.append(file)
                     continue
@@ -181,6 +193,26 @@ public final class LibraryService {
             }
         }
         result.candidates = kept
+    }
+
+    /// Works out the content print of up to `limit` library files that have none yet
+    /// (books that came in before prints were kept), and records it. A file that
+    /// cannot be found, or is kept in iCloud and not here, is left for another time.
+    ///
+    /// - Returns: How many files were looked at; 0 when there is nothing left to do
+    ///   that can be done now.
+    @discardableResult
+    public func fillInContentPrints(limit: Int = 25) throws -> Int {
+        var done = 0
+        // More are fetched than asked for, so that files that must wait do not stall the rest.
+        for file in try store.filesLackingContentPrint(limit: limit * 4) {
+            guard done < limit, let id = file.id else { break }
+            let url = store.url(for: file)
+            guard FileManager.default.fileExists(atPath: url.path), BookScanner.isOnThisMac(url) else { continue }
+            try store.setContentPrint(ContentPrint.of(url) ?? "", forFile: id)
+            done += 1
+        }
+        return done
     }
 
     /// Every author and every title in the library, normalised for comparing
@@ -235,6 +267,9 @@ public final class LibraryService {
         /// `BookFile.arrivedPrint`: as recorded, or for a file that is new to the
         /// library as it is now, before anything is written into it.
         var arrivedPrint: String?
+        /// `BookFile.contentPrint`: as recorded, or for a file that is new to the
+        /// library as it is now.
+        var contentPrint: String?
         /// What is wrong with an MP3's length header: as just read, or, for a file the
         /// operation did not read, as recorded.
         var lengthProblem: LengthProblem?
@@ -256,6 +291,7 @@ public final class LibraryService {
         file.writeProblem = existing?.writeProblem
         file.originalName = existing?.originalName ?? (role == .extra ? url.lastPathComponent : nil)
         file.arrivedPrint = existing != nil ? existing?.arrivedPrint : BookScanner.fingerprint(of: url)
+        file.contentPrint = existing != nil ? existing?.contentPrint : (ContentPrint.of(url) ?? "")
         file.holdsCover = before?.cover != nil
         file.lengthProblem = before.map(\.lengthProblem) ?? existing?.lengthProblem
         // Until it is written, a file is taken to hold what its format can, unless the
@@ -378,6 +414,7 @@ public final class LibraryService {
             row.writeProblem = file.writeProblem
             row.originalName = file.originalName
             row.arrivedPrint = file.arrivedPrint
+            row.contentPrint = file.contentPrint
             row.lengthProblem = file.role == .audio ? file.lengthProblem : nil
             if file.role == .audio {
                 if let before = file.before {

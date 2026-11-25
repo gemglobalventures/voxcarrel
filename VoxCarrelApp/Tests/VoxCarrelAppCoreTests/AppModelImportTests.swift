@@ -455,6 +455,9 @@ import VoxCarrelFixtures
     @Test func filesInsideTheLibraryAreNeverCopied() async throws {
         let inbox = try Harness.inbox()
         let root = try makeTempDir()
+        // The sample audiobooks all hold the same silence: this library does not set
+        // aside files it already has, or the second would be taken for the first.
+        try LibraryStore(libraryRoot: root).setKnowsFilesAgain(false)
         let h = try Harness(root: root)
         let loose = root.appendingPathComponent("The Lighthouse Keeper.m4b")
         try FileManager.default.copyItem(at: inbox.appendingPathComponent("The Lighthouse Keeper.m4b"), to: loose)

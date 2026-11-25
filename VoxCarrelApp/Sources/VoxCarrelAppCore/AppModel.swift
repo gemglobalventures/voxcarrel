@@ -313,6 +313,20 @@ public final class AppModel {
         await runLibraryCheck(with: worker)
         // WF10: the launch check is over.
         await openInbox()
+        fillInContentPrints(with: worker)
+    }
+
+    /// Works out, a few files at a time and behind everything else, the content print
+    /// of library files that have none: books that came in before prints were kept. It
+    /// changes nothing the owner sees, and stops when another library is opened.
+    private func fillInContentPrints(with worker: LibraryWorker) {
+        Task { [weak self] in
+            while true {
+                guard let self, self.worker === worker else { return }
+                guard let done = try? await worker.fillInContentPrints(), done > 0 else { return }
+                await Task.yield()
+            }
+        }
     }
 
     // MARK: Browsing
