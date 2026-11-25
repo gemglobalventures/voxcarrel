@@ -4,7 +4,7 @@ A native Mac app for managing a personal library of audiobooks and ebooks: a mod
 
 VoxCarrel files your books into a tidy folder layout, writes details and covers into the files themselves, and looks books up online. It manages files you already own; it is not a store or a downloader.
 
-**Status:** early. It has a large automated test suite, run on generated sample books, and has been used on a small real collection, not yet a large one. You build it from source for now. Import by copy until you trust it with yours.
+**Status:** early. It has a large automated test suite, run on generated sample books, and has been timed on a generated library of 10,000 books. On real books it has been used on a small collection, not yet a large one. You build it from source for now. Import by copy until you trust it with yours.
 
 ![The library as a cover grid, with one book open in the inspector and a series shown as a stack of covers](Screenshots/library-grid.jpg)
 
@@ -153,7 +153,7 @@ swift run voxcarrel-demo inbox ~/VoxCarrelDemo/Inbox
 open build/VoxCarrel.app --args -libraryPath ~/VoxCarrelDemo/Library
 ```
 
-- `library <folder>` makes a library of sample books already imported. Add `--count 2000` for a large one.
+- `library <folder>` makes a library of sample books already imported. Add `--count 10000` for a large one, to see how the app behaves at that size.
 - `inbox <folder>` makes a folder of loose files to drag onto the window.
 - `-libraryPath <folder>` opens that library for this launch without changing the remembered one.
 
