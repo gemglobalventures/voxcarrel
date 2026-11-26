@@ -78,6 +78,39 @@ extension LibraryService {
         return suffixes
     }
 
+    /// These edits, with what each edition's folder is to say worked out for the books
+    /// as the edits leave them; and, after them, an edit for every other edition of
+    /// the same works whose folder must then say something else. Edits of books that
+    /// are no edition of anything are as they were.
+    func namingEditions(in edits: [BookEdit]) -> [BookEdit] {
+        guard let all = try? BookScope.$visibleOnly.withValue(false, operation: { try store.books() }) else { return edits }
+        var byId: [Int64: Book] = [:]
+        for book in all { if let id = book.id { byId[id] = book } }
+        let keys = Set(edits.compactMap { byId[$0.bookId]?.workKey })
+        guard !keys.isEmpty else { return edits }
+        var result = edits
+        for key in keys.sorted() {
+            var editions = all.filter { $0.workKey == key }
+            for index in editions.indices {
+                guard let edit = edits.first(where: { $0.bookId == editions[index].id }) else { continue }
+                editions[index].metadata = edit.metadata
+                editions[index].editionKind = edit.editionKind
+            }
+            let wanted = Self.editionSuffixes(of: editions)
+            for edition in editions {
+                guard let id = edition.id, let suffix = wanted[id] else { continue }
+                if let index = result.firstIndex(where: { $0.bookId == id }) {
+                    result[index].editionSuffix = suffix
+                } else if let book = byId[id], suffix != book.editionSuffix {
+                    var edit = BookEdit(book: book)
+                    edit.editionSuffix = suffix
+                    result.append(edit)
+                }
+            }
+        }
+        return result
+    }
+
     /// Gives each edition of a work the folder its suffix calls for, as a save would:
     /// the folders are moved, the catalogue follows, and Undo puts them back. An
     /// edition that cannot be filed stays where it is, flagged, as any book would.

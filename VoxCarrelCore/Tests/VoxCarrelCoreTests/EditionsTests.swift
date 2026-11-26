@@ -218,4 +218,38 @@ import VoxCarrelFixtures
         try f.service.unlinkEdition(translated)
         #expect(try f.store.book(id: first)?.folderPath == "Frank Herbert/Dune")
     }
+
+    // ED8: when an edition is edited so that something else tells it from the others,
+    // its folder and theirs are named afresh in the same save, as one step of Undo.
+    @Test func ED8_anEditNamesTheEditionsFoldersAfresh() throws {
+        let f = try F()
+        let first = try f.importedId(try importedEdition(f, file: "a.m4b", narrator: "Scott Brick"))
+        let second = try f.importedId(
+            try importedEdition(f, file: "b.m4b", narrator: "Simon Vance", target: .edition(of: first)))
+        #expect(try f.store.book(id: second)?.folderPath == "Frank Herbert/Dune (read by Simon Vance)")
+        let steps = try f.service.undoLabels().count
+
+        // The second turns out to be the German one: its language now tells it apart,
+        // and the first is then the English one.
+        var edit = BookEdit(book: try #require(try f.store.book(id: second)))
+        edit.metadata.language = "de"
+        let outcomes = try f.service.save([edit])
+        #expect(outcomes.count == 1)
+        #expect(try f.store.book(id: second)?.folderPath == "Frank Herbert/Dune (German)")
+        #expect(try f.store.book(id: first)?.folderPath == "Frank Herbert/Dune (English)")
+        #expect(try f.tags(f.lib("Frank Herbert/Dune (German)/Dune.m4b")).language == "de")
+        #expect(try f.service.undoLabels().count == steps + 1)
+
+        // Given a title of its own, it needs nothing added, and neither does the first.
+        edit = BookEdit(book: try #require(try f.store.book(id: second)))
+        edit.metadata.title = "Der Wüstenplanet"
+        _ = try f.service.save([edit])
+        #expect(try f.store.book(id: second)?.folderPath == "Frank Herbert/Der Wüstenplanet")
+        #expect(try f.store.book(id: first)?.folderPath == "Frank Herbert/Dune")
+
+        // One step back: both folders are as the edit found them.
+        try f.service.undoLast()
+        #expect(try f.store.book(id: second)?.folderPath == "Frank Herbert/Dune (German)")
+        #expect(try f.store.book(id: first)?.folderPath == "Frank Herbert/Dune (English)")
+    }
 }

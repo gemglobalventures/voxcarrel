@@ -19,6 +19,7 @@ extension LibraryService {
     /// books written and the title of the last of them.
     func save(_ edits: [BookEdit], label: (_ count: Int, _ title: String) -> String) throws -> [SaveOutcome] {
         try refuseWhileLayoutChangeIsInterrupted()
+        let askedCount = edits.count
         let pattern = try folderPattern()
         var operation = PendingOperation()
         // Books an earlier edit of this call has already dealt with.
@@ -26,6 +27,11 @@ extension LibraryService {
         var title = ""
         // Which book has which folder, kept up to date as this call moves books (FP41).
         var owners: FolderOwners?
+        // An edit to an edition may change what tells it from the others (its title,
+        // language, narrator or kind): the editions of its work are named afresh, in
+        // this same operation. Those that are only renamed come after the edits asked for.
+        let edits = namingEditions(in: edits)
+        let asked = edits.prefix(askedCount)
         let prepared = edits.map { edit -> PreparedEdit in
             guard !handled.contains(edit.bookId) else {
                 return .failed("Another edit in the same save already changes that book")
@@ -50,7 +56,7 @@ extension LibraryService {
             removeUndoData(token: operation.token)
         }
 
-        return zip(edits, prepared).map { edit, result in
+        return zip(asked, prepared).map { edit, result in
             switch result {
             case .failed(let reason):
                 return .failed(bookId: edit.bookId, reason: reason)
