@@ -53,11 +53,13 @@ public enum AccountHealthText {
         return "\(service.title): \(why)"
     }
 
-    /// "Audible library last read 26 Nov 2026." or that it has not been read on this Mac.
+    /// "Audible library last read 26 Nov 2026."; nil when no day is known. Nothing is
+    /// said then: a library brought in before the day was kept has been read, and
+    /// "not read yet" would be untrue of it.
     static func lastRead(
         _ service: AccountService, _ date: Date?, locale: Locale = .current, timeZone: TimeZone = .current
-    ) -> String {
-        guard let date else { return "\(service.title) library not read yet." }
+    ) -> String? {
+        guard let date else { return nil }
         let style = Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, timeZone: timeZone)
         return "\(service.title) library last read \(date.formatted(style))."
     }
@@ -86,11 +88,11 @@ extension AppModel {
         isCheckingConnection = false
     }
 
-    /// "Audible library last read 26 Nov 2026." for each library; empty when no
-    /// account is linked.
+    /// "Audible library last read 26 Nov 2026." for each library whose day is known;
+    /// empty when no account is linked, or neither has been read since the day was kept.
     public func lastReadLines(locale: Locale = .current, timeZone: TimeZone = .current) -> [String] {
         guard isAudibleLinked else { return [] }
-        return AccountService.allCases.map {
+        return AccountService.allCases.compactMap {
             AccountHealthText.lastRead($0, lastGoodReading(of: $0), locale: locale, timeZone: timeZone)
         }
     }

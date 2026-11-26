@@ -70,14 +70,15 @@ import VoxCarrelCore
         let h = try await Harness.demo()
         #expect(h.model.lastReadLines().isEmpty)
         try h.link()
-        #expect(h.model.lastReadLines(locale: gb, timeZone: utc) == ["Audible library not read yet.", "Kindle library not read yet."])
+        // Nothing is said of a library with no day known: it may have been read before the day was kept.
+        #expect(h.model.lastReadLines(locale: gb, timeZone: utc).isEmpty)
 
         h.model.accountNow = { Date(timeIntervalSince1970: 1_795_651_200) }
         h.audible.holds([])
         let audible = try await h.audibleImportRead()
         #expect(audible.phase == .review)
         audible.cancel()
-        #expect(h.model.lastReadLines(locale: gb, timeZone: utc) == ["Audible library last read 26 Nov 2026.", "Kindle library not read yet."])
+        #expect(h.model.lastReadLines(locale: gb, timeZone: utc) == ["Audible library last read 26 Nov 2026."])
 
         h.model.accountNow = { Date(timeIntervalSince1970: 1_795_651_200 + 86_400) }
         h.audible.holdsOnKindle([])
@@ -165,7 +166,7 @@ import VoxCarrelCore
 
     // HA6: the sentences.
     @Test func HA6_whatIsSaid() {
-        #expect(AccountHealthText.lastRead(.kindle, nil) == "Kindle library not read yet.")
+        #expect(AccountHealthText.lastRead(.kindle, nil) == nil)
         #expect(AccountHealthText.problem(.audible, AudibleAccountError.busy(503))
             == "Audible: Audible is not answering properly at the moment. Nothing was changed. Try again in a while.")
         #expect(UserMessage.kindleLibraryProblem(AudibleAccountError.unusableKey) == "Your Kindle library could not be read.")
