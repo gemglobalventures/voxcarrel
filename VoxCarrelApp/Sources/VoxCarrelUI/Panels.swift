@@ -80,6 +80,10 @@ enum Panels {
         panel.message = "Saves a zip of text files about the app and the library, for you to look over and send yourself. Nothing is sent by VoxCarrel."
         panel.prompt = "Export"
         panel.nameFieldStringValue = DiagnosticsText.fileName(on: Date())
+        // A zip and nothing else: the name keeps its ".zip", shown and written.
+        panel.allowedContentTypes = [.zip]
+        panel.allowsOtherFileTypes = false
+        panel.isExtensionHidden = false
         panel.canCreateDirectories = true
         let titles = NSButton(
             checkboxWithTitle: "Include the titles and file names of books that need attention", target: nil, action: nil)
