@@ -82,13 +82,26 @@ public struct BookScanner {
         self.tidies = tidies
     }
 
-    /// False for a file kept in iCloud whose contents have not been fetched: reading
-    /// it would fetch it, however large it is. True for every other file.
+    /// False for a file kept in iCloud, or by any other service that keeps files
+    /// elsewhere, whose contents have not been fetched: reading it would fetch it,
+    /// however large it is. True for every other file.
     public static func isOnThisMac(_ url: URL) -> Bool {
+        if isKeptElsewhere(url) { return false }
         guard let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
               values.isUbiquitousItem == true, let status = values.ubiquitousItemDownloadingStatus
         else { return true }
         return status != .notDownloaded
+    }
+
+    /// True for a file whose contents are not on this Mac's disk, as the disk itself
+    /// marks it (`SF_DATALESS`): iCloud Drive with Optimise Mac Storage, and the other
+    /// services that keep files elsewhere, mark their files so. Asked of the file's
+    /// attributes alone: nothing is opened, and nothing is fetched. A file that cannot
+    /// be asked about is not taken to be kept elsewhere.
+    public static func isKeptElsewhere(_ url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return info.st_flags & UInt32(SF_DATALESS) != 0
     }
 
     /// Scans dropped files and folders (folders recursively) into candidate books.

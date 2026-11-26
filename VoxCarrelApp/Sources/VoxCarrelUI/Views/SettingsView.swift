@@ -68,6 +68,13 @@ private struct GeneralSettings: View {
                         .multilineTextAlignment(.trailing)
                         .accessibilityIdentifier("settings.libraryPath")
                 }
+                if let note = model.librarySyncNote {
+                    Label(note, systemImage: "icloud")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("settings.librarySyncNote")
+                }
                 HStack {
                     Spacer()
                     Button("Reveal in Finder") {

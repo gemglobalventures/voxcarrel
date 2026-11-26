@@ -190,6 +190,9 @@ public struct ReconcileReport: Equatable, Sendable {
     /// MP3 files found, by this check, to state a length they do not have: they were not
     /// recorded as such before.
     public var filesWithWrongLength: Int
+    /// Books whose audio was not looked at because a file of it is kept elsewhere (in
+    /// iCloud, say) and not on this Mac. They are not missing, and nothing was fetched.
+    public var booksKeptElsewhere = 0
 
     public init(
         booksWithMissingFiles: [Int64] = [], booksRecovered: [Int64] = [], untrackedFiles: [URL] = [],

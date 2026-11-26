@@ -98,6 +98,11 @@ public final class LibraryService {
     /// disk: not asked for again until the library is opened afresh.
     var wordCountPassedOver = Set<Int64>()
 
+    /// Whether a library file's contents are kept elsewhere and not on this Mac
+    /// (`BookScanner.isKeptElsewhere`). Work done behind the owner's back never opens
+    /// such a file, since that would fetch it. A test seam.
+    var isKeptElsewhere: (URL) -> Bool = BookScanner.isKeptElsewhere
+
     /// Whether a details file (`metadata.opf`) is kept beside each filed book.
     public var writesDetailsFiles = true
 
@@ -215,7 +220,8 @@ public final class LibraryService {
         for file in try store.filesLackingContentPrint(limit: limit * 4) {
             guard done < limit, let id = file.id else { break }
             let url = store.url(for: file)
-            guard FileManager.default.fileExists(atPath: url.path), BookScanner.isOnThisMac(url) else { continue }
+            guard FileManager.default.fileExists(atPath: url.path), BookScanner.isOnThisMac(url), !isKeptElsewhere(url)
+            else { continue }
             try store.setContentPrint(ContentPrint.of(url) ?? "", forFile: id)
             done += 1
         }

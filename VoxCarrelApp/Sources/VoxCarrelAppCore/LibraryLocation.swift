@@ -25,6 +25,55 @@ public enum FolderKind: Equatable, Sendable {
     case notUsable(String)
 }
 
+/// A place whose files a service keeps in step with other machines, and may keep
+/// elsewhere and not on this Mac.
+public struct SyncedPlace: Equatable, Sendable {
+    /// "iCloud Drive", "Dropbox", "OneDrive", "Google Drive", or "a cloud service".
+    public var name: String
+
+    public init(name: String) {
+        self.name = name
+    }
+
+    /// The synced place a folder lies in, by where it is; nil for a folder in none.
+    ///
+    /// iCloud Drive keeps its files under `~/Library/Mobile Documents`, and the other
+    /// services under `~/Library/CloudStorage/<Service>-…`. A Desktop or Documents
+    /// folder kept in iCloud is found by asking the system (`isInICloud`).
+    /// - Parameter isInICloud: Whether the system says the folder is kept in iCloud.
+    public static func of(
+        _ folder: URL,
+        isInICloud: (URL) -> Bool = { (try? $0.resourceValues(forKeys: [.isUbiquitousItemKey]))?.isUbiquitousItem == true }
+    ) -> SyncedPlace? {
+        let real = folder.resolvingSymlinksInPath().standardizedFileURL
+        let parts = real.pathComponents
+        for (index, part) in parts.enumerated() where part == "Library" && index + 1 < parts.count {
+            if parts[index + 1] == "Mobile Documents" { return SyncedPlace(name: "iCloud Drive") }
+            if parts[index + 1] == "CloudStorage" {
+                let service = index + 2 < parts.count ? parts[index + 2] : ""
+                let known = [("Dropbox", "Dropbox"), ("OneDrive", "OneDrive"), ("GoogleDrive", "Google Drive"), ("Box", "Box")]
+                let name = known.first { service.hasPrefix($0.0) }?.1 ?? "a cloud service"
+                return SyncedPlace(name: name)
+            }
+        }
+        return isInICloud(real) ? SyncedPlace(name: "iCloud Drive") : nil
+    }
+
+    /// Said once, when such a folder is chosen as the library.
+    public var warning: String {
+        "This folder is kept in step with other machines by \(name). VoxCarrel works there, with two risks. "
+            + "If the library is open on two Macs at once, or is synced while VoxCarrel is writing, its catalogue "
+            + "can be damaged. And books may be kept in the cloud and not on this Mac: VoxCarrel leaves those "
+            + "alone until you open them. A folder that is not synced is safer."
+    }
+
+    /// Said under the library folder in Settings for as long as it is one.
+    public var note: String {
+        "This folder is synced by \(name). Do not open the library on two Macs at once. "
+            + "Books kept in the cloud and not on this Mac are left alone until you open them."
+    }
+}
+
 /// Which folder is the library, remembered in the app's preferences, and whether it is there.
 public struct LibraryLocation {
     public static let defaultsKey = "libraryPath"

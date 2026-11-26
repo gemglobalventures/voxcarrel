@@ -16,7 +16,9 @@ extension LibraryService {
         var done = 0
         for id in try store.bookIdsAwaitingWordCount(notAmong: wordCountPassedOver, limit: limit) {
             let epubs = try store.files(bookId: id).filter { $0.format == .epub }.map { store.url(for: $0) }
-            guard let url = epubs.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            // One kept elsewhere and not on this Mac is not opened: that would fetch it.
+            guard let url = epubs.first(where: { FileManager.default.fileExists(atPath: $0.path) && !isKeptElsewhere($0) })
+            else {
                 wordCountPassedOver.insert(id)
                 continue
             }

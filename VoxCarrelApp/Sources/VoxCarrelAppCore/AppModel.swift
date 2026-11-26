@@ -284,6 +284,18 @@ public final class AppModel {
         storedSidebarSelection = .allBooks
         result = nil
         await openLibrary()
+        // Said once, as the folder is chosen: Settings goes on saying it.
+        if openFailure == nil, alert == nil, let place = syncedPlaceOf(folder) { alert = place.warning }
+    }
+
+    /// The synced place a folder lies in (`SyncedPlace.of`). A test seam.
+    @ObservationIgnored var syncedPlaceOf: (URL) -> SyncedPlace? = { SyncedPlace.of($0) }
+
+    /// What Settings says under the library folder while it lies in a synced place;
+    /// nil for a folder in none, for no folder, and for the demo library.
+    public var librarySyncNote: String? {
+        guard case .available(let folder) = status, !isShowingDemoLibrary else { return nil }
+        return syncedPlaceOf(folder)?.note
     }
 
     /// A1

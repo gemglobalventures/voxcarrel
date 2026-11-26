@@ -398,8 +398,11 @@ extension LibraryService {
                 of: book, files: rowsByBook[id] ?? [], lookingAtHeaders: !lookedOver || recovered.contains(id))
             if found.corrected { report.correctedLengths += 1 }
             report.filesWithWrongLength += found.newlyWrong
+            if found.waitsForFiles { report.booksKeptElsewhere += 1 }
         }
-        if !lookedOver { try store.setNote(Self.lengthHeadersNote, to: "1") }
+        // Not noted as looked over while some books could not be: they are looked at
+        // when their files are on this Mac.
+        if !lookedOver, report.booksKeptElsewhere == 0 { try store.setNote(Self.lengthHeadersNote, to: "1") }
 
         // Edition kinds recorded under an older rule, and parts once thought missing.
         try recheckEditions(books: try store.books(), files: rowsByBook)
@@ -490,6 +493,9 @@ extension LibraryService {
         var corrected = false
         /// Files that were not recorded as stating the wrong length, and now are.
         var newlyWrong = 0
+        /// The book was not looked at, because a file of its audio is kept elsewhere
+        /// and not on this Mac: looking would have fetched it.
+        var waitsForFiles = false
     }
 
     /// R7 for one book: as `checkLengths` without looking at headers.
@@ -527,6 +533,8 @@ extension LibraryService {
         let audio = rows.filter { $0.role == .audio }
         guard let id = book.id, audio.contains(where: { $0.format == .mp3 }) else { return LengthCheck() }
         var bytes: UInt64 = 0
+        // Nothing here opens a file that is not on this Mac: the book waits until it is.
+        if audio.contains(where: { isKeptElsewhere(store.url(for: $0)) }) { return LengthCheck(waitsForFiles: true) }
         for row in audio {
             guard let stamp = QuickFileStamp(of: store.url(for: row)) else { return LengthCheck() }
             bytes += UInt64(max(0, stamp.size))

@@ -162,7 +162,7 @@ open build/VoxCarrel.app --args -libraryPath ~/VoxCarrelDemo/Library
 
 ## First run on real books
 
-Create a new, empty folder for the library, outside any synced folder such as iCloud Drive: the catalogue database lives in the library folder and should not be synced while in use. Import a handful of books with "Copy files, leave originals in place" ticked, and check the result before importing more.
+Create a new, empty folder for the library, outside any synced folder such as iCloud Drive: the catalogue database lives in the library folder and should not be synced while in use. If you do choose a folder in iCloud Drive, Dropbox or the like, VoxCarrel says so, and it leaves books that are kept in the cloud and not on your Mac alone until you open them: they are not flagged as missing, and nothing is downloaded behind your back. Do not open one library on two Macs at once. Import a handful of books with "Copy files, leave originals in place" ticked, and check the result before importing more.
 
 Book folders are arranged as `Author/Series/Title` unless you choose otherwise in Settings ▸ General ▸ Folder Layout. Changing the layout shows what will move, then re-files the whole library in one step; only folders move, and Edit ▸ Undo puts them back.
 
