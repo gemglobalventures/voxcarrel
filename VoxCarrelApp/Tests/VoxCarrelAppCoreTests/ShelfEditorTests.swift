@@ -37,7 +37,7 @@ import VoxCarrelCore
         #expect(
             editor.kinds.map(\.title) == [
                 "Format", "Status", "Genre", "Genre group", "Author", "Narrator", "Series", "Tag", "Rating", "Length",
-                "Year", "Added", "On Audible", "In a series",
+                "Pages", "Year", "Added", "On Audible", "In a series",
             ])
         editor.cancel()
         #expect(h.model.shelfEditor == nil)
