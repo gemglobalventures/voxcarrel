@@ -62,12 +62,7 @@ public enum AudibleLibraryReader {
                 request.setValue(value, forHTTPHeaderField: name)
             }
             let (data, status) = try await transport.send(request)
-            guard status == 200 else {
-                throw status == 401 || status == 403 ? AudibleAccountError.refused(status) : AudibleAccountError.unreadable
-            }
-            guard let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let items = answer["items"] as? [Any]
-            else { throw AudibleAccountError.unreadable }
+            let items = try Self.items(in: data, status: status)
             for item in items {
                 guard let book = book(from: item), seen.insert(book.asin).inserted else { continue }
                 found.append(book)
@@ -75,6 +70,33 @@ public enum AudibleLibraryReader {
             if items.count < pageSize { break }
         }
         return found
+    }
+
+    /// The items of one page of the library, or why there are none to be had.
+    static func items(in data: Data, status: Int) throws -> [Any] {
+        guard status == 200 else {
+            if status == 401 || status == 403 { throw AudibleAccountError.refused(status) }
+            throw AudibleAccountError.saysNotNow(status) ? AudibleAccountError.busy(status) : AudibleAccountError.unreadable
+        }
+        guard let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let items = answer["items"] as? [Any]
+        else { throw AudibleAccountError.unreadable }
+        return items
+    }
+
+    /// Asks Audible for one book of the library, to see whether the link still works.
+    /// Nothing is kept of the answer, and nothing is changed anywhere.
+    /// - Throws: As `books(of:transport:)`: why the library cannot be read now.
+    public static func check(_ account: AudibleAccount, transport: any AudibleTransport) async throws {
+        let path = "/1.0/library?num_results=1&page=1"
+        guard let url = URL(string: "https://\(account.store.host)\(path)") else { throw AudibleAccountError.unreadable }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        for (name, value) in try AudibleSigner.headers(method: "GET", path: path, account: account) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let (data, status) = try await transport.send(request)
+        _ = try items(in: data, status: status)
     }
 
     /// One item of the library as a book; nil for a podcast, and for an item with no

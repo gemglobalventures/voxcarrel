@@ -489,7 +489,8 @@ import VoxCarrelFixtures
         h.audible.fails = false
         h.audible.answer("/1.0/library", with: ["nothing": "useful"])
         let unreadable = try await h.audibleImportRead()
-        #expect(unreadable.problem == "Your Audible library could not be read.")
+        #expect(unreadable.problem == "Audible answered in a way VoxCarrel does not understand. Nothing was changed. "
+            + "If this goes on, look for a newer version of VoxCarrel.")
         #expect(unreadable.phase == .failed)
         unreadable.cancel()
 

@@ -115,6 +115,31 @@ private struct AudibleAccountSettings: View {
                     .disabled(!model.canUnlinkAudible)
                     .accessibilityIdentifier("settings.audible.unlink")
                 }
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.lastReadLines(), id: \.self) { line in
+                            Text(line)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let health = model.accountHealth {
+                            ForEach(health) { line in
+                                Label(line.text, systemImage: line.isWorking ? "checkmark.circle" : "exclamationmark.triangle")
+                                    .font(.callout)
+                                    .foregroundStyle(line.isWorking ? Color.secondary : Color.orange)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .accessibilityIdentifier("settings.audible.health.\(line.id)")
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("settings.audible.lastRead")
+                    Button(model.checkConnectionTitle) {
+                        Task { await model.checkConnection() }
+                    }
+                    .disabled(!model.canCheckConnection)
+                    .accessibilityIdentifier("settings.audible.check")
+                }
             } else {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(model.audibleSettingsText)

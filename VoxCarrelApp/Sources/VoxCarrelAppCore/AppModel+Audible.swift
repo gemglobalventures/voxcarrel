@@ -83,6 +83,7 @@ extension AppModel {
         let confirmed = (try? await AudibleLink.unregister(account, transport: audibleTransport)) ?? false
         audibleKeys.remove()
         audibleAccount = nil
+        forgetAccountHealth()
         busyLabel = nil
         if !confirmed { alert = UserMessage.audibleUnlinkNotConfirmed }
     }

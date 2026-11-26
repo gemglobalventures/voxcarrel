@@ -113,6 +113,7 @@ public final class KindleImportSession {
                 self.books = books
                 self.report = report
                 self.phase = .review
+                self.model.noteGoodReading(of: .kindle)
             } catch {
                 guard let self, !Task.isCancelled, self.phase == .reading else { return }
                 self.problem = UserMessage.kindleLibraryProblem(error)

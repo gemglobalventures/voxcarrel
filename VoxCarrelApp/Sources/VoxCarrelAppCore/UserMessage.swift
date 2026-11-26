@@ -100,6 +100,8 @@ public enum UserMessage {
         switch error as? AudibleAccountError {
         case .refused: "Audible no longer accepts this link. Unlink the account in Settings and link it again."
         case .notReachable: "Audible could not be reached. Check your internet connection."
+        case .busy: AccountHealthText.busy("Audible")
+        case .unreadable: AccountHealthText.notUnderstood("Audible")
         default: "Your Audible library could not be read."
         }
     }
@@ -110,6 +112,8 @@ public enum UserMessage {
         case .refused:
             "Amazon no longer accepts this link. Unlink the Audible account in Settings and link it again."
         case .notReachable: "Amazon could not be reached. Check your internet connection."
+        case .busy: AccountHealthText.busy("Amazon")
+        case .unreadable: AccountHealthText.notUnderstood("Amazon")
         default: "Your Kindle library could not be read."
         }
     }

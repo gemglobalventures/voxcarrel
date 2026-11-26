@@ -131,6 +131,7 @@ public final class AudibleImportSession {
                 self.books = books
                 self.report = report
                 self.phase = .review
+                self.model.noteGoodReading(of: .audible)
             } catch {
                 guard let self, !Task.isCancelled, self.phase == .reading else { return }
                 self.problem = UserMessage.audibleLibraryProblem(error)

@@ -52,22 +52,46 @@ public enum KindleLibraryReader {
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             request.setValue(cookies, forHTTPHeaderField: "Cookie")
             let (data, status) = try await transport.send(request)
-            // Sent to its sign-in page: the session was not taken.
-            guard status == 200 else {
-                throw (300..<400).contains(status) || status == 401 || status == 403
-                    ? AudibleAccountError.refused(status) : AudibleAccountError.unreadable
-            }
-            guard let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let items = answer["itemsList"] as? [Any]
-            else { throw AudibleAccountError.unreadable }
+            let answer = try Self.page(in: data, status: status)
+            let items = answer.items
             for item in items {
                 guard let book = book(from: item), seen.insert(book.asin).inserted else { continue }
                 found.append(book)
             }
-            guard !items.isEmpty, let next = answer["paginationToken"] as? String, !next.isEmpty, next != token else { break }
+            guard !items.isEmpty, let next = answer.next, !next.isEmpty, next != token else { break }
             token = next
         }
         return found
+    }
+
+    /// One page of the library as the web reader answered: its items and the token of
+    /// the page after it; or why there is none to be had.
+    static func page(in data: Data, status: Int) throws -> (items: [Any], next: String?) {
+        guard status == 200 else {
+            // Sent to its sign-in page: the session was not taken.
+            if (300..<400).contains(status) || status == 401 || status == 403 { throw AudibleAccountError.refused(status) }
+            throw AudibleAccountError.saysNotNow(status) ? AudibleAccountError.busy(status) : AudibleAccountError.unreadable
+        }
+        guard let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let items = answer["itemsList"] as? [Any]
+        else { throw AudibleAccountError.unreadable }
+        return (items, answer["paginationToken"] as? String)
+    }
+
+    /// Asks Amazon for a session and one book of the Kindle library, to see whether
+    /// the link still works. Nothing is kept of the answers, and nothing is changed.
+    /// - Throws: As `books(of:transport:)`: why the library cannot be read now.
+    public static func check(_ account: AudibleAccount, transport: any AudibleTransport) async throws {
+        let cookies = try await webSession(of: account, transport: transport)
+        let host = "read.amazon.\(account.store.amazonDomain)"
+        guard let url = URL(string: "https://\(host)/kindle-library/search?query=&libraryType=BOOKS&sortType=recency&querySize=1"),
+              url.host == host
+        else { throw AudibleAccountError.unreadable }
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(cookies, forHTTPHeaderField: "Cookie")
+        let (data, status) = try await transport.send(request)
+        _ = try page(in: data, status: status)
     }
 
     /// A web session for the account, as the value of a Cookie header.
@@ -94,6 +118,7 @@ public enum KindleLibraryReader {
         request.httpBody = Data((form.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
         let (data, status) = try await transport.send(request)
         guard status == 200 else {
+            if AudibleAccountError.saysNotNow(status) { throw AudibleAccountError.busy(status) }
             throw (400..<500).contains(status) ? AudibleAccountError.refused(status) : AudibleAccountError.unreadable
         }
         guard let answer = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],

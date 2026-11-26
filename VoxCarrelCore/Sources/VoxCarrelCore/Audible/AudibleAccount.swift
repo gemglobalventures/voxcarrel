@@ -39,8 +39,21 @@ public enum AudibleAccountError: Error, Equatable {
     case noSignInCode
     /// Audible refused the keys: the device was removed, or the keys have run out.
     case refused(Int)
+    /// There was no answer: no network, or the address could not be reached.
     case notReachable
+    /// Amazon answered that it cannot serve the request for now (too many at once, or
+    /// a fault of its own). Nothing is wrong with the link; a later try may do.
+    case busy(Int)
+    /// Amazon answered, but not with what was asked for: in a form this code does not know.
     case unreadable
+}
+
+extension AudibleAccountError {
+    /// True for an HTTP status that says "not now": too many requests, or a fault at
+    /// the far end.
+    static func saysNotNow(_ status: Int) -> Bool {
+        status == 429 || (500..<600).contains(status)
+    }
 }
 
 /// What a request to Audible must carry to be believed.

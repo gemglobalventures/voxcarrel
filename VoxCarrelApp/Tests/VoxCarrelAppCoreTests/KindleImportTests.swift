@@ -222,7 +222,8 @@ import VoxCarrelFixtures
         h.audible.fails = false
         h.audible.answer("/kindle-library/search", with: ["nothing": "useful"])
         let unreadable = try await h.kindleImportRead()
-        #expect(unreadable.problem == "Your Kindle library could not be read.")
+        #expect(unreadable.problem == "Amazon answered in a way VoxCarrel does not understand. Nothing was changed. "
+            + "If this goes on, look for a newer version of VoxCarrel.")
         #expect(unreadable.phase == .failed)
         unreadable.cancel()
 

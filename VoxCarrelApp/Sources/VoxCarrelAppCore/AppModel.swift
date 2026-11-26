@@ -1578,6 +1578,18 @@ public final class AppModel {
     /// The account that is linked, as the key store holds it; nil when none is. Its
     /// keys are shown nowhere.
     var audibleAccount: AudibleAccount?
+
+    /// What the last Check Connection found, a line for each library; nil until one
+    /// has been made, and while one runs.
+    public internal(set) var accountHealth: [AccountHealthLine]?
+    public internal(set) var isCheckingConnection = false
+    /// Counts the changes to the days the libraries were last read, which are kept in
+    /// the settings: reading it makes a view follow them.
+    var accountReadingsChanged = 0
+    /// The check that is running, so that unlinking can stop it.
+    @ObservationIgnored var accountCheck: Task<Void, Never>?
+    /// What time it is when a good reading is noted. A test seam.
+    @ObservationIgnored var accountNow: () -> Date = { Date() }
     /// Link Audible Account; not nil shows the sheet.
     public internal(set) var audibleLink: AudibleLinkSession?
     /// Import Audible Library; not nil shows the sheet.
