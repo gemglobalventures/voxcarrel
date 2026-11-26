@@ -29,6 +29,8 @@ public struct LibraryCheckSummary: Equatable, Sendable {
     /// What the check did, under the sheet's title.
     public var intro = LibraryCheckSummary.nothingChanged
     static let nothingChanged = "VoxCarrel looked over the library folder as it opened. Nothing has been changed."
+    static let allInPlace =
+        "VoxCarrel looked over the library folder. Everything is where the library expects it, and nothing has been changed."
     static let noFileChanged = "VoxCarrel looked over the library folder as it opened. No file has been changed."
 
     /// FL13: book folders left set aside by a change of folder layout that was
@@ -70,7 +72,10 @@ extension AppModel {
     /// until a later check succeeds or the owner gives up (FL13).
     ///
     /// - Parameter reloads: False when the caller reads everything again itself.
-    func runLibraryCheck(with worker: LibraryWorker, reloads: Bool = true) async {
+    ///   - asked: True when the owner asked for the check: what it found is then
+    ///     shown even when that is nothing.
+    func runLibraryCheck(with worker: LibraryWorker, reloads: Bool = true, asked: Bool = false) async {
+        libraryCheckWasAsked = asked
         do {
             let report = try await worker.reconcile()
             // Another library was opened meanwhile: what was found is not about it.
@@ -111,13 +116,29 @@ extension AppModel {
             // be missing, not to be at the place it was last expected.
             missingStrandedFolders = Set(
                 report.strandedFolders.map(\.url).filter { !FileManager.default.fileExists(atPath: $0.path) })
-            libraryCheck = worthTelling ? report : nil
+            libraryCheck = worthTelling || asked ? report : nil
         } catch {
             show(error)
             // FL12: the check said nothing, so the library is asked.
             mergeRecoveryIsUnresolved = await worker.hasInterruptedMerge()
             layoutChangeIsUnresolved = await worker.hasInterruptedLayoutChange() || mergeRecoveryIsUnresolved
         }
+    }
+
+    public static let checkNowTitle = "Check Library Now"
+
+    /// Whether the library can be checked on demand: one is open, nothing is running or
+    /// being reviewed, and no check is already shown.
+    public var canCheckLibraryNow: Bool {
+        isLibraryOpen && busyLabel == nil && review == nil && libraryCheck == nil && !hasUnsavedChanges
+    }
+
+    /// Library > Check Library Now: the check made as the library opens, made again,
+    /// and shown whatever it found.
+    public func checkLibraryNow() async {
+        guard canCheckLibraryNow, let worker = await begin(Self.checkingLabel) else { return }
+        await runLibraryCheck(with: worker, reloads: false, asked: true)
+        await finish()
     }
 
     /// FL12: "Try Again": runs the check again, which tries once more to put the
@@ -251,6 +272,13 @@ extension AppModel {
         let isEmpty = summary.missing == nil && summary.untracked == nil && summary.stranded == nil
             && summary.correctedLengths == nil && summary.wrongLengthFiles == nil
             && summary.recoveredLayout == nil && summary.layoutProblem == nil && summary.setAside == nil
+        if libraryCheckWasAsked {
+            // Not "as it opened": the owner asked just now.
+            summary.intro = isEmpty
+                ? LibraryCheckSummary.allInPlace
+                : summary.intro.replacingOccurrences(of: " as it opened", with: "")
+            return summary
+        }
         return isEmpty ? nil : summary
     }
 

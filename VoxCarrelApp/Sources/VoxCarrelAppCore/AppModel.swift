@@ -1072,6 +1072,8 @@ public final class AppModel {
     public private(set) var undoLabel: String?
     /// Not nil when the launch check found something to tell.
     public internal(set) var libraryCheck: ReconcileReport?
+    /// Whether the check now shown was asked for by the owner, not made at launch.
+    var libraryCheckWasAsked = false
 
     /// A18: reverses the last import or edit. When the files cannot be put back nothing
     /// is changed, `alert` says why, and Undo can be tried again.

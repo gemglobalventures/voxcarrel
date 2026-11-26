@@ -377,6 +377,30 @@ import VoxCarrelFixtures
         #expect(check.booksWithMissingFiles == [quiet])
     }
 
+    /// The check made on demand says so when everything is in place, and shows what
+    /// it finds as the launch check does, without saying it was made at opening.
+    @Test func theLibraryIsCheckedOnDemand() async throws {
+        let h = try await Harness.demo()
+        #expect(h.model.libraryCheck == nil && h.model.canCheckLibraryNow)
+        await h.model.checkLibraryNow()
+        let clean = try #require(h.model.libraryCheckSummary)
+        #expect(clean.intro == "VoxCarrel looked over the library folder. Everything is where the library expects it, and nothing has been changed.")
+        #expect(clean.untracked == nil && clean.missing == nil)
+        // One check at a time.
+        #expect(!h.model.canCheckLibraryNow)
+        h.model.dismissLibraryCheck()
+        #expect(h.model.libraryCheckSummary == nil)
+
+        _ = try MediaFixtures.makeEPUB3(in: h.root, name: "Stray.epub")
+        let quiet = try h.id("Quiet Rivers")
+        try FileManager.default.removeItem(at: try #require(try h.fileURLs(quiet).first))
+        await h.model.checkLibraryNow()
+        let found = try #require(h.model.libraryCheckSummary)
+        #expect(found.untracked?.lines.count == 1 && found.missing?.lines.map(\.text) == ["Quiet Rivers"])
+        #expect(found.intro == "VoxCarrel looked over the library folder. Nothing has been changed.")
+        #expect(h.model.busyLabel == nil)
+    }
+
     /// A22: cancelling the review leaves the offer where it was.
     @Test func cancellingAnImportOfUntrackedFilesKeepsTheOffer() async throws {
         let h = try await Harness.demo(start: false)

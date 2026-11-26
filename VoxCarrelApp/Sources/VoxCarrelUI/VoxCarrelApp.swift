@@ -69,6 +69,10 @@ struct AppCommands: Commands {
             AudibleCommandItem(model: model)
             KindleCommandItem(model: model)
             HighlightsCommandItem(model: model)
+            Divider()
+            Button(AppModel.checkNowTitle) { Task { await model.checkLibraryNow() } }
+                .disabled(!model.canCheckLibraryNow)
+                .accessibilityIdentifier("menu.library.checkNow")
         }
         CommandGroup(after: .help) {
             Button(DemoLibraryText.commandTitle) { Task { await model.openDemoLibrary() } }
