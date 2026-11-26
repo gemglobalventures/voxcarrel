@@ -132,6 +132,22 @@ public struct ImportReview: Equatable, Sendable {
             addToExisting && existingMatch?.id != nil
         }
 
+        /// The owner's word that this is another edition of `existingMatch` (another
+        /// language, another narrator, a dramatisation), to be kept as a book of its
+        /// own and tied to it. Only meaningful while the files are not added to it.
+        public var asEdition = false
+
+        /// Whether "another edition" can be chosen: a book of the library with files
+        /// is matched, and these files are not being added to it.
+        public var offersEdition: Bool {
+            existingMatch?.id != nil && !isAddedToExisting && !matchHasNoFiles
+        }
+
+        /// True when this will be imported as another edition of `existingMatch`.
+        public var isImportedAsEdition: Bool {
+            asEdition && offersEdition
+        }
+
         /// R9: true when the matched book has no files yet: it is in the library only
         /// as owned elsewhere (on Audible), and is in no folder. Its first files are
         /// filed from its own details, as a new book's would be.
@@ -554,6 +570,8 @@ public struct ImportReview: Equatable, Sendable {
             var target = ImportTarget.newBook
             if entry.isAddedToExisting, let bookId = entry.existingMatch?.id {
                 target = .existing(bookId: bookId)
+            } else if entry.isImportedAsEdition, let bookId = entry.existingMatch?.id {
+                target = .edition(of: bookId)
             }
             var cover = CoverChange.keep
             if entry.coverChanged, let image = entry.cover { cover = .set(image) }

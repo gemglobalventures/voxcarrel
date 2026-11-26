@@ -112,6 +112,15 @@ extension ImportReview {
     /// IH2: the owner sets the switch that adds the entry's files to the book already in
     /// the library. It is their choice for that book from then on: looking the book up
     /// again does not undo it. IH3: the roles of the entry's PDFs follow.
+    /// The owner's choice to keep an entry as another edition of the book it matches.
+    public mutating func setAsEdition(_ on: Bool, for id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index].asEdition = on
+    }
+
+    public static let editionOffer =
+        "Keep it as another edition of that book (another language, another narrator, or a dramatisation)"
+
     public mutating func setAddToExisting(_ add: Bool, for id: UUID) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         entries[index].addToExisting = add
@@ -409,6 +418,12 @@ extension ImportReview {
             }
             if entry.isAddedToExisting {
                 return entry.destination.map { "Will be added to: \($0)" } ?? "Will be added to the existing book"
+            }
+            // Another edition has a folder of its own, named when it is imported.
+            if entry.isImportedAsEdition {
+                let title = entry.existingMatch?.title.trimmedOrNil.map { "“\($0)”" } ?? "that book"
+                return "Will be a book of its own, linked to \(title). Where the two share a title, "
+                    + "each folder says what sets it apart."
             }
             // FP41: the folder it belongs in is another book's; the import would refuse it.
             if entry.destination == nil, !entry.needsDestination(under: folderPattern),

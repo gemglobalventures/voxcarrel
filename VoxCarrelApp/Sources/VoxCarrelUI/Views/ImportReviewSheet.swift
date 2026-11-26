@@ -403,6 +403,15 @@ private struct EntryDetail: View {
                         .controlSize(.small)
                         .accessibilityIdentifier("review.addToExisting")
                     }
+                    if entry.offersEdition {
+                        Toggle(isOn: asEdition) {
+                            Text(ImportReview.editionOffer)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("review.asEdition")
+                    }
                     Label(review.destinationText(of: entry.id), systemImage: "folder")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -450,6 +459,14 @@ private struct EntryDetail: View {
             set: { typed in
                 model.updateReview { $0.setText(typed, for: field, of: id) }
             })
+    }
+
+    private var asEdition: Binding<Bool> {
+        let model = model
+        let id = entry.id
+        return Binding(
+            get: { entry.asEdition },
+            set: { on in model.updateReview { $0.setAsEdition(on, for: id) } })
     }
 
     private var addToExisting: Binding<Bool> {
