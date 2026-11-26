@@ -594,6 +594,10 @@ struct SeriesLinkRecord: Codable, Equatable, Sendable, FetchableRecord, MutableP
     /// An `AudibleStore` raw value.
     var store: String
     var checkedAt: Date
+    /// A `SeriesSource` raw value: whose list this is. For one that is not Audible's,
+    /// `audibleSeriesId` and `audibleSeriesTitle` hold that source's id and title for
+    /// the series, and `store` says nothing.
+    var source: String = SeriesSource.audible.rawValue
 
     mutating func didInsert(_ inserted: InsertionSuccess) {
         id = inserted.rowID

@@ -288,6 +288,16 @@ public struct LookupService: Sendable {
     /// an ebook's, or belongs to a store that is off) the book is searched for by its
     /// title and author instead, in the same stores. A store that knows the book and
     /// lists it in no series has answered: nothing is searched for then.
+    /// The series Wikidata has by this name, with their books: asked by the name, and,
+    /// when nothing goes by it, as the series of one of its books.
+    public func wikidataSeries(named name: String, bookTitle: String?, author: String?) async throws -> [WikidataSeries] {
+        let provider = WikidataSeriesProvider(http: http)
+        let byName = try await provider.series(named: name, author: author)
+        guard byName.isEmpty, let title = bookTitle, !title.isBlank else { return byName }
+        try Task.checkCancellation()
+        return try await provider.series(ofBookTitled: title, author: author)
+    }
+
     public func audibleSeries(ofBookWithASIN asin: String?, title: String, author: String?) async throws -> [AudibleSeriesRef] {
         var answered = false
         var lastError: (any Error)?

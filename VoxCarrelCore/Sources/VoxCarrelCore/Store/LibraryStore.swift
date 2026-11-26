@@ -417,6 +417,12 @@ public final class LibraryStore: Sendable {
                 t.add(column: "wordCount", .integer)
             }
         }
+        migrator.registerMigration("v21") { db in
+            // Whose list of a series a link holds: Audible's until now.
+            try db.alter(table: "seriesLink") { t in
+                t.add(column: "source", .text).notNull().defaults(to: "audible")
+            }
+        }
         return migrator
     }
 

@@ -102,6 +102,11 @@ public actor LibraryWorker {
         try await lookup.withLock { $0 }.audibleSeries(ofBookWithASIN: asin, title: title, author: author)
     }
 
+    /// The series Wikidata has by a name, or as the series of one of its books.
+    public nonisolated func wikidataSeries(named name: String, bookTitle: String?, author: String?) async throws -> [WikidataSeries] {
+        try await lookup.withLock { $0 }.wikidataSeries(named: name, bookTitle: bookTitle, author: author)
+    }
+
     /// Every book of an Audible series, asked of the series' own store.
     public nonisolated func audibleSeriesList(_ series: AudibleSeriesRef) async throws -> AudibleSeriesList {
         try await lookup.withLock { $0 }.audibleSeriesList(series)
@@ -1063,6 +1068,10 @@ public actor LibraryWorker {
             return SeriesCheckBook(
                 id: book.id, title: book.title, author: author, number: book.number, asin: book.asins.first)
         }
+    }
+
+    public func saveSeriesList(_ series: WikidataSeries, forSeries name: String, now: Date) throws {
+        try service.saveSeriesList(series, forSeries: name, now: now)
     }
 
     public func saveSeriesList(_ list: AudibleSeriesList, forSeries name: String, now: Date) throws {

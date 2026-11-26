@@ -1,7 +1,23 @@
 import Foundation
 
-/// A series of the library tied to the series Audible lists it as.
+/// Whose list of a series the library holds.
+public enum SeriesSource: String, Codable, Sendable, CaseIterable {
+    case audible, wikidata
+
+    public var title: String {
+        switch self {
+        case .audible: "Audible"
+        case .wikidata: "Wikidata"
+        }
+    }
+}
+
+/// A series of the library tied to the series a source lists it as. The names say
+/// Audible, which was the only source once: for a list from another source they hold
+/// that source's id and title for the series, and `store` says nothing.
 public struct SeriesLink: Equatable, Sendable {
+    /// Whose list it is.
+    public var source: SeriesSource
     /// The library's own name for the series.
     public var seriesName: String
     public var audibleSeriesId: String
@@ -10,8 +26,10 @@ public struct SeriesLink: Equatable, Sendable {
     public var checkedAt: Date
 
     public init(
-        seriesName: String, audibleSeriesId: String, audibleSeriesTitle: String, store: AudibleStore, checkedAt: Date
+        seriesName: String, audibleSeriesId: String, audibleSeriesTitle: String, store: AudibleStore, checkedAt: Date,
+        source: SeriesSource = .audible
     ) {
+        self.source = source
         self.seriesName = seriesName
         self.audibleSeriesId = audibleSeriesId
         self.audibleSeriesTitle = audibleSeriesTitle
@@ -104,7 +122,9 @@ extension LibraryService {
     ///   what a store that does not know the series answers: it never replaces what is
     ///   stored. `SeriesListError.noBooks` when no book is in the series. Nothing has
     ///   changed then.
-    public func saveSeriesList(_ list: AudibleSeriesList, forSeries name: String, now: Date) throws {
+    public func saveSeriesList(
+        _ list: AudibleSeriesList, forSeries name: String, now: Date, source: SeriesSource = .audible
+    ) throws {
         let books = try librarySeriesBooks(named: name)
         let entries = SeriesMatch.entries(from: list.editions, preferring: Set(books.flatMap(\.asins)))
         guard !entries.isEmpty else { throw SeriesListError.emptyList }
@@ -112,14 +132,29 @@ extension LibraryService {
 
         let link = SeriesLinkRecord(
             id: nil, seriesKey: name, seriesName: name, audibleSeriesId: list.ref.id,
-            audibleSeriesTitle: list.ref.title, store: list.ref.store.rawValue, checkedAt: now)
+            audibleSeriesTitle: list.ref.title, store: list.ref.store.rawValue, checkedAt: now, source: source.rawValue)
         try store.replaceSeriesList(link: link, entries: entries.map(SeriesEntryRecord.init)) { was, before, now in
-            let sameSeries = was.store == link.store
+            let sameSeries = was.store == link.store && was.source == link.source
                 && SeriesMatch.tidyASIN(was.audibleSeriesId) == SeriesMatch.tidyASIN(link.audibleSeriesId)
             if sameSeries, SeriesMatch.sameNumber(before.number, now.number) { return true }
             guard let was = before.asins.first, let isNow = now.asins.first else { return false }
             return SeriesMatch.tidyASIN(was) == SeriesMatch.tidyASIN(isNow)
         }
+    }
+
+    /// Stores Wikidata's list of a series in place of any link and list the series had,
+    /// as Audible's is stored: each book of it is an entry, known by Wikidata's id for
+    /// it, and is matched to the library's books by its title, there being no Audible
+    /// ID to go by. A book Wikidata gives no number comes after those it numbers.
+    public func saveSeriesList(_ series: WikidataSeries, forSeries name: String, now: Date) throws {
+        let editions = series.books.enumerated().map { index, book in
+            AudibleSeriesEdition(
+                asin: book.id, title: book.title, number: book.number,
+                sort: book.number.flatMap(SeriesNumber.value) ?? Double(1_000_000 + index), authors: book.authors,
+                narrators: [], minutes: nil, isAbridged: nil, releaseDate: nil)
+        }
+        let ref = AudibleSeriesRef(id: series.id, title: series.title, number: nil, store: .us)
+        try saveSeriesList(AudibleSeriesList(ref: ref, editions: editions), forSeries: name, now: now, source: .wikidata)
     }
 
     /// How much of a series the library has, by the list stored for it and the
@@ -147,7 +182,8 @@ extension LibraryService {
         else { return nil }
         let link = SeriesLink(
             seriesName: stored.link.seriesName, audibleSeriesId: stored.link.audibleSeriesId,
-            audibleSeriesTitle: stored.link.audibleSeriesTitle, store: audibleStore, checkedAt: stored.link.checkedAt)
+            audibleSeriesTitle: stored.link.audibleSeriesTitle, store: audibleStore, checkedAt: stored.link.checkedAt,
+            source: SeriesSource(rawValue: stored.link.source) ?? .audible)
 
         let books = try librarySeriesBooks(named: name)
         let result = SeriesMatch.match(stored.entries.map(\.entry), with: books)
