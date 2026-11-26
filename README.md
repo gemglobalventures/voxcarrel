@@ -4,7 +4,7 @@ A native Mac app for managing a personal library of audiobooks and ebooks: a mod
 
 VoxCarrel files your books into a tidy folder layout, writes details and covers into the files themselves, and looks books up online. It manages files you already own; it is not a store or a downloader.
 
-**Status:** early. It has a large automated test suite, run on generated sample books, and has been timed on a generated library of 10,000 books. On real books it has been used on a small collection, not yet a large one. You build it from source for now. Import by copy until you trust it with yours.
+**Status:** early. It has a large automated test suite, run on generated sample books, and has been timed on a generated library of 10,000 books. On real books it has been used on a small collection, not yet a large one. There is a test release to download, or you can build it from source. Import by copy until you trust it with yours.
 
 ![The library as a cover grid, with one book open in the inspector and a series shown as a stack of covers](Screenshots/library-grid.jpg)
 
@@ -18,6 +18,20 @@ VoxCarrel files your books into a tidy folder layout, writes details and covers 
 | Entries that are one book can be merged, with a role for each file. | An audiobook can be sent to your phone. |
 
 The books in these pictures are generated samples from the demo library.
+
+## Download
+
+Test releases are on the [releases page](https://github.com/gemglobalventures/voxcarrel/releases). They need macOS 15 or later.
+
+1. Download the newest `VoxCarrel-x.y.z.zip`, open it, and move VoxCarrel to your Applications folder.
+2. Open it. macOS will say it cannot check the app, because test releases are not yet signed with an Apple Developer ID.
+3. Open System Settings, choose Privacy & Security, scroll down, and click **Open Anyway** beside VoxCarrel. This is needed once.
+
+To look round without touching your own books, choose **Try a Demo Library** on the welcome screen.
+
+The download is the official build: the code in this repository, plus an updater that offers newer versions and some additions that are not in this repository. A build you make yourself from this source has neither, and is never replaced by the official one.
+
+Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/issues). **Help > Export Diagnostics** saves a zip to attach.
 
 ## At a glance
 
@@ -111,9 +125,9 @@ The books in these pictures are generated samples from the demo library.
 
 What is planned, roughly in order. This is a direction, not a promise: things move as real libraries show what matters.
 
-**Before the first release**
+**Next for the download**
 
-- A signed download, so the app can be installed without building it, and `brew install --cask voxcarrel`.
+- Signing with an Apple Developer ID, so that it opens without the Open Anyway step, and `brew install --cask voxcarrel`.
 
 **After that**
 
