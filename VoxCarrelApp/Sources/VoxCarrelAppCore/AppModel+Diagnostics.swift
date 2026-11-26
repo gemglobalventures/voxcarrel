@@ -193,7 +193,21 @@ public enum DiagnosticsText {
     }
 }
 
+/// Where a problem with the app is reported.
+public enum ProblemReport {
+    /// The command, in the Help menu.
+    public static let commandTitle = "Report a Problem…"
+    /// The project's list of issues, where anyone can read and add to them.
+    public static let address = URL(string: "https://github.com/gemglobalventures/voxcarrel/issues")!
+}
+
 extension AppModel {
+    /// Opens the page where problems are reported, in the browser. Nothing is sent:
+    /// what is written there is the person's own to write. It needs no library.
+    public func reportAProblem() {
+        opener.openWeb(ProblemReport.address)
+    }
+
     /// Whether Export Diagnostics is offered: always, library or no library.
     public var canExportDiagnostics: Bool { true }
 

@@ -86,6 +86,14 @@ import ZIPFoundation
         #expect(h.model.alert != nil)
     }
 
+    // XD6: Report a Problem opens the project's issues in the browser, and nothing else.
+    @Test func XD6_reportAProblemOpensTheIssuesPage() async throws {
+        let h = try await Harness.demo(start: false)
+        h.model.reportAProblem()
+        #expect(h.opener.openedWeb == [URL(string: "https://github.com/gemglobalventures/voxcarrel/issues")!])
+        #expect(ProblemReport.commandTitle == "Report a Problem…")
+    }
+
     // XD4: how each kind of setting is shown.
     @Test func XD4_settingsAreShownByKind() {
         #expect(DiagnosticsText.shown(true) == "on" && DiagnosticsText.shown(false) == "off")

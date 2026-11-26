@@ -74,6 +74,8 @@ struct AppCommands: Commands {
             Button(DemoLibraryText.commandTitle) { Task { await model.openDemoLibrary() } }
                 .disabled(!model.canOpenDemoLibrary)
                 .accessibilityIdentifier("menu.help.openDemoLibrary")
+            Button(ProblemReport.commandTitle) { model.reportAProblem() }
+                .accessibilityIdentifier("menu.help.reportAProblem")
             Button("Export Diagnostics…") { Panels.exportDiagnostics(for: model) }
                 .disabled(!model.canExportDiagnostics)
                 .accessibilityIdentifier("menu.help.exportDiagnostics")
