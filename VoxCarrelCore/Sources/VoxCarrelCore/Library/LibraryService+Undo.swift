@@ -282,6 +282,8 @@ extension LibraryService {
             }
         }
         forgetUndoData()
+        refreshDetailsFiles(
+            ofBooks: (snapshot?.books.map(\.bookId) ?? []) + (merge?.removed.compactMap(\.book.id) ?? []))
         return batch.label
     }
 

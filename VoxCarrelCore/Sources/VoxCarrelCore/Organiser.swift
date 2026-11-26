@@ -352,14 +352,14 @@ public struct Organiser {
         (try? fm.attributesOfItem(atPath: url.path))?[.type] as? FileAttributeType == .typeRegular
     }
 
-    /// Removes `folder` if it is empty (ignoring .DS_Store), then its parents,
+    /// Removes `folder` if it is empty (ignoring .DS_Store and a details file written here), then its parents,
     /// stopping at the first non-empty folder and never touching `root` itself.
     private func prune(_ folder: URL, under root: URL) {
         let rootPrefix = root.standardizedFileURL.path + "/"
         var current = folder.standardizedFileURL
         while current.path.hasPrefix(rootPrefix) {
             guard let contents = try? fm.contentsOfDirectory(atPath: current.path),
-                  contents.allSatisfy({ $0 == ".DS_Store" }),
+                  DetailsFile.holdsNothingElse(contents, in: current),
                   (try? fm.removeItem(at: current)) != nil
             else { return }
             current = current.deletingLastPathComponent()

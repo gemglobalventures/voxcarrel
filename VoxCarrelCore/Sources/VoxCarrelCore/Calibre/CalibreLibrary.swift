@@ -265,5 +265,6 @@ extension LibraryService {
             if book.rating == 0 { book.rating = extras.rating }
             if let added = extras.added, added < book.dateAdded { book.dateAdded = added }
         }
+        refreshDetailsFiles(ofBooks: [bookId])
     }
 }

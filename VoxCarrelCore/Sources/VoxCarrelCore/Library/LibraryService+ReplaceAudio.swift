@@ -96,6 +96,7 @@ extension LibraryService {
             try beforeCommit?()
             try store.apply(change)
             if change.clearsJournal { forgetUndoData() }
+            refreshDetailsFiles(ofBooks: [bookId])
         } catch {
             // The book is as it was: the new file goes back where it came from.
             try? fm.moveItem(at: destination, to: staged)

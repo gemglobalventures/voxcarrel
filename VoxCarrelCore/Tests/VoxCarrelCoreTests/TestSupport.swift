@@ -1,4 +1,5 @@
 import Foundation
+@testable import VoxCarrelCore
 
 /// A file manager whose moves and copies can be made to fail on chosen destinations.
 final class FailingFileManager: FileManager, @unchecked Sendable {
@@ -21,8 +22,15 @@ final class FailingFileManager: FileManager, @unchecked Sendable {
     }
 }
 
-/// Every path below `root`, relative to it, sorted.
+/// Every path below `root`, relative to it, sorted. The details files the library
+/// keeps beside its books are left out: they follow from the catalogue, and have
+/// tests of their own (`treeWithDetailsFiles`).
 func tree(_ root: URL) -> [String] {
+    treeWithDetailsFiles(root).filter { ($0 as NSString).lastPathComponent != DetailsFile.fileName }
+}
+
+/// Every path below `root`, relative to it, sorted.
+func treeWithDetailsFiles(_ root: URL) -> [String] {
     ((FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String]) ?? []).sorted()
 }
 

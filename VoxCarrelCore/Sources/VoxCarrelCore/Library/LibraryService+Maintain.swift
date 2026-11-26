@@ -237,8 +237,14 @@ extension LibraryService {
     ///   in the Trash stay there.
     public func removeBook(id: Int64, moveFilesToTrash: Bool) throws {
         try refuseWhileLayoutChangeIsInterrupted()
-        guard try store.book(id: id) != nil else { throw LibraryError.bookNotFound(id) }
+        guard let leaving = try store.book(id: id) else { throw LibraryError.bookNotFound(id) }
         let urls = try store.files(bookId: id).map { store.url(for: $0) }
+        // The book's details file goes with it, when the folder is the book's alone.
+        var detailsFile: URL?
+        if let path = leaving.folderPath, let owners = try? folderOwners(), let key = owners.folder(of: id),
+           !key.isEmpty, !owners.isUsed(key, byOtherThan: id) {
+            detailsFile = store.url(forFolder: path).appendingPathComponent(DetailsFile.fileName, isDirectory: false)
+        }
 
         if moveFilesToTrash {
             let fm = FileManager.default
@@ -259,6 +265,10 @@ extension LibraryService {
 
         try? covers.remove(for: id)
         if change.clearsJournal { forgetUndoData() }
+        if let detailsFile, DetailsFile.isOurs(at: detailsFile) {
+            try? FileManager.default.removeItem(at: detailsFile)
+            removeEmptyFolders(from: detailsFile.deletingLastPathComponent())
+        }
     }
 
     /// True when the recorded batch changed this book or moved one of its files. A batch
@@ -278,7 +288,7 @@ extension LibraryService {
         }
     }
 
-    /// Removes `folder` if it is empty (ignoring .DS_Store), then its parents, stopping at
+    /// Removes `folder` if it is empty (ignoring .DS_Store and a details file written here), then its parents, stopping at
     /// the first folder that is not empty. Only folders strictly inside the library.
     private func removeEmptyFolders(from folder: URL) {
         let fm = FileManager.default
@@ -286,7 +296,7 @@ extension LibraryService {
         var current = folder.standardizedFileURL
         while current.path.hasPrefix(rootPrefix) {
             guard let contents = try? fm.contentsOfDirectory(atPath: current.path),
-                  contents.allSatisfy({ $0 == ".DS_Store" }),
+                  DetailsFile.holdsNothingElse(contents, in: current),
                   (try? fm.removeItem(at: current)) != nil
             else { return }
             current = current.deletingLastPathComponent()
@@ -432,6 +442,8 @@ extension LibraryService {
         report.strandedFiles.sort { $0.path < $1.path }
         report.strandedFolders += foldersLeftSetAside()
         report.strandedFolders.sort { $0.url.path < $1.url.path }
+        // Last, each book's details file is brought into line with the catalogue.
+        refreshDetailsFiles()
         return report
     }
 

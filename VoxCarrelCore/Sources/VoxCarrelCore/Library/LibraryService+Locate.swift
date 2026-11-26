@@ -140,5 +140,6 @@ extension LibraryService {
             throw error
         }
         if change.clearsJournal { forgetUndoData() }
+        refreshDetailsFiles(ofBooks: [bookId])
     }
 }

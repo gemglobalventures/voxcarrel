@@ -94,6 +94,9 @@ public final class LibraryService {
     /// The size in bytes over which a send to the phone is warned of as large. A test seam.
     var sendLargeOver = LibraryService.largeSendBytes
 
+    /// Whether a details file (`metadata.opf`) is kept beside each filed book.
+    public var writesDetailsFiles = true
+
     /// The stored folder pattern last logged as unreadable, so it is said once.
     var unreadablePatternLogged: String?
 
@@ -699,6 +702,8 @@ public final class LibraryService {
             }.books
         } catch {
             let stranded = rollBack(operation)
+            // Files that went back to their folders find their details file there again.
+            refreshDetailsFiles(ofBooks: operation.snapshots.map(\.bookId))
             guard stranded.isEmpty else {
                 throw LibraryError.rollbackIncomplete(cause: Self.describe(error), stranded: stranded)
             }
@@ -725,6 +730,7 @@ public final class LibraryService {
             }
         }
         discardUndoData(except: operation.token)
+        refreshDetailsFiles(ofBooks: books.compactMap(\.id))
         return books
     }
 

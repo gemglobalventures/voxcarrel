@@ -56,6 +56,8 @@ extension LibraryService {
     ///   that shipped under it. The caller may then offer to merge the two; nothing is
     ///   merged here.
     public func renameGenre(_ name: String, to new: String) throws {
+        // Whatever way this ends, the details files follow the catalogue.
+        defer { refreshDetailsFiles() }
         try changeGenreList(label: "Rename genre") { db, listing in
             let row = try Self.shown(name, in: listing)
             guard let new = GenreName.valid(new) else { throw GenreChangeError.invalidName }
@@ -98,6 +100,8 @@ extension LibraryService {
     /// - Throws: `GenreChangeError.unknownGenre` when the first is not a genre that is
     ///   shown, or the second is not in the list.
     public func mergeGenre(_ name: String, into other: String) throws {
+        // Whatever way this ends, the details files follow the catalogue.
+        defer { refreshDetailsFiles() }
         try changeGenreList(label: "Merge genres") { db, listing in
             let source = try Self.shown(name, in: listing)
             guard var target = listing.rows.first(where: { GenreName.same($0.name, GenreName.tidied(other)) }) else {
@@ -147,6 +151,8 @@ extension LibraryService {
     /// - Throws: `GenreChangeError.unknownGenre`; `.builtIn` for a built-in genre,
     ///   renamed or not.
     public func deleteGenre(_ name: String) throws {
+        // Whatever way this ends, the details files follow the catalogue.
+        defer { refreshDetailsFiles() }
         try changeGenreList(label: "Delete genre") { db, listing in
             let row = try Self.shown(name, in: listing)
             guard !row.isBuiltIn else { throw GenreChangeError.builtIn }
@@ -166,6 +172,8 @@ extension LibraryService {
     /// that genre, its books going with the name. No file is written. One undoable
     /// operation.
     public func resetBuiltInGenreNames() throws {
+        // Whatever way this ends, the details files follow the catalogue.
+        defer { refreshDetailsFiles() }
         try changeGenreList(label: "Reset genre names") { db, listing in
             let builtIn = listing.rows.filter(\.isBuiltIn)
             let renamed = builtIn.filter { $0.name != $0.builtInName }
@@ -229,6 +237,7 @@ extension LibraryService {
         try beforeCommit?()
         try store.restoreGenreList(saved)
         forgetUndoData()
+        refreshDetailsFiles()
         return batch.label
     }
 }
