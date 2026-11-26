@@ -20,6 +20,8 @@ public enum SidebarItem: Hashable, Sendable {
     /// G36: the books that have no genre.
     case noGenre
     case collection(Int64)
+    /// The books one check of the library's tidiness finds.
+    case tidy(TidyCheck)
     /// What to pick up now: the books being read, the next book of each series that has
     /// been begun, whether the library has it or not, and the books put there by hand.
     /// Always in the sidebar, and not one of `fixed`: its lines are in an order of
@@ -194,8 +196,21 @@ public struct BookDetail: Equatable, Sendable {
     }
 }
 
+/// One check of the library's tidiness that finds something, as the sidebar lists it.
+public struct TidyLine: Equatable, Identifiable, Sendable {
+    public var check: TidyCheck
+    /// How many books it finds.
+    public var count: Int
+
+    public var id: String { check.rawValue }
+    public var item: SidebarItem { .tidy(check) }
+}
+
 /// What the sidebar shows.
 public struct SidebarData: Equatable, Sendable {
+    /// What is untidy about the library: the checks that find something, in their own
+    /// order. Empty for a library with nothing to tidy.
+    public var tidy: [TidyLine] = []
     /// The eight fixed items, each with its number of books (zero included).
     public var counts: [SidebarItem: Int]
     /// Every browse field's values, sorted ignoring case; blank values left out. For

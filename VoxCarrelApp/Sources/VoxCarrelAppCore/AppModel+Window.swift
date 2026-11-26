@@ -67,6 +67,7 @@ extension AppModel {
         case .hidden: "Hidden"
         case .upNext: "Up Next"
         case .shelf(let id): sidebar.shelves.first { $0.id == id }?.name ?? "Shelf"
+        case .tidy(let check): check.title
         }
     }
 

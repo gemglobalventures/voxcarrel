@@ -105,6 +105,39 @@ private struct LibraryToolbar: ToolbarContent {
     }
 }
 
+/// What is said above the books one check of the library's tidiness finds: what the
+/// check means, and the button that lets the selected books off it.
+private struct TidyHeaderStrip: View {
+    let model: AppModel
+    let header: TidyHeader
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(header.title) · \(header.countText)")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Text(header.explanation)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("tidy.explanation")
+            }
+            Spacer(minLength: 8)
+            Button(header.markFineTitle) {
+                Task { await model.markSelectionFine() }
+            }
+            .fixedSize()
+            .disabled(!header.canMarkFine)
+            .help(header.markFineHelp)
+            .accessibilityIdentifier("tidy.markFine")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// The books: as covers or as a table, or a few words when there are none to show.
 /// Above the books of a series, what is known of Audible's list of it (plan 9).
 private struct BooksView: View {
@@ -114,6 +147,10 @@ private struct BooksView: View {
         VStack(spacing: 0) {
             if let header = model.seriesHeader {
                 SeriesHeaderStrip(model: model, header: header)
+                Divider()
+            }
+            if let header = model.tidyHeader {
+                TidyHeaderStrip(model: model, header: header)
                 Divider()
             }
             content

@@ -25,6 +25,7 @@ extension SidebarItem {
         case .hidden: "eye.slash"
         case .upNext: "text.line.first.and.arrowtriangle.forward"
         case .shelf: "line.3.horizontal.decrease.circle"
+        case .tidy: "wand.and.sparkles"
         }
     }
 }

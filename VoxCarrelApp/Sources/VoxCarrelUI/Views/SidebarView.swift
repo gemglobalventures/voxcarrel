@@ -94,6 +94,21 @@ struct SidebarView: View {
             // the section cannot be folded, by the pointer or by anything else.
             .collapsible(false)
 
+            // What is untidy about the library: a line for each check that finds
+            // something, with how many books it finds. Not shown for a tidy library.
+            if model.showsTidy {
+                Section("Tidy") {
+                    ForEach(model.sidebar.tidy) { line in
+                        Label(line.check.title, systemImage: line.item.symbol)
+                            .lineLimit(1)
+                            .badge(Text("\(line.count)"))
+                            .tag(line.item)
+                            .help(line.check.explanation)
+                            .accessibilityIdentifier("sidebar.tidy.\(line.id)")
+                    }
+                }
+            }
+
             Section("Browse") {
                 ForEach(BrowseField.sidebarOrder, id: \.self) { field in
                     DisclosureGroup(isExpanded: isExpanded(field)) {

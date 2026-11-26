@@ -291,6 +291,11 @@ public actor LibraryWorker {
             genreGroupCounts: groupCounts, noGenreCount: try service.booksWithNoGenre().count,
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
+        // What is untidy, a line for each check that finds something.
+        let findings = try service.tidyFindings()
+        data.tidy = TidyCheck.allCases.compactMap { check in
+            findings[check].map { TidyLine(check: check, count: $0.count) }
+        }
         data.shelves = try service.smartShelves()
         data.shelfCounts = try service.bookCounts(on: data.shelves)
         data.upNextCount = try service.upNext().items.count
@@ -527,6 +532,11 @@ public actor LibraryWorker {
         return detail
     }
 
+    /// Lets books off a check of the library's tidiness, or puts them back under it.
+    public func setTidyIgnored(_ ignored: Bool, check: TidyCheck, bookIds: [Int64]) throws {
+        try service.setTidyIgnored(ignored, check: check, bookIds: bookIds.filter(isBookId))
+    }
+
     /// Ties these books together as editions of one work.
     public func linkEditions(_ ids: [Int64]) throws {
         try service.linkEditions(ids.filter(isBookId))
@@ -658,6 +668,8 @@ public actor LibraryWorker {
         // A shelf that is gone holds nothing.
         case .shelf(let id):
             try service.smartShelves().first { $0.id == id }.map { try service.books(on: $0) } ?? []
+        // What one check of the library's tidiness finds.
+        case .tidy(let check): try books(withIds: try service.tidyFindings()[check] ?? [])
         // The inbox lists arrivals, which are not yet books.
         case .inbox: []
         // Asked for by name: these are the books every other list leaves out.
