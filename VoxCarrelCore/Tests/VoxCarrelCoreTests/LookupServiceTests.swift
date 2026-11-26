@@ -386,7 +386,7 @@ private let unusedHTTP = FakeHTTP(throwing: LookupError.notReachable)
         #expect(cover == CoverImage(data: Self.jpeg, mime: "image/jpeg"))
         #expect(http.requests.count == 1)
         #expect(http.urls.first == URL(string: address))
-        #expect(http.requests.first?.headers == ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.app)"])
+        #expect(http.requests.first?.headers == ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.com)"])
     }
 
     /// A cover may be 10 MB at most, and may redirect only among the cover hosts and the Internet Archive.

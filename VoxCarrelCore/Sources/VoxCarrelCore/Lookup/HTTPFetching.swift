@@ -187,7 +187,7 @@ enum LookupRequest {
     /// The lookup client's version, sent in the User-Agent.
     static let version = "0.1"
     /// Names the app and nothing about the user or the machine.
-    static let userAgent = "VoxCarrel/\(version) (https://voxcarrel.app)"
+    static let userAgent = "VoxCarrel/\(version) (https://voxcarrel.com)"
     static let headers = ["User-Agent": userAgent, "Accept": "application/json"]
 
     /// Characters left as they are in a query value. Everything else is percent-encoded,

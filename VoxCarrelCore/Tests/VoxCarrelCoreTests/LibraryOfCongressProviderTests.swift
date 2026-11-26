@@ -77,7 +77,7 @@ import Testing
     @Test func C1_C9_headersLimitsAndRedirects() async throws {
         let http = FakeHTTP(data: fixture("loc-none", type: "xml"))
         _ = try await LibraryOfCongressProvider(http: http, limit: 7).search(Self.query)
-        #expect(http.requests.map(\.headers) == [["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.app)", "Accept": "application/xml"]])
+        #expect(http.requests.map(\.headers) == [["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.com)", "Accept": "application/xml"]])
         // C9: at most 5 MB; no redirect is followed; the one address named as the exception.
         #expect(http.limits == [
             FakeHTTP.Limits(

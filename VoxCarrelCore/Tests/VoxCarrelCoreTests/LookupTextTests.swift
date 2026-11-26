@@ -31,7 +31,7 @@ import Testing
 
     // O2: the User-Agent names the app and nothing else.
     @Test func O2_userAgentNamesOnlyTheApp() {
-        #expect(LookupRequest.userAgent == "VoxCarrel/\(LookupRequest.version) (https://voxcarrel.app)")
+        #expect(LookupRequest.userAgent == "VoxCarrel/\(LookupRequest.version) (https://voxcarrel.com)")
         #expect(LookupRequest.headers["User-Agent"] == LookupRequest.userAgent)
         #expect(!LookupRequest.userAgent.contains(NSUserName()))
         #expect(!LookupRequest.userAgent.contains(ProcessInfo.processInfo.hostName))

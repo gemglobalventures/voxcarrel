@@ -40,7 +40,7 @@ import Testing
         #expect(editions.absoluteString == "https://openlibrary.org/works/OL15723132W/editions.json?limit=100")
         #expect(queryItems(editions) == ["limit": "100"])
         // The same User-Agent and limits as the provider's other requests.
-        let headers = ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.app)", "Accept": "application/json"]
+        let headers = ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.com)", "Accept": "application/json"]
         #expect(http.requests.map(\.headers) == [headers, headers])
         let limits = FakeHTTP.Limits(maxBytes: 5 * 1024 * 1024, redirectHosts: ["openlibrary.org"])
         #expect(http.limits == [limits, limits])

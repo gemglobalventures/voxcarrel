@@ -291,7 +291,7 @@ import Testing
         _ = try await provider.search(LookupQuery(asin: "B08G9PRS1K"))
         #expect(http.requests.count == 2)
         for request in http.requests {
-            #expect(request.headers == ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.app)", "Accept": "application/json"])
+            #expect(request.headers == ["User-Agent": "VoxCarrel/0.1 (https://voxcarrel.com)", "Accept": "application/json"])
         }
     }
 
