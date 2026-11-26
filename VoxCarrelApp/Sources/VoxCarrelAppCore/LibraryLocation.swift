@@ -31,17 +31,37 @@ public struct LibraryLocation {
 
     private let defaults: UserDefaults
 
+    /// A folder shown as the library until the app is quit or a library is chosen,
+    /// without being remembered. Shared by every copy of this location.
+    private final class ForNow: @unchecked Sendable {
+        var url: URL?
+    }
+
+    private let forNow = ForNow()
+
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
+    /// Shows `folder` as the library for now: until the app is quit, or a library is
+    /// chosen. The remembered library is not changed.
+    public func showForNow(_ folder: URL) {
+        forNow.url = folder
+    }
+
+    /// True while the library shown is one that is not remembered (`showForNow`).
+    public var isShownForNow: Bool { forNow.url != nil }
+
     /// The chosen library folder; nil when none has been chosen. Setting nil forgets it.
+    /// Setting it ends a folder shown for now.
     public var url: URL? {
         get {
+            if let shown = forNow.url { return shown }
             guard let path = defaults.string(forKey: Self.defaultsKey), !path.isEmpty else { return nil }
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         nonmutating set {
+            forNow.url = nil
             if let newValue {
                 defaults.set(newValue.path, forKey: Self.defaultsKey)
             } else {

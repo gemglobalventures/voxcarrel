@@ -58,6 +58,12 @@ private struct WelcomeView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .accessibilityIdentifier("welcome.chooseLibrary")
+            Button(DemoLibraryText.welcomeTitle) {
+                Task { await model.openDemoLibrary() }
+            }
+            .controlSize(.large)
+            .disabled(!model.canOpenDemoLibrary)
+            .accessibilityIdentifier("welcome.openDemoLibrary")
         }
         .frame(minWidth: 480, maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
         .accessibilityIdentifier("welcome.panel")

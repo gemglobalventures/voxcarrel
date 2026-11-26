@@ -1,4 +1,5 @@
 import AppKit
+import DemoContent
 import Foundation
 import Observation
 import VoxCarrelCore
@@ -264,6 +265,16 @@ public final class AppModel {
             return
         }
         await adopt(folder)
+    }
+
+    /// Shows `folder` as the library until the app is quit or a library is chosen,
+    /// without remembering it. As A3: nothing of the library shown before is left showing.
+    func showForNow(_ folder: URL) async {
+        location.showForNow(folder)
+        storedSearchText = ""
+        storedSidebarSelection = .allBooks
+        result = nil
+        await openLibrary()
     }
 
     /// A3: nothing of the library shown before is left showing.
@@ -803,6 +814,13 @@ public final class AppModel {
 
     /// What a book is handed to, to be sent to the Kindle.
     @ObservationIgnored let kindleSender: any KindleSender
+
+    // MARK: Demo library
+
+    /// Where demo libraries are made. A test seam.
+    @ObservationIgnored var demoRoot = FileManager.default.temporaryDirectory
+    /// How a demo library is made in an empty place. A test seam.
+    @ObservationIgnored var demoMaker: @Sendable (URL) throws -> Void = { try DemoContent.makeLibrary(at: $0) }
 
     // MARK: Export Diagnostics
 

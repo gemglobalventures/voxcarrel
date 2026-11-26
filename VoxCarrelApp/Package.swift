@@ -18,7 +18,7 @@ let package = Package(
     targets: [
         .target(
             name: "VoxCarrelAppCore",
-            dependencies: [.product(name: "VoxCarrelCore", package: "VoxCarrelCore")]
+            dependencies: ["DemoContent", .product(name: "VoxCarrelCore", package: "VoxCarrelCore")]
         ),
         .target(
             name: "VoxCarrelUI",

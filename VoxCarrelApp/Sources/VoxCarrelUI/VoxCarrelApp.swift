@@ -70,6 +70,9 @@ struct AppCommands: Commands {
             HighlightsCommandItem(model: model)
         }
         CommandGroup(after: .help) {
+            Button(DemoLibraryText.commandTitle) { Task { await model.openDemoLibrary() } }
+                .disabled(!model.canOpenDemoLibrary)
+                .accessibilityIdentifier("menu.help.openDemoLibrary")
             Button("Export Diagnostics…") { Panels.exportDiagnostics(for: model) }
                 .disabled(!model.canExportDiagnostics)
                 .accessibilityIdentifier("menu.help.exportDiagnostics")

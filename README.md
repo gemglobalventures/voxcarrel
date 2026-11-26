@@ -146,6 +146,10 @@ This produces `VoxCarrelApp/build/VoxCarrel.app`, a release build signed for thi
 
 Nothing here touches real books. The demo tool generates sample audiobooks and ebooks. Run these from `VoxCarrelApp/`:
 
+The quickest way is in the app: **Help > Open Demo Library** (or **Try a Demo Library** on the welcome screen) makes a library of made-up books in a temporary folder and shows it. Your own library is not touched, and opens again the next time you start VoxCarrel.
+
+From the command line, for a demo you keep, or a large one:
+
 ```bash
 swift run voxcarrel-demo library ~/VoxCarrelDemo/Library
 swift run voxcarrel-demo inbox ~/VoxCarrelDemo/Inbox
