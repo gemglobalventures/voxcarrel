@@ -59,6 +59,31 @@ extension LibraryStore {
         try dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM book WHERE isHidden = 1") ?? 0 }
     }
 
+    /// The books let off each check of the library's tidiness, by the check's id.
+    public func tidyIgnored() throws -> [String: Set<Int64>] {
+        try dbQueue.read { db in
+            var found: [String: Set<Int64>] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT checkId, bookId FROM tidyIgnore") {
+                found[row["checkId"], default: []].insert(row["bookId"])
+            }
+            return found
+        }
+    }
+
+    /// Lets books off a check, or puts them back under it.
+    public func setTidyIgnored(_ ignored: Bool, check: String, bookIds: [Int64]) throws {
+        try dbQueue.write { db in
+            for id in bookIds {
+                if ignored {
+                    try db.execute(
+                        sql: "INSERT OR IGNORE INTO tidyIgnore (checkId, bookId) VALUES (?, ?)", arguments: [check, id])
+                } else {
+                    try db.execute(sql: "DELETE FROM tidyIgnore WHERE checkId = ? AND bookId = ?", arguments: [check, id])
+                }
+            }
+        }
+    }
+
     /// Sets which work each of these books is an edition of; nil for none. Nothing
     /// else about them changes, and no file is touched.
     public func setWorkKey(_ key: String?, bookIds: [Int64]) throws {

@@ -417,6 +417,15 @@ public final class LibraryStore: Sendable {
                 t.add(column: "wordCount", .integer)
             }
         }
+        migrator.registerMigration("v24") { db in
+            // Books the owner has said are fine as they are, for one check of the
+            // library's tidiness: they are no longer listed under it.
+            try db.create(table: "tidyIgnore") { t in
+                t.column("checkId", .text).notNull()
+                t.column("bookId", .integer).notNull()
+                t.primaryKey(["checkId", "bookId"])
+            }
+        }
         migrator.registerMigration("v23") { db in
             // What is added to the title in an edition's folder name to tell it from
             // another edition of the same title: "German", "read by Scott Brick".
