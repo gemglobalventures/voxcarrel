@@ -235,6 +235,24 @@ import VoxCarrelFixtures
         #expect(h.model.sort == BookSort(key: .author, ascending: false))
     }
 
+    /// Sorting by pages: fewest first or most first, with books that have no page
+    /// count after those that have, whichever way round.
+    @Test func booksAreSortedByTheirPages() async throws {
+        let h = try await Harness.demo()
+        h.model.groupsBySeries = false
+        h.model.sort = BookSort(key: .pages, ascending: true)
+        await h.model.settle()
+        let rising = h.model.rows.map { $0.book.pageCount ?? 0 }
+        let known = rising.filter { $0 > 0 }
+        #expect(!known.isEmpty && known == known.sorted())
+        // Those with none come last.
+        #expect(Array(rising.prefix(known.count)) == known)
+        h.model.sort = BookSort(key: .pages, ascending: false)
+        await h.model.settle()
+        let falling = h.model.rows.map { $0.book.pageCount ?? 0 }
+        #expect(Array(falling.prefix(known.count)) == known.sorted(by: >))
+    }
+
     /// K6: a table that is shown a sort order sets the same one back. That is not a
     /// change: were the rows put in order again each time, the two would never stop.
     @Test func settingTheSortOrderItAlreadyHasChangesNothing() async throws {

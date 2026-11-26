@@ -36,6 +36,13 @@ import Testing
         #expect(met(.longerThan(hours: 6), item { $0.durationSeconds = 7 * 3600 }))
         // No stated length is neither shorter nor longer than anything.
         #expect(!met(.shorterThan(hours: 6), item()) && !met(.longerThan(hours: 6), item()))
+        // Pages, by the book's page count; a book with none has neither fewer nor more.
+        #expect(met(.fewerPagesThan(300), item { $0.pageCount = 250 }))
+        #expect(!met(.fewerPagesThan(300), item { $0.pageCount = 300 }))
+        #expect(met(.morePagesThan(300), item { $0.pageCount = 301 }))
+        #expect(!met(.morePagesThan(300), item { $0.pageCount = 300 }))
+        #expect(!met(.fewerPagesThan(300), item()) && !met(.morePagesThan(1), item()))
+        #expect(!met(.fewerPagesThan(300), item { $0.pageCount = 0 }))
         #expect(met(.yearFrom(2000), item { $0.year = 2000 }) && !met(.yearFrom(2000), item { $0.year = 1999 }))
         #expect(met(.yearTo(2000), item { $0.year = 2000 }) && !met(.yearTo(2000), item()))
         #expect(met(.addedWithin(days: 30), item { $0.dateAdded = self.now.addingTimeInterval(-29 * 86_400) }))

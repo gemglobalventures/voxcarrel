@@ -20,6 +20,9 @@ public enum ShelfCondition: Codable, Equatable, Hashable, Sendable {
     case unrated
     case shorterThan(hours: Double)
     case longerThan(hours: Double)
+    /// Of fewer pages than this, by the book's page count.
+    case fewerPagesThan(Int)
+    case morePagesThan(Int)
     /// Published in this year or later.
     case yearFrom(Int)
     /// Published in this year or earlier.
@@ -74,7 +77,7 @@ public struct ShelfBook: Sendable {
 extension ShelfCondition {
     /// Whether a book meets this condition. Names are compared without regard to
     /// case or to spaces at the ends. A book with no stated length is neither shorter
-    /// nor longer than anything, and one with no year is in no span of years.
+    /// nor longer than anything, one with no page count has neither fewer pages nor more, and one with no year is in no span of years.
     public func isMet(by item: ShelfBook, now: Date) -> Bool {
         let book = item.book
         func has(_ names: [String], _ wanted: String) -> Bool {
@@ -100,6 +103,12 @@ extension ShelfCondition {
         case .longerThan(let hours):
             guard let seconds = book.durationSeconds, seconds > 0 else { return false }
             return seconds > hours * 3600
+        case .fewerPagesThan(let pages):
+            guard let count = book.pageCount, count > 0 else { return false }
+            return count < pages
+        case .morePagesThan(let pages):
+            guard let count = book.pageCount, count > 0 else { return false }
+            return count > pages
         case .yearFrom(let year): return book.year.map { $0 >= year } ?? false
         case .yearTo(let year): return book.year.map { $0 <= year } ?? false
         case .addedWithin(let days):

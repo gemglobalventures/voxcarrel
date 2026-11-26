@@ -2,7 +2,7 @@ import Foundation
 import VoxCarrelCore
 
 public enum BookSortKey: String, CaseIterable, Sendable {
-    case title, author, series, formats, length, dateAdded, status
+    case title, author, series, formats, length, pages, dateAdded, status
     /// Unabridged, abridged, dramatised; books whose edition is not known last.
     case edition
     /// G37: by a book's first genre; books with no genre last.
@@ -97,6 +97,7 @@ public struct BookSort: Equatable, Sendable {
         var seriesNumber: String?
         var formatRank: Int?
         var length: Double?
+        var pages: Int?
         var added: Date
         var statusRank: Int
         var editionRank: Int?
@@ -105,8 +106,9 @@ public struct BookSort: Equatable, Sendable {
         init(
             title: String, id: Int64, firstAuthor: String?, series: String?, seriesNumber: String?,
             formatRank: Int?, length: Double?, added: Date, statusRank: Int, editionRank: Int?,
-            firstGenre: String? = nil
+            firstGenre: String? = nil, pages: Int? = nil
         ) {
+            self.pages = pages.flatMap { $0 > 0 ? $0 : nil }
             self.title = title
             self.id = id
             self.firstAuthor = BookSort.text(firstAuthor)
@@ -127,7 +129,7 @@ public struct BookSort: Equatable, Sendable {
                 formatRank: BookSort.formatRank(hasAudio: row.hasAudio, hasEbook: row.hasEbook, hasFiles: row.hasFiles),
                 length: row.book.durationSeconds, added: row.book.dateAdded,
                 statusRank: BookSort.statusRank(row.book.readStatus), editionRank: BookSort.editionRank(row),
-                firstGenre: row.book.genres.first)
+                firstGenre: row.book.genres.first, pages: row.book.pageCount)
         }
     }
 
@@ -175,6 +177,7 @@ public struct BookSort: Equatable, Sendable {
         case .series: values.series != nil
         case .formats: values.formatRank != nil
         case .length: values.length != nil
+        case .pages: values.pages != nil
         case .edition: values.editionRank != nil
         case .genre: values.firstGenre != nil
         }
@@ -221,6 +224,8 @@ public struct BookSort: Equatable, Sendable {
             result = Self.compareValues(a.formatRank ?? .max, b.formatRank ?? .max)
         case .length:
             result = Self.compareValues(a.length ?? 0, b.length ?? 0)
+        case .pages:
+            result = Self.compareValues(a.pages ?? 0, b.pages ?? 0)
         case .dateAdded:
             result = Self.compareValues(a.added, b.added)
         case .status:
@@ -247,6 +252,7 @@ extension BookRow {
     public var seriesSortKey: String { book.series ?? "" }
     public var formatsSortKey: Int { (hasAudio ? 1 : 0) + (hasEbook ? 2 : 0) }
     public var lengthSortKey: Double { book.durationSeconds ?? 0 }
+    public var pagesSortKey: Int { book.pageCount ?? 0 }
     public var dateAddedSortKey: Date { book.dateAdded }
     public var statusSortKey: String { book.readStatus.rawValue }
     public var editionSortKey: String {
@@ -272,6 +278,7 @@ extension BookSortKey {
         case .series: KeyPathComparator(\.seriesSortKey, comparator: text, order: order)
         case .formats: KeyPathComparator(\.formatsSortKey, order: order)
         case .length: KeyPathComparator(\.lengthSortKey, order: order)
+        case .pages: KeyPathComparator(\.pagesSortKey, order: order)
         case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
         case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
         case .edition: KeyPathComparator(\.editionSortKey, comparator: text, order: order)
@@ -337,6 +344,13 @@ extension LibraryItem {
         }
     }
 
+    public var pagesSortKey: Int {
+        switch self {
+        case .book(let row): row.pagesSortKey
+        case .series(let group): group.totalPages ?? 0
+        }
+    }
+
     public var dateAddedSortKey: Date {
         switch self {
         case .book(let row): row.dateAddedSortKey
@@ -385,6 +399,7 @@ extension BookSortKey {
         case .series: KeyPathComparator(\.seriesSortKey, comparator: text, order: order)
         case .formats: KeyPathComparator(\.formatsSortKey, order: order)
         case .length: KeyPathComparator(\.lengthSortKey, order: order)
+        case .pages: KeyPathComparator(\.pagesSortKey, order: order)
         case .dateAdded: KeyPathComparator(\.dateAddedSortKey, order: order)
         case .status: KeyPathComparator(\.statusSortKey, comparator: text, order: order)
         case .edition: KeyPathComparator(\.editionSortKey, comparator: text, order: order)

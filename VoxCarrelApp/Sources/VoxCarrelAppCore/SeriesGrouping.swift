@@ -49,6 +49,12 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
         return lengths.isEmpty ? nil : lengths.reduce(0, +)
     }
 
+    /// The pages of the books that have a page count, together; nil when none has.
+    public var totalPages: Int? {
+        let pages = books.compactMap(\.book.pageCount).filter { $0 > 0 }
+        return pages.isEmpty ? nil : pages.reduce(0, +)
+    }
+
     /// The total as a book's length is written; empty when no book has a length.
     public var lengthText: String {
         LengthText.text(seconds: totalSeconds) ?? ""
@@ -124,7 +130,7 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
             length: totalSeconds, added: newestAdded,
             statusRank: books.map { BookSort.statusRank($0.book.readStatus) }.min() ?? 0,
             editionRank: books.compactMap(BookSort.editionRank).min(),
-            firstGenre: books.first?.book.genres.first)
+            firstGenre: books.first?.book.genres.first, pages: totalPages)
     }
 }
 

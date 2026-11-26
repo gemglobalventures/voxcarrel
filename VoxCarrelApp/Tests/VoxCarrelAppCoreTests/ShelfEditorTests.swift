@@ -45,6 +45,30 @@ import VoxCarrelCore
     }
 
     /// SH20: each kind of condition begins with a sensible value, in words the sheet shows.
+    /// Pages: fewer or more than a number of them, in steps of fifty.
+    @Test func SH20b_pagesAreFewerOrMoreThanANumber() async throws {
+        let h = try await Harness.demo()
+        let editor = try await newEditor(h)
+        editor.addCondition(.pages)
+        var pages = try row(editor, .pages)
+        #expect(ShelfConditionKind.pages.title == "Pages")
+        #expect(pages.choices.map(\.title) == ["Fewer than", "More than"])
+        #expect(pages.showsNumber && !pages.showsText && pages.numberIsWhole && pages.numberStep == 50)
+        #expect(pages.number == 300 && pages.unit == "pages" && pages.condition == .fewerPagesThan(300))
+        editor.setChoice(pages.choices[1].id, for: pages.id)
+        editor.setNumber(1, for: pages.id)
+        pages = try row(editor, .pages)
+        #expect(pages.condition == .morePagesThan(1) && pages.unit == "page")
+        // Out of range, or not whole: brought to what is allowed.
+        editor.setNumber(0.4, for: pages.id)
+        #expect(try row(editor, .pages).condition == .morePagesThan(1))
+        editor.setNumber(250.6, for: pages.id)
+        #expect(try row(editor, .pages).condition == .morePagesThan(251))
+        // A stored condition comes back as the same row.
+        let stored = ShelfConditionRow(id: 9, condition: .fewerPagesThan(120)) { _ in [] }
+        #expect(stored.kind == .pages && stored.number == 120 && stored.condition == .fewerPagesThan(120))
+    }
+
     @Test func SH20_aNewConditionHasASensibleValue() async throws {
         let h = try await Harness.demo()
         let editor = try await newEditor(h)

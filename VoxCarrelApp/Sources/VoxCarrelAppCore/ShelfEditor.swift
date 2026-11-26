@@ -5,7 +5,7 @@ import VoxCarrelCore
 /// What a condition of a smart shelf is about. One kind may stand for two of the
 /// engine's conditions: Length is "shorter than" or "longer than".
 public enum ShelfConditionKind: String, CaseIterable, Identifiable, Sendable {
-    case format, status, genre, genreGroup, author, narrator, series, tag, rating, length, year, added, onAudible
+    case format, status, genre, genreGroup, author, narrator, series, tag, rating, length, pages, year, added, onAudible
     case inASeries
 
     public var id: String { rawValue }
@@ -23,6 +23,7 @@ public enum ShelfConditionKind: String, CaseIterable, Identifiable, Sendable {
         case .tag: "Tag"
         case .rating: "Rating"
         case .length: "Length"
+        case .pages: "Pages"
         case .year: "Year"
         case .added: "Added"
         case .onAudible: "On Audible"
@@ -72,6 +73,8 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         static let unrated = "unrated"
         static let shorter = "shorter"
         static let longer = "longer"
+        static let fewer = "fewer"
+        static let more = "more"
         static let from = "from"
         static let to = "to"
         static let yes = "yes"
@@ -93,6 +96,7 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         case .genre, .author, .narrator, .series, .tag: break
         case .rating: (choice, number) = (Choice.atLeast, 4)
         case .length: (choice, number) = (Choice.shorter, 6)
+        case .pages: (choice, number) = (Choice.fewer, 300)
         case .year: (choice, number) = (Choice.from, 2000)
         case .added: number = 30
         case .onAudible, .inASeries: choice = Choice.yes
@@ -121,6 +125,8 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         case .unrated: self = row(.rating, choice: Choice.unrated)
         case .shorterThan(let hours): self = row(.length, choice: Choice.shorter, number: hours)
         case .longerThan(let hours): self = row(.length, choice: Choice.longer, number: hours)
+        case .fewerPagesThan(let pages): self = row(.pages, choice: Choice.fewer, number: Double(pages))
+        case .morePagesThan(let pages): self = row(.pages, choice: Choice.more, number: Double(pages))
         case .yearFrom(let year): self = row(.year, choice: Choice.from, number: Double(year))
         case .yearTo(let year): self = row(.year, choice: Choice.to, number: Double(year))
         case .addedWithin(let days): self = row(.added, number: Double(days))
@@ -145,6 +151,8 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         case .rating: [ShelfChoice(id: Choice.atLeast, title: "Rated"), ShelfChoice(id: Choice.unrated, title: "Not rated")]
         case .length:
             [ShelfChoice(id: Choice.shorter, title: "Shorter than"), ShelfChoice(id: Choice.longer, title: "Longer than")]
+        case .pages:
+            [ShelfChoice(id: Choice.fewer, title: "Fewer than"), ShelfChoice(id: Choice.more, title: "More than")]
         case .year: [ShelfChoice(id: Choice.from, title: "From"), ShelfChoice(id: Choice.to, title: "Up to")]
         case .onAudible:
             [ShelfChoice(id: Choice.yes, title: "On Audible"), ShelfChoice(id: Choice.no, title: "Not on Audible")]
@@ -164,7 +172,7 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
     public var showsNumber: Bool {
         switch kind {
         case .rating: choice == Choice.atLeast
-        case .length, .year, .added: true
+        case .length, .pages, .year, .added: true
         default: false
         }
     }
@@ -179,6 +187,7 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         switch kind {
         case .rating: number == 1 ? "star or more" : "stars or more"
         case .length: number == 1 ? "hour" : "hours"
+        case .pages: number == 1 ? "page" : "pages"
         case .added: number == 1 ? "day" : "days"
         default: ""
         }
@@ -189,6 +198,7 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         switch kind {
         case .rating: 1...5
         case .length: 0.25...1000
+        case .pages: 1...100_000
         case .year: 1...9999
         default: 1...36_500
         }
@@ -196,7 +206,11 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
 
     /// How far a step of the number's stepper goes.
     public var numberStep: Double {
-        kind == .length ? 0.5 : 1
+        switch kind {
+        case .length: 0.5
+        case .pages: 50
+        default: 1
+        }
     }
 
     /// Whether the number is a whole one: every number but a length in hours.
@@ -228,6 +242,7 @@ public struct ShelfConditionRow: Identifiable, Equatable, Sendable {
         case .rating: return choice == Choice.unrated ? .unrated : .ratingAtLeast(whole)
         case .length:
             return choice == Choice.longer ? .longerThan(hours: allowed(number)) : .shorterThan(hours: allowed(number))
+        case .pages: return choice == Choice.more ? .morePagesThan(whole) : .fewerPagesThan(whole)
         case .year: return choice == Choice.to ? .yearTo(whole) : .yearFrom(whole)
         case .added: return .addedWithin(days: whole)
         case .onAudible: return .onAudible(choice != Choice.no)

@@ -59,6 +59,7 @@ extension BookSortKey {
         case .series: "Series"
         case .formats: "Formats"
         case .length: "Length"
+        case .pages: "Pages"
         case .dateAdded: "Date Added"
         case .status: "Status"
         case .edition: "Edition"
