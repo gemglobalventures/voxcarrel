@@ -79,7 +79,7 @@ The books in these pictures are generated samples from the demo library.
 - **Convert to EPUB:** for a book whose ebook is MOBI, AZW3 or another older format, an EPUB is made and added beside the original, which is left as it is. This uses calibre's own converter, so it needs calibre installed.
 - **MP3 lengths are measured,** and a header that states the wrong length can be repaired so the file plays in full everywhere.
 - **Words and pages:** an EPUB's words are counted from its text, and its pages worked out from them at 300 words to a page. A PDF shows its own pages.
-- **A cover for every book:** a book with no cover is shown with one made for it, its title and author on a colour of its own, until it has a real one.
+- **A cover for every book:** a book with no cover is shown with one made for it, its title and author on a colour of its own, until it has a real one. If you like it, Save Made Cover into Book makes it the book's own cover, written into its files so it goes wherever the book goes.
 
 ### Series and what to read next
 
