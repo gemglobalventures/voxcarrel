@@ -58,7 +58,8 @@ extension LibraryService {
         // FP41
         var owners: FolderOwners?
         guard let folder = bookFolder(
-            for: book.metadata, hasAudio: files.contains { $0.role == .audio }, pattern: pattern),
+            for: book.metadata, hasAudio: files.contains { $0.role == .audio }, pattern: pattern,
+            titleSuffix: book.editionSuffix),
             isAnotherBooksFolder(folder, for: bookId, owners: &owners)
         else { return nil }
         return Self.folderTakenReason
@@ -66,6 +67,7 @@ extension LibraryService {
 
     /// What a book gives a folder pattern: its details, and whether any of its files is audio.
     static func patternValues(of book: Book, files: [BookFile]) -> FolderPatternValues {
-        FolderPatternValues(metadata: book.metadata, hasAudio: files.contains { $0.role == .audio })
+        FolderPatternValues(
+            metadata: book.metadata, hasAudio: files.contains { $0.role == .audio }, titleSuffix: book.editionSuffix)
     }
 }

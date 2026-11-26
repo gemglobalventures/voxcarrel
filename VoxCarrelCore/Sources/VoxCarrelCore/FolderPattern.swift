@@ -44,13 +44,18 @@ public struct FolderPatternValues: Equatable, Sendable {
 
     /// - Parameter hasAudio: Whether the book has any audio file (once the operation
     ///   asking is done): what `{Kind}` goes by.
-    public init(metadata: BookMetadata, hasAudio: Bool) {
+    ///   - titleSuffix: For an edition that shares its title with another edition of
+    ///     the same work: what follows the title, in brackets, wherever the pattern
+    ///     has the title ("Dune (German)").
+    public init(metadata: BookMetadata, hasAudio: Bool, titleSuffix: String? = nil) {
         func set(_ token: FolderToken, _ raw: String?) {
             let value = PathBuilder.sanitise(raw ?? "")
             if !value.isEmpty { values[token] = value }
         }
         set(.author, metadata.authors.first)
-        set(.title, metadata.title)
+        let suffix = titleSuffix?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let title = metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        set(.title, suffix.isEmpty || title.isEmpty ? metadata.title : "\(title) (\(suffix))")
         set(.series, metadata.series)
         // A number says nothing without the series it counts in.
         if values[.series] != nil { set(.number, metadata.seriesNumber) }

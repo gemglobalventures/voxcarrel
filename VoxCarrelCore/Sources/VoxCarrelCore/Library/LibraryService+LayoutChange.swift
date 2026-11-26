@@ -164,7 +164,8 @@ extension LibraryService {
             let fromKey = naming.key(from)
             folders[id] = fromKey
             guard let destination = bookFolder(
-                for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern, names: names),
+                for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern, names: names,
+                titleSuffix: book.editionSuffix),
                   var to = layout.relativeComponents(of: destination)
             else {
                 stays[id] = unfiledReason(

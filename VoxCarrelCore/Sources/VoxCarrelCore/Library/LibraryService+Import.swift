@@ -21,6 +21,8 @@ extension LibraryService {
             if let bookId = row.bookId { owners[Self.comparablePath(store.url(for: row))] = bookId }
         }
         var seen = Set<String>()
+        // For each book that gains another edition in this call, the work the two are of.
+        var editionKeys: [Int64: String] = [:]
         // Which book has which folder, kept up to date as this call files and moves
         // books: a book already in the library is never filed, or re-filed, into
         // another book's folder (FP41).
@@ -38,6 +40,26 @@ extension LibraryService {
                 let result = prepareNewBook(
                     item, options: options, pattern: pattern, owners: &folderOwners, into: &operation)
                 // A book of this call has no id yet: it holds its folder under a stand-in.
+                if case .imported(let index, _) = result, let path = operation.writes[index].book.folderPath {
+                    folderOwners?.set(folderKey(store.url(forFolder: path)), for: Int64(-1 - index))
+                }
+                return result
+            case .edition(let original):
+                guard let first = try? store.book(id: original) else {
+                    return .failed("The book this is another edition of is no longer in the library")
+                }
+                let key = first.workKey ?? editionKeys[original] ?? UUID().uuidString
+                editionKeys[original] = key
+                // What its folder is to say, worked out with the editions there are.
+                var prospective = Book(metadata: item.candidate.metadata)
+                prospective.id = -1
+                prospective.editionKind = Self.statedEditionKind(of: item.candidate)
+                let others = (try? BookScope.$visibleOnly.withValue(false) { try store.books() })?
+                    .filter { $0.id == original || (first.workKey != nil && $0.workKey == first.workKey) } ?? [first]
+                let suffix = Self.editionSuffixes(of: others + [prospective])[-1] ?? nil
+                let result = prepareNewBook(
+                    item, options: options, pattern: pattern, owners: &folderOwners, into: &operation,
+                    edition: (key, suffix))
                 if case .imported(let index, _) = result, let path = operation.writes[index].book.folderPath {
                     folderOwners?.set(folderKey(store.url(forFolder: path)), for: Int64(-1 - index))
                 }
@@ -68,6 +90,16 @@ extension LibraryService {
         }
 
         let books = try commit(operation, label: count == 1 ? "Import 1 book" : "Import \(count) books")
+        // The books that gained an edition are tied to it, and where they share its
+        // title their folders are named to tell them apart: an operation of its own,
+        // undone by itself.
+        for (original, key) in editionKeys.sorted(by: { $0.key < $1.key }) {
+            if (try? store.book(id: original))??.workKey == nil { try? store.setWorkKey(key, bookIds: [original]) }
+            nameEditionFolders(ofWork: key)
+            if let editions = try? store.books().filter({ $0.workKey == key }) {
+                refreshDetailsFiles(ofBooks: editions.compactMap(\.id))
+            }
+        }
         return ImportResult(outcomes: prepared.map { item in
             switch item {
             case .failed(let reason):
@@ -152,9 +184,11 @@ extension LibraryService {
 
     // MARK: A new book
 
+    /// - Parameter edition: For a book that is another edition of one in the library:
+    ///   the work the two are of, and what this one's folder says after its title.
     private func prepareNewBook(
         _ item: ImportItem, options: ImportOptions, pattern: FolderPattern, owners: inout FolderOwners?,
-        into operation: inout PendingOperation
+        into operation: inout PendingOperation, edition: (workKey: String, suffix: String?)? = nil
     ) -> PreparedItem {
         var candidate = item.candidate
         // G1: no genre twice, each spelled as the library's list has it.
@@ -181,13 +215,17 @@ extension LibraryService {
         }
 
         let sources = candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
-        guard let plan = filingPlan(for: sources, metadata: candidate.metadata, pattern: pattern) else {
+        guard let plan = filingPlan(
+            for: sources, metadata: candidate.metadata, pattern: pattern, titleSuffix: edition?.suffix)
+        else {
             // I2: cannot be filed. Catalogued where it is; no file is moved or written,
             // so the reviewed text lives in the database only.
             if case .set = item.cover {
                 for index in files.indices { files[index].holdsCover = false }
             }
             var book = Book(metadata: metadata, folderPath: nil, needsAttention: true)
+            book.workKey = edition?.workKey
+            book.editionSuffix = edition?.suffix
             book.editionKind = Self.statedEditionKind(of: candidate)
             book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
             book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)
@@ -235,6 +273,8 @@ extension LibraryService {
         }
 
         var book = Book(metadata: metadata, folderPath: store.storedPath(for: plan.folder))
+        book.workKey = edition?.workKey
+        book.editionSuffix = edition?.suffix
         book.editionKind = Self.statedEditionKind(of: candidate)
         book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
         book.appOnlyFields = Self.appOnlyFields(files: files, hasStoredCover: storedCover != nil)  // I9
@@ -307,10 +347,13 @@ extension LibraryService {
         if hadAudio != hasAudio {
             func filed(_ audio: Bool) -> String? {
                 PathBuilder.bookFolder(
-                    values: FolderPatternValues(metadata: book.metadata, hasAudio: audio), pattern: pattern)
+                    values: FolderPatternValues(
+                        metadata: book.metadata, hasAudio: audio, titleSuffix: book.editionSuffix),
+                    pattern: pattern)
             }
             if let now = filed(hasAudio), now != filed(hadAudio),
-               let target = bookFolder(for: book.metadata, hasAudio: hasAudio, pattern: pattern) {
+               let target = bookFolder(
+                   for: book.metadata, hasAudio: hasAudio, pattern: pattern, titleSuffix: book.editionSuffix) {
                 if isAnotherBooksFolder(target, for: bookId, owners: &owners) {
                     folderTaken = true
                 } else {

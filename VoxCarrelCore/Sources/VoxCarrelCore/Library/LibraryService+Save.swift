@@ -110,7 +110,7 @@ extension LibraryService {
         let current = rows.map { FilingSource(url: store.url(for: $0), role: $0.role) }
         var moves: [(index: Int, move: PlannedMove)] = []
         var folderPath = book.folderPath
-        let plan = filingPlan(for: current, metadata: metadata, pattern: pattern)
+        let plan = filingPlan(for: current, metadata: metadata, pattern: pattern, titleSuffix: edit.editionSuffix)
         // FP41: the folder the book would be filed in is another book's.
         var folderTaken = false
         if let plan {
@@ -143,7 +143,7 @@ extension LibraryService {
         }
 
         if !writesTags, moves.isEmpty, edit.tags == book.tags, edit.rating == book.rating,
-           edit.editionKind == book.editionKind,
+           edit.editionKind == book.editionKind, edit.editionSuffix == book.editionSuffix,
            needsAttention == book.needsAttention, folderPath == book.folderPath {
             return .unchanged(Set(book.appOnlyFields))
         }
@@ -195,6 +195,7 @@ extension LibraryService {
             updated.appOnlyFields = fields
         }
         updated.metadata = metadata
+        updated.editionSuffix = edit.editionSuffix
         if writesTags { updated.genreTag = Self.genreTag(after: files, of: updated, recorded: book.genreTag) }
         // The length is not editable, but what the files were just read to hold counts.
         if writesTags { updated.durationSeconds = Self.remeasuredDuration(files, recorded: book.durationSeconds) }
@@ -231,7 +232,7 @@ extension LibraryService {
         metadata.durationSeconds = book.durationSeconds
         metadata.pageCount = book.pageCount
         if metadata == book.metadata, edit.cover == .keep, edit.tags == book.tags, edit.rating == book.rating,
-           edit.editionKind == book.editionKind {
+           edit.editionKind == book.editionKind, edit.editionSuffix == book.editionSuffix {
             return .unchanged([])
         }
 
@@ -245,6 +246,7 @@ extension LibraryService {
 
         var updated = book
         updated.metadata = metadata
+        updated.editionSuffix = edit.editionSuffix
         Self.keepAudibleIdInStep(&updated, asinBefore: book.asin)
         updated.tags = edit.tags
         updated.rating = edit.rating

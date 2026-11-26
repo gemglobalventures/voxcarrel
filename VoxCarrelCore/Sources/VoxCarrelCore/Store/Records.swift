@@ -206,6 +206,11 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     /// same key are editions of one work. Nil for a book that stands alone. Kept in
     /// the catalogue and in the details file beside the book, never in a file's tags.
     public var workKey: String? = nil
+    /// For an edition that shares its title with another edition of the same work:
+    /// what its folder's name says after the title, in brackets, to tell the two
+    /// apart ("German", "read by Scott Brick"). Nil for any other book. Worked out
+    /// when editions are linked; never written into a file's tags.
+    public var editionSuffix: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, authors, narrators, series, seriesNumber, genres, genreSource, genreTag
@@ -213,7 +218,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         case language, isbn, asin, durationSeconds, pageCount, wordCount, tags, rating, folderPath, needsAttention, isHidden
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
-        case editionKind, partsAppearMissing, workKey
+        case editionKind, partsAppearMissing, workKey, editionSuffix
     }
 
     /// True when the book is owned somewhere other than as files in the library.
@@ -326,6 +331,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         editionKind = (try? c.decodeIfPresent(EditionKindNote.self, forKey: .editionKind)) ?? nil
         partsAppearMissing = (try? c.decodeIfPresent(Bool.self, forKey: .partsAppearMissing)) ?? false
         workKey = (try? c.decodeIfPresent(String.self, forKey: .workKey)) ?? nil
+        editionSuffix = (try? c.decodeIfPresent(String.self, forKey: .editionSuffix)) ?? nil
     }
 
     /// The descriptive fields as one value.

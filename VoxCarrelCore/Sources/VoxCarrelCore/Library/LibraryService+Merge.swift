@@ -371,7 +371,8 @@ extension LibraryService {
         work.folder = current
         let pattern = try folderPattern()
         if let wanted = bookFolder(
-            for: merged.metadata, hasAudio: all.contains { $0.role == .audio }, pattern: pattern) {
+            for: merged.metadata, hasAudio: all.contains { $0.role == .audio }, pattern: pattern,
+            titleSuffix: merged.editionSuffix) {
             // The entries being merged away are becoming this book: their folders are no one else's.
             var owners: FolderOwners? = try folderOwners()
             for other in others {
@@ -707,7 +708,8 @@ extension LibraryService {
         let files = try store.files(bookId: bookId)
         guard !files.isEmpty,
               let folder = bookFolder(
-                  for: book.metadata, hasAudio: files.contains { $0.role == .audio }, pattern: try folderPattern()),
+                  for: book.metadata, hasAudio: files.contains { $0.role == .audio }, pattern: try folderPattern(),
+                  titleSuffix: book.editionSuffix),
               let key = folderKey(folder)
         else { return nil }
         let owners = try folderOwners()

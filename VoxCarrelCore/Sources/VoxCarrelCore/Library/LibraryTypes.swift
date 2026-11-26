@@ -12,6 +12,11 @@ public enum ImportTarget: Equatable, Sendable {
     case newBook
     /// Add the candidate's files to a book already in the library.
     case existing(bookId: Int64)
+    /// A new book that is another edition of one already in the library: the same
+    /// book in another language, read by someone else, or as a dramatisation. It is
+    /// an entry of its own, tied to that book as one work, and where the two share a
+    /// title each is filed in a folder that says what sets it apart.
+    case edition(of: Int64)
 }
 
 /// One reviewed candidate, ready to import.
@@ -68,6 +73,9 @@ public struct BookEdit: Sendable {
     /// Whether the audiobook is unabridged, abridged or a dramatisation; nil for not
     /// known. Saved in the catalogue only: it is never written into a file.
     public var editionKind: EditionKindNote?
+    /// What the book's folder says after its title to tell it from another edition
+    /// (`Book.editionSuffix`). Changing it re-files the book; no file's tags change.
+    public var editionSuffix: String?
 
     /// Starts from the book's current values, so a caller changes only what it means to.
     public init(book: Book, cover: CoverChange = .keep) {
@@ -78,6 +86,7 @@ public struct BookEdit: Sendable {
         self.tags = book.tags
         self.rating = book.rating
         self.editionKind = book.editionKind
+        self.editionSuffix = book.editionSuffix
     }
 }
 

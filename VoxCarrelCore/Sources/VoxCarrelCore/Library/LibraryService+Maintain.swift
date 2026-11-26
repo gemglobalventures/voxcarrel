@@ -70,7 +70,8 @@ extension LibraryService {
         // stays where it is, its files as they are named, and is flagged.
         var folderTaken = false
         if book.folderPath != nil,
-           let plan = filingPlan(for: sources, metadata: book.metadata, pattern: pattern) {
+           let plan = filingPlan(
+               for: sources, metadata: book.metadata, pattern: pattern, titleSuffix: book.editionSuffix) {
             var owners: FolderOwners?
             if !plan.moves.isEmpty, isAnotherBooksFolder(plan.folder, for: bookId, owners: &owners) {
                 folderTaken = true
@@ -661,7 +662,8 @@ extension LibraryService {
         }
         if book.needsAttention, book.folderPath != nil, let pattern = pattern ?? (try? folderPattern()),
            let folder = bookFolder(
-               for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern),
+               for: book.metadata, hasAudio: rows.contains { $0.role == .audio }, pattern: pattern,
+               titleSuffix: book.editionSuffix),
            // FP41: still flagged while the folder it belongs in is another book's.
            !isAnotherBooksFolder(folder, for: book.id, owners: &owners) {
             return .recovered

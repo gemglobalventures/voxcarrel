@@ -59,9 +59,10 @@ extension LibraryService {
     ///   - names: For a caller that asks about many books while nothing on disk
     ///     changes: what the folders hold is then looked up once.
     func bookFolder(
-        for metadata: BookMetadata, hasAudio: Bool, pattern: FolderPattern, names: FolderNames? = nil
+        for metadata: BookMetadata, hasAudio: Bool, pattern: FolderPattern, names: FolderNames? = nil,
+        titleSuffix: String? = nil
     ) -> URL? {
-        let values = FolderPatternValues(metadata: metadata, hasAudio: hasAudio)
+        let values = FolderPatternValues(metadata: metadata, hasAudio: hasAudio, titleSuffix: titleSuffix)
         guard let relative = PathBuilder.bookFolder(values: values, pattern: pattern),
               !isNeededByTheLibrary(relative)
         else { return nil }
@@ -76,9 +77,12 @@ extension LibraryService {
     /// As `filingPlan(for:title:folder:)`, in the folder `pattern` files a book with
     /// this metadata and these files in (`files` is the whole book as it will be, so it
     /// says whether the book has audio). Nil when the book cannot be filed.
-    func filingPlan(for files: [FilingSource], metadata: BookMetadata, pattern: FolderPattern) -> FilingPlan? {
+    func filingPlan(
+        for files: [FilingSource], metadata: BookMetadata, pattern: FolderPattern, titleSuffix: String? = nil
+    ) -> FilingPlan? {
         let hasAudio = files.contains { $0.role == .audio }
-        guard let folder = bookFolder(for: metadata, hasAudio: hasAudio, pattern: pattern) else { return nil }
+        guard let folder = bookFolder(for: metadata, hasAudio: hasAudio, pattern: pattern, titleSuffix: titleSuffix)
+        else { return nil }
         return filingPlan(for: files, title: metadata.title, folder: folder)
     }
 

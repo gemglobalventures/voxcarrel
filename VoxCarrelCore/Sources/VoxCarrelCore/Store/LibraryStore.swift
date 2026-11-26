@@ -417,6 +417,13 @@ public final class LibraryStore: Sendable {
                 t.add(column: "wordCount", .integer)
             }
         }
+        migrator.registerMigration("v23") { db in
+            // What is added to the title in an edition's folder name to tell it from
+            // another edition of the same title: "German", "read by Scott Brick".
+            try db.alter(table: "book") { t in
+                t.add(column: "editionSuffix", .text)
+            }
+        }
         migrator.registerMigration("v22") { db in
             // Which work an entry is an edition of: entries with the same key are
             // editions of one book (another language, another reading of it).

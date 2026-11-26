@@ -30,7 +30,71 @@ extension LibraryService {
             }
         }
         try store.setWorkKey(key, bookIds: all.sorted())
+        nameEditionFolders(ofWork: key)
         refreshDetailsFiles(ofBooks: all.sorted())
+    }
+
+    // MARK: Folders
+
+    /// What an edition's folder could say after its title to tell it from another, the
+    /// surest first: its language, that it is abridged or a dramatisation, who reads it.
+    static func editionLabels(of book: Book) -> [String] {
+        func said(_ text: String?) -> String? {
+            guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+        var labels: [String] = []
+        if let language = said(book.language) {
+            labels.append(Locale(identifier: "en").localizedString(forIdentifier: language) ?? language)
+        }
+        switch book.editionKind?.kind {
+        case .abridged: labels.append("abridged")
+        case .dramatised: labels.append("dramatisation")
+        default: break
+        }
+        if let narrator = said(book.narrators.first) { labels.append("read by \(narrator)") }
+        return labels
+    }
+
+    /// What each edition's folder is to say after its title: for an edition that
+    /// shares its title and first author with another edition of the work, the first
+    /// thing about it that none of those others shares; nil for one whose title is its
+    /// own, and for one that nothing tells apart.
+    static func editionSuffixes(of editions: [Book]) -> [Int64: String?] {
+        func key(_ book: Book) -> String {
+            LookupText.comparable(book.title).joined(separator: " ") + "|" + KnownNames.authorKey(book.authors.first ?? "")
+        }
+        var suffixes: [Int64: String?] = [:]
+        for book in editions {
+            guard let id = book.id else { continue }
+            let alike = editions.filter { $0.id != id && key($0) == key(book) }
+            guard !alike.isEmpty else {
+                suffixes[id] = .some(nil)
+                continue
+            }
+            let taken = Set(alike.flatMap { editionLabels(of: $0).map { $0.lowercased() } })
+            suffixes[id] = .some(editionLabels(of: book).first { !taken.contains($0.lowercased()) })
+        }
+        return suffixes
+    }
+
+    /// Gives each edition of a work the folder its suffix calls for, as a save would:
+    /// the folders are moved, the catalogue follows, and Undo puts them back. An
+    /// edition that cannot be filed stays where it is, flagged, as any book would.
+    /// Nothing here can fail the linking or unlinking that asked for it.
+    func nameEditionFolders(ofWork key: String, alsoClearing loose: [Int64] = []) {
+        guard let everyBook = try? BookScope.$visibleOnly.withValue(false, operation: { try store.books() }) else { return }
+        let editions = everyBook.filter { $0.workKey == key }
+        var wanted = Self.editionSuffixes(of: editions)
+        for id in loose { wanted[id] = .some(nil) }
+        let edits = everyBook.compactMap { book -> BookEdit? in
+            guard let id = book.id, let suffix = wanted[id], suffix != book.editionSuffix else { return nil }
+            var edit = BookEdit(book: book)
+            edit.editionSuffix = suffix
+            return edit
+        }
+        guard !edits.isEmpty else { return }
+        _ = try? save(edits)
     }
 
     /// Unties a book from the other editions it was tied to. An edition left alone by
@@ -45,7 +109,9 @@ extension LibraryService {
             try store.setWorkKey(nil, bookIds: [last])
             changed.append(last)
         }
-        refreshDetailsFiles(ofBooks: changed)
+        // Those that leave the work lose their suffix; those that stay are named afresh.
+        nameEditionFolders(ofWork: key, alsoClearing: changed)
+        refreshDetailsFiles(ofBooks: changed + rest.compactMap(\.id))
     }
 
     /// The other editions of this book that the library has, by title then id. Empty
