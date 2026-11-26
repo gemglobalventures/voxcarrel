@@ -21,7 +21,7 @@ The books in these pictures are generated samples from the demo library.
 
 ## Download
 
-Test releases are on the [releases page](https://github.com/gemglobalventures/voxcarrel/releases). They need macOS 15 or later.
+Test releases are on the [releases page](https://github.com/gemglobalventures/voxcarrel/releases). They need macOS 15 or later. The website, [voxcarrel.com](https://voxcarrel.com), has the same steps with more about what to try first, and the roadmap.
 
 1. Download the newest `VoxCarrel-x.y.z.zip`, open it, and move VoxCarrel to your Applications folder.
 2. Open it. macOS will say it cannot check the app, because test releases are not yet signed with an Apple Developer ID.
