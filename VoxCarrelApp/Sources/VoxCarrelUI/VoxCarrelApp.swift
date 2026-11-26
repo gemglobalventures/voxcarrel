@@ -55,6 +55,7 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         // The standard Undo and Redo stay: they belong to whatever text field is being typed in.
+        CommandGroup(after: .appInfo) { ExtensionAppCommandItems(model: model) }
         CommandGroup(after: .undoRedo) { UndoCommand(model: model) }
         CommandGroup(replacing: .newItem) { ImportCommand(model: model) }
         CommandGroup(replacing: .saveItem) { SaveCommand(model: model) }
@@ -76,6 +77,21 @@ struct AppCommands: Commands {
             Button("Export Diagnostics…") { Panels.exportDiagnostics(for: model) }
                 .disabled(!model.canExportDiagnostics)
                 .accessibilityIdentifier("menu.help.exportDiagnostics")
+        }
+    }
+}
+
+/// What extensions add to the app's own menu, under About. Nothing when there are none.
+private struct ExtensionAppCommandItems: View {
+    let model: AppModel
+
+    var body: some View {
+        ForEach(model.extensionAppCommands) { item in
+            Button(item.title) {
+                model.performExtensionAppCommand(item.id)
+            }
+            .disabled(!item.isEnabled)
+            .accessibilityIdentifier("menu.app.\(item.id)")
         }
     }
 }

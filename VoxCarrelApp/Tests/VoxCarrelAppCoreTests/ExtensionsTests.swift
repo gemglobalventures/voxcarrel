@@ -46,6 +46,32 @@ import VoxCarrelFixtures
 
     // MARK: Book commands
 
+    // EX7: a command added to the app's own menu is shown by its title, enabled by its
+    // own answer each time it is asked, and run only while it is enabled. It needs no library.
+    @Test func EX7_anAppCommandIsShownEnabledByItsOwnAnswerAndRunOnlyThen() async throws {
+        let h = try await Harness.demo(start: false)
+        let extensions = AppExtensions()
+        var allowed = false
+        var runs = 0
+        extensions.appCommands.append(
+            ExtensionAppCommand(id: "tidy", title: "Tidy Up…", isEnabled: { allowed }, perform: { runs += 1 }))
+        extensions.appCommands.append(ExtensionAppCommand(id: "always", title: "Always", perform: {}))
+        let model = h.relaunched(extensions: extensions)
+        #expect(model.extensionAppCommands == [
+            ExtensionCommandItem(id: "tidy", title: "Tidy Up…", isEnabled: false),
+            ExtensionCommandItem(id: "always", title: "Always", isEnabled: true),
+        ])
+        model.performExtensionAppCommand("tidy")
+        #expect(runs == 0)
+        allowed = true
+        #expect(model.extensionAppCommands.first?.isEnabled == true)
+        model.performExtensionAppCommand("tidy")
+        model.performExtensionAppCommand("no such command")
+        #expect(runs == 1)
+        // With none added, the menu has nothing more.
+        #expect(h.model.extensionAppCommands.isEmpty)
+    }
+
     @Test func EX2_aBookCommandIsShownEnabledByItsOwnAnswerAndRunWithTheBooks() async throws {
         let h = try await Harness.demo()
         let one = try h.ids(["The Lighthouse Keeper"])

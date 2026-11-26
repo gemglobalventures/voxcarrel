@@ -122,6 +122,30 @@ public struct ExtensionSettingsPane: Identifiable {
     }
 }
 
+// MARK: App commands
+
+/// A command an extension adds to the app's own menu, under About: something of the
+/// app as a whole, not of a book or a library.
+public struct ExtensionAppCommand: Identifiable {
+    /// What the command is known by. It is also the end of the accessibility identifier
+    /// of its menu item: "menu.app.<id>".
+    public let id: String
+    public let title: String
+    /// Asked each time the menu is drawn.
+    public let isEnabled: @MainActor () -> Bool
+    public let perform: @MainActor () -> Void
+
+    public init(
+        id: String, title: String, isEnabled: @escaping @MainActor () -> Bool = { true },
+        perform: @escaping @MainActor () -> Void
+    ) {
+        self.id = id
+        self.title = title
+        self.isEnabled = isEnabled
+        self.perform = perform
+    }
+}
+
 // MARK: The container
 
 /// Everything that has been added to the app. It is filled in before the app starts and
@@ -141,6 +165,8 @@ public final class AppExtensions {
     public var sheetViews: [@MainActor (any ExtensionSheet) -> AnyView?] = []
     /// The tabs added to the Settings window, in this order.
     public var settingsPanes: [ExtensionSettingsPane] = []
+    /// The commands added to the app's own menu, under About, in this order.
+    public var appCommands: [ExtensionAppCommand] = []
     /// Called once the model exists, so an extension can keep a reference or set itself up.
     public var onStart: [@MainActor (AppModel) -> Void] = []
 
@@ -156,6 +182,20 @@ public final class AppExtensions {
 // MARK: What the model does with them
 
 extension AppModel {
+    // MARK: App commands
+
+    /// The extension commands of the app's own menu, as the menu shows them, in the
+    /// order they were added. Empty when there are none: the menu then shows nothing more.
+    public var extensionAppCommands: [ExtensionCommandItem] {
+        extensions.appCommands.map { ExtensionCommandItem(id: $0.id, title: $0.title, isEnabled: $0.isEnabled()) }
+    }
+
+    /// Carries out the app command with this id, when there is one and it is enabled.
+    public func performExtensionAppCommand(_ id: String) {
+        guard let command = extensions.appCommands.first(where: { $0.id == id }), command.isEnabled() else { return }
+        command.perform()
+    }
+
     // MARK: Book commands
 
     /// EX2: the extension commands for these books, as a menu shows them, in the order
