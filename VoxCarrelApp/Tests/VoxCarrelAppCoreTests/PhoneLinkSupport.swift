@@ -184,15 +184,17 @@ final class LinkEvents {
 }
 
 /// A plain TCP connection to the loopback address, made with the system calls themselves
-/// so that a test can send anything at all. Every wait has a limit of 30 seconds.
+/// so that a test can send anything at all. Every wait has a limit (`limitSeconds`).
 final class RawConnection: @unchecked Sendable {
     private let descriptor: Int32
     private let lock = NSLock()
     private var isClosed = false
+    /// How long a read or a send waits before it gives up.
+    static let limitSeconds = 120
     private static let work = DispatchQueue(label: "RawConnection", attributes: .concurrent)
     private static let failure = OSAllocatedUnfairLock(initialState: Int32(0))
     private static let silent = OSAllocatedUnfairLock(initialState: Set<Int>())
-    /// The ports on which a read gave up after 30 seconds of nothing: the other side
+    /// The ports on which a read gave up after waiting its limit with nothing: the other side
     /// neither sent nor closed. No test expects that.
     static var portsThatSaidNothing: Set<Int> { silent.withLock { $0 } }
     private static let silences = OSAllocatedUnfairLock(initialState: [Int: [String]]())
@@ -216,7 +218,12 @@ final class RawConnection: @unchecked Sendable {
         }
         var on: Int32 = 1
         setsockopt(made, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-        var limit = timeval(tv_sec: 30, tv_usec: 0)
+        // Long, because it is not only the server that is waited for. These tests run
+        // on the main actor, and in a full run a test can wait its turn there for many
+        // seconds between two of its own steps (25 were measured, 2026-11-26), with a
+        // read already begun on a thread of its own. At 30 seconds such a read now and
+        // then gave up before the test had asked the server for what would end it.
+        var limit = timeval(tv_sec: Self.limitSeconds, tv_usec: 0)
         setsockopt(made, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(made, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
         let result: Int32
@@ -310,13 +317,27 @@ final class RawConnection: @unchecked Sendable {
     }
 
     /// Reads exactly `count` bytes, or fewer when the other side closes, fails or says
-    /// nothing for 30 seconds.
+    /// nothing within the limit.
     func read(_ count: Int) async -> [UInt8] {
         await read(upTo: count).bytes
     }
 
     /// Reads until the other side closes: `closedCleanly` is false when the connection
-    /// was cut instead, or nothing came for 30 seconds.
+    /// was cut instead, or nothing came within the limit.
+    /// Reads to the end, and says how long the read itself waited on the socket: the
+    /// time from when it began on its own thread, so that a wait for a thread to run
+    /// on is not counted.
+    func timedReadToEnd() async -> (bytes: [UInt8], closedCleanly: Bool, waited: Duration) {
+        let descriptor = descriptor
+        let port = port
+        return await onWorkQueue {
+            let clock = ContinuousClock()
+            let began = clock.now
+            let read = Self.read(upTo: .max, on: descriptor, port: port)
+            return (read.bytes, read.closedCleanly, clock.now - began)
+        }
+    }
+
     func readToEnd() async -> (bytes: [UInt8], closedCleanly: Bool) {
         await read(upTo: .max)
     }

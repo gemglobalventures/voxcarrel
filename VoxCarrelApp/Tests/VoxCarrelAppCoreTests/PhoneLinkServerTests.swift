@@ -849,10 +849,10 @@ private func readHead(_ connection: RawConnection) async -> String {
             let link = try Link()
             let late = try #require(RawConnection(port: link.port))
             link.server?.stop()
-            let clock = ContinuousClock()
-            let began = clock.now
-            let rest = await late.readToEnd()
-            slowest = max(slowest, clock.now - began)
+            // The read's own wait on the socket: how long this test waits its turn to
+            // go on is no part of it.
+            let rest = await late.timedReadToEnd()
+            slowest = max(slowest, rest.waited)
             #expect(rest.bytes.isEmpty)
             late.close()
             await link.end()
