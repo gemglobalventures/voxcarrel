@@ -76,7 +76,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 - **Read status, tags, ratings and collections.**
 - **Hide books** you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password.
 - **A check of the library at launch**, and **undo** for the last operation.
-- **Leave as cleanly as you came:** every filed book has a standard `metadata.opf` beside it, kept in step with what you edit, as well as the details inside its files. Another library manager can pick the library up as it stands.
+- **Leave as cleanly as you came:** every filed book has a standard `metadata.opf` beside it, kept in step with what you edit, as well as the details inside its files. Another library manager can pick the library up as it stands. An audiobook also has the `metadata.json` that Audiobookshelf reads, so the library folder can be added to an Audiobookshelf server with its titles, authors, narrators and series as they are here.
 
 <details>
 <summary>More about organising</summary>

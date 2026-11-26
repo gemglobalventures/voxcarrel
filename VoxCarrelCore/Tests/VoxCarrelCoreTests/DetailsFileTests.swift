@@ -3,7 +3,8 @@ import Testing
 @testable import VoxCarrelCore
 import VoxCarrelFixtures
 
-/// DF1–DF12: the details file (`metadata.opf`) kept beside each filed book.
+/// DF1–DF16: the details files (`metadata.opf`, and `metadata.json` for an audiobook)
+/// kept beside each filed book.
 @Suite struct DetailsFileTests {
     typealias F = LibraryFixture
 
@@ -227,5 +228,109 @@ import VoxCarrelFixtures
         #expect(try read(try detailsFile(f, id)).contains("<dc:subject>Road Stories</dc:subject>"))
         try f.service.renameGenre(name, to: "Road Tales")
         #expect(try read(try detailsFile(f, id)).contains("<dc:subject>Road Tales</dc:subject>"))
+    }
+
+    // MARK: The audiobook's details file
+
+    private func audiobookFile(_ f: F, _ id: Int64) throws -> URL {
+        let book = try #require(try f.store.book(id: id))
+        return f.store.url(forFolder: try #require(book.folderPath)).appendingPathComponent("metadata.json")
+    }
+
+    private func jsons(_ f: F) -> [String] {
+        treeWithDetailsFiles(f.root).filter { $0.hasSuffix("metadata.json") }
+    }
+
+    private func details(_ file: URL) throws -> [String: Any] {
+        try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+    }
+
+    // DF13: an audiobook has the details file Audiobookshelf reads beside it, saying
+    // what the book is in that program's own terms.
+    @Test func DF13_anAudiobookHasItsDetailsAsAudiobookshelfReadsThem() throws {
+        let f = try F()
+        let id = try imported(f)
+        var edit = BookEdit(book: try #require(try f.store.book(id: id)))
+        edit.metadata.series = "Tidewater"
+        edit.metadata.seriesNumber = "2"
+        edit.metadata.narrators = ["Nell Reader"]
+        _ = try f.service.save([edit])
+        let book = try #require(try f.store.book(id: id))
+        let file = try audiobookFile(f, id)
+        let read = try details(file)
+        #expect(read["title"] as? String == book.title && read["authors"] as? [String] == book.authors)
+        #expect(read["series"] as? [String] == ["Tidewater #2"] && read["narrators"] as? [String] == ["Nell Reader"])
+        #expect(read["publishedYear"] as? String == book.year.map(String.init))
+        #expect(read["publisher"] as? String == book.publisher && read["language"] as? String == book.language)
+        #expect(read["isbn"] as? String == book.isbn && read["asin"] as? String == book.asin)
+        // Nothing of its chapters: those are read from the audio.
+        #expect(read["chapters"] == nil)
+        #expect(DetailsFile.isOurs(at: file))
+        // Written once: with nothing changed, nothing is written again.
+        #expect(f.service.refreshDetailsFiles() == 0)
+    }
+
+    // DF14: a series is written with its number only when that reads back as a number.
+    @Test func DF14_aSeriesIsWrittenWithItsNumber() throws {
+        func series(_ name: String?, _ number: String?) throws -> [String]? {
+            var details = BookMetadata(title: "T", authors: [])
+            details.series = name
+            details.seriesNumber = number
+            let data = DetailsFile.audiobookData(for: Book(metadata: details))
+            return (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["series"] as? [String]
+        }
+        #expect(try series("Tidewater", "1.5") == ["Tidewater #1.5"])
+        #expect(try series("Tidewater", nil) == ["Tidewater"] && series("Tidewater", " ") == ["Tidewater"])
+        #expect(try series("Tidewater", "2 of 9") == ["Tidewater"] && series("Tidewater", "#2") == ["Tidewater"])
+        #expect(try series(nil, "2") == nil && series("  ", "2") == nil)
+        // The same book always gives the same bytes.
+        let book = Book(metadata: BookMetadata(title: "T", authors: ["A", "B"]))
+        #expect(DetailsFile.audiobookData(for: book) == DetailsFile.audiobookData(for: book))
+    }
+
+    // DF15: someone else's `metadata.json` is never overwritten or removed; ours
+    // follows the book when it is refiled and goes when the book does.
+    @Test func DF15_theAudiobookFileIsOursAloneToChange() throws {
+        let f = try F()
+        let id = try imported(f)
+        let file = try audiobookFile(f, id)
+        let theirs = Data(#"{"title": "Theirs", "authors": []}"#.utf8)
+        try theirs.write(to: file)
+        var edit = BookEdit(book: try #require(try f.store.book(id: id)))
+        edit.rating = 3
+        _ = try f.service.save([edit])
+        #expect(try Data(contentsOf: file) == theirs)
+        try FileManager.default.removeItem(at: file)
+
+        // Ours again, and it moves with the book.
+        #expect(f.service.refreshDetailsFiles() == 1)
+        edit = BookEdit(book: try #require(try f.store.book(id: id)))
+        edit.metadata.title = "The Short Road"
+        _ = try f.service.save([edit])
+        let moved = try audiobookFile(f, id)
+        #expect(moved != file && jsons(f).count == 1)
+        #expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path))
+        #expect(try details(moved)["title"] as? String == "The Short Road")
+
+        f.service.trashItem = { try FileManager.default.removeItem(at: $0) }
+        try f.service.removeBook(id: id, moveFilesToTrash: true)
+        #expect(jsons(f).isEmpty && !FileManager.default.fileExists(atPath: moved.deletingLastPathComponent().path))
+    }
+
+    // DF16: a book with no audiobook has none, and nothing is written when turned off.
+    @Test func DF16_onlyAnAudiobookHasOne() throws {
+        let f = try F()
+        let tags = F.fullMeta("Paper Only", "Ann Author")
+        let file = try f.makeEPUB("Paper Only.epub")
+        let result = try f.service.importItems([ImportItem(candidate: f.candidate([file], tags))])
+        let id = try f.importedId(result.outcomes[0])
+        #expect(jsons(f).isEmpty && opfs(f).count == 1)
+        #expect(!FileManager.default.fileExists(atPath: try audiobookFile(f, id).path))
+
+        f.service.writesDetailsFiles = false
+        _ = try imported(f, "Heard")
+        #expect(jsons(f).isEmpty)
+        f.service.writesDetailsFiles = true
+        #expect(f.service.refreshDetailsFiles() == 2 && jsons(f).count == 1)
     }
 }

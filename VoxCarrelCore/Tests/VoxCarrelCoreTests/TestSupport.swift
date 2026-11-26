@@ -26,7 +26,7 @@ final class FailingFileManager: FileManager, @unchecked Sendable {
 /// keeps beside its books are left out: they follow from the catalogue, and have
 /// tests of their own (`treeWithDetailsFiles`).
 func tree(_ root: URL) -> [String] {
-    treeWithDetailsFiles(root).filter { ($0 as NSString).lastPathComponent != DetailsFile.fileName }
+    treeWithDetailsFiles(root).filter { !DetailsFile.isOwnName(($0 as NSString).lastPathComponent) }
 }
 
 /// Every path below `root`, relative to it, sorted.

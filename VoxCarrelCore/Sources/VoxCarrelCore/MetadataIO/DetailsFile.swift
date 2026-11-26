@@ -7,6 +7,19 @@ import Foundation
 public enum DetailsFile {
     public static let fileName = "metadata.opf"
 
+    /// The details file written beside a book that has an audiobook: the one
+    /// Audiobookshelf reads when it scans a folder of books.
+    public static let audiobookFileName = "metadata.json"
+
+    /// What marks an audiobook's details file as written here: a key of its own,
+    /// which a reader of the file passes over.
+    static let audiobookMark = "\"x-voxcarrel\""
+
+    /// True for the name of a details file, of either kind.
+    public static func isOwnName(_ name: String) -> Bool {
+        name == fileName || name == audiobookFileName
+    }
+
     /// The picture a details file names as the cover when it lies beside it.
     static let coverName = "cover.jpg"
 
@@ -16,18 +29,19 @@ public enum DetailsFile {
 
     /// True when the file at `url` is a details file written here.
     static func isOurs(at url: URL) -> Bool {
-        guard url.lastPathComponent == fileName,
+        guard isOwnName(url.lastPathComponent),
               let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? Int,
               size < 2_000_000, let data = try? Data(contentsOf: url)
         else { return false }
-        return data.range(of: Data(mark.utf8)) != nil
+        let wanted = url.lastPathComponent == fileName ? mark : audiobookMark
+        return data.range(of: Data(wanted.utf8)) != nil
     }
 
     /// True when a folder that holds only these names holds nothing of anyone's: a
     /// `.DS_Store`, and a details file written here.
     static func holdsNothingElse(_ names: [String], in folder: URL) -> Bool {
         names.allSatisfy { name in
-            name == ".DS_Store" || (name == fileName && isOurs(at: folder.appendingPathComponent(name)))
+            name == ".DS_Store" || (isOwnName(name) && isOurs(at: folder.appendingPathComponent(name)))
         }
     }
 
@@ -35,10 +49,43 @@ public enum DetailsFile {
     /// holds besides a `.DS_Store`. A folder with anything else in it is left as it is.
     static func removeIfAlone(in folder: URL) {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: folder.path), names.contains(fileName),
+        guard let names = try? fm.contentsOfDirectory(atPath: folder.path), names.contains(where: isOwnName),
               holdsNothingElse(names, in: folder)
         else { return }
-        try? fm.removeItem(at: folder.appendingPathComponent(fileName))
+        for name in names where isOwnName(name) {
+            try? fm.removeItem(at: folder.appendingPathComponent(name))
+        }
+    }
+
+    /// An audiobook's details file for `book`, as Audiobookshelf reads it: what the
+    /// book is, and nothing of its chapters, which that program reads from the audio
+    /// itself. A series is written with its number after it, as in "Tidewater #2".
+    public static func audiobookData(for book: Book) -> Data {
+        func said(_ text: String?) -> String? {
+            guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text
+        }
+        var details: [String: Any] = ["x-voxcarrel": book.id ?? 0, "title": said(book.title) ?? "Unknown"]
+        if let subtitle = said(book.subtitle) { details["subtitle"] = subtitle }
+        if !book.authors.isEmpty { details["authors"] = book.authors }
+        if !book.narrators.isEmpty { details["narrators"] = book.narrators }
+        if let series = said(book.series) {
+            // A number with a space or a "#" in it would be read as part of the name.
+            let number = said(book.seriesNumber).flatMap { $0.contains(" ") || $0.contains("#") ? nil : $0 }
+            details["series"] = [number.map { "\(series) #\($0)" } ?? series]
+        }
+        if !book.genres.isEmpty { details["genres"] = book.genres }
+        if !book.tags.isEmpty { details["tags"] = book.tags }
+        if let year = book.year, (1...9999).contains(year) { details["publishedYear"] = String(year) }
+        if let publisher = said(book.publisher) { details["publisher"] = publisher }
+        if let summary = said(book.summary) { details["description"] = summary }
+        if let isbn = said(book.isbn) { details["isbn"] = isbn }
+        if let asin = said(book.asin) { details["asin"] = asin }
+        if let language = said(book.language) { details["language"] = language }
+        let options: JSONSerialization.WritingOptions = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        var data = (try? JSONSerialization.data(withJSONObject: details, options: options)) ?? Data("{}".utf8)
+        data.append(0x0A)
+        return data
     }
 
     /// The details file's text for `book`.

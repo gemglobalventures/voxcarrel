@@ -103,7 +103,7 @@ extension Harness {
             let path = String(url.resolvingSymlinksInPath().path.dropFirst(base.count + 1))
             if path.hasPrefix(".") || path.hasPrefix(LibraryStore.databaseFileName) { continue }
             // The details files the library keeps beside its books follow from the catalogue.
-            if url.lastPathComponent == DetailsFile.fileName { continue }
+            if DetailsFile.isOwnName(url.lastPathComponent) { continue }
             paths.append(path)
         }
         return paths.sorted()

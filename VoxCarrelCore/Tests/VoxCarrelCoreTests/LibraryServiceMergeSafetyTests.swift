@@ -18,7 +18,7 @@ import VoxCarrelFixtures
             guard (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true else { continue }
             let path = url.resolvingSymlinksInPath().path
             guard !path.contains("/.voxcarrel/"), !path.hasPrefix(base + "/" + LibraryStore.databaseFileName),
-                  url.lastPathComponent != DetailsFile.fileName
+                  !DetailsFile.isOwnName(url.lastPathComponent)
             else { continue }
             found[String(path.dropFirst(base.count + 1))] = try Data(contentsOf: url)
         }

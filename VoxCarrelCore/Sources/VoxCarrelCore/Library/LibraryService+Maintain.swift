@@ -240,10 +240,10 @@ extension LibraryService {
         guard let leaving = try store.book(id: id) else { throw LibraryError.bookNotFound(id) }
         let urls = try store.files(bookId: id).map { store.url(for: $0) }
         // The book's details file goes with it, when the folder is the book's alone.
-        var detailsFile: URL?
+        var detailsFolder: URL?
         if let path = leaving.folderPath, let owners = try? folderOwners(), let key = owners.folder(of: id),
            !key.isEmpty, !owners.isUsed(key, byOtherThan: id) {
-            detailsFile = store.url(forFolder: path).appendingPathComponent(DetailsFile.fileName, isDirectory: false)
+            detailsFolder = store.url(forFolder: path)
         }
 
         if moveFilesToTrash {
@@ -265,9 +265,12 @@ extension LibraryService {
 
         try? covers.remove(for: id)
         if change.clearsJournal { forgetUndoData() }
-        if let detailsFile, DetailsFile.isOurs(at: detailsFile) {
-            try? FileManager.default.removeItem(at: detailsFile)
-            removeEmptyFolders(from: detailsFile.deletingLastPathComponent())
+        if let detailsFolder {
+            for name in [DetailsFile.fileName, DetailsFile.audiobookFileName] {
+                let file = detailsFolder.appendingPathComponent(name, isDirectory: false)
+                if DetailsFile.isOurs(at: file) { try? FileManager.default.removeItem(at: file) }
+            }
+            removeEmptyFolders(from: detailsFolder)
         }
     }
 
