@@ -29,6 +29,8 @@ Test releases are on the [releases page](https://github.com/gemglobalventures/vo
 
 To look round without touching your own books, choose **Try a Demo Library** on the welcome screen.
 
+To hear when a new version is out, including the first one signed with an Apple Developer ID: on this repository's page choose **Watch**, then **Custom**, then **Releases**; or follow the [releases feed](https://github.com/gemglobalventures/voxcarrel/releases.atom) in a feed reader. An installed copy also offers each new version by itself.
+
 The download is the official build: the code in this repository, plus an updater that offers newer versions and some additions that are not in this repository. A build you make yourself from this source has neither, and is never replaced by the official one.
 
 Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/issues). **Help > Export Diagnostics** saves a zip to attach.
