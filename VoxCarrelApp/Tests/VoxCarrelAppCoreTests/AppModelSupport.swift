@@ -308,6 +308,7 @@ final class Harness {
         let lookup = FakeLookup()
         self.lookup = lookup
         let clock = clock
+        AppModel.countsWordsBehindByDefault = false
         model = AppModel(
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
             watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
@@ -397,6 +398,7 @@ final class Harness {
     /// it a watcher and a ticker to drive.
     func relaunched(watcher: FakeFolderWatcher? = nil, ticker: FakeTicker? = nil) -> AppModel {
         let clock = clock
+        AppModel.countsWordsBehindByDefault = false
         let model = AppModel(
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),

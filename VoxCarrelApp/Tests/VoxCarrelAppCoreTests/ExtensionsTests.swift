@@ -325,6 +325,7 @@ extension Harness {
     /// preferences, which reaches nothing real.
     func relaunched(extensions: AppExtensions) -> AppModel {
         let clock = clock
+        AppModel.countsWordsBehindByDefault = false
         let model = AppModel(
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),

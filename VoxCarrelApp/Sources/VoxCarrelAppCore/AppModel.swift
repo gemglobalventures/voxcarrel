@@ -420,7 +420,7 @@ public final class AppModel {
     /// were counted. One pass at a time; it stops when another library is opened. The
     /// book being looked at is read again when its count comes in.
     func countWordsBehind() {
-        guard let worker, !isCountingWords else { return }
+        guard countsWordsBehind, let worker, !isCountingWords else { return }
         isCountingWords = true
         Task { [weak self] in
             defer { self?.isCountingWords = false }
@@ -439,6 +439,11 @@ public final class AppModel {
 
     /// True while `countWordsBehind` has a pass under way.
     var isCountingWords = false
+    /// Whether words are counted behind the list at all. Tests that look at the
+    /// catalogue from outside turn it off, so that nothing is written behind their backs.
+    var countsWordsBehind = AppModel.countsWordsBehindByDefault
+    /// What `countsWordsBehind` starts as for a new model.
+    nonisolated(unsafe) static var countsWordsBehindByDefault = true
     /// True once the library that is open has been through its launch check.
     var libraryWasChecked = false
 

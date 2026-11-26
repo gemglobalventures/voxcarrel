@@ -6,7 +6,9 @@ import VoxCarrelCore
 /// WB1: the words of a library's ebooks are counted behind its list, once it has been checked.
 @MainActor @Suite struct WordCountBehindTests {
     @Test func WB1_ebooksAreCountedOnceTheLibraryIsOpen() async throws {
-        let h = try await Harness.demo()
+        let h = try await Harness.demo(start: false)
+        h.model.countsWordsBehind = true
+        await h.model.start()
         #expect(h.model.libraryWasChecked)
         // The pass ends by itself when nothing is left to count.
         for _ in 0..<2_000 where h.model.isCountingWords {

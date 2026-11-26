@@ -102,6 +102,8 @@ extension Harness {
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
             let path = String(url.resolvingSymlinksInPath().path.dropFirst(base.count + 1))
             if path.hasPrefix(".") || path.hasPrefix(LibraryStore.databaseFileName) { continue }
+            // The details files the library keeps beside its books follow from the catalogue.
+            if url.lastPathComponent == DetailsFile.fileName { continue }
             paths.append(path)
         }
         return paths.sorted()

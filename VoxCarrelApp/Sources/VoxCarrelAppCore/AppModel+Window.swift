@@ -36,6 +36,8 @@ public struct SelectionCommands: Equatable, Sendable {
     public var repairLengthHeaders = false
     /// One of the books has an ebook an EPUB can be made of, and no EPUB yet.
     public var convertToEPUB = false
+    /// One of the books has no cover, and is shown with one made for it.
+    public var keepMadeCover = false
     public var remove = false
 
     public init() {}
@@ -160,6 +162,7 @@ extension AppModel {
         commands.repairLengthHeaders = chosen.contains { $0.repairableLengthFiles > 0 }
         // Decided from the rows as they were last read: the library is not asked.
         commands.convertToEPUB = chosen.contains(where: \.canConvertToEPUB)
+        commands.keepMadeCover = chosen.contains(where: \.canKeepMadeCover)
         // Only books that are shown can be removed, and removing asks first: not while
         // another question is waiting (A24).
         commands.remove = shown != nil && prompt == nil

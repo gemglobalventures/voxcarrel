@@ -60,6 +60,7 @@ The books in these pictures are generated samples from the demo library.
 - **Read status, tags, ratings and collections.**
 - **Hide books** you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password.
 - **A check of the library at launch**, and **undo** for the last operation.
+- **Leave as cleanly as you came:** every filed book has a standard `metadata.opf` beside it, kept in step with what you edit, as well as the details inside its files. Another library manager can pick the library up as it stands.
 
 <details>
 <summary>More about organising</summary>
@@ -77,6 +78,8 @@ The books in these pictures are generated samples from the demo library.
 - **Editions are told apart:** results that are your exact edition are marked, and an audiobook is recognised as unabridged, abridged or a dramatisation.
 - **Convert to EPUB:** for a book whose ebook is MOBI, AZW3 or another older format, an EPUB is made and added beside the original, which is left as it is. This uses calibre's own converter, so it needs calibre installed.
 - **MP3 lengths are measured,** and a header that states the wrong length can be repaired so the file plays in full everywhere.
+- **Words and pages:** an EPUB's words are counted from its text, and its pages worked out from them at 300 words to a page. A PDF shows its own pages.
+- **A cover for every book:** a book with no cover is shown with one made for it, its title and author on a colour of its own, until it has a real one.
 
 ### Series and what to read next
 
@@ -110,15 +113,11 @@ What is planned, roughly in order. This is a direction, not a promise: things mo
 
 **Before the first release**
 
-- Leaving as cleanly as you came: a standard `metadata.opf` written beside each book, as well as the details inside the files, so another library manager can pick the library up.
 - A signed download, so the app can be installed without building it, and `brew install --cask voxcarrel`.
-- Export Diagnostics in the Help menu: a zip of logs and settings, with no book titles unless you choose to include them, for reporting the odd file that trips the app up. Nothing is sent anywhere by itself.
 
 **After that**
 
 - Kindle highlights without Readwise, from a Kindle's own clippings file.
-- A cover made for a book that has none.
-- Page and word counts for ebooks.
 - Import from an Audiobookshelf server, with its progress and bookmarks.
 - A better copy of a book you already have (a higher bitrate, an EPUB where you had a MOBI) offered as a replacement at import.
 - Finding books scattered across the Mac and network drives.
@@ -200,6 +199,8 @@ Showing hidden books asks macOS to check Touch ID or your Mac's password. VoxCar
 ## Contributing
 
 Bug reports and ideas are welcome as issues.
+
+When a file or a library trips the app up, **Help > Export Diagnostics** saves a zip of text files to attach: the app's version, which settings are set, how many books and files of each kind there are, and what is the matter with the books that need attention. It names no book, author, file or folder unless you tick the box to include them, and VoxCarrel sends nothing anywhere itself.
 
 Code contributions need a signed [contributor licence agreement](https://gist.github.com/gemglobalventures/b4a6b846ea644b32fcfccd23dd57ee3e). You keep the copyright in your work; the agreement lets Gem Global Ventures Pte Ltd publish it under the AGPL and also under other licences. When you open your first pull request, a check asks you to sign by posting a comment. For anything larger than a small fix, please open an issue first.
 

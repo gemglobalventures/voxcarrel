@@ -132,6 +132,12 @@ struct BookCommandItems: View {
         }
         .disabled(!applies.convertToEPUB)
         .accessibilityIdentifier("\(prefix).convertToEPUB")
+        // The cover made for a book that has none, saved as the book's own.
+        Button(MadeCover.commandTitle) {
+            Task { await model.keepMadeCovers(for: books) }
+        }
+        .disabled(!applies.keepMadeCover)
+        .accessibilityIdentifier("\(prefix).keepMadeCover")
         // Plan 7, K8: one lookup for each audiobook; only its edition is changed.
         Button(model.checkEditionTitle) {
             Task { await model.checkEdition(for: books) }
