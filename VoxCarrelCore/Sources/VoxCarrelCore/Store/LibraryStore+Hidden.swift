@@ -59,6 +59,16 @@ extension LibraryStore {
         try dbQueue.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM book WHERE isHidden = 1") ?? 0 }
     }
 
+    /// Sets which work each of these books is an edition of; nil for none. Nothing
+    /// else about them changes, and no file is touched.
+    public func setWorkKey(_ key: String?, bookIds: [Int64]) throws {
+        try dbQueue.write { db in
+            for id in bookIds {
+                try db.execute(sql: "UPDATE book SET workKey = ? WHERE id = ?", arguments: [key, id])
+            }
+        }
+    }
+
     /// Hides books, or brings them back. Nothing else about them changes, and no file
     /// is touched. An id no book has does nothing.
     public func setHidden(_ hidden: Bool, bookIds: [Int64]) throws {

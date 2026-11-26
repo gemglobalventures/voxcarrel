@@ -201,6 +201,11 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     /// (1, 2, 4): it may be incomplete, and its length is no sign of an abridgement.
     /// Recorded at import, because filing gives the parts new names.
     public var partsAppearMissing = false
+    /// What ties this entry to the other editions of the same book that the library
+    /// has (another language, another narrator, a dramatisation): entries with the
+    /// same key are editions of one work. Nil for a book that stands alone. Kept in
+    /// the catalogue and in the details file beside the book, never in a file's tags.
+    public var workKey: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, authors, narrators, series, seriesNumber, genres, genreSource, genreTag
@@ -208,7 +213,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         case language, isbn, asin, durationSeconds, pageCount, wordCount, tags, rating, folderPath, needsAttention, isHidden
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
-        case editionKind, partsAppearMissing
+        case editionKind, partsAppearMissing, workKey
     }
 
     /// True when the book is owned somewhere other than as files in the library.
@@ -320,6 +325,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         // it, unreadable.
         editionKind = (try? c.decodeIfPresent(EditionKindNote.self, forKey: .editionKind)) ?? nil
         partsAppearMissing = (try? c.decodeIfPresent(Bool.self, forKey: .partsAppearMissing)) ?? false
+        workKey = (try? c.decodeIfPresent(String.self, forKey: .workKey)) ?? nil
     }
 
     /// The descriptive fields as one value.

@@ -417,6 +417,13 @@ public final class LibraryStore: Sendable {
                 t.add(column: "wordCount", .integer)
             }
         }
+        migrator.registerMigration("v22") { db in
+            // Which work an entry is an edition of: entries with the same key are
+            // editions of one book (another language, another reading of it).
+            try db.alter(table: "book") { t in
+                t.add(column: "workKey", .text)
+            }
+        }
         migrator.registerMigration("v21") { db in
             // Whose list of a series a link holds: Audible's until now.
             try db.alter(table: "seriesLink") { t in

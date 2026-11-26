@@ -130,6 +130,8 @@ public enum DetailsFile {
         if (1...5).contains(book.rating) { meta("calibre:rating", String(book.rating * 2)) }
         meta("calibre:timestamp", timestamp(book.dateAdded))
         meta("voxcarrel:subtitle", book.subtitle)
+        // Which other editions in the library are of the same book.
+        meta("voxcarrel:work", book.workKey)
         if let number = book.seriesNumber { meta("voxcarrel:series_number", number) }
 
         var text = "<?xml version='1.0' encoding='utf-8'?>\n"

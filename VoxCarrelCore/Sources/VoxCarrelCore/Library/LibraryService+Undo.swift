@@ -166,6 +166,8 @@ extension LibraryService {
                 if let current = try store.book(id: book.bookId) {
                     before.isHidden = current.isHidden
                     keptIsHidden = keptIsHidden || current.isHidden
+                    // Nor which other editions it is tied to.
+                    before.workKey = current.workKey
                 }
                 // Not part of undo: where the reader is with the book.
                 if merge == nil, let current = try store.book(id: book.bookId) {

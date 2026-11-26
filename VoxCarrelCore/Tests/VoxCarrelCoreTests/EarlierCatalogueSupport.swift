@@ -9,7 +9,7 @@ typealias EarlierRow = [String: DatabaseValue]
 /// added. They are left out of the comparison, and have tests of their own.
 /// So is the column v13 added to the file table, for what a file was when it arrived,
 /// and the one v18 added to the book table, for a book kept out of sight (HB1 onwards).
-private let genreColumns: Set<String> = ["genre", "genreSource", "genres", "genreTag", "arrivedPrint", "contentPrint", "isHidden", "lengthMeasured", "wordCount"]
+private let genreColumns: Set<String> = ["genre", "genreSource", "genres", "genreTag", "arrivedPrint", "contentPrint", "isHidden", "lengthMeasured", "wordCount", "workKey"]
 
 /// The column v21 added to the table of series links, for whose list a link holds.
 /// Left out of the comparison of that table alone; WL1 and WL2 test it.
