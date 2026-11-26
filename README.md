@@ -39,7 +39,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 - **One entry per book.** The audiobook, the ebook, a companion PDF, and "I own this on Audible" or "on Kindle" are one book, not four.
 - **Your files, kept tidy.** Books are filed into folders arranged the way you choose, with details and covers written into the files themselves.
-- **Nothing moves until you have reviewed it.** Every import goes through a review sheet, and the last operation can be undone.
+- **Nothing moves until you have reviewed it.** Every import goes through a review sheet, and the last twenty operations can be undone.
 - **Everything you own, in one list.** Your files, your Audible library and your Kindle library, side by side.
 - **Your highlights, on the books.** From Readwise, from a Kindle's own clippings file, from a Kobo, from marks made while listening on Audible, and your own.
 - **What to read next.** Up Next, smart shelves, and series that show what is missing.
@@ -185,7 +185,7 @@ Book folders are arranged as `Author/Series/Title` unless you choose otherwise i
 
 Watch folders are set in Settings ▸ Watch Folders. They are watched only while VoxCarrel is open; books that arrived while it was closed appear in the Inbox shortly after it opens.
 
-Editing a book changes nothing until you press Save. Edit ▸ Undo (⌥⌘Z) reverses the last import, save, repair, merge or change of folder layout.
+Editing a book changes nothing until you press Save. Edit ▸ Undo (⌥⌘Z) reverses the last import, save, repair, merge or change of folder layout, and pressed again the one before it, back through the last twenty. Removing a book, or changing the folder layout, cannot be stepped back past: earlier operations that touched those books can then no longer be undone. Operations that keep whole copies of files to undo them (a merge does) are let go sooner when together they would hold more than about 2 GB.
 
 ## Tests
 
