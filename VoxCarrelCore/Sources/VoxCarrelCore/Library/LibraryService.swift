@@ -94,6 +94,10 @@ public final class LibraryService {
     /// The size in bytes over which a send to the phone is warned of as large. A test seam.
     var sendLargeOver = LibraryService.largeSendBytes
 
+    /// Books whose words could not be counted this time because their EPUB is not on
+    /// disk: not asked for again until the library is opened afresh.
+    var wordCountPassedOver = Set<Int64>()
+
     /// Whether a details file (`metadata.opf`) is kept beside each filed book.
     public var writesDetailsFiles = true
 

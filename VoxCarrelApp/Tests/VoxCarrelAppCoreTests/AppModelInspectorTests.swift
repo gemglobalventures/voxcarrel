@@ -156,6 +156,32 @@ import VoxCarrelFixtures
         #expect(!detail(fullBook()).showsRewriteTags)
     }
 
+    // MARK: Words and pages
+
+    @Test func extentIsWordsAndPages() {
+        let us = Locale(identifier: "en_US")
+        var book = fullBook()
+        book.pageCount = nil
+        book.wordCount = nil
+        #expect(detail(book).extentText(locale: us) == nil)
+        // A PDF's pages.
+        book.pageCount = 212
+        #expect(detail(book).extentText(locale: us) == "212 pages")
+        book.pageCount = 1
+        #expect(detail(book).extentText(locale: us) == "1 page")
+        // Counted words, and the pages worked out from them.
+        book.wordCount = 93_600
+        book.pageCount = 312
+        #expect(detail(book).extentText(locale: us) == "93,600 words · about 312 pages")
+        // Counted words beside a PDF's own pages.
+        book.pageCount = 280
+        #expect(detail(book).extentText(locale: us) == "93,600 words · 280 pages")
+        // Tried and not countable.
+        book.wordCount = 0
+        book.pageCount = nil
+        #expect(detail(book).extentText(locale: us) == nil)
+    }
+
     // MARK: N5 Length and chapters (I1)
 
     /// N5

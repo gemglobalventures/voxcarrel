@@ -708,6 +708,11 @@ public actor LibraryWorker {
 
     /// Works out the content print of a few library files that have none yet.
     /// - Returns: How many were done; 0 when nothing is left that can be done now.
+    /// Counts the words of a few more ebooks that have not been counted; 0 when none are left.
+    public func countWords() throws -> Int {
+        try service.countWords(limit: 10)
+    }
+
     public func fillInContentPrints() throws -> Int {
         try service.fillInContentPrints(limit: 20)
     }

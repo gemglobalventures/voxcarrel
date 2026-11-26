@@ -289,6 +289,7 @@ public final class AppModel {
         // The genres, and anything open about them, were those of the library shown before.
         closeGenreSheets()
         worker = nil
+        libraryWasChecked = false
         // WF10: the inbox was the inbox of the library shown before.
         closeInbox()
         openFailure = nil
@@ -397,6 +398,8 @@ public final class AppModel {
         // WF10: the launch check is over.
         await openInbox()
         fillInContentPrints(with: worker)
+        libraryWasChecked = true
+        countWordsBehind()
     }
 
     /// Works out, a few files at a time and behind everything else, the content print
@@ -411,6 +414,33 @@ public final class AppModel {
             }
         }
     }
+
+    /// Counts, a few books at a time and behind everything else, the words of ebooks
+    /// that have not been counted: those just brought in, and those from before words
+    /// were counted. One pass at a time; it stops when another library is opened. The
+    /// book being looked at is read again when its count comes in.
+    func countWordsBehind() {
+        guard let worker, !isCountingWords else { return }
+        isCountingWords = true
+        Task { [weak self] in
+            defer { self?.isCountingWords = false }
+            while true {
+                guard let self, self.worker === worker else { return }
+                guard let done = try? await worker.countWords(), done > 0 else { return }
+                // The book being looked at shows its count as soon as it has one.
+                if case .one(let detail, _) = self.inspecting, detail.row.book.wordCount == nil,
+                   !self.hasUnsavedChanges {
+                    await self.refreshInspector(keepEdits: true)
+                }
+                await Task.yield()
+            }
+        }
+    }
+
+    /// True while `countWordsBehind` has a pass under way.
+    var isCountingWords = false
+    /// True once the library that is open has been through its launch check.
+    var libraryWasChecked = false
 
     // MARK: Browsing
 
@@ -751,6 +781,8 @@ public final class AppModel {
             show(error)
         }
         await refreshInspector(keepEdits: keepEdits)
+        // Books that have just come in are counted too, once the library has been checked.
+        if libraryWasChecked { countWordsBehind() }
     }
 
     // MARK: Convert to EPUB

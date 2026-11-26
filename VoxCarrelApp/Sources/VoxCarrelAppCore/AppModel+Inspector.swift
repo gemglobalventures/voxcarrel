@@ -108,6 +108,23 @@ extension BookDetail {
         if chapterCount > 0 { parts.append(chapterCount == 1 ? "1 chapter" : "\(chapterCount) chapters") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
+
+    /// "93,600 words · about 312 pages" for a book whose ebook's words were counted;
+    /// "212 pages" for one with pages only (a PDF's). Nil when neither is known. Pages
+    /// worked out from the words are said to be about so many.
+    public func extentText(locale: Locale = .current) -> String? {
+        let book = row.book
+        func number(_ value: Int) -> String { value.formatted(.number.locale(locale)) }
+        func pages(_ count: Int) -> String { count == 1 ? "1 page" : "\(number(count)) pages" }
+        var parts: [String] = []
+        let words = book.wordCount ?? 0
+        if words > 0 { parts.append(words == 1 ? "1 word" : "\(number(words)) words") }
+        if let count = book.pageCount, count > 0 {
+            let worked = words > 0 && count == WordCount.pages(forWords: words)
+            parts.append(worked ? "about \(pages(count))" : pages(count))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 }
 
 extension Book {

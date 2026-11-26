@@ -587,6 +587,13 @@ private struct ReadingControls: View {
                 .accessibilityIdentifier("inspector.audioSummary")
         }
 
+        if let extent = detail.extentText() {
+            Label(extent, systemImage: "text.book.closed")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("inspector.extent")
+        }
+
         // Send to phone plan, PH29.
         if let sent = detail.sentToPhoneText() {
             Label(sent, systemImage: "iphone")

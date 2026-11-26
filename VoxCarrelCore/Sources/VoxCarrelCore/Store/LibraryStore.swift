@@ -387,6 +387,12 @@ public final class LibraryStore: Sendable {
                 t.add(column: "lengthMeasured", .text)
             }
         }
+        migrator.registerMigration("v20") { db in
+            // The words in a book's ebook, once counted.
+            try db.alter(table: "book") { t in
+                t.add(column: "wordCount", .integer)
+            }
+        }
         return migrator
     }
 
@@ -628,6 +634,18 @@ public final class LibraryStore: Sendable {
     }
 
     /// The stored folder of every book that has one, by book id.
+/// The books that have an EPUB and no word count yet, lowest id first.
+    func bookIdsAwaitingWordCount(notAmong passedOver: Set<Int64>, limit: Int) throws -> [Int64] {
+        try dbQueue.read { db in
+            let ids = try Int64.fetchAll(db, sql: """
+                SELECT id FROM book WHERE wordCount IS NULL
+                AND EXISTS (SELECT 1 FROM bookFile WHERE bookFile.bookId = book.id AND bookFile.format = 'epub')
+                ORDER BY id
+                """)
+            return Array(ids.lazy.filter { !passedOver.contains($0) }.prefix(max(0, limit)))
+        }
+    }
+
     func bookFolders() throws -> [Int64: String] {
         try dbQueue.read { db in
             var folders: [Int64: String] = [:]

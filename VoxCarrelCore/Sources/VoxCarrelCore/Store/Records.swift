@@ -160,6 +160,9 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     public var asin: String?
     public var durationSeconds: Double?
     public var pageCount: Int?
+    /// The words in the book's ebook, counted from its text. Nil while it has not been
+    /// counted; 0 when it was tried and could not be.
+    public var wordCount: Int? = nil
 
     public var tags: [String]
     /// 0 (unrated) to 5.
@@ -202,7 +205,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, authors, narrators, series, seriesNumber, genres, genreSource, genreTag
         case year, publisher, summary
-        case language, isbn, asin, durationSeconds, pageCount, tags, rating, folderPath, needsAttention, isHidden
+        case language, isbn, asin, durationSeconds, pageCount, wordCount, tags, rating, folderPath, needsAttention, isHidden
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
         case editionKind, partsAppearMissing
@@ -296,6 +299,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         asin = try c.decodeIfPresent(String.self, forKey: .asin)
         durationSeconds = try c.decodeIfPresent(Double.self, forKey: .durationSeconds)
         pageCount = try c.decodeIfPresent(Int.self, forKey: .pageCount)
+        wordCount = try c.decodeIfPresent(Int.self, forKey: .wordCount)
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         rating = try c.decodeIfPresent(Int.self, forKey: .rating) ?? 0
         folderPath = try c.decodeIfPresent(String.self, forKey: .folderPath)
