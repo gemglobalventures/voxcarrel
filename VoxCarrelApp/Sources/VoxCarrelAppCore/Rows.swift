@@ -176,6 +176,15 @@ public struct BookDetail: Equatable, Sendable {
     public var mergeOffer: MergeOffer?
     /// The book's highlights, in the order of the book; empty until they have been read.
     public var highlights: [Highlight] = []
+    /// The other editions of this book that the library has, each as its title and
+    /// what sets it apart: "Der Wüstenplanet (German)". Empty for a book that stands alone.
+    public var otherEditions: [String] = []
+
+    /// "Other editions here: Der Wüstenplanet (German); Dune (read by Simon Vance)";
+    /// nil for a book that stands alone.
+    public var editionsText: String? {
+        otherEditions.isEmpty ? nil : "Other editions here: " + otherEditions.joined(separator: "; ")
+    }
 
     public init(row: BookRow, files: [FileRow], chapterCount: Int, collectionIds: Set<Int64>) {
         self.row = row

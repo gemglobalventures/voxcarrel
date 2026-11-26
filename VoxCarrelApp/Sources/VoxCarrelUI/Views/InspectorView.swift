@@ -594,6 +594,14 @@ private struct ReadingControls: View {
                 .accessibilityIdentifier("inspector.extent")
         }
 
+        if let editions = detail.editionsText {
+            Label(editions, systemImage: "square.on.square")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("inspector.editions")
+        }
+
         // Send to phone plan, PH29.
         if let sent = detail.sentToPhoneText() {
             Label(sent, systemImage: "iphone")

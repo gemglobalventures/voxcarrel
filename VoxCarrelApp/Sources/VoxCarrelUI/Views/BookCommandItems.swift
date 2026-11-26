@@ -172,6 +172,22 @@ struct BookCommandItems: View {
             .accessibilityIdentifier("\(prefix).mergeBooks")
         }
 
+        // Editions: the same book in another language or another reading stays an
+        // entry of its own, and is linked to the others.
+        if ids == nil || model.offersMergeBooks(for: books) {
+            Button(AppModel.linkEditionsTitle) {
+                Task { await model.linkEditions(for: books) }
+            }
+            .disabled(!model.canLinkEditions(books))
+            .accessibilityIdentifier("\(prefix).linkEditions")
+        }
+        if model.canUnlinkEdition(books) {
+            Button(AppModel.unlinkEditionTitle) {
+                Task { await model.unlinkEdition(for: books) }
+            }
+            .accessibilityIdentifier("\(prefix).unlinkEdition")
+        }
+
         Divider()
 
         // No key of its own here: ⌘⌫ in a menu would take it from a text field that is

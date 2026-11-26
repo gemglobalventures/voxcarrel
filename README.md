@@ -72,6 +72,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 - **Folders your way:** `Author/Series/Title` to begin with, or another layout or a pattern of your own. Changing it shows what will move, then re-files the whole library in one step.
 - **Merge** entries that are really one book (an audiobook, its ebook and a companion PDF imported separately).
+- **Editions kept apart and linked:** the same book in another language, read by another narrator, or as a dramatisation stays an entry of its own, with its own folder and files. Book ▸ Link as Editions of One Book says they are one work, and each then names the others. Two editions with the same title and author need folders that differ: a folder layout with `{Language}` or `{Narrator}` in it gives them one each.
 - **Genres from a short list** you can rename, merge and add to. Whatever a file or a lookup says is mapped onto it.
 - **Read status, tags, ratings and collections.**
 - **Hide books** you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password.

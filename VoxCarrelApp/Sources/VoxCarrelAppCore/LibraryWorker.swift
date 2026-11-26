@@ -517,7 +517,25 @@ public actor LibraryWorker {
            !other.isHidden || book.isHidden {
             detail.mergeOffer = MergeOffer(bookId: otherId, title: other.title)
         }
+        // A hidden edition is not named on a book that is not hidden.
+        detail.otherEditions = try service.otherEditions(ofBook: bookId)
+            .filter { !$0.isHidden || book.isHidden }
+            .map { other in
+                let title = other.title.trimmedOrNil ?? "Untitled book"
+                return LibraryService.whatSetsApart(other, from: book).map { "\(title) (\($0))" } ?? title
+            }
         return detail
+    }
+
+    /// Ties these books together as editions of one work.
+    public func linkEditions(_ ids: [Int64]) throws {
+        try service.linkEditions(ids.filter(isBookId))
+    }
+
+    /// Unties a book from the other editions it was tied to.
+    public func unlinkEdition(_ id: Int64) throws {
+        guard isBookId(id) else { return }
+        try service.unlinkEdition(id)
     }
 
     /// The pattern the library files its books by.
