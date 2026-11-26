@@ -6,13 +6,13 @@ VoxCarrel files your books into a tidy folder layout, writes details and covers 
 
 **Status:** early. It has a large automated test suite, run on generated sample books, and has been timed on a generated library of 10,000 books. On real books it has been used on a small collection, not yet a large one. There is a test release to download, or you can build it from source. Import by copy until you trust it with yours.
 
-![The library as a cover grid, with one book open in the inspector and a series shown as a stack of covers](Screenshots/library-grid.jpg)
+![The library as a cover grid, with one book open in the inspector and a series shown as a stack of covers](Screenshots/library-grid.png)
 
 | | |
 |---|---|
-| ![The library as a list, with a series opened to show its books in order](Screenshots/library-list.jpg) | ![A series with three local books and one owned on Audible](Screenshots/series-with-audible.jpg) |
+| ![The library as a list, with a series opened to show its books in order](Screenshots/library-list.png) | ![A series with three local books and one owned on Audible](Screenshots/series-with-audible.jpg) |
 | The same library as a list, with a series opened. | A series in order: three books on this Mac, the fourth on Audible. |
-| ![The Inbox, listing books that have arrived in a watched folder](Screenshots/inbox.jpg) | ![The import sheet, reviewing books before anything moves](Screenshots/import-review.jpg) |
+| ![The Inbox, listing books that have arrived in a watched folder](Screenshots/inbox.jpg) | ![The import sheet, reviewing books before anything moves](Screenshots/import-review.png) |
 | Books that arrive in a watched folder wait in the Inbox. | Nothing moves until you have reviewed it. |
 | ![The Merge Books sheet, joining an ebook entry to its audiobook](Screenshots/merge-books.jpg) | ![The Send to Phone sheet, with AirDrop, Share and a link for BookPlayer](Screenshots/send-to-phone.jpg) |
 | Entries that are one book can be merged, with a role for each file. | An audiobook can be sent to your phone. |
