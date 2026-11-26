@@ -208,7 +208,7 @@ extension AppModel {
     public func beginHighlights(adding: Bool = false) {
         guard canShowHighlights, case .one(let detail, _) = inspecting, let worker else { return }
         let session = HighlightsSession(
-            model: self, worker: worker, bookId: detail.row.id,
+            model: self, worker: worker, book: detail.row.book,
             title: detail.row.book.title.trimmedOrNil ?? "Untitled book", highlights: detail.highlights)
         if adding { session.beginAdd() }
         highlights = session
@@ -230,10 +230,14 @@ public final class HighlightsSession {
     /// Tests wait for it.
     @ObservationIgnored var reading: Task<Void, Never>?
 
-    init(model: AppModel, worker: LibraryWorker, bookId: Int64, title: String, highlights: [Highlight]) {
+    /// The book as it was when the sheet opened: what the exported note says of it.
+    @ObservationIgnored private let book: Book
+
+    init(model: AppModel, worker: LibraryWorker, book: Book, title: String, highlights: [Highlight]) {
         self.model = model
         self.worker = worker
-        self.bookId = bookId
+        self.book = book
+        bookId = book.id ?? 0
         self.title = title
         all = highlights.map { HighlightRow($0) }
     }
@@ -283,6 +287,34 @@ public final class HighlightsSession {
         }
         await reload()
         return done
+    }
+
+    // MARK: Exporting
+
+    public let exportTitle = HighlightsMarkdown.exportTitle
+
+    /// Whether there is anything to export: the highlights shown, when there are any.
+    public var canExport: Bool { !rows.isEmpty }
+
+    /// The highlights shown, as one Markdown note; nil when there are none.
+    public var markdown: String? {
+        canExport ? HighlightsMarkdown.note(for: book, highlights: rows) : nil
+    }
+
+    /// What the note's file is called unless the owner says otherwise.
+    public var exportFileName: String { HighlightsMarkdown.fileName(for: book) }
+
+    /// Writes the note to `url`. Nothing of the library changes. Returns whether it was written.
+    @discardableResult
+    public func export(to url: URL) -> Bool {
+        guard let markdown else { return false }
+        do {
+            try Data(markdown.utf8).write(to: url, options: .atomic)
+            return true
+        } catch {
+            model.alert = "The note could not be saved. " + error.localizedDescription
+            return false
+        }
     }
 
     // MARK: Copying and opening

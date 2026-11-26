@@ -109,6 +109,11 @@ struct HighlightsSheet: View {
                     }
                     .accessibilityIdentifier("highlights.sheet.beginAdd")
                 }
+                Button(session.exportTitle) {
+                    Panels.exportHighlights(of: session)
+                }
+                .disabled(!session.canExport)
+                .accessibilityIdentifier("highlights.sheet.export")
                 Spacer(minLength: 0)
                 Button("Done") {
                     session.close()

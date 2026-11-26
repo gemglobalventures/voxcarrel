@@ -71,6 +71,21 @@ enum Panels {
         Task { await model.beginCalibreImport(folder) }
     }
 
+    /// Asks where to save a book's highlights as a Markdown note, saves it, and shows
+    /// it in the Finder.
+    static func exportHighlights(of session: HighlightsSession) {
+        let panel = NSSavePanel()
+        panel.identifier = NSUserInterfaceItemIdentifier("panel.exportHighlights")
+        panel.title = "Export Highlights"
+        panel.message = "Saves the highlights shown as one Markdown note, for a notes app or anywhere else."
+        panel.nameFieldStringValue = session.exportFileName
+        panel.isExtensionHidden = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, var url = panel.url else { return }
+        if url.pathExtension.lowercased() != "md" { url.appendPathExtension("md") }
+        if session.export(to: url) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    }
+
     /// Asks for a Kindle's clippings file or a Kobo's database, or the device itself,
     /// and opens Import Highlights on what it holds.
     static func importHighlightsFile(into model: AppModel) {
