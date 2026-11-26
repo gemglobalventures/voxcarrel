@@ -44,7 +44,11 @@ let package = Package(
             dependencies: [
                 "VoxCarrelAppCore", "DemoContent",
                 .product(name: "VoxCarrelFixtures", package: "VoxCarrelCore"),
-            ]
+            ],
+            // The tests themselves are not optimised in a release build: it is the app's
+            // own code that the release run is for, and optimising some sixteen hundred
+            // tests as one module took five minutes of every run.
+            swiftSettings: [.unsafeFlags(["-Onone", "-no-whole-module-optimization"], .when(configuration: .release))]
         ),
     ],
     swiftLanguageModes: [.v5]
