@@ -74,7 +74,8 @@ private final class Link {
         #expect(server?.isServing != true, sourceLocation: sourceLocation)
         #expect(await LinkProbe.portIsClosed(port), "the port is still open", sourceLocation: sourceLocation)
         #expect(
-            !RawConnection.portsThatSaidNothing.contains(port), "a connection was left with neither an answer nor an end",
+            !RawConnection.portsThatSaidNothing.contains(port),
+            "a connection was left with neither an answer nor an end: \(RawConnection.silences(on: port))",
             sourceLocation: sourceLocation)
         try? FileManager.default.removeItem(at: folder)
     }
@@ -838,6 +839,26 @@ private func readHead(_ connection: RawConnection) async -> String {
         await link.events.settle()
         #expect(link.events.all == before)
         await link.end()
+    }
+
+    // A connection made in the instant before the server stops, which the server has
+    // not yet taken up, is ended like any other: it is not left open with no answer.
+    @Test func ph6_aConnectionMadeAsTheServerStopsIsEndedToo() async throws {
+        var slowest: Duration = .zero
+        for _ in 0..<60 {
+            let link = try Link()
+            let late = try #require(RawConnection(port: link.port))
+            link.server?.stop()
+            let clock = ContinuousClock()
+            let began = clock.now
+            let rest = await late.readToEnd()
+            slowest = max(slowest, clock.now - began)
+            #expect(rest.bytes.isEmpty)
+            late.close()
+            await link.end()
+        }
+        // Ended at once, not when a reader gives up waiting.
+        #expect(slowest < .seconds(5))
     }
 
     @Test func ph6_stopBeforeAnythingAndTwiceIsSafe() async throws {

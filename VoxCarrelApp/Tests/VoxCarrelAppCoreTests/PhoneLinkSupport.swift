@@ -195,6 +195,10 @@ final class RawConnection: @unchecked Sendable {
     /// The ports on which a read gave up after 30 seconds of nothing: the other side
     /// neither sent nor closed. No test expects that.
     static var portsThatSaidNothing: Set<Int> { silent.withLock { $0 } }
+    private static let silences = OSAllocatedUnfairLock(initialState: [Int: [String]]())
+    /// For each such port, what each read that gave up had been asked for and had got:
+    /// said when a test fails for it, so that the read at fault can be told.
+    static func silences(on port: Int) -> [String] { silences.withLock { $0[port] ?? [] } }
     private let port: Int
 
     /// Why the last connection that could not be made could not be: an `errno` value.
@@ -332,7 +336,11 @@ final class RawConnection: @unchecked Sendable {
             if got < 0, errno == EINTR { continue }
             if got == 0 { return (all, true) }
             guard got > 0 else {
-                if errno == EAGAIN || errno == EWOULDBLOCK { _ = silent.withLock { $0.insert(port) } }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    _ = silent.withLock { $0.insert(port) }
+                    let asked = count == .max ? "to the end" : "\(count) bytes"
+                    silences.withLock { $0[port, default: []].append("asked for \(asked), had \(all.count), on socket \(descriptor)") }
+                }
                 return (all, false)
             }
             all.append(contentsOf: buffer[0..<got])
