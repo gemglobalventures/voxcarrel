@@ -64,7 +64,8 @@ struct CoverView: View {
     }
 }
 
-/// G1: what stands in for a cover: the title's initials on a tint of the title's own.
+/// G1: what stands in for a cover: a cover made for the book, its title and author set
+/// on a tint of the title's own; where there is no room for words, the title's initials.
 struct CoverPlaceholder: View {
     /// Width to height, as a paperback.
     static let aspectRatio: CGFloat = 2.0 / 3.0
@@ -75,16 +76,30 @@ struct CoverPlaceholder: View {
     /// The longest side it is shown at, which sizes the letters.
     let side: CGFloat
     var cornerRadius: CGFloat = 4
+    /// The title and author the made cover says; nil for the initials alone.
+    var wording: PlaceholderCover.Wording?
 
-    init(initials: String, hue: Double, side: CGFloat, cornerRadius: CGFloat = 4) {
+    init(
+        initials: String, hue: Double, side: CGFloat, cornerRadius: CGFloat = 4,
+        wording: PlaceholderCover.Wording? = nil
+    ) {
         self.initials = initials
         self.hue = hue
         self.side = side
         self.cornerRadius = cornerRadius
+        self.wording = wording
     }
 
     init(row: BookRow, side: CGFloat, cornerRadius: CGFloat = 4) {
-        self.init(initials: row.coverInitials, hue: row.placeholderHue, side: side, cornerRadius: cornerRadius)
+        self.init(
+            initials: row.coverInitials, hue: row.placeholderHue, side: side, cornerRadius: cornerRadius,
+            wording: row.madeCoverWording)
+    }
+
+    /// The words to set out, when there are any and there is room for them.
+    private var words: PlaceholderCover.Wording? {
+        guard let wording, !wording.title.isEmpty, side >= PlaceholderCover.wordsFromSide else { return nil }
+        return wording
     }
 
     var body: some View {
@@ -99,8 +114,33 @@ struct CoverPlaceholder: View {
             )
             .aspectRatio(Self.aspectRatio, contentMode: .fit)
             .overlay {
-                // Too small to read in a list's thumbnail.
-                if side >= 60 {
+                if let words {
+                    // The made cover: the title above a rule, the author below it.
+                    VStack(spacing: side * 0.035) {
+                        Spacer(minLength: 0)
+                        Text(words.title)
+                            .font(.system(size: side * 0.085, weight: .semibold, design: .serif))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(6)
+                            .minimumScaleFactor(0.55)
+                        Rectangle()
+                            .fill(.white.opacity(0.55))
+                            .frame(width: side * 0.16, height: 1)
+                        if !words.author.isEmpty {
+                            Text(words.author)
+                                .font(.system(size: side * 0.058, weight: .regular, design: .serif))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.6)
+                                .opacity(0.9)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, side * 0.055)
+                    .padding(.vertical, side * 0.07)
+                } else if side >= 60 {
+                    // Too small to read in a list's thumbnail.
                     Text(initials)
                         .font(.system(size: side * 0.2, weight: .semibold, design: .serif))
                         .foregroundStyle(.white)

@@ -368,10 +368,55 @@ extension BookRow {
     public var placeholderHue: Double {
         PlaceholderCover.hue(for: book.title)
     }
+
+    /// What the cover made for a book that has none says (`PlaceholderCover.wording`).
+    public var madeCoverWording: PlaceholderCover.Wording {
+        PlaceholderCover.wording(title: book.title, authors: book.authors)
+    }
 }
 
 /// What stands in for a cover a book does not have, worked out from its title.
 public enum PlaceholderCover {
+    /// What a made cover says: the title, and under it who wrote the book.
+    public struct Wording: Equatable, Sendable {
+        /// Empty when the book has no title to show.
+        public var title: String
+        /// Empty when no author is known.
+        public var author: String
+
+        public init(title: String, author: String) {
+            self.title = title
+            self.author = author
+        }
+    }
+
+    /// The shortest side, in points, at which a made cover is set out in words; below
+    /// it there is room for the initials alone.
+    public static let wordsFromSide: Double = 100
+
+    /// The words of a made cover: the title, tidied and cut short when it is very long;
+    /// and the first author, with "and others" when there are more than two, or both
+    /// when there are two.
+    public static func wording(title: String, authors: [String]) -> Wording {
+        let words = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        var shown = words
+        if shown.count > 90 {
+            let cut = shown.prefix(88)
+            // Back to the end of a word, when there is one not far back.
+            let whole = cut.lastIndex(of: " ").map { cut[..<$0] } ?? cut
+            shown = (whole.count > 60 ? String(whole) : String(cut)) + "…"
+        }
+        let names = authors.compactMap(\.trimmedOrNil)
+        let author: String
+        switch names.count {
+        case 0: author = ""
+        case 1: author = names[0]
+        case 2: author = "\(names[0]) and \(names[1])"
+        default: author = "\(names[0]) and others"
+        }
+        return Wording(title: shown, author: author)
+    }
+
     private static let articles: Set<String> = ["the", "a", "an"]
 
     /// The first letter or digit of each of the title's first two words, in capitals,

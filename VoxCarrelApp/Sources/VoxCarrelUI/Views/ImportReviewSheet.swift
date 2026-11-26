@@ -254,7 +254,9 @@ private struct EntryCover: View {
                 .accessibilityHidden(true)
         } else {
             CoverPlaceholder(
-                initials: entry.coverInitials, hue: entry.placeholderHue, side: side, cornerRadius: cornerRadius)
+                initials: entry.coverInitials, hue: entry.placeholderHue, side: side, cornerRadius: cornerRadius,
+                wording: PlaceholderCover.wording(
+                    title: entry.candidate.metadata.title, authors: entry.candidate.metadata.authors))
         }
     }
 }

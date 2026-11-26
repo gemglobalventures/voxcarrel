@@ -124,6 +124,28 @@ import VoxCarrelCore
 
     // MARK: T5 Placeholder cover
 
+    /// The cover made for a book that has none says its title and who wrote it.
+    @Test func aMadeCoverSaysTheTitleAndTheAuthor() {
+        typealias Wording = PlaceholderCover.Wording
+        func wording(_ title: String, _ authors: [String]) -> Wording {
+            PlaceholderCover.wording(title: title, authors: authors)
+        }
+        #expect(wording("Salt Road", ["Ines Calloway"]) == Wording(title: "Salt Road", author: "Ines Calloway"))
+        #expect(wording("  Salt \n  Road ", [" ", "Ines Calloway"]) == Wording(title: "Salt Road", author: "Ines Calloway"))
+        #expect(wording("Salt Road", ["Ines Calloway", "Ned Marsh"]).author == "Ines Calloway and Ned Marsh")
+        #expect(wording("Salt Road", ["Ines Calloway", "Ned Marsh", "Ola Finch"]).author == "Ines Calloway and others")
+        #expect(wording("Salt Road", []).author == "")
+        #expect(wording("", ["Ines Calloway"]).title == "")
+        // A very long title is cut at the end of a word, and says that it was.
+        let long = Array(repeating: "meadow", count: 30).joined(separator: " ")
+        let cut = wording(long, []).title
+        #expect(cut.count <= 89 && cut.hasSuffix("meadow…") && long.hasPrefix(cut.dropLast()))
+        // One with no spaces is cut where it must be.
+        #expect(wording(String(repeating: "x", count: 200), []).title.count == 89)
+        // The row's own.
+        #expect(row("Quiet Rivers").madeCoverWording.title == "Quiet Rivers")
+    }
+
     /// T5: the first letters of the first two words, leaving out a leading article.
     @Test func initialsComeFromTheTitle() {
         #expect(row("The Lighthouse Keeper").coverInitials == "LK")
