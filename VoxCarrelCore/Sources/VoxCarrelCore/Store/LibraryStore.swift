@@ -34,6 +34,30 @@ public final class LibraryStore: Sendable {
         dbQueue = opened.queue
     }
 
+    /// Opens the catalogue inside `libraryRoot` for reading only: nothing is created,
+    /// nothing is brought up to date, and nothing can be written through this store.
+    /// For a program that looks at a library while the app that owns it may be running.
+    ///
+    /// - Throws: `LibraryStoreError.noCatalogue` when the folder holds none;
+    ///   `LibraryStoreError.catalogueNeedsOpening` when the catalogue was left by an
+    ///   earlier version and has not been opened by this one, so its tables are not
+    ///   the ones this code reads.
+    public init(readingOnly libraryRoot: URL) throws {
+        let root = LibraryLayout.canonicalFolder(libraryRoot)
+        let file = root.appendingPathComponent(Self.databaseFileName)
+        guard FileManager.default.fileExists(atPath: file.path) else { throw LibraryStoreError.noCatalogue }
+        var configuration = Configuration()
+        configuration.readonly = true
+        // The app may be writing: wait a little for it instead of failing at once.
+        configuration.busyMode = .timeout(5)
+        let queue = try DatabaseQueue(path: file.path, configuration: configuration)
+        guard try queue.read({ db in try Self.migrator.hasCompletedMigrations(db) }) else {
+            throw LibraryStoreError.catalogueNeedsOpening
+        }
+        self.libraryRoot = root
+        dbQueue = queue
+    }
+
     /// A catalogue opened and brought up to date, with the folder it is in.
     private struct Opened {
         var root: URL
@@ -952,9 +976,18 @@ public enum LibraryStoreError: Error, Equatable, LocalizedError {
     /// The copy kept before the genres are converted could not be made, under this
     /// name in the library folder. Nothing was changed.
     case copyBeforeGenresFailed(String)
+    /// The folder holds no catalogue: it is not a library.
+    case noCatalogue
+    /// The catalogue was left by an earlier version, and must be opened once in the
+    /// app, which brings it up to date, before it can be read here.
+    case catalogueNeedsOpening
 
     public var errorDescription: String? {
         switch self {
+        case .noCatalogue:
+            return "That folder is not a VoxCarrel library."
+        case .catalogueNeedsOpening:
+            return "The library was last used by an earlier version of VoxCarrel. Open it in VoxCarrel once, then try again."
         case .copyBeforeGenresFailed(let name):
             return "Before this version changes how the library keeps genres it makes a copy of the catalogue, "
                 + "\"\(name)\", in the library folder. The copy could not be made, so nothing was changed. "
