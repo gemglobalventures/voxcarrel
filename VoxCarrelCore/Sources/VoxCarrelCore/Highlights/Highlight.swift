@@ -4,12 +4,18 @@ import GRDB
 /// Where a highlight came from.
 public enum HighlightSource: String, Codable, Sendable, CaseIterable {
     case readwise, audible, own
+    /// From a Kindle's own clippings file.
+    case kindle
+    /// From a Kobo's own database.
+    case kobo
 
     public var title: String {
         switch self {
         case .readwise: "Readwise"
         case .audible: "Audible"
         case .own: "Added here"
+        case .kindle: "Kindle"
+        case .kobo: "Kobo"
         }
     }
 }

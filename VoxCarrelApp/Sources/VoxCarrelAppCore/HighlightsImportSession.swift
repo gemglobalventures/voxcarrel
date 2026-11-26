@@ -19,6 +19,13 @@ enum HighlightsImportText {
 
     static let readwiseSource = "Readwise (your Kindle highlights)"
     static let audibleSource = "Audible (marks you made while listening)"
+    static let kindleFileSource = "A Kindle's clippings file"
+    static let koboFileSource = "A Kobo's own database"
+    static let fileMenuTitle = "Import Highlights from a Kindle or Kobo…"
+    static let notADeviceFile =
+        "This is neither a Kindle's clippings file (My Clippings.txt) nor a Kobo's database (KoboReader.sqlite)."
+    static let nothingInFile = "No highlights were found there."
+    static let fileNotRead = "The file could not be read."
     static let noSource = "Add a Readwise token or link your Audible account in Settings first."
     static let readingReadwise = "Reading from Readwise…"
     static let nothingToDo = "Everything is already here."
@@ -169,12 +176,26 @@ public final class HighlightsImportSession {
     @ObservationIgnored private var books: [HighlightedBook] = []
     /// The reading that is running, or the last that ran. Tests wait for it.
     @ObservationIgnored var reading: Task<Void, Never>?
+    /// Books already read, from a file of a device: nothing more is asked of anyone.
+    @ObservationIgnored private let prepared: [HighlightedBook]?
+
+    /// For highlights already read from a file: the review is of these.
+    init(model: AppModel, worker: LibraryWorker, prepared: [HighlightedBook], source: String) {
+        self.model = model
+        self.worker = worker
+        token = nil
+        account = nil
+        self.prepared = prepared
+        sources = [source]
+        problem = nil
+    }
 
     init(model: AppModel, worker: LibraryWorker, token: String?, account: AudibleAccount?) {
         self.model = model
         self.worker = worker
         self.token = token
         self.account = account
+        prepared = nil
         var sources: [String] = []
         if token != nil { sources.append(HighlightsImportText.readwiseSource) }
         if account != nil { sources.append(HighlightsImportText.audibleSource) }
@@ -212,6 +233,23 @@ public final class HighlightsImportSession {
     public func start() {
         guard canStart, model.highlightsImport === self else { return }
         phase = .reading
+        if let prepared {
+            let worker = worker
+            reading = Task { [weak self] in
+                do {
+                    let report = try await worker.highlightsReport(prepared, apply: false)
+                    guard let self, !Task.isCancelled, self.phase == .reading else { return }
+                    self.books = prepared
+                    self.report = report
+                    self.phase = .review
+                } catch {
+                    guard let self, !Task.isCancelled, self.phase == .reading else { return }
+                    self.problem = HighlightsImportText.fileNotRead
+                    self.phase = .failed
+                }
+            }
+            return
+        }
         progressText = token == nil ? nil : HighlightsImportText.readingReadwise
         let (token, account, worker) = (token, account, worker)
         let transport = model.audibleTransport
@@ -437,6 +475,61 @@ extension AppModel {
             model: self, worker: worker, token: readwiseTokens.load()?.trimmedOrNil, account: audibleAccount)
     }
 
+    public static let highlightsFileMenuTitle = HighlightsImportText.fileMenuTitle
+
+    /// The file of highlights that `chosen` is or holds: the file itself, or, for a
+    /// device or a folder of one, the Kindle's clippings or the Kobo's database in it.
+    static func highlightsFile(in chosen: URL) -> URL {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: chosen.path, isDirectory: &isFolder), isFolder.boolValue else { return chosen }
+        let places = [
+            ".kobo/" + KoboHighlights.fileName, KoboHighlights.fileName,
+            "documents/" + KindleClippings.fileName, KindleClippings.fileName,
+        ]
+        return places.map { chosen.appendingPathComponent($0) }.first { FileManager.default.fileExists(atPath: $0.path) } ?? chosen
+    }
+
+    /// Reads a Kindle's clippings file or a Kobo's database. Off the main actor: a
+    /// device's database can be large.
+    nonisolated static func highlights(inFile url: URL) -> Result<(books: [HighlightedBook], source: String), UserMessageError> {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return .failure(.init(HighlightsImportText.fileNotRead)) }
+        let head = (try? handle.read(upToCount: 16)) ?? Data()
+        try? handle.close()
+        if head.starts(with: Data("SQLite format 3".utf8)) {
+            guard let books = try? KoboHighlights.books(fromDatabaseAt: url) else {
+                return .failure(.init(HighlightsImportText.notADeviceFile))
+            }
+            return .success((books, HighlightsImportText.koboFileSource))
+        }
+        guard let data = try? Data(contentsOf: url), data.count < 200_000_000,
+              let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16),
+              KindleClippings.looksLikeClippings(text)
+        else { return .failure(.init(HighlightsImportText.notADeviceFile)) }
+        return .success((KindleClippings.books(from: text), HighlightsImportText.kindleFileSource))
+    }
+
+    /// Opens Import Highlights on what a Kindle's clippings file or a Kobo's database
+    /// holds, with what bringing it in would do. A file that is neither is said to be
+    /// neither. Nothing is changed until Import is pressed, and the file is only read.
+    public func beginHighlightsImport(fromFile chosen: URL) async {
+        guard canImportHighlights, let worker else { return }
+        let url = Self.highlightsFile(in: chosen)
+        let read = await Task.detached { Self.highlights(inFile: url) }.value
+        guard canImportHighlights, self.worker === worker else { return }
+        switch read {
+        case .failure(let problem):
+            alert = problem.message
+        case .success(let found):
+            guard found.books.contains(where: { !$0.highlights.isEmpty }) else {
+                alert = HighlightsImportText.nothingInFile
+                return
+            }
+            let session = HighlightsImportSession(model: self, worker: worker, prepared: found.books, source: found.source)
+            highlightsImport = session
+            session.start()
+        }
+    }
+
     public func closeHighlightsImport() {
         highlightsImport?.stopReading()
         highlightsImport = nil
@@ -454,4 +547,10 @@ extension AppModel {
             try? await worker.booksOwnedElsewhereWithoutCover()
         }
     }
+}
+
+/// A sentence to show in place of a result.
+struct UserMessageError: Error, Equatable, Sendable {
+    var message: String
+    init(_ message: String) { self.message = message }
 }

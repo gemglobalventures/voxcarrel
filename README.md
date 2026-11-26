@@ -41,7 +41,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 - **Your files, kept tidy.** Books are filed into folders arranged the way you choose, with details and covers written into the files themselves.
 - **Nothing moves until you have reviewed it.** Every import goes through a review sheet, and the last operation can be undone.
 - **Everything you own, in one list.** Your files, your Audible library and your Kindle library, side by side.
-- **Your highlights, on the books.** From Readwise, from marks made while listening on Audible, and your own.
+- **Your highlights, on the books.** From Readwise, from a Kindle's own clippings file, from a Kobo, from marks made while listening on Audible, and your own.
 - **What to read next.** Up Next, smart shelves, and series that show what is missing.
 - **Local and private.** The library is a folder and a database on your Mac. Nothing is sent anywhere until you ask.
 
@@ -75,7 +75,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 - **Genres from a short list** you can rename, merge and add to. Whatever a file or a lookup says is mapped onto it.
 - **Read status, tags, ratings and collections.**
 - **Hide books** you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password.
-- **A check of the library at launch**, and **undo** for the last operation.
+- **A check of the library at launch**, and whenever you ask (Library > Check Library Now), and **undo** for the last operation.
 - **Leave as cleanly as you came:** every filed book has a standard `metadata.opf` beside it, kept in step with what you edit, as well as the details inside its files. Another library manager can pick the library up as it stands. An audiobook also has the `metadata.json` that Audiobookshelf reads, so the library folder can be added to an Audiobookshelf server with its titles, authors, narrators and series as they are here.
 
 <details>
@@ -108,6 +108,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 ### Highlights
 
 - **On the book they belong to:** brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own, added to any book.
+- **Straight from the device:** Library > Import Highlights from a Kindle or Kobo… reads a Kindle's `My Clippings.txt` or a Kobo's own database, with no account and nothing sent anywhere. Choose the file or the device itself. Highlights land on the books you already have, by title and author; a highlight that is already here from Readwise is not added twice.
 - **Search** finds books by the words of their highlights.
 - **Kept once:** the same highlight arriving from two places is one highlight. Looking again brings in only what changed.
 - Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle".
@@ -133,11 +134,10 @@ What is planned, roughly in order. This is a direction, not a promise: things mo
 
 **After that**
 
-- Kindle highlights without Readwise, from a Kindle's own clippings file.
 - Import from an Audiobookshelf server, with its progress and bookmarks.
 - A better copy of a book you already have (a higher bitrate, an EPUB where you had a MOBI) offered as a replacement at import.
 - Finding books scattered across the Mac and network drives.
-- Library health checks and backups of the catalogue.
+- Backups of the catalogue.
 
 Ideas and reports from real libraries are welcome in the issues.
 

@@ -141,6 +141,11 @@ private struct HighlightsCommandItem: View {
         }
         .disabled(!model.canImportHighlights)
         .accessibilityIdentifier("menu.library.importHighlights")
+        Button(AppModel.highlightsFileMenuTitle) {
+            Panels.importHighlightsFile(into: model)
+        }
+        .disabled(!model.canImportHighlights)
+        .accessibilityIdentifier("menu.library.importHighlightsFile")
     }
 }
 

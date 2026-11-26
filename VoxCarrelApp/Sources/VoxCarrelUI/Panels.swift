@@ -71,6 +71,24 @@ enum Panels {
         Task { await model.beginCalibreImport(folder) }
     }
 
+    /// Asks for a Kindle's clippings file or a Kobo's database, or the device itself,
+    /// and opens Import Highlights on what it holds.
+    static func importHighlightsFile(into model: AppModel) {
+        let panel = NSOpenPanel()
+        panel.identifier = NSUserInterfaceItemIdentifier("panel.importHighlightsFile")
+        panel.title = "Import Highlights from a Kindle or Kobo"
+        panel.message = "Choose the device itself, or a Kindle's My Clippings.txt, or a Kobo's KoboReader.sqlite. It is only read."
+        panel.prompt = "Choose"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+        // A Kobo keeps its database in a hidden folder.
+        panel.showsHiddenFiles = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await model.beginHighlightsImport(fromFile: url) }
+    }
+
     /// Asks where to save a diagnostics report, and whether it may name books, then
     /// saves it and shows it in the Finder. Nothing is sent anywhere.
     static func exportDiagnostics(for model: AppModel) {
