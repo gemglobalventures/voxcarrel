@@ -612,7 +612,8 @@ import VoxCarrelFixtures
         let label = try #require(try await worker.undoLabel())
         #expect(try await worker.undoLast() == label)
         #expect(try library.store.book(id: bookId)?.title == "Quiet Rivers")
-        #expect(try await worker.undoLabel() == nil)
+        // What was undone is no longer next; the step before it is.
+        #expect(try await worker.undoLabel() != label)
     }
 
     @Test func rewriteTagsAndReadStatusGoThrough() async throws {

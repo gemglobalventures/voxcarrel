@@ -1038,7 +1038,8 @@ import VoxCarrelFixtures
         #expect(h.model.selection == [ebook])
         #expect(h.detail?.row.id == ebook)
         #expect(h.detail?.files.map(\.name) == ["Dune.epub"])
-        #expect(h.model.undoLabel == nil)
+        // The merge is undone; the import before it is next.
+        #expect(h.model.undoLabel == "Import 1 book")
         #expect(!h.model.hasUnsavedChanges)
         #expect(h.model.canMergeBooks([ebook, notes]))
     }

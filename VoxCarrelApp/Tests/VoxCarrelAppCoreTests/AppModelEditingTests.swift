@@ -1100,6 +1100,26 @@ import VoxCarrelFixtures
 
     // MARK: A18 Undo
 
+    /// Undo pressed again goes a step further back, and its menu item names each step in turn.
+    @Test func undoGoesBackThroughEarlierOperations() async throws {
+        let h = try await Harness.demo()
+        let id = try await h.edit("Salt Road", newTitle: "Saltier Road")
+        await h.model.save()
+        _ = try await h.edit("Saltier Road", newTitle: "Saltiest Road")
+        await h.model.save()
+        #expect(try h.book(id).title == "Saltiest Road")
+        #expect(h.model.undoMenuTitle == "Undo Edit Saltiest Road" && h.model.canUndo)
+
+        await h.model.undo()
+        #expect(try h.book(id).title == "Saltier Road")
+        #expect(h.model.undoMenuTitle == "Undo Edit Saltier Road" && h.model.alert == nil)
+
+        await h.model.undo()
+        #expect(try h.book(id).title == "Salt Road")
+        // What made the demo library is next, as it was before either edit.
+        #expect(h.model.undoLabel == Harness.demoUndoLabel && h.model.canUndo)
+    }
+
     /// A18
     @Test func undoReversesTheLastOperationAndReloads() async throws {
         let h = try await Harness.demo()
@@ -1113,7 +1133,8 @@ import VoxCarrelFixtures
         await h.model.undo()
         #expect(h.busyLabels == ["Saving…", "Undoing…"])
         #expect(h.model.alert == nil)
-        #expect(h.model.undoLabel == nil)
+        // The edit is undone; what made the demo library is next.
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
         #expect(try h.book(id).title == "Salt Road")
         #expect(try h.fileURLs(id) == files)
         #expect(h.titles.contains("Salt Road") && !h.titles.contains("Saltier Road"))
@@ -1143,7 +1164,7 @@ import VoxCarrelFixtures
         await h.model.undo()
         #expect(h.model.alert == nil)
         #expect(try h.book(id).title == "Salt Road")
-        #expect(h.model.undoLabel == nil)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
     }
 
     /// A18

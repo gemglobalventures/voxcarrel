@@ -609,7 +609,7 @@ import VoxCarrelFixtures
         #expect(h.model.undoLabel == "Edit Salt Road")
         await h.model.undo()
         #expect(try h.book(id) == before)
-        #expect(h.model.undoLabel == nil)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
         #expect(try FileMetadataIO().read(try #require(try h.fileURLs(id).first)).metadata.publisher == before.publisher)
     }
 
@@ -633,7 +633,7 @@ import VoxCarrelFixtures
 
         await h.model.undo()
         #expect(try h.book(id) == before)
-        #expect(h.model.undoLabel == nil)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
     }
 
     /// An applied title files the book again under its new name.
@@ -784,7 +784,7 @@ import VoxCarrelFixtures
         #expect(try h.book(id).publisher == "Tidewater Audio")
         #expect(h.model.undoLabel == "Edit Salt Road")
         await h.model.undo()
-        #expect(h.model.undoLabel == nil)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
     }
 
     /// A4: with nothing ticked there is nothing to apply, and the sheet stays.
@@ -1356,7 +1356,7 @@ import VoxCarrelFixtures
         #expect(tagsAfter.narrators == tagsBefore.narrators)
         #expect(tagsAfter.publisher == tagsBefore.publisher)
         #expect(tagsAfter.year == tagsBefore.year)
-        #expect(h.model.undoLabel == nil)
+        #expect(h.model.undoLabel == Harness.demoUndoLabel)
         #expect(h.busyLabels == ["Saving…", "Undoing…"])
     }
 
