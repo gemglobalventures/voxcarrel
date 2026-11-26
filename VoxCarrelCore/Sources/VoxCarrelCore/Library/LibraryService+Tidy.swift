@@ -138,7 +138,7 @@ extension LibraryService {
                     // Tied already as editions: nothing to say.
                     if let key = book.workKey, key == other.workKey { continue }
                     let check: TidyCheck
-                    if Self.whatSetsApart(book, from: other) != nil || Self.whatSetsApart(other, from: book) != nil {
+                    if Self.differAsEditions(book, other) != nil {
                         check = .editionsNotLinked
                     } else if let first = roles[a], let second = roles[b], first.isDisjoint(with: second),
                               first.union(second).isSuperset(of: [.audio, .ebook]) {

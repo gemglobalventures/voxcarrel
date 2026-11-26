@@ -958,7 +958,17 @@ public actor LibraryWorker {
                     id: id, title: book.title, authors: book.authors,
                     roles: try store.files(bookId: id).map(\.role)))
         }
-        return MergeReading(plan: plan, entries: entries)
+        var reading = MergeReading(plan: plan, entries: entries)
+        // Two entries that differ in language, narrator or kind are two editions.
+        let books = try entries.compactMap { try store.book(id: $0.id) }
+        outer: for (index, book) in books.enumerated() {
+            for other in books[(index + 1)...] {
+                guard let difference = LibraryService.differAsEditions(book, other) else { continue }
+                reading.setsApart = difference
+                break outer
+            }
+        }
+        return reading
     }
 
     /// MG5: how the offer to merge `bookId` with `otherId` stands now.

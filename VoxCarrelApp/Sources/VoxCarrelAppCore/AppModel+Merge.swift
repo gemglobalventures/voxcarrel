@@ -139,6 +139,10 @@ public struct MergeReading: Equatable, Sendable {
     public var plan: MergePlan
     /// The entries that are in the library, in the order they were asked about.
     public var entries: [MergeEntryFacts]
+    /// What sets two of the entries apart as editions of one book (its language, its
+    /// narrator, its kind), when something does: merging would make one entry of what
+    /// are two editions. Nil when nothing does.
+    public var setsApart: String?
 
     public init(plan: MergePlan, entries: [MergeEntryFacts]) {
         self.plan = plan
@@ -159,6 +163,14 @@ struct MergeSession {
 enum MergeText {
     static let planningLabel = "Reading the books…"
     static let mergingLabel = "Merging books…"
+
+    /// Said when the entries to merge look like different editions of one book:
+    /// they differ in "language", "narrator" or "kind of edition".
+    static func editionWarning(_ difference: String) -> String {
+        "These look like different editions of one book: they differ in \(difference). Merging makes them a "
+            + "single entry with all the files in it. To keep each as it is, cancel and choose "
+            + "Book ▸ Link as Editions of One Book."
+    }
 
     static func shownTitle(_ title: String) -> String {
         title.trimmedOrNil ?? "Untitled book"
@@ -382,7 +394,8 @@ extension AppModel {
             summary: MergeText.summary(
                 incoming: incoming, title: titles[plan.keepId] ?? "", removed: max(entries.count - 1, 0),
                 folder: plan.resultFolder, attention: plan.attention, fromOutside: plan.filesFromOutside,
-                unfiledReason: plan.unfiledReason),
+                unfiledReason: plan.unfiledReason)
+                + (session.reading.setsApart.map { " " + MergeText.editionWarning($0) } ?? ""),
             willNeedAttention: plan.attention != nil,
             busyText: busyLabel,
             canChange: busyLabel == nil,

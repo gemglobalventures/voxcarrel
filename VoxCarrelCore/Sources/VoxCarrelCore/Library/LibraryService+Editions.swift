@@ -157,6 +157,23 @@ extension LibraryService {
         }
     }
 
+    /// Whether two entries are plainly different editions of a book, and in what: both
+    /// say their language, or who reads them, or what kind of edition they are, and
+    /// say different things: "language", "narrator" or "kind of edition". An entry that merely lacks what the other states (an
+    /// ebook has no narrator) is not thereby another edition. Nil when they are not.
+    public static func differAsEditions(_ book: Book, _ other: Book) -> String? {
+        func said(_ text: String?) -> String? {
+            guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+            return text.lowercased()
+        }
+        if let a = said(book.language), let b = said(other.language), a != b { return "language" }
+        if let a = said(book.narrators.first), let b = said(other.narrators.first), a != b { return "narrator" }
+        if let a = book.editionKind?.kind, let b = other.editionKind?.kind, a != .notKnown, b != .notKnown, a != b {
+            return "kind of edition"
+        }
+        return nil
+    }
+
     /// What sets one edition apart from another, in a few words: its language, who
     /// reads it, or what kind of edition it is. Nil when nothing tells them apart.
     public static func whatSetsApart(_ book: Book, from other: Book) -> String? {

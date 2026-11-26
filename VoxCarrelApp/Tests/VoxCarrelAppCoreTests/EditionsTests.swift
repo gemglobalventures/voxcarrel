@@ -34,3 +34,35 @@ import VoxCarrelFixtures
         #expect(!h.model.canUnlinkEdition([rivers]))
     }
 }
+
+/// Merge says so when the entries look like different editions.
+@MainActor
+@Suite struct MergeEditionWarningTests {
+    @Test func mergeWarnsAcrossEditionsAndNotAcrossForms() async throws {
+        let h = try await Harness.demo()
+        let salt = try h.id("Salt Road")
+        let rivers = try h.id("Quiet Rivers")
+        let store = try h.store()
+        // Two entries that both say who reads them, and say different people.
+        var first = try h.book(salt)
+        first.narrators = ["Reader One"]
+        try store.update(first)
+        var second = try h.book(rivers)
+        second.narrators = ["Reader Two"]
+        try store.update(second)
+        await h.model.reloadAll()
+        await h.model.beginMergeBooks(for: [salt, rivers])
+        let warned = try #require(h.model.mergeSheet)
+        #expect(warned.summary.contains("These look like different editions of one book: they differ in narrator."))
+        #expect(warned.summary.contains("Link as Editions of One Book"))
+        h.model.cancelMerge()
+
+        // One that says nothing of a narrator is no other edition for that.
+        second.narrators = []
+        try store.update(second)
+        await h.model.reloadAll()
+        await h.model.beginMergeBooks(for: [salt, rivers])
+        #expect(h.model.mergeSheet?.summary.contains("different editions") == false)
+        #expect(LibraryService.differAsEditions(first, second) == nil)
+    }
+}
