@@ -798,6 +798,12 @@ public final class AppModel {
 
     /// What a book is handed to, to be sent to the Kindle.
     @ObservationIgnored let kindleSender: any KindleSender
+
+    // MARK: Export Diagnostics
+
+    /// Where a diagnostics report gets what it says of the app and the Mac. Tests give
+    /// one that asks the system nothing.
+    @ObservationIgnored public var diagnosticsSource: any DiagnosticsSource = SystemDiagnosticsSource()
     /// The Kindle's address as it is kept; empty when none is.
     var storedKindleAddress: String
     /// What the field in Settings holds, kept or not.

@@ -69,6 +69,11 @@ struct AppCommands: Commands {
             KindleCommandItem(model: model)
             HighlightsCommandItem(model: model)
         }
+        CommandGroup(after: .help) {
+            Button("Export Diagnostics…") { Panels.exportDiagnostics(for: model) }
+                .disabled(!model.canExportDiagnostics)
+                .accessibilityIdentifier("menu.help.exportDiagnostics")
+        }
     }
 }
 

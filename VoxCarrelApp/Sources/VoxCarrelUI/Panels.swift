@@ -71,6 +71,33 @@ enum Panels {
         Task { await model.beginCalibreImport(folder) }
     }
 
+    /// Asks where to save a diagnostics report, and whether it may name books, then
+    /// saves it and shows it in the Finder. Nothing is sent anywhere.
+    static func exportDiagnostics(for model: AppModel) {
+        let panel = NSSavePanel()
+        panel.identifier = NSUserInterfaceItemIdentifier("panel.exportDiagnostics")
+        panel.title = "Export Diagnostics"
+        panel.message = "Saves a zip of text files about the app and the library, for you to look over and send yourself. Nothing is sent by VoxCarrel."
+        panel.prompt = "Export"
+        panel.nameFieldStringValue = DiagnosticsText.fileName(on: Date())
+        panel.canCreateDirectories = true
+        let titles = NSButton(
+            checkboxWithTitle: "Include the titles and file names of books that need attention", target: nil, action: nil)
+        titles.state = .off
+        titles.setAccessibilityIdentifier("panel.exportDiagnostics.titles")
+        let holder = NSView(frame: NSRect(x: 0, y: 0, width: 460, height: 36))
+        titles.frame = NSRect(x: 16, y: 8, width: 440, height: 20)
+        holder.addSubview(titles)
+        panel.accessoryView = holder
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let includingTitles = titles.state == .on
+        Task {
+            if await model.exportDiagnostics(to: url, includingTitles: includingTitles) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        }
+    }
+
     /// I5: asks for an image and makes it the inspected book's cover, not yet saved.
     static func chooseCover(for model: AppModel) {
         let panel = NSOpenPanel()
