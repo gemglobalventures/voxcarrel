@@ -10,11 +10,11 @@ VoxCarrel files your books into a tidy folder layout, writes details and covers 
 
 | | |
 |---|---|
-| ![The library as a list, with a series opened to show its books in order](Screenshots/library-list.png) | ![A series with three local books and one owned on Audible](Screenshots/series-with-audible.jpg) |
+| ![The library as a list, with a series opened to show its books in order](Screenshots/library-list.png) | ![A series with three local books and one owned on Audible](Screenshots/series-with-audible.png) |
 | The same library as a list, with a series opened. | A series in order: three books on this Mac, the fourth on Audible. |
-| ![The Inbox, listing books that have arrived in a watched folder](Screenshots/inbox.jpg) | ![The import sheet, reviewing books before anything moves](Screenshots/import-review.png) |
+| ![The Inbox, listing books that have arrived in a watched folder](Screenshots/inbox.png) | ![The import sheet, reviewing books before anything moves](Screenshots/import-review.png) |
 | Books that arrive in a watched folder wait in the Inbox. | Nothing moves until you have reviewed it. |
-| ![The Merge Books sheet, joining an ebook entry to its audiobook](Screenshots/merge-books.jpg) | ![The Send to Phone sheet, with AirDrop, Share and a link for BookPlayer](Screenshots/send-to-phone.jpg) |
+| ![The Merge Books sheet, showing which entry is kept and where each file goes](Screenshots/merge-books.png) | ![The Send to Phone sheet, with AirDrop, Share and a link for BookPlayer](Screenshots/send-to-phone.png) |
 | Entries that are one book can be merged, with a role for each file. | An audiobook can be sent to your phone. |
 
 The books in these pictures are generated samples from the demo library.
