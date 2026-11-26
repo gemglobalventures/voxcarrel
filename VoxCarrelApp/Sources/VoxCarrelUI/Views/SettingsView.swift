@@ -268,6 +268,18 @@ private struct LookupSettings: View {
                     }
                 }
             }
+            Section("Series") {
+                Toggle(isOn: Binding(get: { model.asksWikidataForSeries }, set: { model.asksWikidataForSeries = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Wikidata")
+                        Text("Asked what books a series holds, and in what order, when you check a series. It is sent the series' name, or a book's title, and nothing else. Wikidata is open data, and is asked when Audible has no list or is off.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityIdentifier("settings.lookup.wikidata")
+            }
             Section {
                 Text(model.lookupPrivacyText)
                     .font(.callout)
@@ -278,7 +290,7 @@ private struct LookupSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: SettingsView.width, height: 600)
+        .frame(width: SettingsView.width, height: 700)
     }
 }
 

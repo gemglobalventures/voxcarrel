@@ -151,7 +151,9 @@ final class FakeLookup: @unchecked Sendable {
             _ url: URL, headers: [String: String], maxBytes: Int, redirectHosts: Set<String>,
             insecure: Set<InsecureOrigin>
         ) async throws -> (data: Data, status: Int) {
-            if url.path.hasPrefix(FakeCatalogue.path) { return try await fake.catalogue.answer(url) }
+            if url.path.hasPrefix(FakeCatalogue.path) || url.host?.hasSuffix("wikidata.org") == true {
+                return try await fake.catalogue.answer(url)
+            }
             let cover = fake.lock.withLock {
                 fake.recordedCovers.append(url)
                 return fake.covering

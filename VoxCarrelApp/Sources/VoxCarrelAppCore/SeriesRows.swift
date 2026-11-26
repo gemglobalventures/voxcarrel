@@ -29,6 +29,13 @@ public struct SeriesHeader: Equatable, Sendable {
     /// "Show Hidden" to show.
     public var hiddenCount: Int
 
+    /// What the button that takes the list's numbers says: "Use Audible's Numbers".
+    public var numbersTitle = "Use Audible's Numbers"
+    /// Whether Wikidata can be asked in place of Audible: both may be asked, so there
+    /// is a choice to offer.
+    public var canCheckWikidata = false
+    public static let wikidataCheckTitle = "Check on Wikidata"
+
     /// What the button that asks Audible says: a series that has a list is checked again.
     public var checkTitle: String {
         isLinked ? "Check Again" : "Check Series"
@@ -63,6 +70,10 @@ public struct MissingBookInfo: Equatable, Sendable {
     public var isHidden: Bool
     /// Whether it can be added or hidden now: nothing is running or in the way.
     public var canChange: Bool
+    /// Whether it can be added as a book owned on Audible: only from Audible's list.
+    public var canAdd = true
+    /// "Show on Audible", or "Show on Wikidata".
+    public var showTitle = "Show on Audible"
 
     /// What the action that hides it says: a hidden book is shown again.
     public var hideTitle: String {
@@ -77,6 +88,8 @@ public struct MissingActions: Equatable, Sendable {
     public var canAdd: Bool
     /// Show on Audible.
     public var canShow: Bool
+    /// "Show on Audible", or "Show on Wikidata".
+    public var showTitle = "Show on Audible"
     /// Hide, or Show.
     public var canSetHidden: Bool
     /// "Hide", or "Show" for a book that is hidden.
@@ -183,7 +196,8 @@ enum SeriesRows {
         metadata.narrators = entry.preferred.narrators
         metadata.series = link.seriesName
         metadata.seriesNumber = entry.number?.trimmedOrNil
-        metadata.asin = entry.preferred.asin.trimmedOrNil
+        // Another source's id for the book is no Audible ID.
+        if link.source == .audible { metadata.asin = entry.preferred.asin.trimmedOrNil }
         metadata.durationSeconds = entry.preferred.minutes.map { Double($0) * 60 }
         return metadata
     }
@@ -216,8 +230,10 @@ enum SeriesRows {
     /// list does not have it. Nil for any other book, and for a missing row.
     static func note(forBook id: Int64, in completeness: SeriesCompleteness?) -> String? {
         guard let completeness, id > 0 else { return nil }
-        if let number = completeness.numberDifferences[id]?.trimmedOrNil { return "Audible: #\(number)" }
-        return completeness.notInList.contains(id) ? notOnList : nil
+        let source = completeness.link.source
+        if let number = completeness.numberDifferences[id]?.trimmedOrNil { return "\(source.title): #\(number)" }
+        guard completeness.notInList.contains(id) else { return nil }
+        return source == .audible ? notOnList : "Not on \(source.title)'s list"
     }
 
     /// The rows, each book's with its note as the list stands now.
@@ -234,6 +250,13 @@ enum SeriesRows {
     /// SV8: a missing entry in the words the inspector shows.
     static func info(for missing: MissingEntry, link: SeriesLink, canChange: Bool) -> MissingBookInfo {
         let row = row(for: missing, link: link)
+        guard link.source == .audible else {
+            return MissingBookInfo(
+                title: row.book.title, seriesText: row.seriesText, authorsText: row.authorsText,
+                narratorsText: "", lengthText: "", storeText: link.source.title,
+                note: "This book is on \(link.source.title)'s list for the series and is not in your library.",
+                isHidden: missing.isHidden, canChange: canChange, canAdd: false, showTitle: "Show on \(link.source.title)")
+        }
         return MissingBookInfo(
             title: row.book.title, seriesText: row.seriesText, authorsText: row.authorsText,
             narratorsText: row.book.narrators.joined(separator: ", "), lengthText: row.lengthText,
@@ -270,26 +293,28 @@ enum SeriesRows {
             Date.FormatStyle(date: .abbreviated, time: .omitted, locale: locale, timeZone: timeZone))
         let hidden = completeness.missing.filter(\.isHidden).count
         var notes: [String] = []
+        let whose = link.source.title
         let differing = completeness.numberDifferences.count
         if differing > 0 {
             notes.append(
                 differing == 1
-                    ? "1 book is numbered differently on Audible."
-                    : "\(differing) books are numbered differently on Audible.")
+                    ? "1 book is numbered differently on \(whose)."
+                    : "\(differing) books are numbered differently on \(whose).")
         }
         let unlisted = completeness.notInList.count
         if unlisted > 0 {
             notes.append(
-                unlisted == 1 ? "1 book is not on Audible's list." : "\(unlisted) books are not on Audible's list.")
+                unlisted == 1 ? "1 book is not on \(whose)'s list." : "\(unlisted) books are not on \(whose)'s list.")
         }
         if hidden > 0 { notes.append("\(hidden) hidden") }
         return SeriesHeader(
-            summary: "\(completeness.ownedCount) of \(completeness.totalCount) on Audible's list",
-            source: "\(link.audibleSeriesTitle) · \(storeName(link.store)) · checked \(day)",
+            summary: "\(completeness.ownedCount) of \(completeness.totalCount) on \(whose)'s list",
+            source: "\(link.audibleSeriesTitle) · \(link.source == .audible ? storeName(link.store) : whose) · checked \(day)",
             notes: notes, canCheck: canCheck,
             // SV10
             canUseAudibleNumbers: canChange && differing > 0 && !hasEdits,
-            canUnlink: canChange, showsHidden: showsHidden, isLinked: true, hiddenCount: hidden)
+            canUnlink: canChange, showsHidden: showsHidden, isLinked: true, hiddenCount: hidden,
+            numbersTitle: "Use \(whose)'s Numbers")
     }
 
     /// "Audible US", "Audible UK", "Audible Australia"

@@ -148,6 +148,7 @@ public final class AppModel {
         // A8c: the Library of Congress is off until the user turns it on.
         storedLookupSources = (defaults.array(forKey: Keys.lookupSources) as? [String])
             .map { Set($0.compactMap(LookupSource.init)) } ?? Self.defaultLookupSources
+        storedAsksWikidata = (defaults.object(forKey: Keys.seriesAsksWikidata) as? Bool) ?? Self.asksWikidataByDefault
         storedOtherStores = (defaults.array(forKey: Keys.audibleStores) as? [String])
             .map { Set($0.compactMap(AudibleStore.init)) } ?? Self.defaultOtherStores
         status = location.status()
@@ -173,6 +174,7 @@ public final class AppModel {
         static let copyOnImport = "copyOnImport"
         static let audibleStore = "audibleStore"
         static let lookupSources = "lookupSources"
+        static let seriesAsksWikidata = "seriesAsksWikidata"
         static let audibleStores = "audibleStores"
         static let groupsBySeries = "groupsBySeries"
     }
@@ -1436,6 +1438,22 @@ public final class AppModel {
     /// begin with (A8c: the Library of Congress is off until it is turned on). A source
     /// that is off is never contacted: changing this rebuilds what the open library
     /// looks books up with, from the sources that are on.
+    /// Whether Wikidata may be asked what a series holds. It is asked nothing else,
+    /// and only by Check Series. Off, it is never contacted.
+    public var asksWikidataForSeries: Bool {
+        get { storedAsksWikidata }
+        set {
+            guard newValue != storedAsksWikidata else { return }
+            storedAsksWikidata = newValue
+            defaults.set(newValue, forKey: Keys.seriesAsksWikidata)
+        }
+    }
+
+    private var storedAsksWikidata: Bool
+    /// What `asksWikidataForSeries` is until the owner says. Tests turn it off, so
+    /// that a check of a series asks only what the test set up to answer.
+    nonisolated(unsafe) static var asksWikidataByDefault = true
+
     public var lookupSources: Set<LookupSource> {
         get { storedLookupSources }
         set {

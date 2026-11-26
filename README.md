@@ -101,7 +101,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 - **Series in order,** grouped as one row in the list or a stack of covers in the grid.
 - **A series from everything you own:** files on this Mac, books on Audible and books on Kindle all count towards it, so a series shows complete however you own its books.
-- **What is missing:** a series is checked against Audible's own list of it, and the books you do not have are shown in their place.
+- **What is missing:** a series is checked against a list of it, and the books you do not have are shown in their place. The list is Audible's, or Wikidata's when Audible has none or you prefer it: Wikidata is open data, and knows series that were never audiobooks.
 - **Up Next:** what you are reading, the next book of each series you have begun, whether you own it or not, and books you add yourself.
 - **Smart shelves:** sets of conditions you save (unread audiobooks under six hours, say), worked out fresh each time you look.
 
@@ -200,7 +200,7 @@ VoxCarrelApp/Scripts/smoke-launch.sh
 
 Nothing is sent anywhere until you press Look Up (or Check Edition, Check Series, or search in Add Audible Book). Then the title, author, narrator, ISBN or Audible ID you search for is sent to the sources that are switched on, and cover images are downloaded from Open Library and Audible.
 
-Check Series sends the Audible IDs, or the titles and authors, of a few books of that series to the Audible stores that are switched on, and then asks for the series' list.
+Check Series sends the Audible IDs, or the titles and authors, of a few books of that series to the Audible stores that are switched on, and then asks for the series' list. When Audible has no list for the series, or is switched off, or when you choose Check on Wikidata, the series' name (or failing that the title of one of its books) is sent to Wikidata, the open data project, which is asked what books the series holds. Wikidata can be switched off in Settings > Lookup, and is then never contacted.
 
 Each source can be switched on or off in Settings ▸ Lookup. A source that is off is never contacted.
 

@@ -352,6 +352,7 @@ extension Harness {
     func relaunched(extensions: AppExtensions) -> AppModel {
         let clock = clock
         AppModel.countsWordsBehindByDefault = false
+        AppModel.asksWikidataByDefault = false
         let model = AppModel(
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),

@@ -37,6 +37,7 @@ struct SeriesHeaderStrip: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     checkButton
+                    wikidataButton
                     numbersButton
                     hiddenToggle
                     Spacer(minLength: 0)
@@ -45,6 +46,7 @@ struct SeriesHeaderStrip: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         checkButton
+                        wikidataButton
                         hiddenToggle
                         Spacer(minLength: 0)
                     }
@@ -83,17 +85,28 @@ struct SeriesHeaderStrip: View {
         }
         .fixedSize()
         .disabled(!header.canCheck)
-        .help("Ask Audible for its list of this series, to see which books you do not have")
+        .help("Ask for a list of this series, to see which books you do not have")
         .accessibilityIdentifier("series.check")
     }
 
+    @ViewBuilder private var wikidataButton: some View {
+        if header.canCheckWikidata {
+            Button(SeriesHeader.wikidataCheckTitle) {
+                Task { await model.checkSeriesOnWikidata() }
+            }
+            .fixedSize()
+            .help("Ask Wikidata, the open data project, for its list of this series, in place of Audible's")
+            .accessibilityIdentifier("series.checkWikidata")
+        }
+    }
+
     private var numbersButton: some View {
-        Button("Use Audible's Numbers") {
+        Button(header.numbersTitle) {
             Task { await model.useAudibleNumbers() }
         }
         .fixedSize()
         .disabled(!header.canUseAudibleNumbers)
-        .help("Give the books that Audible numbers differently Audible's numbers")
+        .help("Give the books that the list numbers differently the list's numbers")
         .accessibilityIdentifier("series.useAudibleNumbers")
     }
 
@@ -238,13 +251,13 @@ struct MissingBookInspector: View {
                         Button("Add as Audible Book") {
                             Task { await model.addMissingAsAudibleBook() }
                         }
-                        .disabled(!info.canChange)
+                        .disabled(!info.canChange || !info.canAdd)
                         .help("Add this book to your library as a book you have on Audible, with no files here")
                         .accessibilityIdentifier("inspector.missing.add")
-                        Button("Show on Audible") {
+                        Button(info.showTitle) {
                             model.showMissingOnAudible()
                         }
-                        .help("Open this book's page on Audible in your browser")
+                        .help("Open this book's page there in your browser")
                         .accessibilityIdentifier("inspector.missing.showOnAudible")
                         Button(info.hideTitle) {
                             Task { await model.setSelectedMissingHidden(!info.isHidden) }
@@ -297,7 +310,7 @@ struct MissingBookMenuItems: View {
         }
         .disabled(!actions.canAdd)
         .accessibilityIdentifier("contextMenu.missing.add")
-        Button("Show on Audible") {
+        Button(actions.showTitle) {
             model.showMissingOnAudible(for: ids)
         }
         .disabled(!actions.canShow)

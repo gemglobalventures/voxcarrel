@@ -35,13 +35,16 @@ extension AppModel {
         guard let shown = shownSeries, shown.name == name else {
             return SeriesRows.loadingHeader(showsHidden: showsHiddenMissing)
         }
+        let audibleIsOn = lookupSources.contains(.audible)
         var header = SeriesRows.header(
-            shown.completeness, canCheck: isQuietForSeries && lookupSources.contains(.audible),
+            shown.completeness, canCheck: isQuietForSeries && (audibleIsOn || asksWikidataForSeries),
             canChange: isQuietForSeries,
             // SV10
             hasEdits: !editedBookIds.isDisjoint(with: shown.bookIds), showsHidden: showsHiddenMissing)
         // FL12: using Audible's numbers is a save, which the library refuses for now.
         if layoutChangeIsUnresolved { header.canUseAudibleNumbers = false }
+        // With Audible off, Check Series itself asks Wikidata: there is no choice to offer.
+        header.canCheckWikidata = isQuietForSeries && audibleIsOn && asksWikidataForSeries
         return header
     }
 
@@ -70,6 +73,12 @@ extension AppModel {
               let worker = await begin(Self.checkingSeriesLabel)
         else { return }
         do {
+            // With Audible off, Wikidata is the one that is asked.
+            guard lookupSources.contains(.audible) else {
+                try await checkOnWikidata(name, with: worker)
+                await finish()
+                return
+            }
             var answers: [SeriesAnswer] = []
             for book in SeriesRows.booksToAsk(try await worker.seriesCheckBooks(named: name)) {
                 let refs = try await worker.audibleSeries(ofBookWithASIN: book.asin, title: book.title, author: book.author)
@@ -78,7 +87,12 @@ extension AppModel {
             }
             let found = SeriesRows.tally(answers)
             if found.isEmpty {
-                alert = Self.noSeriesListed
+                // Audible has no list: Wikidata is asked, when it may be.
+                if asksWikidataForSeries {
+                    try await checkOnWikidata(name, with: worker, sayingIfNone: Self.noSeriesListedAnywhere)
+                } else {
+                    alert = Self.noSeriesListed
+                }
             } else if let series = SeriesRows.clearChoice(found) {
                 try await fetchList(of: series, forSeries: name, with: worker)
             } else {
@@ -91,6 +105,51 @@ extension AppModel {
             showSeriesFailure(error)
         }
         await finish()
+    }
+
+    static let noSeriesOnWikidata = "Wikidata does not list a series for these books."
+    static let noSeriesListedAnywhere = "Neither Audible nor Wikidata lists a series for these books."
+    static let wikidataNotReached = "Wikidata could not be reached. Check your internet connection."
+    static let wikidataBusy = "Wikidata did not answer. Try again in a little while."
+
+    /// Asks Wikidata for its list of the series shown and keeps it in place of any the
+    /// series had, Audible's included. Does nothing unless `seriesHeader.canCheckWikidata`.
+    public func checkSeriesOnWikidata() async {
+        guard seriesHeader?.canCheckWikidata == true, let name = selectedSeriesName,
+              let worker = await begin(Self.checkingSeriesLabel)
+        else { return }
+        do {
+            try await checkOnWikidata(name, with: worker)
+        } catch {
+            showSeriesFailure(error)
+        }
+        await finish()
+    }
+
+    /// Asks Wikidata for the series by the library's name for it, and failing that as
+    /// the series of one of its books, and stores the list of the one that has a book
+    /// by the series' own author, or of the only one there is. Part of an operation
+    /// that is already running. When Wikidata has none, `alert` says so.
+    private func checkOnWikidata(_ name: String, with worker: LibraryWorker, sayingIfNone: String? = nil) async throws {
+        guard asksWikidataForSeries else { return }
+        let book = SeriesRows.booksToAsk(try await worker.seriesCheckBooks(named: name)).first
+        let found: [WikidataSeries]
+        do {
+            found = try await worker.wikidataSeries(named: name, bookTitle: book?.title, author: book?.author)
+        } catch let error as LookupError {
+            alert = error == .notReachable ? Self.wikidataNotReached : Self.wikidataBusy
+            return
+        }
+        let author = WikidataSeriesProvider.key(book?.author ?? "")
+        let byAuthor = found.first { series in
+            !author.isEmpty && series.books.contains { $0.authors.contains { WikidataSeriesProvider.key($0) == author } }
+        }
+        guard let series = byAuthor ?? (found.count == 1 ? found.first : nil) else {
+            alert = sayingIfNone ?? Self.noSeriesOnWikidata
+            return
+        }
+        try await worker.saveSeriesList(series, forSeries: name, now: inboxNow())
+        selection = selection.filter { $0 > 0 }
     }
 
     /// SV3, SV4: the owner's answer to `seriesChoices`: fetches and stores the list of
@@ -226,8 +285,8 @@ extension AppModel {
         }
         let info = SeriesRows.info(for: entry, link: link, canChange: isQuietForSeries)
         return MissingActions(
-            canAdd: info.canChange, canShow: true, canSetHidden: info.canChange, hideTitle: info.hideTitle,
-            isHidden: info.isHidden)
+            canAdd: info.canChange && info.canAdd, canShow: true, showTitle: info.showTitle,
+            canSetHidden: info.canChange, hideTitle: info.hideTitle, isHidden: info.isHidden)
     }
 
     /// SV8: adds the one selected missing book to the library as a book that is on
@@ -252,7 +311,7 @@ extension AppModel {
     }
 
     private func addAsAudibleBook(_ entry: MissingEntry, link: SeriesLink) async {
-        guard isQuietForSeries, let worker = await begin("Adding book…") else { return }
+        guard link.source == .audible, isQuietForSeries, let worker = await begin("Adding book…") else { return }
         let metadata = SeriesRows.metadata(for: entry.entry, link: link)
         let copy = ExternalCopy(kind: .audible, form: .audio, store: link.store.rawValue, itemId: metadata.asin)
         var outcome: ExternalBookOutcome?
@@ -282,6 +341,13 @@ extension AppModel {
 
     private func showOnAudible(_ entry: MissingEntry, link: SeriesLink) {
         let book = entry.entry.preferred
+        if link.source == .wikidata {
+            // The book's own page there: its id is Wikidata's.
+            if WikidataSeriesProvider.isId(book.asin), let page = URL(string: "https://www.wikidata.org/wiki/" + book.asin) {
+                opener.openWeb(page)
+            }
+            return
+        }
         opener.openWeb(
             link.store.webAddress(
                 asin: book.asin, title: book.title, author: book.authors.lazy.compactMap(\.trimmedOrNil).first ?? ""))

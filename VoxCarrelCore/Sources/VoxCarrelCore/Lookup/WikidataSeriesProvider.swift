@@ -165,7 +165,7 @@ public struct WikidataSeriesProvider: Sendable {
         return last
     }
 
-    static func isId(_ text: String) -> Bool {
+    public static func isId(_ text: String) -> Bool {
         text.count > 1 && text.count < 14 && text.first == "Q" && text.dropFirst().allSatisfy { $0.isASCII && $0.isNumber }
     }
 
@@ -223,7 +223,7 @@ public struct WikidataSeriesProvider: Sendable {
         }.map(\.element)
     }
 
-    static func key(_ name: String) -> String {
+    public static func key(_ name: String) -> String {
         name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
             .filter { $0.isLetter || $0.isNumber }
     }

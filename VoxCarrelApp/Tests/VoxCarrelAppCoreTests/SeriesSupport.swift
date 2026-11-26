@@ -47,6 +47,17 @@ final class FakeCatalogue: @unchecked Sendable {
         lock.withLock { stores[store] = series }
     }
 
+    private var wikidata: (search: String, books: String)?
+
+    /// What Wikidata answers: to a search by name, and to the question of which books
+    /// the things found hold. Nil for a Wikidata that knows nothing by any name.
+    func setWikidata(search: String, books: String) {
+        lock.withLock { wikidata = (search, books) }
+    }
+
+    /// The requests made of Wikidata.
+    var wikidataRequests: [URL] { requests.filter { $0.host?.hasSuffix("wikidata.org") == true } }
+
     /// Every request fails this way; nil for none to.
     func fail(_ error: LookupError?) {
         lock.withLock { failure = error }
@@ -64,6 +75,11 @@ final class FakeCatalogue: @unchecked Sendable {
         }
         await gate?.wait()
         if let failure { throw failure }
+        if url.host?.hasSuffix("wikidata.org") == true {
+            let known = lock.withLock { wikidata }
+            guard let known else { return (Data("{\"search\":[]}".utf8), 200) }
+            return (Data((url.host == "www.wikidata.org" ? known.search : known.books).utf8), 200)
+        }
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var query: [String: String] = [:]
         for item in components?.queryItems ?? [] { query[item.name] = item.value }
