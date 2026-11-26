@@ -232,6 +232,8 @@ VoxCarrel builds on these open-source libraries, each under its own licence:
 - [GRDB.swift](https://github.com/groue/GRDB.swift) for the catalogue database: MIT.
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) for reading and writing EPUB files and for zipping a book in several parts: MIT.
 
+It also owes a debt to [calibre](https://calibre-ebook.com) by Kovid Goyal, which has looked after people's ebook libraries for many years. VoxCarrel contains none of calibre's code, but it reads calibre libraries, writes the `metadata.opf` details file in the form calibre established, and, when calibre is installed, asks calibre's own converter to make an EPUB.
+
 ## Support
 
 If VoxCarrel is useful to you, you can support its development:
