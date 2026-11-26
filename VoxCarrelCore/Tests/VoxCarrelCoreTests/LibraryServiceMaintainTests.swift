@@ -180,7 +180,7 @@ import VoxCarrelFixtures
         #expect(try f.store.files(bookId: id) == rowsBefore)
         #expect(try f.store.book(id: id) == bookBefore)
         #expect(try f.tags(f.lib("Andy Weir/Artemis/Extras/Star Map.pdf")).title == "Original Title")
-        #expect(try f.service.undoLabel() == nil)
+        #expect(try f.service.undoLabels().allSatisfy { $0.hasPrefix("Import ") })
     }
 
     // MARK: Read status

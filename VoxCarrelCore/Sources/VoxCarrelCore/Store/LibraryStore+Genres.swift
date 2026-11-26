@@ -260,7 +260,7 @@ extension LibraryStore {
 
     /// Undoes a change to the list: its rows are as they were, the rows it made are
     /// gone, and each book it touched that is still in the library has the genres it
-    /// had. The journal is emptied in the same transaction.
+    /// had. Its batch, the journal's newest, is taken out in the same transaction.
     ///
     /// A genre added since under a name that a restored one had takes that one's place.
     func restoreGenreList(_ saved: GenreListSnapshot) throws {
@@ -282,7 +282,7 @@ extension LibraryStore {
             for book in saved.books {
                 try Self.setGenres(db, book.genres, ofBook: book.bookId)
             }
-            try Self.clearJournal(db)
+            try Self.popJournal(db)
         }
     }
 

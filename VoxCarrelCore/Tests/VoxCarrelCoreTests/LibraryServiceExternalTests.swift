@@ -551,7 +551,7 @@ import VoxCarrelFixtures
         #expect(try f.store.book(id: id)?.title == "Local Book")
         #expect(try f.io.read(f.lib("Ann Author/Local Book/Local Book.m4b")).cover?.data == F.png.data)
         #expect(try f.store.book(id: onlyId)?.externalCopies == [Self.audible, ebook])
-        #expect(try f.service.undoLabel() == nil)
+        #expect(try f.service.undoLabels().contains("Edit Renamed Book") == false)
     }
 
     // X5: with nothing recorded, nothing is recorded.

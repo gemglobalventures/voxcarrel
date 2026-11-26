@@ -259,12 +259,12 @@ extension LibraryService {
         // M4: an undo that involves this book could no longer be honoured.
         var change = LibraryChange()
         change.deletedBookIds = [id]
-        change.clearsJournal = try lastBatchInvolves(bookId: id, files: urls)
+        change.cutsJournalThrough = try newestBatchInvolving(bookId: id, files: urls)
         try beforeCommit?()
         try store.apply(change)
 
         try? covers.remove(for: id)
-        if change.clearsJournal { forgetUndoData() }
+        if change.cutsJournalThrough != nil { forgetUndoData() }
         if let detailsFolder {
             for name in [DetailsFile.fileName, DetailsFile.audiobookFileName] {
                 let file = detailsFolder.appendingPathComponent(name, isDirectory: false)
@@ -274,11 +274,24 @@ extension LibraryService {
         }
     }
 
-    /// True when the recorded batch changed this book or moved one of its files. A batch
-    /// whose undo data cannot be read says nothing about which books it changed (and can
-    /// never be undone, see `undoLast`): only its moves are looked at.
+    /// The newest recorded batch that changed this book or moved one of its files; nil
+    /// when none did. An operation that cannot itself be undone, done to such a book,
+    /// leaves that batch unsafe to undo, and with it every earlier one, since a batch
+    /// is undone only after those that came after it: the journal is cut through it.
+    /// Later batches, which are about other books, stay. A batch whose undo data cannot
+    /// be read says nothing about which books it changed (and can never be undone, see
+    /// `undoLast`): only its moves are looked at.
+    func newestBatchInvolving(bookId: Int64, files: [URL]) throws -> Int64? {
+        try store.batches().first { Self.batch($0, involves: bookId, files: files) }?.id
+    }
+
+    /// Whether the batch Undo would reverse next involves this book.
     func lastBatchInvolves(bookId: Int64, files: [URL]) throws -> Bool {
-        guard let batch = try store.lastBatch() else { return false }
+        guard let last = try store.lastBatch() else { return false }
+        return Self.batch(last, involves: bookId, files: files)
+    }
+
+    private static func batch(_ batch: OperationBatch, involves bookId: Int64, files: [URL]) -> Bool {
         if let data = batch.snapshot, let snapshot = OperationSnapshot.usable(from: data),
            snapshot.books.contains(where: { $0.bookId == bookId })
             || snapshot.layoutChange?.books.contains(where: { $0.bookId == bookId }) == true

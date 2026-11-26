@@ -127,7 +127,7 @@ extension LibraryService {
         change.writes = [write]
         do {
             // L9: an undo that involves this book could no longer be honoured.
-            change.clearsJournal = try lastBatchInvolves(bookId: bookId, files: rows.map { store.url(for: $0) })
+            change.cutsJournalThrough = try newestBatchInvolving(bookId: bookId, files: rows.map { store.url(for: $0) })
             try beforeCommit?()
             try store.apply(change)
         } catch {
@@ -139,7 +139,7 @@ extension LibraryService {
             }
             throw error
         }
-        if change.clearsJournal { forgetUndoData() }
+        if change.cutsJournalThrough != nil { forgetUndoData() }
         refreshDetailsFiles(ofBooks: [bookId])
     }
 }

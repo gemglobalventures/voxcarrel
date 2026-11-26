@@ -105,6 +105,9 @@ public final class LibraryService {
 
     /// Whether a details file (`metadata.opf`) is kept beside each filed book.
     public var writesDetailsFiles = true
+    /// The most that is kept on disk to undo earlier operations, in bytes. When more
+    /// is held, the oldest operations can no longer be undone (`trimUndoData`).
+    public var undoDataLimit: Int64 = 2_000_000_000
 
     /// The stored folder pattern last logged as unreadable, so it is said once.
     var unreadablePatternLogged: String?
@@ -521,12 +524,52 @@ public final class LibraryService {
         }
     }
 
-    /// Removes the undo data of every operation but the one named.
+    /// Removes the undo data of every operation but the one named and those the
+    /// journal still holds, which Undo may yet need. When the journal holds a batch
+    /// whose undo data cannot be read, nothing is removed: which data is its own
+    /// cannot be told.
     func discardUndoData(except token: String?) {
         let fm = FileManager.default
-        guard let names = try? fm.contentsOfDirectory(atPath: layout.undoFolder.path) else { return }
-        for name in names where name != token {
+        guard let names = try? fm.contentsOfDirectory(atPath: layout.undoFolder.path), !names.isEmpty else { return }
+        var kept: Set<String> = token.map { [$0] } ?? []
+        guard let batches = try? store.batches() else { return }
+        for batch in batches {
+            guard let data = batch.snapshot else { continue }
+            guard let snapshot = OperationSnapshot.usable(from: data) else { return }
+            kept.insert(snapshot.token)
+        }
+        for name in names where !kept.contains(name) {
             try? fm.removeItem(at: layout.undoFolder.appendingPathComponent(name))
+        }
+        trimUndoData(batches)
+    }
+
+    /// Keeps what is held to undo earlier operations within `undoDataLimit`: while it
+    /// is more, the oldest operation leaves the journal and what was kept for it goes.
+    /// The newest is never let go, however much it keeps. Some operations keep whole
+    /// copies of the files they rewrote (a merge does), so twenty of them could
+    /// otherwise hold a great deal of the disk.
+    private func trimUndoData(_ batches: [OperationBatch]) {
+        let fm = FileManager.default
+        func size(of token: String) -> Int64 {
+            let folder = undoFolder(token)
+            guard let files = fm.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
+            var total: Int64 = 0
+            for case let file as URL in files {
+                total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            }
+            return total
+        }
+        // Newest first, each with what it keeps on disk.
+        var held: [(id: Int64, token: String?, bytes: Int64)] = batches.map { batch in
+            let token = batch.snapshot.flatMap { OperationSnapshot.usable(from: $0)?.token }
+            return (batch.id, token, token.map(size) ?? 0)
+        }
+        var total = held.reduce(0) { $0 + $1.bytes }
+        while total > undoDataLimit, held.count > 1, let oldest = held.popLast() {
+            guard (try? store.cutJournal(through: oldest.id)) != nil else { return }
+            if let token = oldest.token { try? fm.removeItem(at: undoFolder(token)) }
+            total -= oldest.bytes
         }
     }
 

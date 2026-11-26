@@ -152,9 +152,9 @@ extension LibraryService {
             }
         }
 
-        // U5
+        // U5: this batch leaves the journal; the one before it is then the newest.
         var change = LibraryChange()
-        change.clearsJournal = true
+        change.popsJournal = true
         // A merge joined the entries' read status and where else they are owned: undoing
         // it puts those back with the rest, for the kept book as for the others.
         let merge = snapshot?.merge
@@ -287,9 +287,18 @@ extension LibraryService {
         return batch.label
     }
 
-    /// Removes all undo data: the journal is empty, so none of it is of use any more.
+    /// Removes the undo data of every operation the journal no longer holds: all of
+    /// it when the journal is empty, and after an undo that of the operation undone.
     func forgetUndoData() {
         discardUndoData(except: nil)
-        try? FileManager.default.removeItem(at: layout.undoFolder)
+        let fm = FileManager.default
+        if let left = try? fm.contentsOfDirectory(atPath: layout.undoFolder.path), left.isEmpty {
+            try? fm.removeItem(at: layout.undoFolder)
+        }
+    }
+
+    /// The labels of the operations Undo would reverse, the next first.
+    public func undoLabels() throws -> [String] {
+        try store.batches().map(\.label)
     }
 }

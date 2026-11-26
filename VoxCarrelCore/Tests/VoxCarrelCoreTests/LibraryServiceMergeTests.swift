@@ -862,10 +862,9 @@ final class EndingFailingFileManager: FileManager, @unchecked Sendable {
         #expect(try whole(f) == before)
         // The entries can be found again.
         #expect(try f.store.search("companion").map(\.id) == [s.c])
-        // Nothing is left to undo, and no undo data is kept.
-        #expect(try f.service.undoLabel() == nil)
-        #expect(try f.store.lastBatch() == nil)
-        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
+        // The merge is no longer recorded, and nothing it kept is left.
+        #expect(try f.service.undoLabels().allSatisfy { !$0.hasPrefix("Merge") })
+        #expect(!f.hiddenTree().contains { $0.hasSuffix(".orig") })
     }
 
     @Test func mb7_undoPutsBackTheBytesOfAudioThatWasGivenTheKeptBooksDetails() throws {

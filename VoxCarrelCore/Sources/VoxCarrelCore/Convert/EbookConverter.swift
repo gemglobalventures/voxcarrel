@@ -171,10 +171,10 @@ extension LibraryService {
                 of: book, in: Self.appOnlyFields(files: workingFiles(for: newRows), hasStoredCover: false))
             var change = LibraryChange()
             change.writes = [.init(book: updated, files: newRows)]
-            change.clearsJournal = try lastBatchInvolves(bookId: bookId, files: rows.map { store.url(for: $0) })
+            change.cutsJournalThrough = try newestBatchInvolving(bookId: bookId, files: rows.map { store.url(for: $0) })
             try beforeCommit?()
             try store.apply(change)
-            if change.clearsJournal { forgetUndoData() }
+            if change.cutsJournalThrough != nil { forgetUndoData() }
         } catch {
             try? fm.removeItem(at: destination)
             throw error

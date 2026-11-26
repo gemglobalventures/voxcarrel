@@ -524,11 +524,11 @@ import VoxCarrelFixtures
             MoveRecord(from: parts[0].path, to: twoDests[0].path, wasCopy: false),
             MoveRecord(from: parts[1].path, to: twoDests[1].path, wasCopy: false),
         ])
-        // S5: the older batch was replaced.
+        // The older batch is kept behind it.
         let batches = try f.store.dbQueue.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM operationBatch")
         }
-        #expect(batches == 1)
+        #expect(batches == 2)
 
         let snapshot = try f.snapshot()
         #expect(!snapshot.token.isEmpty)
@@ -559,8 +559,9 @@ import VoxCarrelFixtures
         #expect(twoStates.allSatisfy { $0.coverBefore == nil })
     }
 
-    // Decision "Undo depth": a new operation discards the previous one's undo data.
-    @Test func newOperationDiscardsOlderUndoData() throws {
+    // Decision "Undo depth" (twenty operations, 2026-11-26): a new operation keeps the
+    // undo data of the one before it, which can still be undone after it.
+    @Test func aNewOperationKeepsTheUndoDataOfTheOneBefore() throws {
         let f = try F()
         let a = try f.makeM4B("a.m4b", tags: F.meta("x", "y"), cover: F.jpeg)
         _ = try f.importNew([a], F.meta("A", "Ann Author"), cover: .set(F.png))
@@ -572,8 +573,13 @@ import VoxCarrelFixtures
         let secondToken = try f.snapshot().token
 
         #expect(secondToken != firstToken)
-        #expect(!f.hiddenTree().contains("undo/\(firstToken)"))
+        #expect(f.hiddenTree().contains("undo/\(firstToken)"))
         #expect(f.hiddenTree().contains("undo/\(secondToken)"))
+        // Undone in turn, each lets go of its own.
+        try f.service.undoLast()
+        #expect(f.hiddenTree().contains("undo/\(firstToken)") && !f.hiddenTree().contains("undo/\(secondToken)"))
+        try f.service.undoLast()
+        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
     }
 
     // I12

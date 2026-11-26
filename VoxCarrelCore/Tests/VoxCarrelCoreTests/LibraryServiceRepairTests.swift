@@ -77,6 +77,7 @@ import VoxCarrelFixtures
         #expect(try contents(f, id) != before)
         #expect(try f.service.undoLabel() == "Repair length headers in 2 files")
 
+        let token = try f.snapshot().token
         #expect(try f.service.undoLast() == "Repair length headers in 2 files")
 
         #expect(try contents(f, id) == before)
@@ -87,9 +88,10 @@ import VoxCarrelFixtures
         #expect(restored.map(\.id) == rows.map(\.id))
         // The stored cover is still the book's.
         #expect(f.service.covers.image(for: id) == F.jpeg)
-        #expect(try f.service.undoLabel() == nil)
+        // The repair is undone, and what was kept to undo it is gone.
+        #expect(try f.service.undoLabels().allSatisfy { $0.hasPrefix("Import ") })
         #expect(noWorkingCopies(f))
-        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
+        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo/\(token)") })
     }
 
     @Test func oneFileIsNamedInTheSingular() throws {

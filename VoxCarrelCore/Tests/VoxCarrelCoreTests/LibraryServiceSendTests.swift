@@ -649,7 +649,7 @@ extension LibraryFixture {
         #expect(try f.service.undoLast() == label)
         #expect(try f.store.book(id: other) == nil)
         #expect(try f.service.sentRecords(for: id) == record)
-        #expect(try f.service.undoLabel() == nil)
+        #expect(try f.store.lastBatch() != batch)
     }
 
     @Test func sp8_savingABooksDetailsKeepsItsRecords() throws {

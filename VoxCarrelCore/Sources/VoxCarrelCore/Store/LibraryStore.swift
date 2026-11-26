@@ -1020,8 +1020,10 @@ public struct OperationBatch: Equatable, Sendable {
 }
 
 extension LibraryStore {
-    /// Saves a batch of completed transfers, replacing any earlier batch: the journal
-    /// holds at most one. Returns the new batch's id.
+    /// How many operations the journal keeps, and so how many Undo can go back.
+    public static let journalLimit = 20
+
+    /// Saves a batch of completed transfers as the journal's newest. Returns its id.
     @discardableResult
     public func recordBatch(label: String, moves: [MoveRecord]) throws -> Int64 {
         try dbQueue.write { db in
@@ -1034,11 +1036,24 @@ extension LibraryStore {
         try db.execute(sql: "DELETE FROM operationBatch")
     }
 
-    /// Replaces the whole journal with one batch; returns its id.
+    /// Takes the newest batch out of the journal. Its moves go with it by cascade.
+    static func popJournal(_ db: Database) throws {
+        try db.execute(sql: "DELETE FROM operationBatch WHERE id = (SELECT MAX(id) FROM operationBatch)")
+    }
+
+    /// Adds a batch to the journal as its newest, and lets go of all but the newest
+    /// `journalLimit`; returns its id. With `keepingEarlier` false the journal is
+    /// emptied first, and holds this batch alone.
     static func replaceJournal(
-        _ db: Database, label: String, moves: [MoveRecord], snapshot: Data?
+        _ db: Database, label: String, moves: [MoveRecord], snapshot: Data?, keepingEarlier: Bool = true
     ) throws -> Int64 {
-        try clearJournal(db)
+        if !keepingEarlier { try clearJournal(db) }
+        defer {
+            try? db.execute(sql: """
+                DELETE FROM operationBatch
+                WHERE id NOT IN (SELECT id FROM operationBatch ORDER BY id DESC LIMIT \(journalLimit))
+                """)
+        }
         try db.execute(
             sql: "INSERT INTO operationBatch (label, createdAt, snapshot) VALUES (?, ?, ?)",
             arguments: [label, Date(), snapshot])
@@ -1067,6 +1082,27 @@ extension LibraryStore {
                 arguments: [id]
             ).map { MoveRecord(from: $0["fromPath"], to: $0["toPath"], wasCopy: $0["wasCopy"]) }
             return OperationBatch(id: id, label: row["label"], moves: moves, snapshot: row["snapshot"])
+        }
+    }
+
+    /// Takes a batch out of the journal, and every batch before it.
+    public func cutJournal(through id: Int64) throws {
+        try dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM operationBatch WHERE id <= ?", arguments: [id])
+        }
+    }
+
+    /// Every recorded batch, the newest first.
+    public func batches() throws -> [OperationBatch] {
+        try dbQueue.read { db in
+            try Row.fetchAll(db, sql: "SELECT id, label, snapshot FROM operationBatch ORDER BY id DESC").map { row in
+                let id: Int64 = row["id"]
+                let moves = try Row.fetchAll(
+                    db, sql: "SELECT fromPath, toPath, wasCopy FROM operationMove WHERE batchId = ? ORDER BY id",
+                    arguments: [id]
+                ).map { MoveRecord(from: $0["fromPath"], to: $0["toPath"], wasCopy: $0["wasCopy"]) }
+                return OperationBatch(id: id, label: row["label"], moves: moves, snapshot: row["snapshot"])
+            }
         }
     }
 

@@ -112,7 +112,7 @@ import VoxCarrelFixtures
 
     // MARK: The saved originals
 
-    @Test func theOriginalsAMergeSavedGoWhenAnotherOperationIsRecorded() throws {
+    @Test func theOriginalsAMergeSavedStayWhileTheMergeCanBeUndone() throws {
         let f = try F()
         let (ebook, notes) = try ebookAndNotes(f)
         let third = try f.importNew([try f.makePDF("third.pdf")], F.meta("Third", "Someone"))
@@ -123,14 +123,44 @@ import VoxCarrelFixtures
         edit.rating = 3
         _ = try f.service.save([edit])
 
+        // Another operation is recorded after the merge: the merge can still be undone
+        // after it, so what it saved is still there.
         #expect(try f.service.undoLabel() == "Edit Third")
-        #expect(!undoData(f).contains { $0.hasSuffix(".orig") })
-        // And that edit is what undo reverses: the merge stays.
+        #expect(undoData(f).contains { $0.hasSuffix(".orig") })
+        // That edit is what undo reverses first: the merge stays.
         try f.service.undoLast()
         #expect(try f.store.books().compactMap(\.id).sorted() == [ebook, third].sorted())
+        #expect(undoData(f).contains { $0.hasSuffix(".orig") })
+        // Then the merge: the entries are apart again, and its originals are gone.
+        try f.service.undoLast()
+        #expect(try f.store.books().compactMap(\.id).sorted() == [ebook, notes, third].sorted())
+        #expect(!undoData(f).contains { $0.hasSuffix(".orig") })
     }
 
-    @Test func ofTwoMergesInARowOnlyTheSecondKeepsItsOriginals() throws {
+    // What is kept to undo earlier operations has a limit: past it, the oldest can no
+    // longer be undone and what they kept goes. The newest always can.
+    @Test func theOldestOperationsGoWhenTooMuchIsKept() throws {
+        let f = try F()
+        f.service.undoDataLimit = 1
+        let (ebook, notes) = try ebookAndNotes(f)
+        let third = try f.importNew([try f.makePDF("third.pdf")], F.meta("Third", "Someone"))
+        try f.service.mergeBooks([ebook, notes], keep: ebook, roles: [:])
+        // The merge is the newest: it keeps its originals, whatever they weigh, and
+        // nothing before it can be undone any more.
+        #expect(undoData(f).contains { $0.hasSuffix(".orig") })
+        #expect(try f.service.undoLabels().count == 1)
+
+        var edit = BookEdit(book: try #require(try f.store.book(id: third)))
+        edit.rating = 3
+        _ = try f.service.save([edit])
+        #expect(try f.service.undoLabels() == ["Edit Third"])
+        #expect(!undoData(f).contains { $0.hasSuffix(".orig") })
+        try f.service.undoLast()
+        #expect(try f.store.books().compactMap(\.id).sorted() == [ebook, third].sorted())
+        #expect(throws: LibraryError.nothingToUndo) { try f.service.undoLast() }
+    }
+
+    @Test func ofTwoMergesInARowEachKeepsItsOriginalsUntilItIsUndone() throws {
         let f = try F()
         let (ebook, notes) = try ebookAndNotes(f)
         let maps = try f.importNew([try f.makePDF("maps.pdf")], F.meta("Dune Maps", "Frank Herbert"))
@@ -139,15 +169,19 @@ import VoxCarrelFixtures
         let afterFirst = try contents(of: f.root)
         let books = try f.store.books()
 
+        let firstLabel = try f.service.undoLabel()
         try f.service.mergeBooks([ebook, maps], keep: ebook, roles: [:])
-        #expect(first.isDisjoint(with: undoData(f).filter { $0.split(separator: "/").count > 2 }))
+        #expect(first.isSubset(of: Set(undoData(f))) && Set(undoData(f)).count > first.count)
 
         // Undo reverses the second only, exactly.
         try f.service.undoLast()
         #expect(try contents(of: f.root) == afterFirst)
         #expect(try f.store.books().sorted { ($0.id ?? 0) < ($1.id ?? 0) } == books.sorted { ($0.id ?? 0) < ($1.id ?? 0) })
-        #expect(try f.service.undoLabel() == nil)
-        #expect(undoData(f).isEmpty)
+        // The first merge is what undo reverses next, with what it kept.
+        #expect(try f.service.undoLabel() == firstLabel)
+        #expect(Set(undoData(f)) == first)
+        try f.service.undoLast()
+        #expect(try f.store.books().count == 3 && !undoData(f).contains { $0.hasSuffix(".orig") })
     }
 
     @Test func removingTheKeptBookForgetsTheMergeAndItsOriginals() throws {

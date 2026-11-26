@@ -892,7 +892,8 @@ private let bbcShort = found(
         try f.service.undoLast()
         try set(f, id, hours: 19.5, kind: first.kind)
         #expect(try f.service.checkEditions([EditionCheck(bookId: id, results: [kinnear])]).first?.changed == false)
-        #expect(try f.service.undoLabel() == nil)
+        // The check that changed something was undone, and this one recorded nothing.
+        #expect(try f.service.undoLabel() == labelBefore)
     }
 
     /// K1, K8: a kind set by hand is never overwritten, nor a better-founded one by a weaker.

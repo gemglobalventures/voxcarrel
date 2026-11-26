@@ -35,12 +35,78 @@ import VoxCarrelFixtures
         return edit
     }
 
-    /// U8, and U6's deleted undo folder.
-    func expectNothingLeftToUndo(_ f: F, sourceLocation: SourceLocation = #_sourceLocation) throws {
-        #expect(try f.service.undoLabel() == nil, sourceLocation: sourceLocation)
+    /// U8, and U6's deleted undo data: the operation that was undone is no longer in
+    /// the journal and what was kept to undo it is gone. What came before it, the
+    /// imports that made the books, is what Undo would reverse next; with none before
+    /// it, there is nothing left to undo and no undo folder.
+    func expectUndone(_ f: F, leavingImports count: Int = 0, sourceLocation: SourceLocation = #_sourceLocation) throws {
+        let labels = try f.service.undoLabels()
+        #expect(labels.count == count && labels.allSatisfy { $0.hasPrefix("Import ") }, sourceLocation: sourceLocation)
+        #expect(try f.service.undoLabel() == labels.first, sourceLocation: sourceLocation)
+        // No more is kept on disk than the operations still recorded could need.
+        let kept = Set(f.hiddenTree().filter { $0.hasPrefix("undo/") }.map { $0.split(separator: "/")[1] })
+        #expect(kept.count <= count, sourceLocation: sourceLocation)
+        guard count == 0 else { return }
         #expect(throws: LibraryError.nothingToUndo, sourceLocation: sourceLocation) { try f.service.undoLast() }
         #expect(try f.store.lastBatch() == nil, sourceLocation: sourceLocation)
         #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") }, sourceLocation: sourceLocation)
+    }
+
+    // Undo goes back a step at a time: three edits and the import that made the book
+    // are undone in turn, each leaving the book, its file and its tags as they were
+    // before that step.
+    @Test func undoGoesBackAStepAtATime() throws {
+        let f = try F()
+        let id = try importM4B(f, F.meta("Artemis", "Andy Weir"), cover: F.jpeg)
+        func state() throws -> [String] {
+            let book = try #require(try f.store.book(id: id))
+            let path = try #require(try f.store.files(bookId: id).first?.path)
+            let tags = try f.tags(f.lib(path))
+            return [book.title, book.authors.joined(), book.genres.joined(), String(book.rating), path, tags.title, tags.authors.joined()]
+        }
+        var states = [try state()]
+        _ = try f.service.save([try edit(f, id) { $0.metadata.title = "Artemis Rising" }])
+        states.append(try state())
+        _ = try f.service.save([try edit(f, id) { $0.metadata.authors = ["A. Weir"] }])
+        states.append(try state())
+        _ = try f.service.save([try edit(f, id) { $0.metadata.genres = ["Thriller"]; $0.rating = 4 }])
+        let last = try state()
+        #expect(Set(states + [last]).count == 4)
+        // Each edit is named after the book as that edit left it.
+        #expect(try f.service.undoLabels() == ["Edit Artemis Rising", "Edit Artemis Rising", "Edit Artemis Rising", "Import 1 book"])
+
+        #expect(try f.service.undoLast() == "Edit Artemis Rising")
+        #expect(try state() == states[2])
+        #expect(try f.service.undoLast() == "Edit Artemis Rising")
+        #expect(try state() == states[1])
+        #expect(try f.service.undoLast() == "Edit Artemis Rising")
+        #expect(try state() == states[0])
+        #expect(f.libraryTree() == ["Andy Weir", "Andy Weir/Artemis", "Andy Weir/Artemis/Artemis.m4b"])
+        #expect(try f.service.undoLast() == "Import 1 book")
+        #expect(try f.store.book(id: id) == nil && f.libraryTree().isEmpty)
+        try expectUndone(f)
+    }
+
+    // Removing a book cannot be undone, so no operation about that book can be undone
+    // after it, nor any before the newest of those. Operations after it, about other
+    // books, still can.
+    @Test func removingABookCutsTheHistoryThroughWhatWasAboutIt() throws {
+        let f = try F()
+        let a = try importM4B(f, F.meta("Book A", "Author A"), name: "a.m4b")
+        let b = try importM4B(f, F.meta("Book B", "Author B"), name: "b.m4b")
+        _ = try f.service.save([try edit(f, a) { $0.rating = 2 }])
+        _ = try f.service.save([try edit(f, b) { $0.rating = 5 }])
+        _ = try f.service.save([try edit(f, b) { $0.metadata.genres = ["Thriller"] }])
+        #expect(try f.service.undoLabels().count == 5)
+
+        try f.service.removeBook(id: a, moveFilesToTrash: false)
+        // The newest about Book A was its edit: that, and the two imports before it, are gone.
+        #expect(try f.service.undoLabels() == ["Edit Book B", "Edit Book B"])
+        try f.service.undoLast()
+        try f.service.undoLast()
+        let book = try #require(try f.store.book(id: b))
+        #expect(book.rating == 0 && book.genres.isEmpty)
+        try expectUndone(f)
     }
 
     // U1
@@ -88,7 +154,7 @@ import VoxCarrelFixtures
         #expect(fileRows == 0)
         #expect(f.libraryTree().isEmpty)
         #expect(f.hiddenTree().filter { $0.hasPrefix("covers/") }.isEmpty)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f)
     }
 
     // U3, U5
@@ -106,7 +172,7 @@ import VoxCarrelFixtures
         #expect(f.inboxTree() == ["keepme.m4b"])
         #expect(try f.store.books().isEmpty)
         #expect(f.hiddenTree().filter { $0.hasPrefix("covers/") }.isEmpty)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f)
     }
 
     // U5
@@ -139,7 +205,7 @@ import VoxCarrelFixtures
         #expect(f.inboxTree() == ["two.mp3"])
         #expect(try f.tags(second) == F.meta("Other", "Other Author"))
         if mode == .copy { #expect(try f.bytes(second) == secondBytes) }
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // U5, U6: a book that gained its stored cover from an added file loses it again.
@@ -191,7 +257,7 @@ import VoxCarrelFixtures
         #expect(try f.tags(file) == tagsBefore)
         #expect(try f.io.read(file).cover == F.jpeg)
         #expect(try f.trackTags(file) == TrackTags(title: "Own Track Name", number: nil))
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     @Test func undoBulkEdit() throws {
@@ -216,7 +282,7 @@ import VoxCarrelFixtures
         #expect(try f.tags(f.lib("Author A/Book A/Book A.m4b")) == aTags)
         #expect(try f.io.read(f.lib("Author A/Book A/Book A.m4b")).cover == F.jpeg)
         #expect(try f.tags(f.lib("Author B/Book B/Book B.m4b")).title == "Book B")
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 3)
     }
 
     // Undo after a rating-only save: no moves, no file states, the rating comes back.
@@ -242,7 +308,7 @@ import VoxCarrelFixtures
         #expect(try state(f) == before)
         #expect(try f.store.book(id: id)?.rating == 0)
         #expect(try f.bytes(file) == bytes)  // never opened
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // Undo after a save in which a file was locked leaves that file untouched, and puts
@@ -321,7 +387,7 @@ import VoxCarrelFixtures
         #expect(try state(f) == before)
         #expect(before.books[0].needsAttention == false)
         #expect(before.books[0].folderPath == "Andy Weir/Artemis")
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // U4
@@ -390,7 +456,7 @@ import VoxCarrelFixtures
         #expect(try f.io.read(file) == cleanTags)
         #expect(try f.trackTags(file) == cleanTrack)
         #expect(try f.io.read(file).cover == F.jpeg)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // U2: tags and files are put back before the commit; covers and undo data after it.
@@ -428,7 +494,7 @@ import VoxCarrelFixtures
         f.service.beforeCommit = nil
         try f.service.undoLast()
         #expect(try state(f) == before)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // U7
@@ -451,7 +517,7 @@ import VoxCarrelFixtures
         // Nothing else is touched.
         #expect(try f.store.books() == booksBefore)
         #expect(try f.store.files(bookId: id) == rowsBefore)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // U4 applies to a legacy batch too.
@@ -490,7 +556,7 @@ import VoxCarrelFixtures
         #expect(f.inboxTree() == ["mystery.m4b"])
         #expect(f.service.covers.url(for: id) == nil)
         #expect(f.libraryTree().isEmpty)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f)
     }
 
     @Test func undoFixOfUnfiledBook() throws {
@@ -523,7 +589,7 @@ import VoxCarrelFixtures
         let row = try #require(try f.store.files(bookId: id).first)
         #expect(row.path.hasPrefix("/"))
         #expect(f.store.url(for: row).standardizedFileURL == source.standardizedFileURL)
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // U3: a file that has gone missing since does not block the undo.
@@ -542,7 +608,7 @@ import VoxCarrelFixtures
         #expect(try state(f) == before)
         #expect(try f.tags(f.lib("Andy Weir/Artemis/Artemis.m4b")).genreSource == nil)
         #expect(try read(f.lib("Andy Weir/Artemis/Artemis.epub")) == "not an epub")
-        try expectNothingLeftToUndo(f)
+        try expectUndone(f, leavingImports: 1)
     }
 
     // Undo data that cannot be read is not undoable: nothing is offered, nothing is

@@ -489,6 +489,10 @@ import VoxCarrelFixtures
         let data = try #require(batch.snapshot)
         var json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         change(&json)
+        // In place of the one recorded, not on top of it.
+        var taken = LibraryChange()
+        taken.popsJournal = true
+        try f.store.apply(taken)
         var replacement = LibraryChange()
         replacement.batch = .init(
             label: batch.label, moves: batch.moves, snapshot: try JSONSerialization.data(withJSONObject: json))
@@ -517,7 +521,8 @@ import VoxCarrelFixtures
         #expect(try f.tags(f.lib("Frank Herbert/Dune/Dune.m4b")).genreSource == nil)
         #expect(try f.io.read(f.lib("Frank Herbert/Dune/Dune.m4b")).cover == F.jpeg)
         #expect(f.service.covers.image(for: id) == F.jpeg)
-        #expect(try f.service.undoLabel() == nil)
+        // The edit is undone; what is next to undo is the import before it.
+        #expect(try f.service.undoLabels().allSatisfy { $0.hasPrefix("Import ") })
     }
 
     @Test func snapshotCarriesItsVersion() throws {

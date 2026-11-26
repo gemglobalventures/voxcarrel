@@ -428,6 +428,8 @@ FolderMover(
             label: Self.layoutChangeLabel,
             moves: moves.map { MoveRecord(from: $0.from.path, to: $0.to.path, wasCopy: false) },
             snapshot: try JSONEncoder().encode(snapshot))
+        // Every book's folder moves: no earlier operation can be undone after it.
+        change.batch?.keepsEarlier = false
 
         // FP43: what is about to be done is on disk before the first folder moves, so
         // that a crash at any point from here to the commit can be put right when the
@@ -465,7 +467,7 @@ FolderMover(
         }
         try afterLayoutCommit?()
         removeLayoutIntent()
-        // The journal now holds this change: the undo data of earlier ones is of no use.
+        // The journal now holds this change alone: the undo data of earlier ones is of no use.
         forgetUndoData()
         return work.plan
     }

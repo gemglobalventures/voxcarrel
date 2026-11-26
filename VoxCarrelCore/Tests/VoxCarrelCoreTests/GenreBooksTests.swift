@@ -873,6 +873,10 @@ import ZIPFoundation
         books[0]["fileStates"] = states
         json["books"] = books
         json["version"] = 1
+        // In place of the one recorded, not on top of it.
+        var taken = LibraryChange()
+        taken.popsJournal = true
+        try f.store.apply(taken)
         var replacement = LibraryChange()
         replacement.batch = .init(
             label: batch.label, moves: batch.moves, snapshot: try JSONSerialization.data(withJSONObject: json))

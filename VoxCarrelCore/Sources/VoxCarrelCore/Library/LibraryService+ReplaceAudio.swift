@@ -92,10 +92,10 @@ extension LibraryService {
 
             var change = LibraryChange()
             change.writes = [.init(book: updated, files: newRows)]
-            change.clearsJournal = try lastBatchInvolves(bookId: bookId, files: oldURLs)
+            change.cutsJournalThrough = try newestBatchInvolving(bookId: bookId, files: oldURLs)
             try beforeCommit?()
             try store.apply(change)
-            if change.clearsJournal { forgetUndoData() }
+            if change.cutsJournalThrough != nil { forgetUndoData() }
             refreshDetailsFiles(ofBooks: [bookId])
         } catch {
             // The book is as it was: the new file goes back where it came from.

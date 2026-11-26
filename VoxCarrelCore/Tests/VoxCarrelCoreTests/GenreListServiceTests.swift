@@ -630,7 +630,7 @@ import VoxCarrelFixtures
         #expect(try f.store.book(id: gone) == nil)
     }
 
-    @Test func G27_aListChangeDiscardsWhatWasKeptToUndoTheOperationBefore() throws {
+    @Test func G27_aListChangeKeepsWhatWasKeptToUndoTheOperationBefore() throws {
         let f = try F()
         var tags = F.meta("Kept", "Mick Herron")
         tags.genres = ["Pub Quiz"]
@@ -638,13 +638,18 @@ import VoxCarrelFixtures
         _ = try f.service.save([BookEdit(book: try #require(try f.store.book(id: id)), cover: .set(F.png))])
         #expect(f.hiddenTree().contains { $0.hasPrefix("undo/") })
 
-        // Only the last operation can be undone: what the one before kept is of no use.
+        // The operation before can still be undone after this one: what it kept stays.
         try f.service.renameGenre("Pub Quiz", to: "Quizzes")
         #expect(try f.service.undoLabel() == "Rename genre")
-        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo/") })
+        #expect(f.hiddenTree().contains { $0.hasPrefix("undo/") })
         try f.service.undoLast()
         #expect(try genres(f, id) == ["Pub Quiz"])
-        #expect(!f.hiddenTree().contains { $0.hasPrefix("undo") })
+        // The edit before it is next, with its cover still kept; undone, nothing of it is left.
+        #expect(try f.service.undoLabel() == "Edit Kept")
+        #expect(f.hiddenTree().contains { $0.hasPrefix("undo/") })
+        try f.service.undoLast()
+        #expect(f.service.covers.image(for: id) == F.jpeg)
+        #expect(try f.service.undoLabels().allSatisfy { $0.hasPrefix("Import ") })
     }
 
     @Test func G27_GP9_aListChangeIsRecordedAsVersionFive() throws {

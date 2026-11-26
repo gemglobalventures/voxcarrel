@@ -20,10 +20,17 @@ public struct LibraryChange: Sendable {
 
     public var writes: [BookWrite] = []
     public var deletedBookIds: [Int64] = []
-    /// When set, replaces the whole journal with this one batch.
+    /// When set, this batch is added to the journal as its newest: the one Undo
+    /// reverses next. The journal keeps the newest `LibraryStore.journalLimit` batches.
     public var batch: Batch?
-    /// When true, empties the journal (used after an undo).
+    /// When true, empties the journal: no earlier operation can be undone any more.
     public var clearsJournal = false
+    /// When set, takes this batch out of the journal and every batch before it: an
+    /// operation that cannot be undone has changed a book this batch is about.
+    public var cutsJournalThrough: Int64?
+    /// When true, takes the newest batch out of the journal, the one an undo has just
+    /// reversed: the batch before it is then the newest.
+    public var popsJournal = false
     /// When set, the library's folder pattern is stored (or, with no text, forgotten)
     /// in the same transaction as everything else.
     var folderPattern: FolderPatternWrite?
@@ -75,6 +82,9 @@ public struct LibraryChange: Sendable {
         public var moves: [MoveRecord]
         /// Opaque to the store; the service's undo data as JSON.
         public var snapshot: Data?
+        /// False for an operation after which no earlier one can be undone (a change
+        /// of folder layout, which moves every book): the journal then holds it alone.
+        public var keepsEarlier = true
 
         public init(label: String, moves: [MoveRecord], snapshot: Data?) {
             self.label = label
@@ -175,9 +185,14 @@ extension LibraryStore {
             if let batch = change.batch {
                 let snapshot = try makeSnapshot.map { try $0(books) } ?? batch.snapshot
                 batchId = try Self.replaceJournal(
-                    db, label: batch.label, moves: batch.moves, snapshot: snapshot)
+                    db, label: batch.label, moves: batch.moves, snapshot: snapshot,
+                    keepingEarlier: batch.keepsEarlier && !change.clearsJournal)
             } else if change.clearsJournal {
                 try Self.clearJournal(db)
+            } else if change.popsJournal {
+                try Self.popJournal(db)
+            } else if let through = change.cutsJournalThrough {
+                try db.execute(sql: "DELETE FROM operationBatch WHERE id <= ?", arguments: [through])
             }
             return (books, batchId)
         }

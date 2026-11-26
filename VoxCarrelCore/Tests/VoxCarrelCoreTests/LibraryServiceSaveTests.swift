@@ -74,7 +74,7 @@ import VoxCarrelFixtures
         let batch = try #require(try f.store.lastBatch())
         #expect(batch.label == "Edit Artemis")
         #expect(batch.moves.isEmpty)
-        #expect(try batchCount(f) == 1)
+        #expect(try f.service.undoLabels().filter { !$0.hasPrefix("Import ") } == ["Edit Artemis"])
     }
 
     // E3, E6
@@ -590,7 +590,7 @@ import VoxCarrelFixtures
                 from: f.lib("Author A/Book A/Book A.m4b").path,
                 to: f.lib("Author A2/Book A/Book A.m4b").path, wasCopy: false)
         ])
-        #expect(try batchCount(f) == 1)
+        #expect(try f.service.undoLabels().filter { !$0.hasPrefix("Import ") } == ["Edit 2 books"])
         let snapshot = try f.snapshot()
         #expect(snapshot.books.map(\.bookId) == [a, c])
     }
@@ -758,7 +758,7 @@ import VoxCarrelFixtures
     }
 
     // E13
-    @Test func olderUndoDataIsRemoved() throws {
+    @Test func undoDataIsKeptOnlyWhileItsOperationCanBeUndone() throws {
         let f = try F()
         let id = try importM4B(f, F.meta("Artemis", "Andy Weir"), cover: F.jpeg)
         func undoFolders() -> [String] {
@@ -772,8 +772,21 @@ import VoxCarrelFixtures
         _ = try f.service.save([try edit(f, id, cover: .set(F.jpeg))])
         let second = try f.snapshot().token
 
+        // What was kept to undo an operation stays while the operation can be undone...
         #expect(second != first)
-        #expect(undoFolders() == [second])
-        #expect(try batchCount(f) == 1)
+        #expect(undoFolders() == [first, second].sorted())
+        // ...and goes when it is undone, or leaves the journal.
+        try f.service.undoLast()
+        #expect(undoFolders() == [first])
+        try f.service.undoLast()
+        #expect(undoFolders() == [])
+
+        // No more is kept than the journal holds.
+        for turn in 0..<(LibraryStore.journalLimit + 3) {
+            _ = try f.service.save([try edit(f, id, cover: .set(turn.isMultiple(of: 2) ? F.png : F.jpeg))])
+        }
+        #expect(try f.service.undoLabels().count == LibraryStore.journalLimit)
+        #expect(undoFolders().count <= LibraryStore.journalLimit)
+        #expect(undoFolders().contains(try f.snapshot().token))
     }
 }

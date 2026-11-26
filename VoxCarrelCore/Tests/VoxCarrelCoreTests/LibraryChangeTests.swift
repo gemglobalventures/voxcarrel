@@ -273,7 +273,7 @@ import VoxCarrelFixtures
     }
 
     // S5, S6
-    @Test func journalHoldsOneBatch() throws {
+    @Test func journalHoldsTheNewestBatches() throws {
         let store = try makeStore()
         // Bytes that are neither text nor JSON, to show the store does not interpret them.
         let snapshot = Data([0x00, 0xFF, 0x7B, 0x00, 0x80, 0x0A])
@@ -292,18 +292,20 @@ import VoxCarrelFixtures
         #expect(last.label == "two")
         #expect(last.moves == [moves[1]])
         #expect(last.snapshot == snapshot)
-        #expect(try count("operationBatch", in: store) == 1)
-        #expect(try count("operationMove", in: store) == 1)
+        // The one before it is kept behind it.
+        #expect(try count("operationBatch", in: store) == 2)
+        #expect(try count("operationMove", in: store) == 3)
 
-        // S6: the older entry point also replaces, with no snapshot.
+        // S6: the older entry point also adds one, with no snapshot.
         let thirdId = try store.recordBatch(label: "three", moves: moves)
         last = try #require(try store.lastBatch())
         #expect(last.id == thirdId)
         #expect(last.label == "three")
         #expect(last.moves == moves)
         #expect(last.snapshot == nil)
-        #expect(try count("operationBatch", in: store) == 1)
-        #expect(try count("operationMove", in: store) == 2)
+        #expect(try count("operationBatch", in: store) == 3)
+        #expect(try count("operationMove", in: store) == 5)
+        #expect(try store.batches().map(\.label) == ["three", "two", "one"])
 
         // S5: clearing empties both tables.
         var clear = LibraryChange()
