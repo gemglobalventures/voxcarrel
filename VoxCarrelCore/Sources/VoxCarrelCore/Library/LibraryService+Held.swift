@@ -97,7 +97,8 @@ extension LibraryService {
             // Only what goes into the files, or decides where they are filed, is owed
             // to them; and a book with no files is owed nothing.
             let owesFiles = metadata != book.metadata || edit.cover != .keep || edit.editionSuffix != book.editionSuffix
-            if owesFiles, try !store.files(bookId: edit.bookId).isEmpty {
+            // Nor is a book kept where its files are: they are never written to.
+            if owesFiles, !book.keptOutside, try !store.files(bookId: edit.bookId).isEmpty {
                 try store.hold(bookId: edit.bookId, coverChanged: edit.cover != .keep, now: now)
             }
             changed.append(edit.bookId)

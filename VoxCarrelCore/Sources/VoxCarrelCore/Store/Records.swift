@@ -211,6 +211,10 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
     /// apart ("German", "read by Scott Brick"). Nil for any other book. Worked out
     /// when editions are linked; never written into a file's tags.
     public var editionSuffix: String? = nil
+    /// True for a book that was added where its files are and is kept there: its
+    /// files are outside the library folder and are never moved or written to. Its
+    /// details live in the catalogue alone until it is brought into the library.
+    public var keptOutside = false
 
     enum CodingKeys: String, CodingKey {
         case id, title, subtitle, authors, narrators, series, seriesNumber, genres, genreSource, genreTag
@@ -218,7 +222,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         case language, isbn, asin, durationSeconds, pageCount, wordCount, tags, rating, folderPath, needsAttention, isHidden
         case dateAdded, readStatus, dateStarted, dateFinished, appOnlyFields
         case storedCopies = "externalCopies"
-        case editionKind, partsAppearMissing, workKey, editionSuffix
+        case editionKind, partsAppearMissing, workKey, editionSuffix, keptOutside
     }
 
     /// True when the book is owned somewhere other than as files in the library.
@@ -332,6 +336,7 @@ public struct Book: Codable, Equatable, Identifiable, Sendable,
         partsAppearMissing = (try? c.decodeIfPresent(Bool.self, forKey: .partsAppearMissing)) ?? false
         workKey = (try? c.decodeIfPresent(String.self, forKey: .workKey)) ?? nil
         editionSuffix = (try? c.decodeIfPresent(String.self, forKey: .editionSuffix)) ?? nil
+        keptOutside = (try? c.decodeIfPresent(Bool.self, forKey: .keptOutside)) ?? false
     }
 
     /// The descriptive fields as one value.

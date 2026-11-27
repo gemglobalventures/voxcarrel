@@ -111,6 +111,11 @@ extension LibraryService {
             return .failed("A genre's name cannot have a comma, a semicolon or a slash in it: \"\(name)\"")
         }
         if rows.isEmpty { return prepareEditWithoutFiles(edit, book: book, into: &operation) }
+        // A book kept where its files are: they are never moved or written to, so the
+        // edit is the catalogue's alone, as for a book with no files.
+        if book.keptOutside, !bringingIn.contains(edit.bookId) {
+            return prepareEditWithoutFiles(edit, book: book, keeping: rows, into: &operation)
+        }
 
         // E2: the facts about the files are not editable.
         var metadata = edit.metadata
@@ -181,7 +186,7 @@ extension LibraryService {
         // E6
         let records: [MoveRecord]
         do {
-            records = try organiser.transfer(moves.map(\.move), mode: .move, pruneRoot: layout.root)
+            records = try organiser.transfer(moves.map(\.move), mode: saveTransferMode, pruneRoot: layout.root)
         } catch {
             return .failed(Self.reason(for: error))
         }
@@ -213,6 +218,8 @@ extension LibraryService {
         }
         updated.metadata = metadata
         updated.editionSuffix = edit.editionSuffix
+        // Brought in: once it has a folder of the library's, it is a book of the library.
+        if folderPath != nil, !folderTaken { updated.keptOutside = false }
         if writesTags { updated.genreTag = Self.genreTag(after: files, of: updated, recorded: book.genreTag) }
         // The length is not editable, but what the files were just read to hold counts.
         if writesTags { updated.durationSeconds = Self.remeasuredDuration(files, recorded: book.durationSeconds) }
@@ -240,8 +247,11 @@ extension LibraryService {
     /// problems and nothing "in the app only"; and the book is never flagged for lacking
     /// what filing would need (a title, an author), since it is not filed. A flag it
     /// already has is left alone.
+    ///
+    /// `rows`: the files of a book that is kept where they are, outside the library.
+    /// They are carried through untouched.
     private func prepareEditWithoutFiles(
-        _ edit: BookEdit, book: Book, into operation: inout PendingOperation
+        _ edit: BookEdit, book: Book, keeping rows: [BookFile] = [], into operation: inout PendingOperation
     ) -> PreparedEdit {
         // E2 holds here too: the length and page count are not editable. For a book
         // with no audio file the length is the one it was added with.
@@ -270,9 +280,9 @@ extension LibraryService {
         updated.editionKind = edit.editionKind
         updated.appOnlyFields = []
         operation.add(
-            .init(book: updated, files: []),
+            .init(book: updated, files: rows),
             snapshot: BookSnapshot(
-                bookId: edit.bookId, bookBefore: book, filesBefore: [], fileStates: [],
+                bookId: edit.bookId, bookBefore: book, filesBefore: rows, fileStates: [],
                 storedCoverBefore: storedCoverBefore),
             storedCover: edit.cover, records: [])
         return .saved(writeIndex: operation.writes.count - 1, refiled: false, problems: [])

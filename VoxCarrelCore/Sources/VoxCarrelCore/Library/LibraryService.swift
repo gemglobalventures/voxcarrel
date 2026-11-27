@@ -22,6 +22,14 @@ public final class LibraryService {
     /// the picture was last changed: `coverLongSide(of:modified:)`.
     var coverSides: [String: (modified: Date, side: Int?)] = [:]
 
+    /// The books being brought into the library by the save that is running: kept
+    /// outside until now, and filed and written like any other book by it.
+    var bringingIn: Set<Int64> = []
+
+    /// How a save puts files where they belong: moved, as ever, or copied while books
+    /// are brought into the library as copies.
+    var saveTransferMode: TransferMode = .move
+
     /// The books whose files are written even though their details are as the
     /// catalogue has them: set while changes that were held are caught up with.
     var forcedWrites: Set<Int64> = []

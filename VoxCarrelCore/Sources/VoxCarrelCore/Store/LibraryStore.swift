@@ -467,6 +467,13 @@ public final class LibraryStore: Sendable {
                 t.add(column: "wordCount", .integer)
             }
         }
+        migrator.registerMigration("v26") { db in
+            // A book added where its files are, and kept there: outside the library
+            // folder, never moved or written to, until it is brought in.
+            try db.alter(table: "book") { t in
+                t.add(column: "keptOutside", .boolean).notNull().defaults(to: false)
+            }
+        }
         migrator.registerMigration("v25") { db in
             // Books whose details were changed while the drive their files are on was
             // away: the catalogue has the change, and the files are still to be given it.

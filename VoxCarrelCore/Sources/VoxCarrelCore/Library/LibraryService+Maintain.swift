@@ -661,6 +661,9 @@ extension LibraryService {
         of book: Book, files rows: [BookFile], pattern: FolderPattern? = nil, owners: inout FolderOwners?
     ) -> FileCheck {
         guard !rows.isEmpty else { return .asItWas }
+        // A book kept where its files are may be on a drive that is away: it is never
+        // flagged for files that cannot be seen, and is not filed, so never "recovered".
+        if book.keptOutside { return .asItWas }
         let fm = FileManager.default
         if rows.contains(where: { !fm.fileExists(atPath: store.url(for: $0).path) }) {
             return .missing(newlyFlagged: !book.needsAttention)

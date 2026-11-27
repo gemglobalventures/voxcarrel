@@ -214,6 +214,25 @@ extension LibraryService {
         case .remove: storedCover = nil
         }
 
+        if options.leavesInPlace {
+            // Catalogued where it is, and kept there: no file is moved, copied or
+            // written. What was reviewed lives in the catalogue, and the cover with it.
+            for index in files.indices { files[index].holdsCover = files[index].holdsCover && item.cover == .keep }
+            var book = Book(metadata: metadata, folderPath: nil, needsAttention: false)
+            book.keptOutside = true
+            book.workKey = edition?.workKey
+            book.editionSuffix = edition?.suffix
+            book.editionKind = Self.statedEditionKind(of: candidate)
+            book.partsAppearMissing = Self.partsAppearMissing(in: candidate)
+            book.genreTag = Self.genreTagRead(from: files)
+            operation.add(
+                .init(book: book, files: bookFiles(files)),
+                snapshot: BookSnapshot(
+                    bookId: 0, bookBefore: nil, filesBefore: [], fileStates: [], storedCoverBefore: nil),
+                storedCover: storedCover.map { .set($0) } ?? .keep, records: [])
+            return .imported(writeIndex: operation.writes.count - 1, problems: [])
+        }
+
         let sources = candidate.files.map { FilingSource(url: $0.url, role: $0.role) }
         guard let plan = filingPlan(
             for: sources, metadata: candidate.metadata, pattern: pattern, titleSuffix: edition?.suffix)

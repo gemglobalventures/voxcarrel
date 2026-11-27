@@ -2,9 +2,14 @@ import Foundation
 
 public struct ImportOptions: Sendable {
     public var mode: TransferMode = .move
+    /// The books are catalogued where their files are: nothing is moved, copied or
+    /// written. Each is kept outside the library until it is brought in
+    /// (`bringIntoLibrary`). `mode` is not used then.
+    public var leavesInPlace = false
 
-    public init(mode: TransferMode = .move) {
+    public init(mode: TransferMode = .move, leavesInPlace: Bool = false) {
         self.mode = mode
+        self.leavesInPlace = leavesInPlace
     }
 }
 
