@@ -40,17 +40,17 @@ extension AppModel {
         }
     }
 
-    /// The series groups among the items; none unless `isGrouping`.
+    /// The groups among the items, and after each series' group the groups of editions
+    /// inside it; none unless `isGrouping`.
     var groups: [SeriesGroup] {
-        items.compactMap { item in
-            if case .series(let group) = item { return group }
-            return nil
+        items.flatMap { item -> [SeriesGroup] in
+            if case .series(let group) = item { return [group] + group.editionGroups }
+            return []
         }
     }
 
     func group(named name: String) -> SeriesGroup? {
-        for case .series(let group) in items where group.name == name { return group }
-        return nil
+        groups.first { $0.name == name }
     }
 
     /// The group this book is shown in; nil for a book that is an item of its own.
@@ -65,7 +65,19 @@ extension AppModel {
             switch item {
             case .book(let row): [.book(row.id)]
             case .series(let group):
-                [group.id] + (openGroups.contains(group.name) ? group.books.map { .book($0.id) } : [])
+                [group.id] + (openGroups.contains(group.name) ? order(inside: group) : [])
+            }
+        }
+    }
+
+    /// What an open group shows under its own row, top to bottom: its books, and a
+    /// group of editions inside it before that group's own books when it is open too.
+    private func order(inside group: SeriesGroup) -> [ItemID] {
+        group.inner.flatMap { item -> [ItemID] in
+            switch item {
+            case .book(let row): [.book(row.id)]
+            case .series(let editions):
+                [editions.id] + (openGroups.contains(editions.name) ? editions.books.map { .book($0.id) } : [])
             }
         }
     }
@@ -252,9 +264,15 @@ extension AppModel {
             }
         }
         if names.count == 1, let group = group(named: names[0]), books.isSubset(of: group.books.map(\.id)) {
-            // Editions have no view of their own: their row opens and closes.
+            // Editions have no view of their own: their row opens and closes. From the
+            // grid, where a stack cannot open, the list is shown with the row open.
             if group.kind == .editions {
-                setGroup(group.name, open: !openGroups.contains(group.name))
+                if viewMode == .grid {
+                    openGroups.insert(group.name)
+                    viewMode = .list
+                } else {
+                    setGroup(group.name, open: !openGroups.contains(group.name))
+                }
             } else {
                 openSeries(group.name)
             }

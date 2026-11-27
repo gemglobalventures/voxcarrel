@@ -147,8 +147,9 @@ struct SeriesGridItem: View {
         .accessibilityIdentifier("books.stack.\(group.name)")
     }
 
-    /// The first press of a click selects the series' books; the second of a
-    /// double-click opens the series' own view.
+    /// The first press of a click selects the group's books; the second of a
+    /// double-click opens the series' own view, or, for the editions of one book, the
+    /// list with their row open.
     private func clicked(modifiers: NSEvent.ModifierFlags, clickCount: Int) {
         switch clickCount {
         case 1: model.clickItem(group.id, modifiers: GridClicks.selectionModifiers(modifiers))

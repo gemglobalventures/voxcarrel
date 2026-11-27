@@ -616,9 +616,9 @@ public final class AppModel {
     private func refreshItems() {
         let allowed = Self.allowsGrouping(shown.item, search: shown.search)
         let bySeries = storedGroupsBySeries && allowed
-        // Editions of one work are one row of the list, whatever the setting. In the
-        // grid each keeps its own cover: a stack there has no way to be opened.
-        let byEditions = allowed && storedViewMode == .list && SeriesGrouping.hasEditions(among: rows)
+        // Editions of one work are one row of the list and one stack of the grid,
+        // whatever the setting.
+        let byEditions = allowed && SeriesGrouping.hasEditions(among: rows)
         let grouping = bySeries || byEditions
         if grouping != isGrouping || bySeries != itemsBySeries || itemsRowsVersion != rowsVersion {
             itemsVersion += 1

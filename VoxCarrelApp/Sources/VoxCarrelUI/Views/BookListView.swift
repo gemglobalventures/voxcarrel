@@ -91,8 +91,18 @@ struct BookListView: View {
                 ForEach(model.items) { item in
                     if case .series(let group) = item {
                         DisclosureTableRow(item, isExpanded: Self.isOpen(group.name, in: model)) {
-                            ForEach(group.books) { row in
-                                TableRow(ListItem.book(row))
+                            // A series' row holds its books, and the editions of one
+                            // book among them as a row of their own that opens.
+                            ForEach(group.inner) { inner in
+                                if case .series(let editions) = inner {
+                                    DisclosureTableRow(inner, isExpanded: Self.isOpen(editions.name, in: model)) {
+                                        ForEach(editions.books) { row in
+                                            TableRow(ListItem.book(row))
+                                        }
+                                    }
+                                } else {
+                                    TableRow(inner)
+                                }
                             }
                         }
                     } else {

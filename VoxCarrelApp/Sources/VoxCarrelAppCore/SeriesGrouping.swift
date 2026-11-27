@@ -49,9 +49,27 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
         kind == .editions ? (books.first?.book.title ?? "") : name
     }
 
-    /// "5 books", "3 editions"
+    /// "5 books", "3 editions". The editions of one book in a series are one book of it.
     public var countText: String {
-        kind == .editions ? "\(books.count) editions" : "\(books.count) books"
+        if kind == .editions { return "\(books.count) editions" }
+        let count = inner.count
+        return count == 1 ? "1 book" : "\(count) books"
+    }
+
+    /// What a series' row holds when it is open, in the order of the series: each a
+    /// book, or the editions of one book as a group of their own. A group of editions
+    /// holds only books.
+    public var inner: [LibraryItem] {
+        kind == .series ? SeriesGrouping.editionItems(from: books) : books.map(LibraryItem.book)
+    }
+
+    /// The groups of editions inside a series' group; none inside a group of editions.
+    public var editionGroups: [SeriesGroup] {
+        guard kind == .series else { return [] }
+        return inner.compactMap { item in
+            if case .series(let group) = item { return group }
+            return nil
+        }
     }
 
     /// The series the editions are of, as their first has it; empty for a series' own group.
@@ -235,7 +253,7 @@ public enum SeriesGrouping {
 
     /// The rows in the order given, the editions of one work as one group where the
     /// first of them is.
-    private static func editionItems(from rows: [BookRow]) -> [LibraryItem] {
+    static func editionItems(from rows: [BookRow]) -> [LibraryItem] {
         var members: [String: [BookRow]] = [:]
         for row in rows where row.id > 0 && !row.isMissing {
             if let key = row.book.workKey { members[key, default: []].append(row) }
