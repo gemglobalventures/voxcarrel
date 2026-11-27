@@ -22,6 +22,14 @@ public struct SendSheetState: Equatable, Sendable {
     /// "1 file, 412 MB" or "4 files, 1.2 GB, sent as one zip"; empty when nothing can be sent.
     public var sizeText: String
     /// Whether the tick for a square cover is offered: the cover in the audio is not square.
+    /// "Also send the ebook (EPUB, 1.2 MB)": offered when the book has one; nil otherwise.
+    /// What is ticked goes with the audiobook through AirDrop and Share, as files of
+    /// their own; the link for BookPlayer carries the audiobook alone.
+    public var ebookOffer: String?
+    public var alsoEbook = false
+    /// The same for the PDFs kept with the book.
+    public var pdfOffer: String?
+    public var alsoPDFs = false
     public var showsSquareCover: Bool
     /// Whether the cover is to be made square on the copy that is sent.
     public var squareCover: Bool
@@ -86,6 +94,11 @@ struct SendSession {
     /// PH20: the book has edits that are not saved, and has not been checked.
     var needsSave = false
     var check: SendCheck?
+    /// The book's ebook and companion PDFs, which can go with the audiobook when it
+    /// is shared, and whether the owner has asked for each to go.
+    var companions = SendCompanions()
+    var alsoEbook = false
+    var alsoPDFs = false
     /// Whether the book has a file whose length header Repair can put right.
     var canRepair = false
     /// The network as it was when last looked at.
@@ -176,6 +189,7 @@ extension AppModel {
         guard let worker = await begin(SendText.checkingLabel) else { return }
         do {
             session.check = try await worker.sendCheck(for: id)
+            session.companions = (try? await worker.sendCompanions(for: id)) ?? SendCompanions()
             session.canRepair = canRepairLength(of: id)
             sendSession = session
             readSendNetwork()
@@ -243,6 +257,10 @@ extension AppModel {
                 sendable
                     ? SendText.sizeLine(files: $0.files.count, bytes: $0.totalBytes, asZip: $0.needsPackage) : nil
             } ?? "",
+            ebookOffer: sendable ? SendText.alsoOffer("ebook", files: session.companions.ebooks) : nil,
+            alsoEbook: session.alsoEbook,
+            pdfOffer: sendable ? SendText.alsoOffer("companion PDF", files: session.companions.pdfs) : nil,
+            alsoPDFs: session.alsoPDFs,
             showsSquareCover: sendable && check?.coverIsSquare == false,
             squareCover: storedSendSquareCover,
             coverNote: SendText.coverNotSquared(files: session.coversNotSquared),
@@ -455,7 +473,20 @@ extension AppModel {
     public func shareItems() async -> [URL] {
         guard sendSheet?.canShare == true, let prepared = await prepareSend() else { return [] }
         sendSession?.sharing = SendSession.Sharing(file: prepared.file, fingerprint: prepared.fingerprint)
-        return [prepared.file]
+        return [prepared.file] + sendExtras
+    }
+
+    /// The ebook and the companion PDFs the owner asked to send with the audiobook:
+    /// the library's own files, handed over as they are.
+    var sendExtras: [URL] {
+        guard let session = sendSession else { return [] }
+        return (session.alsoEbook ? session.companions.ebooks : []) + (session.alsoPDFs ? session.companions.pdfs : [])
+    }
+
+    /// Whether the book's ebook, and the PDFs kept with it, go with the audiobook.
+    public func setSendAlso(ebook: Bool? = nil, pdfs: Bool? = nil) {
+        if let ebook { sendSession?.alsoEbook = ebook }
+        if let pdfs { sendSession?.alsoPDFs = pdfs }
     }
 
     /// PH23: the system could not share what `shareItems` gave it in the way that was
@@ -476,8 +507,9 @@ extension AppModel {
     public func shareFinished(completed: Bool, items: [URL]) async {
         // The sheet it was shared from has closed: what it was handed can go now.
         guard !removeSharePackageHeld(for: items) else { return }
+        // The audiobook is the first of what was handed over; an ebook or a PDF may follow it.
         guard let session = sendSession, let sharing = session.sharing,
-              items.map(\.standardizedFileURL.path) == [sharing.file.standardizedFileURL.path]
+              items.first?.standardizedFileURL.path == sharing.file.standardizedFileURL.path
         else { return }
         sendSession?.sharing = nil
         guard completed else { return }
@@ -612,7 +644,7 @@ extension AppModel {
     /// it was shared from has closed. False when `items` are not such a share's.
     private func removeSharePackageHeld(for items: [URL]) -> Bool {
         let paths = items.map(\.standardizedFileURL.path)
-        guard let index = sharePackagesHeld.firstIndex(where: { [$0.file.standardizedFileURL.path] == paths }) else {
+        guard let index = sharePackagesHeld.firstIndex(where: { $0.file.standardizedFileURL.path == paths.first }) else {
             return false
         }
         let held = sharePackagesHeld.remove(at: index)

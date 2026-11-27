@@ -944,6 +944,10 @@ public actor LibraryWorker {
 
     /// Whether the book can be sent to the phone, what to warn of, and which files
     /// would go. Only reads: it may read an MP3 through to measure it.
+    public func sendCompanions(for bookId: Int64) throws -> SendCompanions {
+        try service.sendCompanions(for: bookId)
+    }
+
     public func sendCheck(for bookId: Int64) throws -> SendCheck {
         guard isBookId(bookId) else { throw LibraryError.bookNotFound(bookId) }
         return try service.sendCheck(for: bookId)

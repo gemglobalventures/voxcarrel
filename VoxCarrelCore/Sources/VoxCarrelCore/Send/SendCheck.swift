@@ -100,6 +100,19 @@ public struct SendCheck: Equatable, Sendable {
     }
 }
 
+/// What can go with a book's audiobook when it is shared.
+public struct SendCompanions: Equatable, Sendable {
+    /// The book's ebook files.
+    public var ebooks: [URL]
+    /// The PDFs kept with the book as extras.
+    public var pdfs: [URL]
+
+    public init(ebooks: [URL] = [], pdfs: [URL] = []) {
+        self.ebooks = ebooks
+        self.pdfs = pdfs
+    }
+}
+
 /// What the owner chose for a send.
 public struct SendOptions: Equatable, Sendable {
     /// Send copies whose cover has been made square (`CoverSquaring`), when the cover is

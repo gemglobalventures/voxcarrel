@@ -85,6 +85,21 @@ public enum SendText {
 
     // MARK: Size
 
+    /// "Also send the ebook (EPUB, 1 MB)", "Also send the companion PDFs (2 files, 3 MB)";
+    /// nil when the book has none.
+    public static func alsoOffer(_ what: String, files: [URL]) -> String? {
+        guard !files.isEmpty else { return nil }
+        let bytes = files.reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) }
+        if files.count == 1 {
+            let kind = files[0].pathExtension.uppercased()
+            return "Also send the \(what) (\(kind.isEmpty || what.hasSuffix("PDF") ? "" : kind + ", ")\(size(bytes)))"
+        }
+        return "Also send the \(what)s (\(files.count) files, \(size(bytes)))"
+    }
+
+    public static let alsoNote =
+        "They go with the audiobook through AirDrop and Share, as files of their own. The link for BookPlayer carries the audiobook alone."
+
     /// "1 file, 412 MB" or "4 files, 1.2 GB, sent as one zip".
     public static func sizeLine(files: Int, bytes: Int64, asZip: Bool) -> String {
         "\(files == 1 ? "1 file" : "\(files) files"), \(size(bytes))" + (asZip ? ", sent as one zip" : "")

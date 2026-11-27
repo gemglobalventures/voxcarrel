@@ -42,6 +42,18 @@ struct SendToPhoneSheet: View {
                         .font(.callout)
                         .accessibilityIdentifier("send.size")
                 }
+                if let offer = state.ebookOffer {
+                    Toggle(offer, isOn: Binding(get: { state.alsoEbook }, set: { model.setSendAlso(ebook: $0) }))
+                        .toggleStyle(.checkbox)
+                        .help(SendText.alsoNote)
+                        .accessibilityIdentifier("send.alsoEbook")
+                }
+                if let offer = state.pdfOffer {
+                    Toggle(offer, isOn: Binding(get: { state.alsoPDFs }, set: { model.setSendAlso(pdfs: $0) }))
+                        .toggleStyle(.checkbox)
+                        .help(SendText.alsoNote)
+                        .accessibilityIdentifier("send.alsoPDFs")
+                }
                 if state.showsSquareCover {
                     Toggle(SendText.squareCoverTitle, isOn: squareCover)
                         .toggleStyle(.checkbox)

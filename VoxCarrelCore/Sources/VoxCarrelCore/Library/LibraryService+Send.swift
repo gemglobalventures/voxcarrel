@@ -16,6 +16,19 @@ extension LibraryService {
         return (base.isEmpty ? "Audiobook" : base) + ".zip"
     }
 
+    /// The files of a book that can go with its audiobook when it is shared: its ebook
+    /// files, and the PDFs kept with it as extras (a companion booklet, maps, charts).
+    /// Only those that are on the disk now. Only reads.
+    public func sendCompanions(for bookId: Int64) throws -> SendCompanions {
+        let rows = try store.files(bookId: bookId)
+        func present(_ wanted: [BookFile]) -> [URL] {
+            wanted.map { store.url(for: $0) }.filter { Self.isFileOnDisk($0) }
+        }
+        return SendCompanions(
+            ebooks: present(rows.filter { $0.role == .ebook }),
+            pdfs: present(rows.filter { $0.role == .extra && $0.format == .pdf }))
+    }
+
     /// Whether a book can be sent to the phone, what the owner should be warned of, and
     /// exactly which files would go, with the fingerprint a send of them is recorded under.
     ///
