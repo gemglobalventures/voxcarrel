@@ -171,13 +171,15 @@ private struct ItemAuthorCell: View {
     }
 }
 
-/// Nothing for a series' row: its name is its title.
+/// Nothing for a series' row: its name is its title. The editions of one book say the
+/// series it is of.
 private struct ItemSeriesCell: View {
     let item: ListItem
 
     var body: some View {
-        if case .book(let row) = item {
-            TextCell(text: row.seriesText)
+        switch item {
+        case .book(let row): TextCell(text: row.seriesText)
+        case .series(let group): TextCell(text: group.seriesText)
         }
     }
 }
@@ -229,7 +231,9 @@ private struct ItemLengthCell: View {
             TextCell(text: row.lengthText)
                 .monospacedDigit()
         case .series(let group):
-            TextCell(text: group.lengthText)
+            // The lengths of a series' books together; those of one book's editions
+            // together are no length of anything.
+            TextCell(text: group.kind == .editions ? "" : group.lengthText)
                 .monospacedDigit()
         }
     }
@@ -277,6 +281,13 @@ private struct TitleCell: View {
                 .help(row.book.title)
             MissingBadge(row: row)
             SeriesNoteLabel(row: row)
+            // What sets this edition apart from the others with its title.
+            if let apart = row.book.editionSuffix {
+                Text(apart)
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("books.row.edition.\(row.id)")
+            }
             // In words where the column has room for them, a symbol where it has not.
             EditionBadge(row: row)
             EditedBadge(model: model, id: row.id)

@@ -510,8 +510,11 @@ public final class AppModel {
     public var viewMode: ViewMode {
         get { storedViewMode }
         set {
+            guard newValue != storedViewMode else { return }
             storedViewMode = newValue
             defaults.set(newValue.rawValue, forKey: Keys.viewMode)
+            // Editions are one row in the list and covers of their own in the grid.
+            refreshItems()
         }
     }
 
@@ -581,6 +584,7 @@ public final class AppModel {
     /// stop being: when the list view should make its table again.
     public private(set) var itemsVersion = 0
     @ObservationIgnored private var itemsRowsVersion = 0
+    @ObservationIgnored private var itemsBySeries = false
     /// GS13: the names of the groups that are open. None at first; not remembered.
     /// A name stays while the list is not grouped, and in a list that has no such
     /// group: it goes when the list its group was seen in no longer has the group.
@@ -610,13 +614,19 @@ public final class AppModel {
     /// they are, so that they are open still when it is grouped again. GS13a: opens any
     /// closed group that now holds some selected books, not all.
     private func refreshItems() {
-        let grouping = storedGroupsBySeries && Self.allowsGrouping(shown.item, search: shown.search)
-        if grouping != isGrouping || itemsRowsVersion != rowsVersion {
+        let allowed = Self.allowsGrouping(shown.item, search: shown.search)
+        let bySeries = storedGroupsBySeries && allowed
+        // Editions of one work are one row of the list, whatever the setting. In the
+        // grid each keeps its own cover: a stack there has no way to be opened.
+        let byEditions = allowed && storedViewMode == .list && SeriesGrouping.hasEditions(among: rows)
+        let grouping = bySeries || byEditions
+        if grouping != isGrouping || bySeries != itemsBySeries || itemsRowsVersion != rowsVersion {
             itemsVersion += 1
             itemsRowsVersion = rowsVersion
         }
+        itemsBySeries = bySeries
         if grouping != isGrouping { isGrouping = grouping }
-        items = SeriesGrouping.items(from: rows, sort: storedSort, grouped: grouping)
+        items = SeriesGrouping.items(from: rows, sort: storedSort, grouped: bySeries, editions: byEditions)
         if grouping {
             let names = Set(groups.map(\.name))
             if let seen = groupsSeen, seen.item == shown.item {

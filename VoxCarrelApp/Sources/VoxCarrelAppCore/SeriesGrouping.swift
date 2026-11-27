@@ -23,16 +23,40 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
     /// In the order of the series; at least two.
     public var books: [BookRow]
 
-    public init(name: String, books: [BookRow]) {
+    /// What the books have in common: a series, or one work they are editions of.
+    public enum Kind: Sendable { case series, editions }
+    public var kind: Kind
+
+    public init(name: String, books: [BookRow], kind: Kind = .series) {
         self.name = name
         self.books = books
+        self.kind = kind
     }
 
-    public var titleText: String { name }
+    /// The name of the group of a work's editions: no series' name, whatever the
+    /// series is called, since no text a book has begins with this character.
+    public static func editionsName(workKey: String) -> String {
+        "\u{1F}editions:\(workKey)"
+    }
 
-    /// "5 books"
+    /// The editions of one work, in the order given; at least two.
+    public static func editions(workKey: String, books: [BookRow]) -> SeriesGroup {
+        SeriesGroup(name: editionsName(workKey: workKey), books: books, kind: .editions)
+    }
+
+    /// The series' name; for editions, the title of the first.
+    public var titleText: String {
+        kind == .editions ? (books.first?.book.title ?? "") : name
+    }
+
+    /// "5 books", "3 editions"
     public var countText: String {
-        "\(books.count) books"
+        kind == .editions ? "\(books.count) editions" : "\(books.count) books"
+    }
+
+    /// The series the editions are of, as their first has it; empty for a series' own group.
+    public var seriesText: String {
+        kind == .editions ? (books.first?.seriesText ?? "") : ""
     }
 
     /// The one author all the books share, going by each book's first author and
@@ -110,7 +134,8 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
 
     /// For the tooltip and VoiceOver: the name, the author, and the rest in one line.
     public var summaryText: String {
-        let facts = [countText, lengthText, statusText, warningText ?? ""].filter { !$0.isEmpty }
+        let length = kind == .editions ? "" : lengthText
+        let facts = [countText, length, statusText, warningText ?? ""].filter { !$0.isEmpty }
         return [titleText, authorsText, facts.joined(separator: " · ")]
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
@@ -121,8 +146,11 @@ public struct SeriesGroup: Identifiable, Equatable, Sendable {
     /// formats of all its books together, and the least advanced status of any. For
     /// Edition, the first kind in the sort's order that any of its books has. Its lowest
     /// book id breaks a tie with a book of the same title.
+    ///
+    /// Editions stand where their first would: they are one book, not several.
     var sortValues: BookSort.SortValues {
-        BookSort.SortValues(
+        if kind == .editions, let first = books.first { return BookSort.SortValues(row: first) }
+        return BookSort.SortValues(
             title: name, id: books.map(\.id).min() ?? 0, firstAuthor: books.first?.book.authors.first, series: name,
             seriesNumber: nil,
             formatRank: BookSort.formatRank(
@@ -163,8 +191,14 @@ public enum SeriesGrouping {
     /// groups stand among the other books where `sort` puts them (GS4). Rows that stand
     /// for books the library does not have (ids of zero or less) are left out (GS5):
     /// they belong to a single series' own view, which is never grouped.
-    public static func items(from rows: [BookRow], sort: BookSort, grouped: Bool) -> [LibraryItem] {
-        guard grouped else { return rows.map(LibraryItem.book) }
+    ///
+    /// `editions`: the rows that are linked as editions of one work are one group when
+    /// two or more of them are here and no series' group has taken them: it stands where
+    /// the first of them stood, with the others after it in the order they were in.
+    public static func items(
+        from rows: [BookRow], sort: BookSort, grouped: Bool, editions: Bool = false
+    ) -> [LibraryItem] {
+        guard grouped else { return editions ? editionItems(from: rows) : rows.map(LibraryItem.book) }
         var singles: [BookRow] = []
         var members: [String: [BookRow]] = [:]
         for row in rows where row.id > 0 && !row.isMissing {
@@ -174,11 +208,11 @@ public enum SeriesGrouping {
                 singles.append(row)
             }
         }
-        var items = singles.map(LibraryItem.book)
+        var loose = singles
+        for books in members.values where books.count < 2 { loose += books }
+        var items = editions ? editionItems(from: loose) : loose.map(LibraryItem.book)
         for (name, books) in members {
-            if books.count < 2 {
-                items += books.map(LibraryItem.book)
-            } else {
+            if books.count >= 2 {
                 items.append(.series(SeriesGroup(name: name, books: BookSort.inSeriesOrder(books))))
             }
         }
@@ -188,5 +222,34 @@ public enum SeriesGrouping {
             case .series(let group): group.sortValues
             }
         }
+    }
+
+    /// Whether any two of the rows are editions of one work.
+    public static func hasEditions(among rows: [BookRow]) -> Bool {
+        var seen = Set<String>()
+        for row in rows where row.id > 0 && !row.isMissing {
+            if let key = row.book.workKey, !seen.insert(key).inserted { return true }
+        }
+        return false
+    }
+
+    /// The rows in the order given, the editions of one work as one group where the
+    /// first of them is.
+    private static func editionItems(from rows: [BookRow]) -> [LibraryItem] {
+        var members: [String: [BookRow]] = [:]
+        for row in rows where row.id > 0 && !row.isMissing {
+            if let key = row.book.workKey { members[key, default: []].append(row) }
+        }
+        var placed = Set<String>()
+        var items: [LibraryItem] = []
+        for row in rows {
+            guard row.id > 0, !row.isMissing, let key = row.book.workKey, let books = members[key], books.count >= 2
+            else {
+                items.append(.book(row))
+                continue
+            }
+            if placed.insert(key).inserted { items.append(.series(.editions(workKey: key, books: books))) }
+        }
+        return items
     }
 }

@@ -312,7 +312,7 @@ extension LibraryItem {
     public var titleSortKey: String {
         switch self {
         case .book(let row): row.titleSortKey
-        case .series(let group): group.name
+        case .series(let group): group.titleText
         }
     }
 
@@ -326,7 +326,7 @@ extension LibraryItem {
     public var seriesSortKey: String {
         switch self {
         case .book(let row): row.seriesSortKey
-        case .series(let group): group.name
+        case .series(let group): group.kind == .editions ? (group.books.first?.seriesSortKey ?? "") : group.name
         }
     }
 

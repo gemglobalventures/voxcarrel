@@ -20,10 +20,16 @@ struct SeriesGroupTitleCell: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: SeriesGroupMark.symbol)
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 30)
-                .accessibilityHidden(true)
+            if group.kind == .editions, let first = group.books.first {
+                // One book in several editions: its cover, as any book's row has.
+                CoverView(row: first, maxSide: 30, cornerRadius: 2, dimsWithoutFiles: true)
+                    .frame(width: 20, height: 30)
+            } else {
+                Image(systemName: SeriesGroupMark.symbol)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 30)
+                    .accessibilityHidden(true)
+            }
             Text(group.titleText)
                 .fontWeight(.medium)
                 .lineLimit(1)

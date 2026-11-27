@@ -72,7 +72,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 - **Folders your way:** `Author/Series/Title` to begin with, or another layout or a pattern of your own. Changing it shows what will move, then re-files the whole library in one step.
 - **Merge** entries that are really one book (an audiobook, its ebook and a companion PDF imported separately).
-- **Editions kept apart and linked:** the same book in another language, read by another narrator, or as a dramatisation stays an entry of its own, with its own folder and files. At import, a book that matches one you have can be kept as another edition of it, and Book ▸ Link as Editions of One Book links books already in the library; each then names the others. Where two editions share a title, each folder says what sets it apart: `Dune (German)`, `Dune (read by Scott Brick)`, `Dune (dramatisation)`.
+- **Editions kept apart and linked:** the same book in another language, read by another narrator, or as a dramatisation stays an entry of its own, with its own folder and files. At import, a book that matches one you have can be kept as another edition of it, and Book ▸ Link as Editions of One Book links books already in the library; each then names the others. In the list, linked editions are one row that opens to show each. Where two editions share a title, each folder says what sets it apart: `Dune (German)`, `Dune (read by Scott Brick)`, `Dune (dramatisation)`.
 - **Genres from a short list** you can rename, merge and add to. Whatever a file or a lookup says is mapped onto it.
 - **Read status, tags, ratings and collections.**
 - **Hide books** you choose: they leave every list, count and search, and come back into view only after Touch ID or your Mac's password.

@@ -34,7 +34,8 @@ extension AppModel {
     static func allowsGrouping(_ item: SidebarItem, search: String) -> Bool {
         switch item {
         // Up Next is a list in its own order: a group would take its books out of it.
-        case .browse(.series, _), .inbox, .upNext: false
+        // A check of the library's tidiness lists books one by one: each is a finding.
+        case .browse(.series, _), .inbox, .upNext, .tidy: false
         default: search.trimmed.isEmpty
         }
     }
@@ -251,7 +252,12 @@ extension AppModel {
             }
         }
         if names.count == 1, let group = group(named: names[0]), books.isSubset(of: group.books.map(\.id)) {
-            openSeries(group.name)
+            // Editions have no view of their own: their row opens and closes.
+            if group.kind == .editions {
+                setGroup(group.name, open: !openGroups.contains(group.name))
+            } else {
+                openSeries(group.name)
+            }
         } else {
             openOne(of: bookIds(of: ids))
         }
