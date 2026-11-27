@@ -177,6 +177,16 @@ struct PendingSeriesChoice: Equatable, Sendable {
     /// The library series that was being checked.
     var name: String
     var found: [SeriesFound]
+    /// Wikidata's series to choose between, when it is Wikidata that was asked: each
+    /// with how many of the library's books of the series it holds. `found` is then empty.
+    var wikidata: [WikidataFound] = []
+}
+
+/// One of Wikidata's series that a library series may be, with how many of the
+/// library's books of the series are in it.
+struct WikidataFound: Equatable, Sendable {
+    var series: WikidataSeries
+    var held: Int
 }
 
 enum SeriesRows {
@@ -342,6 +352,37 @@ enum SeriesRows {
 
     /// What tells one Audible series from another: its store and its own ID. Also a
     /// choice's id.
+    /// What names one of Wikidata's series among the choices.
+    static func choiceId(_ series: WikidataSeries) -> String {
+        "wikidata:\(series.id)"
+    }
+
+    /// One of Wikidata's series as a choice: "Wikidata · 14 books · series of novels by
+    /// Ann Author · 3 of your books are here".
+    static func choice(for found: WikidataFound) -> SeriesChoice {
+        let count = found.series.books.count
+        var facts = ["Wikidata", count == 1 ? "1 book" : "\(count) books"]
+        if let about = found.series.about?.trimmedOrNil { facts.append(about) }
+        switch found.held {
+        case 0: facts.append("none of your books is here")
+        case 1: facts.append("1 of your books is here")
+        default: facts.append("\(found.held) of your books are here")
+        }
+        return SeriesChoice(id: choiceId(found.series), title: found.series.title, detail: facts.joined(separator: " · "))
+    }
+
+    /// Wikidata's series to choose between, the one that holds most of these titles
+    /// first; those that hold as many stay in the order Wikidata's answer was ranked.
+    static func wikidataChoices(_ series: [WikidataSeries], titles: [String]) -> [WikidataFound] {
+        let own = Set(titles.map(WikidataSeriesProvider.key).filter { !$0.isEmpty })
+        let found = series.map { one in
+            WikidataFound(series: one, held: Set(one.books.map { WikidataSeriesProvider.key($0.title) }).intersection(own).count)
+        }
+        return found.enumerated().sorted { a, b in
+            a.element.held != b.element.held ? a.element.held > b.element.held : a.offset < b.offset
+        }.map(\.element)
+    }
+
     static func choiceId(_ ref: AudibleSeriesRef) -> String {
         "\(ref.store.rawValue):\(ref.id)"
     }

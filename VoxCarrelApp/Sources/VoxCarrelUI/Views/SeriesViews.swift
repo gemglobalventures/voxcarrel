@@ -159,7 +159,7 @@ struct SeriesPickerSheet: View {
                 .font(.headline)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("seriesPicker.heading")
-            Text("Audible lists these books in more than one series. Choose the one to compare your books with.")
+            Text(model.seriesChoiceExplanation)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

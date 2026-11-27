@@ -74,6 +74,45 @@ private let seriesName = "Tidewater Chronicles"
         #expect(h.model.rows.filter(\.isMissing).map(\.book.title) == ["Lantern Reef"])
     }
 
+    // When Wikidata has two series it could be, both by the series' author, the owner
+    // is asked which; nothing is kept until one is chosen, and the one that holds more
+    // of the library's books is offered first.
+    @Test func severalSeriesOnWikidataAreOfferedAsAChoice() async throws {
+        let h = try await shown(known: false)
+        let search = #"{"search":[{"id":"Q300","label":"Tidewater Chronicles","description":"omnibus editions"},"#
+            + #"{"id":"Q200","label":"Tidewater Chronicles","description":"series of novels"}]}"#
+        func other(_ book: String, _ label: String) -> String {
+            Self.row(book, label, "1").replacingOccurrences(of: "entity/Q200", with: "entity/Q300")
+        }
+        let books = "{\"results\":{\"bindings\":[" + [
+            other("Q301", "Salt Road"), other("Q302", "Something Else"),
+            Self.row("Q201", "Salt Road", "1"), Self.row("Q202", "The Drowned Bell", "2"),
+            Self.row("Q203", "Harbour of Glass", "3"), Self.row("Q204", "The Glass Tide", "4"),
+        ].joined(separator: ",") + "]}}"
+        h.lookup.catalogue.setWikidata(search: search, books: books)
+
+        await h.model.checkSeries()
+        #expect(h.model.alert == nil && h.model.busyLabel == nil)
+        let choices = try #require(h.model.seriesChoices)
+        #expect(choices.map(\.id) == ["wikidata:Q200", "wikidata:Q300"])
+        #expect(choices[0].detail == "Wikidata · 4 books · series of novels · 3 of your books are here")
+        #expect(choices[1].detail == "Wikidata · 2 books · omnibus editions · 1 of your books is here")
+        #expect(h.model.seriesChoiceExplanation.hasPrefix("Wikidata has more than one series"))
+        #expect(h.model.seriesHeader?.isLinked == false)
+        let asked = h.lookup.catalogue.wikidataRequests.count
+
+        await h.model.chooseSeries("wikidata:Q200")
+        #expect(h.model.seriesChoices == nil && h.model.alert == nil)
+        #expect(h.model.seriesHeader?.summary == "3 of 4 on Wikidata's list")
+        // The books came with the choices: nothing more was asked.
+        #expect(h.lookup.catalogue.wikidataRequests.count == asked)
+
+        // Cancelled, nothing changes.
+        await h.model.checkSeries()
+        h.model.cancelSeriesChoice()
+        #expect(h.model.seriesChoices == nil && h.model.seriesHeader?.summary == "3 of 4 on Wikidata's list")
+    }
+
     // Audible's list is used when it has one, and Wikidata is not asked; Check on
     // Wikidata then puts Wikidata's list in its place.
     @Test func audibleFirstThenWikidataWhenAsked() async throws {

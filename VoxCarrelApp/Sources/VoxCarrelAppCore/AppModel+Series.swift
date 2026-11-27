@@ -48,9 +48,18 @@ extension AppModel {
         return header
     }
 
-    /// SV3: the Audible series to choose between; not nil while the owner is being asked.
+    /// SV3: the series to choose between, Audible's or Wikidata's; not nil while the
+    /// owner is being asked.
     public var seriesChoices: [SeriesChoice]? {
-        seriesChoice?.found.map(SeriesRows.choice)
+        guard let asked = seriesChoice else { return nil }
+        return asked.wikidata.isEmpty ? asked.found.map(SeriesRows.choice) : asked.wikidata.map(SeriesRows.choice)
+    }
+
+    /// What is said above the choices: whose series they are.
+    public var seriesChoiceExplanation: String {
+        seriesChoice?.wikidata.isEmpty == false
+            ? "Wikidata has more than one series this could be. Choose the one to compare your books with."
+            : "Audible lists these books in more than one series. Choose the one to compare your books with."
     }
 
     // MARK: SV2–SV4 Checking
@@ -132,7 +141,8 @@ extension AppModel {
     /// that is already running. When Wikidata has none, `alert` says so.
     private func checkOnWikidata(_ name: String, with worker: LibraryWorker, sayingIfNone: String? = nil) async throws {
         guard asksWikidataForSeries else { return }
-        let book = SeriesRows.booksToAsk(try await worker.seriesCheckBooks(named: name)).first
+        let books = try await worker.seriesCheckBooks(named: name)
+        let book = SeriesRows.booksToAsk(books).first
         let found: [WikidataSeries]
         do {
             found = try await worker.wikidataSeries(named: name, bookTitle: book?.title, author: book?.author)
@@ -141,11 +151,20 @@ extension AppModel {
             return
         }
         let author = WikidataSeriesProvider.key(book?.author ?? "")
-        let byAuthor = found.first { series in
+        let byAuthor = found.filter { series in
             !author.isEmpty && series.books.contains { $0.authors.contains { WikidataSeriesProvider.key($0) == author } }
         }
-        guard let series = byAuthor ?? (found.count == 1 ? found.first : nil) else {
-            alert = sayingIfNone ?? Self.noSeriesOnWikidata
+        // One by the series' own author, or the only one there is: no question to ask.
+        let sure = byAuthor.count == 1 ? byAuthor.first : (found.count == 1 ? found.first : nil)
+        guard let series = sure else {
+            if found.isEmpty {
+                alert = sayingIfNone ?? Self.noSeriesOnWikidata
+            } else {
+                // Several it could be: the owner says which. Nothing is kept until then.
+                let among = byAuthor.isEmpty ? found : byAuthor
+                seriesChoice = PendingSeriesChoice(
+                    name: name, found: [], wikidata: SeriesRows.wikidataChoices(among, titles: books.map(\.title)))
+            }
             return
         }
         try await worker.saveSeriesList(series, forSeries: name, now: inboxNow())
@@ -159,9 +178,21 @@ extension AppModel {
     /// When Audible has been turned off as a lookup source since the choice was
     /// offered, nothing is sent: the choice closes and `alert` says why.
     public func chooseSeries(_ id: String) async {
-        guard let asked = seriesChoice,
-              let series = asked.found.first(where: { SeriesRows.choiceId($0.ref) == id })?.ref
-        else { return }
+        guard let asked = seriesChoice else { return }
+        // One of Wikidata's: its books were read with the choices, so nothing more is asked.
+        if let chosen = asked.wikidata.first(where: { SeriesRows.choiceId($0.series) == id })?.series {
+            guard let worker = await begin(Self.checkingSeriesLabel) else { return }
+            seriesChoice = nil
+            do {
+                try await worker.saveSeriesList(chosen, forSeries: asked.name, now: inboxNow())
+                selection = selection.filter { $0 > 0 }
+            } catch {
+                showSeriesFailure(error)
+            }
+            await finish()
+            return
+        }
+        guard let series = asked.found.first(where: { SeriesRows.choiceId($0.ref) == id })?.ref else { return }
         guard lookupSources.contains(.audible) else {
             seriesChoice = nil
             alert = Self.noAudibleReason
