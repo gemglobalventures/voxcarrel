@@ -24,6 +24,7 @@ extension AppModel {
                 selected: chosen.count, selectedSeconds: StatusBarText.seconds(of: chosen)),
             // While the library is checked behind its list, that is said before its totals.
             library: (libraryIsAway ? "\(CatalogueText.awayMark) · " : "")
+                + (heldEditCount > 0 ? "\(CatalogueText.waiting(heldEditCount)) · " : "")
                 + (isShowingDemoLibrary ? "\(DemoLibraryText.mark) · " : "")
                 + (isCheckingLibrary ? "\(Self.checkingLabel) · " : "") + StatusBarText.library(
                 books: sidebar.counts[.allBooks] ?? 0, audiobooks: sidebar.counts[.audiobooks] ?? 0,

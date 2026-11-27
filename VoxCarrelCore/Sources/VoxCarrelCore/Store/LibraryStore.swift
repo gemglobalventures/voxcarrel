@@ -467,6 +467,15 @@ public final class LibraryStore: Sendable {
                 t.add(column: "wordCount", .integer)
             }
         }
+        migrator.registerMigration("v25") { db in
+            // Books whose details were changed while the drive their files are on was
+            // away: the catalogue has the change, and the files are still to be given it.
+            try db.create(table: "heldEdit") { t in
+                t.column("bookId", .integer).notNull().primaryKey()
+                t.column("coverChanged", .boolean).notNull().defaults(to: false)
+                t.column("since", .datetime).notNull()
+            }
+        }
         migrator.registerMigration("v24") { db in
             // Books the owner has said are fine as they are, for one check of the
             // library's tidiness: they are no longer listed under it.

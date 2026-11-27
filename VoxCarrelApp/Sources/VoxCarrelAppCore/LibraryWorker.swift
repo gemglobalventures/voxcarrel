@@ -55,6 +55,16 @@ public actor LibraryWorker {
         service.store.booksAreReachable
     }
 
+    /// How many books have changes waiting for their files.
+    public func heldEditCount() throws -> Int {
+        try service.heldEditCount()
+    }
+
+    /// Gives the files the changes that were made while their drive was away.
+    public func applyHeldEdits() throws -> HeldEditsResult {
+        try service.applyHeldEdits()
+    }
+
     /// Whether the catalogue is kept on this Mac, apart from the books.
     public func catalogueIsOnMac() -> Bool {
         service.store.catalogueHome != nil

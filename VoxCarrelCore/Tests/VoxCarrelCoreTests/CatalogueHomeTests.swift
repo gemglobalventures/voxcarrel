@@ -69,11 +69,10 @@ import VoxCarrelFixtures
         #expect(try store.books().map(\.title) == ["Salt Road"])
         let service = LibraryService(store: store)
         #expect(service.covers.url(for: m.bookId) != nil)
-        var edit = BookEdit(book: try #require(try store.book(id: m.bookId)))
-        edit.metadata.title = "Changed"
-        #expect(throws: LibraryError.booksNotReachable) { try service.save([edit]) }
         #expect(throws: LibraryError.booksNotReachable) { try service.importItems([]) }
-        #expect(try store.book(id: m.bookId)?.title == "Salt Road" && !FileManager.default.fileExists(atPath: m.root.path))
+        #expect(throws: LibraryError.booksNotReachable) { try service.reconcile() }
+        #expect(throws: LibraryError.booksNotReachable) { try service.applyHeldEdits() }
+        #expect(!FileManager.default.fileExists(atPath: m.root.path))
         // What only the catalogue holds can still be changed.
         try service.setReadStatus(.finished, for: [m.bookId])
         #expect(try store.book(id: m.bookId)?.readStatus == .finished)
@@ -123,6 +122,68 @@ import VoxCarrelFixtures
             try CatalogueHome.moveToMac(libraryAt: empty.appendingPathComponent("gone"), libraries: m.libraries)
         }
         #expect(try LibraryStore.opening(m.root, libraries: m.libraries).catalogueHome == nil)
+    }
+
+    // CH8: an edit made while the drive is away is held: the catalogue has it at once,
+    // and when the drive is back the files are given it and the book is filed where
+    // it now belongs.
+    @Test func CH8_editsAreHeldAndCaughtUpWith() throws {
+        let base = try makeTempDir()
+        let root = base.appendingPathComponent("Drive/Books", isDirectory: true)
+        let libraries = base.appendingPathComponent("Mac/Libraries", isDirectory: true)
+        let inbox = base.appendingPathComponent("Inbox/Salt Road", isDirectory: true)
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try MediaFixtures.makeSilentMP3(seconds: 1).write(to: inbox.appendingPathComponent("01.mp3"))
+        var bookId: Int64 = 0
+        do {
+            let service = LibraryService(store: try LibraryStore(libraryRoot: root))
+            var candidate = try #require(service.scan([inbox]).candidates.first)
+            candidate.metadata = BookMetadata(title: "Salt Road", authors: ["Ines Calloway"])
+            guard case .imported(let id, _) = try #require(try service.importItems([ImportItem(candidate: candidate)]).outcomes.first)
+            else { Issue.record("not imported"); return }
+            bookId = id
+        }
+        try CatalogueHome.moveToMac(libraryAt: root, libraries: libraries)
+        let drive = root.deletingLastPathComponent()
+        let parked = base.appendingPathComponent("Unplugged")
+        try FileManager.default.moveItem(at: drive, to: parked)
+
+        // Away: the edit is taken by the catalogue, and the book is noted as waiting.
+        do {
+            let store = try LibraryStore.opening(root, libraries: libraries)
+            let service = LibraryService(store: store)
+            var edit = BookEdit(book: try #require(try store.book(id: bookId)))
+            edit.metadata.title = "The Salt Road"
+            edit.metadata.narrators = ["Marcus Lindqvist"]
+            let outcome = try service.save([edit])
+            #expect(outcome == [.saved(bookId: bookId, refiled: false, appOnlyFields: [], fileProblems: [])])
+            #expect(try store.book(id: bookId)?.title == "The Salt Road" && service.heldEditCount() == 1)
+            // An edit that only the catalogue keeps is owed nothing by the files.
+            var rated = BookEdit(book: try #require(try store.book(id: bookId)))
+            rated.rating = 4
+            _ = try service.save([rated])
+            #expect(try service.heldEditCount() == 1 && !FileManager.default.fileExists(atPath: root.path))
+            // A held edit is no step for Undo, and nothing is undone while the files are away.
+            let labels = try service.undoLabels()
+            #expect(!labels.contains { $0.hasPrefix("Edit") })
+            #expect(throws: LibraryError.booksNotReachable) { try service.undoLast() }
+        }
+
+        // Back: the file is given the details and the folder is named for the new title.
+        try FileManager.default.moveItem(at: parked, to: drive)
+        let store = try LibraryStore.opening(root, libraries: libraries)
+        let service = LibraryService(store: store)
+        let before = try #require(try store.files(bookId: bookId).first)
+        #expect(before.path.contains("Salt Road") && !before.path.contains("The Salt Road"))
+        #expect(try service.applyHeldEdits() == HeldEditsResult(caughtUp: 1, problems: []))
+        #expect(try service.heldEditCount() == 0)
+        let after = try #require(try store.files(bookId: bookId).first)
+        #expect(after.path.contains("The Salt Road") && FileManager.default.fileExists(atPath: store.url(for: after).path))
+        let written = try FileMetadataIO().read(store.url(for: after)).metadata
+        #expect(written.title == "The Salt Road" && written.narrators == ["Marcus Lindqvist"])
+        #expect(try store.book(id: bookId)?.rating == 4)
+        // Nothing more is waiting.
+        #expect(try service.applyHeldEdits() == HeldEditsResult(caughtUp: 0, problems: []))
     }
 
     // CH7: a library is never made where a drive that is not connected would be.

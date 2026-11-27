@@ -21,6 +21,24 @@ public enum CatalogueText {
         "The drive the books are on is not connected. The library is shown as it was left. It is opened afresh when "
         + "the drive comes back."
     public static let demo = "The demo library keeps its catalogue with its books."
+    public static let catchingUpLabel = "Writing the changes made while the drive was away…"
+
+    /// "3 books with changes waiting"
+    public static func waiting(_ count: Int) -> String {
+        count == 1 ? "1 book with changes waiting" : "\(count) books with changes waiting"
+    }
+
+    public static func waitingNote(_ count: Int) -> String {
+        (count == 1 ? "1 book has" : "\(count) books have")
+            + " changes that are in the catalogue and not yet in the files. They are written when the drive is back."
+    }
+
+    public static func caughtUp(_ result: HeldEditsResult) -> String {
+        let done = result.caughtUp == 1
+            ? "The changes made to 1 book while its drive was away are now in its files."
+            : "The changes made to \(result.caughtUp) books while their drive was away are now in their files."
+        return ([done] + result.problems).joined(separator: "\n")
+    }
     public static let moveTitle = "Keep the Catalogue on This Mac…"
     public static let moveBackTitle = "Move It Back to the Library Folder…"
     public static let movingLabel = "Moving the catalogue…"
@@ -51,8 +69,9 @@ extension AppModel {
     /// What Settings says of where the catalogue is.
     public var catalogueStatusText: String {
         if isShowingDemoLibrary { return CatalogueText.demo }
-        if libraryIsAway { return CatalogueText.away }
-        return catalogueIsOnMac ? CatalogueText.onMac : CatalogueText.inFolder
+        let waiting = heldEditCount > 0 ? " " + CatalogueText.waitingNote(heldEditCount) : ""
+        if libraryIsAway { return CatalogueText.away + waiting }
+        return (catalogueIsOnMac ? CatalogueText.onMac : CatalogueText.inFolder) + waiting
     }
 
     /// Whether the catalogue can be moved now: a library that is not the demo is open,
@@ -88,6 +107,19 @@ extension AppModel {
         busyLabel = nil
         await openLibrary()
         alert = failure.map(CatalogueText.failure) ?? (toMac ? CatalogueText.moved : CatalogueText.movedBack)
+    }
+
+    /// Writes into the files what was changed while their drive was away, when
+    /// anything is waiting. Part of opening the library; what happened is said in `alert`.
+    func catchUpHeldEdits(with worker: LibraryWorker) async {
+        guard heldEditCount > 0, !libraryIsAway else { return }
+        let was = busyLabel
+        busyLabel = CatalogueText.catchingUpLabel
+        let result = try? await worker.applyHeldEdits()
+        busyLabel = was
+        guard self.worker === worker else { return }
+        await reloadAll()
+        if let result, result.caughtUp > 0 || !result.problems.isEmpty { alert = CatalogueText.caughtUp(result) }
     }
 
     /// While the books' drive is away: looks for it every few seconds, and opens the

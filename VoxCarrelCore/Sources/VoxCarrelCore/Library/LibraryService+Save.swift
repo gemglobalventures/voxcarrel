@@ -22,7 +22,11 @@ extension LibraryService {
 
     /// As `save(_:)`, recorded under the name `label` gives it: from the number of
     /// books written and the title of the last of them.
+    ///
+    /// While the folder the books are in cannot be reached the edits are held
+    /// (`saveHeld`): the catalogue changes now, and the files when the drive is back.
     func save(_ edits: [BookEdit], label: (_ count: Int, _ title: String) -> String) throws -> [SaveOutcome] {
+        if !store.booksAreReachable { return try saveHeld(edits) }
         try refuseWhileLayoutChangeIsInterrupted()
         let askedCount = edits.count
         let pattern = try folderPattern()
@@ -112,7 +116,9 @@ extension LibraryService {
         var metadata = edit.metadata
         metadata.durationSeconds = book.durationSeconds
         metadata.pageCount = book.pageCount
-        let metadataChanged = metadata != book.metadata
+        // A change that was held while the drive was away is in the catalogue already:
+        // the files are still to be given it.
+        let metadataChanged = metadata != book.metadata || forcedWrites.contains(edit.bookId)
         // E7: files are opened only when what goes inside them changed.
         let writesTags = metadataChanged || edit.cover != .keep
 

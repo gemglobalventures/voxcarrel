@@ -50,13 +50,32 @@ import VoxCarrelFixtures
         h.model.select([])
         await h.model.settle()
 
-        // The drive comes back: the library is opened afresh by itself.
+        // An edit made now is held: the catalogue has it, and it is said to be waiting.
+        await h.model.performExtensionWork("Saving…") { worker in
+            try await worker.withService { service in
+                var edit = BookEdit(book: try #require(try service.store.book(id: salt)))
+                edit.metadata.title = "The Salt Road"
+                _ = try service.save([edit])
+            }
+        }
+        #expect(h.model.alert == nil && h.model.heldEditCount == 1)
+        #expect(h.model.rows.contains { $0.book.title == "The Salt Road" })
+        #expect(h.model.statusBar?.library.hasPrefix("Drive not connected · 1 book with changes waiting · ") == true)
+        #expect(h.model.catalogueStatusText.contains("1 book has changes that are in the catalogue"))
+
+        // The drive comes back: the library is opened afresh by itself, and the files
+        // are given what was changed. However busy the tests are, it is waited for.
         try FileManager.default.moveItem(at: parked, to: root)
-        for _ in 0..<200 where h.model.libraryIsAway {
+        for _ in 0..<6000 where h.model.alert == nil {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         await h.model.settle()
         #expect(!h.model.libraryIsAway && h.model.catalogueIsOnMac && h.model.rows.count == books)
+        #expect(h.model.heldEditCount == 0)
+        #expect(h.model.alert == "The changes made to 1 book while its drive was away are now in its files.")
+        let file = try #require(h.model.rows.first { $0.id == salt }?.book.folderPath)
+        #expect(file.contains("The Salt Road"))
+        h.model.alert = nil
 
         await h.model.moveCatalogue(toMac: false)
         await h.model.settle()

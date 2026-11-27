@@ -306,6 +306,9 @@ public final class AppModel {
     public internal(set) var libraryIsAway = false
     /// Whether the open library's catalogue is kept on this Mac, apart from its books.
     public internal(set) var catalogueIsOnMac = false
+    /// How many books have changes that were made while the drive was away and are
+    /// still to be written into their files.
+    public internal(set) var heldEditCount = 0
 
     /// The backups of the library that is open, newest first; empty for the demo
     /// library and until they have been read.
@@ -329,6 +332,7 @@ public final class AppModel {
         worker = nil
         libraryIsAway = false
         catalogueIsOnMac = false
+        heldEditCount = 0
         backups = []
         libraryWasChecked = false
         // WF10: the inbox was the inbox of the library shown before.
@@ -449,6 +453,9 @@ public final class AppModel {
         await runLibraryCheck(with: worker)
         isCheckingLibrary = false
         // Another library was opened while this one was being checked: the rest is not for it.
+        guard self.worker === worker else { return }
+        // The drive is here: what was changed while it was away is written into the files.
+        await catchUpHeldEdits(with: worker)
         guard self.worker === worker else { return }
         // WF10: the launch check is over.
         await openInbox()
@@ -805,6 +812,7 @@ public final class AppModel {
         let generation = rowsGeneration
         do {
             sidebar = try await worker.sidebar()
+            heldEditCount = (try? await worker.heldEditCount()) ?? 0
             undoLabel = try await worker.undoLabel()
             // GH-b: what Undo would reverse is no longer the change to the genres.
             if undoLabel != genreUndo?.label { genreUndo = nil }

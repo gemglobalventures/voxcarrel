@@ -22,6 +22,10 @@ public final class LibraryService {
     /// the picture was last changed: `coverLongSide(of:modified:)`.
     var coverSides: [String: (modified: Date, side: Int?)] = [:]
 
+    /// The books whose files are written even though their details are as the
+    /// catalogue has them: set while changes that were held are caught up with.
+    var forcedWrites: Set<Int64> = []
+
     /// Test seam: called immediately before every `store.apply`. Throwing from it stands
     /// in for a failed commit.
     var beforeCommit: (() throws -> Void)?
