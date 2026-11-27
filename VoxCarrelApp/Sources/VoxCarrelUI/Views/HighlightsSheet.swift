@@ -114,6 +114,15 @@ struct HighlightsSheet: View {
                 }
                 .disabled(!session.canExport)
                 .accessibilityIdentifier("highlights.sheet.export")
+                // Only where Bear is installed: nobody else is shown it.
+                if BearApp.isInstalled {
+                    Button(session.bearTitle) {
+                        session.sendToBear()
+                    }
+                    .disabled(!session.canExport)
+                    .help(session.bearProblem ?? "Makes a new note in Bear with these highlights")
+                    .accessibilityIdentifier("highlights.sheet.bear")
+                }
                 Spacer(minLength: 0)
                 Button("Done") {
                     session.close()
@@ -275,5 +284,13 @@ private struct HighlightSheetRow: View {
         }
         .padding(.vertical, 8)
         .accessibilityIdentifier("highlights.sheet.row.\(row.id)")
+    }
+}
+
+/// Whether Bear, the notes app, is on this Mac: asked of the system, which knows what
+/// opens Bear's own kind of address.
+enum BearApp {
+    static var isInstalled: Bool {
+        URL(string: "bear://x-callback-url/create").flatMap { NSWorkspace.shared.urlForApplication(toOpen: $0) } != nil
     }
 }

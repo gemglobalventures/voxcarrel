@@ -97,4 +97,25 @@ import VoxCarrelFixtures
         // The library is as it was.
         #expect(try store.highlights(forBook: quiet).count == 2)
     }
+
+    @Test func aNoteForBearHasNoPropertiesAndGoesInBearsOwnAddress() throws {
+        var book = Book(metadata: BookMetadata(title: "Dune & More + Notes", authors: ["Frank Herbert"]))
+        book.id = 7
+        var one = Highlight(bookId: 7, source: .own, sourceId: "a", text: "Fear is the mind-killer.")
+        one.id = 1
+        let rows = [HighlightRow(one)]
+        let plain = HighlightsMarkdown.note(for: book, highlights: rows, dated: false, properties: false)
+        #expect(plain.hasPrefix("# Dune & More + Notes\n") && !plain.contains("title: ") && plain.contains("> Fear is the mind-killer."))
+        // With them, as a file has it.
+        #expect(HighlightsMarkdown.note(for: book, highlights: rows, dated: false).hasPrefix("---\ntitle: "))
+
+        let url = try #require(BearNote.url(text: plain))
+        #expect(url.scheme == "bear" && url.host == "x-callback-url" && url.path == "/create")
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(items.first { $0.name == "text" }?.value == plain)
+        #expect(items.first { $0.name == "tags" }?.value == "books/highlights" && items.first { $0.name == "open_note" }?.value == "yes")
+        // An ampersand and a plus in the text do not break the address.
+        #expect(url.absoluteString.contains("%26") && url.absoluteString.contains("%2B") && !url.absoluteString.contains("+"))
+        #expect(BearNote.url(text: "") == nil && BearNote.url(text: String(repeating: "x", count: BearNote.longest + 1)) == nil)
+    }
 }

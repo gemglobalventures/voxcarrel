@@ -33,9 +33,15 @@ enum HighlightsMarkdown {
     /// or its highlights do.
     static func note(
         for book: Book, highlights rows: [HighlightRow], now: Date = Date(), calendar: Calendar = .current,
-        dated: Bool = true
+        dated: Bool = true, properties: Bool = true
     ) -> String {
         let title = book.title.trimmedOrNil ?? "Untitled book"
+        // Without the block of properties: for an app that would show it as plain text.
+        guard properties else {
+            let whole = note(for: book, highlights: rows, now: now, calendar: calendar, dated: dated)
+            let parts = whole.components(separatedBy: "\n---\n\n")
+            return parts.count > 1 ? parts.dropFirst().joined(separator: "\n---\n\n") : whole
+        }
         var lines = ["---", "title: " + quoted(title)]
         if !book.authors.isEmpty {
             lines.append("author: [" + book.authors.map(quoted).joined(separator: ", ") + "]")
@@ -107,5 +113,39 @@ public enum HighlightNotes {
                     text: HighlightsMarkdown.note(for: book, highlights: rows, dated: false))
             }.sorted { $0.bookId < $1.bookId }
         }
+    }
+}
+
+/// A book's highlights handed to Bear, the notes app, as a new note.
+///
+/// Bear keeps its notes in a store of its own, not as files in a folder, so a note is
+/// given to it through the address scheme Bear itself offers: `bear://x-callback-url/create`.
+/// Nothing leaves the Mac. The note begins with the book's title as its heading, which
+/// Bear takes for the note's title, and carries one tag.
+public enum BearNote {
+    public static let sendTitle = "Send to Bear"
+    /// The tag every such note is given.
+    public static let tag = "books/highlights"
+    /// The longest note that is handed over in an address. A longer one is not cut
+    /// short: it is exported as a file instead.
+    public static let longest = 150_000
+
+    public static let tooLong =
+        "These highlights are too long to hand to Bear in one go. Export them as Markdown, then import the file in Bear."
+
+    /// The address that makes the note in Bear; nil for an empty note or one that is too long.
+    public static func url(text: String) -> URL? {
+        guard !text.isEmpty, text.count <= longest else { return nil }
+        var parts = URLComponents()
+        parts.scheme = "bear"
+        parts.host = "x-callback-url"
+        parts.path = "/create"
+        parts.queryItems = [
+            URLQueryItem(name: "text", value: text), URLQueryItem(name: "tags", value: tag),
+            URLQueryItem(name: "open_note", value: "yes"),
+        ]
+        // A plus sign would be read as a space by some readers of an address: it is written out.
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return parts.url
     }
 }

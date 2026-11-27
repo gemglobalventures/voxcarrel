@@ -301,6 +301,34 @@ public final class HighlightsSession {
         canExport ? HighlightsMarkdown.note(for: book, highlights: rows) : nil
     }
 
+    // MARK: Bear
+
+    public let bearTitle = BearNote.sendTitle
+
+    /// The address that makes these highlights a new note in Bear; nil when there are
+    /// none, or they are too long to hand over that way.
+    public var bearURL: URL? {
+        guard canExport else { return nil }
+        return BearNote.url(text: HighlightsMarkdown.note(for: book, highlights: rows, dated: false, properties: false))
+    }
+
+    /// Hands the highlights to Bear as a new note. When they are too long for that,
+    /// nothing is sent and `problem` says what to do instead. Returns whether they were handed over.
+    @discardableResult
+    public func sendToBear() -> Bool {
+        guard canExport else { return false }
+        guard let url = bearURL else {
+            bearProblem = BearNote.tooLong
+            return false
+        }
+        bearProblem = nil
+        model.opener.openWeb(url)
+        return true
+    }
+
+    /// What is said when the highlights could not be handed to Bear; nil otherwise.
+    public private(set) var bearProblem: String?
+
     /// What the note's file is called unless the owner says otherwise.
     public var exportFileName: String { HighlightsMarkdown.fileName(for: book) }
 
