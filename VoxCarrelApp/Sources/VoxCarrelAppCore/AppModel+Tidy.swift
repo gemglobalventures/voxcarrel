@@ -17,6 +17,12 @@ public struct TidyHeader: Equatable, Sendable {
     public var canMarkFine: Bool
     public let markFineTitle = "These Are Fine as They Are"
     public let markFineHelp = "Stop listing the selected books under this check"
+    /// Whether the check is one that merging answers: its header then has Merge Books.
+    public var offersMerge = false
+    /// Whether the selected books can be merged now.
+    public var canMerge = false
+    public let mergeTitle = "Merge Books…"
+    public let mergeHelp = "Select the entries that are one book, then merge them into one"
     /// "List the 3 Let Off Again", "List the 1 Let Off Again"; nil when none was let off.
     public var putBackTitle: String?
     public let putBackHelp = "List again the books that were marked fine as they are under this check"
@@ -47,6 +53,8 @@ extension AppModel {
             title: check.title, explanation: check.explanation,
             countText: count == 1 ? "1 book" : "\(count) books",
             canMarkFine: !chosen.isEmpty && busyLabel == nil && isLibraryOpen,
+            offersMerge: check == .sameBookTwice || check == .formsApart,
+            canMerge: canMergeBooks(chosen),
             putBackTitle: letOffCount(check) > 0 ? "List the \(letOffCount(check)) Let Off Again" : nil,
             actions: count > 0 ? tidyActions(for: check) : [])
     }

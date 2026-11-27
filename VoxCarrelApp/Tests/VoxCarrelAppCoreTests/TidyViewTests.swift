@@ -24,6 +24,8 @@ import VoxCarrelFixtures
         var header = try #require(h.model.tidyHeader)
         #expect(header.title == "No Year" && header.countText == "1 book" && !header.canMarkFine)
         #expect(header.explanation == TidyCheck.noYear.explanation)
+        // Merging is no answer to a missing year: the header does not offer it.
+        #expect(!header.offersMerge && !header.canMerge)
 
         // The one book is fine as it is: the check finds nothing more and its line goes.
         let id = try #require(h.model.rows.first?.id)

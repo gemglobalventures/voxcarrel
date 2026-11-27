@@ -176,6 +176,15 @@ private struct TidyHeaderStrip: View {
                     .disabled(!action.isEnabled)
                     .accessibilityIdentifier("tidy.action.\(action.id)")
                 }
+                if header.offersMerge {
+                    Button(header.mergeTitle) {
+                        Task { await model.beginMergeBooks() }
+                    }
+                    .fixedSize()
+                    .disabled(!header.canMerge)
+                    .help(header.mergeHelp)
+                    .accessibilityIdentifier("tidy.merge")
+                }
                 Button(header.markFineTitle) {
                     Task { await model.markSelectionFine() }
                 }
