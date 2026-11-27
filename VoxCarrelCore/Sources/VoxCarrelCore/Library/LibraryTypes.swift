@@ -260,6 +260,9 @@ public enum LibraryError: Error, Equatable {
     /// says. Nothing was changed. `recoverInterruptedLayoutChange`, which the launch
     /// check calls, puts it right or says why it cannot.
     case layoutChangeInterrupted
+    /// The folder the books are in cannot be reached: the drive it is on is not
+    /// connected. Nothing was changed.
+    case booksNotReachable
     /// Entries could not be merged as asked: why. Nothing was changed.
     case mergeRefused(MergeBlocker)
     /// A merge of entries was cut short (by a crash or a loss of power) and the library

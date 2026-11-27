@@ -182,6 +182,9 @@ public enum UserMessage {
             "That book has no files, so it must stay marked as owned somewhere. Remove it instead."
         case .invalidDetails(let reason):
             sentence(reason)
+        case .booksNotReachable:
+            "The drive this library's books are on is not connected, so nothing that touches the files can be "
+                + "done for now. Connect it and try again."
         case .layoutChangeInterrupted:
             "A change of folder layout was interrupted and has not been put right yet, so nothing else can be "
                 + "changed for now. Close the library and open it again: VoxCarrel will try once more to put "

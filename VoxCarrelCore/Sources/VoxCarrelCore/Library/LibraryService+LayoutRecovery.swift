@@ -75,7 +75,11 @@ extension LibraryService {
     /// Throws `LibraryError.layoutChangeInterrupted` while a change of folder layout
     /// that was cut short has not been put right, and `LibraryError.mergeInterrupted`
     /// while a merge of entries that was cut short has not been.
+    ///
+    /// And `LibraryError.booksNotReachable` while the books' folder cannot be reached:
+    /// everything that begins here moves or writes files.
     func refuseWhileLayoutChangeIsInterrupted() throws {
+        if !store.booksAreReachable { throw LibraryError.booksNotReachable }
         if hasInterruptedLayoutChange { throw LibraryError.layoutChangeInterrupted }
         if hasInterruptedMerge { throw LibraryError.mergeInterrupted }
     }

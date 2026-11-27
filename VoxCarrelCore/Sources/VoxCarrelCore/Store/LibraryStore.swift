@@ -9,6 +9,9 @@ public final class LibraryStore: Sendable {
     /// folder was named when the store was opened, every path the library builds or
     /// stores starts from this one spelling.
     public let libraryRoot: URL
+    /// The folder the catalogue is in when it is kept apart from the books; nil when
+    /// it is inside `libraryRoot`.
+    public let catalogueHome: URL?
     let dbQueue: DatabaseQueue
 
     /// Opens (creating if needed) the catalogue inside `libraryRoot`.
@@ -20,7 +23,36 @@ public final class LibraryStore: Sendable {
     public init(libraryRoot: URL) throws {
         let opened = try Self.open(libraryRoot, today: Date(), copyBeforeGenres: LibraryStore.copyWhole)
         self.libraryRoot = opened.root
+        catalogueHome = nil
         dbQueue = opened.queue
+    }
+
+    /// Opens the catalogue of the library whose books are in `libraryRoot`, kept apart
+    /// from them in `home`. The books' folder is not created and not written to: it
+    /// may be on a drive that is not there now.
+    public init(libraryRoot: URL, catalogueIn home: URL) throws {
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let queue = try DatabaseQueue(path: home.appendingPathComponent(Self.databaseFileName).path)
+        try Self.migrator.migrate(queue)
+        self.libraryRoot = LibraryLayout.canonicalFolder(libraryRoot)
+        catalogueHome = home
+        dbQueue = queue
+    }
+
+    /// Opens the library whose books are in `libraryRoot` wherever its catalogue is:
+    /// inside that folder, or apart from it under `libraries` (`CatalogueHome`).
+    public static func opening(_ libraryRoot: URL, libraries: URL = CatalogueHome.standardFolder) throws -> LibraryStore {
+        if let home = CatalogueHome.find(forRoot: libraryRoot, in: libraries) {
+            return try LibraryStore(libraryRoot: libraryRoot, catalogueIn: home)
+        }
+        return try LibraryStore(libraryRoot: libraryRoot)
+    }
+
+    /// Whether the folder the books are in can be reached now: false while the drive
+    /// it is on is disconnected.
+    public var booksAreReachable: Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: libraryRoot.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// As `init(libraryRoot:)`. `today` dates the copy; `copyBeforeGenres` makes it, given
@@ -31,6 +63,7 @@ public final class LibraryStore: Sendable {
     ) throws {
         let opened = try Self.open(libraryRoot, today: today, copyBeforeGenres: copyBeforeGenres)
         self.libraryRoot = opened.root
+        catalogueHome = nil
         dbQueue = opened.queue
     }
 
@@ -42,9 +75,12 @@ public final class LibraryStore: Sendable {
     ///   `LibraryStoreError.catalogueNeedsOpening` when the catalogue was left by an
     ///   earlier version and has not been opened by this one, so its tables are not
     ///   the ones this code reads.
-    public init(readingOnly libraryRoot: URL) throws {
+    ///
+    /// `libraries`: where catalogues kept apart from their books are looked for.
+    public init(readingOnly libraryRoot: URL, libraries: URL = CatalogueHome.standardFolder) throws {
         let root = LibraryLayout.canonicalFolder(libraryRoot)
-        let file = root.appendingPathComponent(Self.databaseFileName)
+        let home = CatalogueHome.find(forRoot: libraryRoot, in: libraries)
+        let file = (home ?? root).appendingPathComponent(Self.databaseFileName)
         guard FileManager.default.fileExists(atPath: file.path) else { throw LibraryStoreError.noCatalogue }
         var configuration = Configuration()
         configuration.readonly = true
@@ -55,6 +91,7 @@ public final class LibraryStore: Sendable {
             throw LibraryStoreError.catalogueNeedsOpening
         }
         self.libraryRoot = root
+        catalogueHome = home
         dbQueue = queue
     }
 

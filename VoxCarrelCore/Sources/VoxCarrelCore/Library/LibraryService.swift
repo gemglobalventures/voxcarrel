@@ -152,7 +152,7 @@ public final class LibraryService {
     /// For tests: inject collaborators.
     init(store: LibraryStore, metadataIO: FileMetadataIO, organiser: Organiser) {
         self.store = store
-        self.layout = LibraryLayout(root: store.libraryRoot)
+        self.layout = LibraryLayout(root: store.libraryRoot, home: store.catalogueHome)
         self.covers = CoverStore(layout: layout)
         self.metadataIO = metadataIO
         self.organiser = organiser
@@ -878,6 +878,8 @@ public final class LibraryService {
             case .layoutChangeInterrupted:
                 return "A change of folder layout was interrupted and has not been put right yet, so nothing "
                     + "else can be changed"
+            case .booksNotReachable:
+                return "The drive the books are on is not connected, so nothing that touches the files can be done"
             case .layoutChangeFailed(let book, let reason):
                 return "The folder of \(book) could not be moved, so the folder layout was not changed: \(reason)"
             case .mergeRefused(let blocker): return describe(blocker)

@@ -17,9 +17,13 @@ final class FolderNames {
 /// Where VoxCarrel keeps its own data inside a library, and path rules that depend on the disk.
 public struct LibraryLayout: Sendable {
     public let root: URL
+    /// Where the catalogue and the covers are kept when they are kept apart from the
+    /// books, on this Mac; nil when they are inside the library's own folder.
+    public let home: URL?
 
-    public init(root: URL) {
+    public init(root: URL, home: URL? = nil) {
         self.root = root
+        self.home = home
     }
 
     /// `<root>/.voxcarrel`
@@ -27,9 +31,10 @@ public struct LibraryLayout: Sendable {
         root.appendingPathComponent(".voxcarrel", isDirectory: true)
     }
 
-    /// `<root>/.voxcarrel/covers`
+    /// `<root>/.voxcarrel/covers`, or `covers` beside a catalogue kept apart from the
+    /// books: the covers are shown whether or not the books' drive is there.
     public var coversFolder: URL {
-        hiddenFolder.appendingPathComponent("covers", isDirectory: true)
+        (home ?? hiddenFolder).appendingPathComponent("covers", isDirectory: true)
     }
 
     /// `<root>/.voxcarrel/undo`
