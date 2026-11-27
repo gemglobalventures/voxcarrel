@@ -877,6 +877,28 @@ import VoxCarrelFixtures
         #expect(h.model.review?.entries.map(\.candidate.metadata.title) == ["Quiet Rivers"])
     }
 
+    /// An arrival can be added where it is: it is catalogued in its watch folder, kept
+    /// outside the library, and is no longer an arrival although its file has not moved.
+    @Test func anArrivalCanBeLeftWhereItIs() async throws {
+        let (h, folder) = try await watching()
+        try drop(Self.ebook, into: folder)
+        await arrive(h)
+        await h.model.reviewInbox()
+        #expect(h.model.review?.offersInPlace == true)
+        h.model.updateReview { $0.leavesInPlace = true }
+        await h.model.confirmImport()
+        await h.model.settle()
+        #expect(h.model.alert == nil)
+        #expect(exists(folder.appendingPathComponent(Self.ebook)))
+        let row = try #require(h.model.rows.first)
+        #expect(row.book.keptOutside && row.outsideFiles.count == 1 && !row.isOutOfReach)
+        // It is no arrival any more, and the folder changing again offers nothing new.
+        #expect(h.model.inboxCount == 0)
+        h.watcher.fire()
+        await h.model.settle()
+        #expect(h.model.inboxCount == 0)
+    }
+
     /// WF18: a folder of parts is one book in the review, as it is one row in the Inbox: the arrival's own
     /// grouping is reviewed, not its files scanned again one by one.
     @Test func aFolderOfPartsReviewedFromTheInboxIsOneBook() async throws {
