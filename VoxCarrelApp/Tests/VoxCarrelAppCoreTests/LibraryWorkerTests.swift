@@ -353,6 +353,12 @@ import VoxCarrelFixtures
         #expect(detail.files.map(\.allowedRoles) == [[.audio], [.ebook, .extra]])
 
         #expect(detail.chapterCount == 3)
+        // Each chapter is listed with where it starts; one with no title of its own is numbered.
+        #expect(detail.chapters.count == 3 && detail.chapters.map(\.id) == [1, 2, 3])
+        #expect(detail.chapters.first?.startText == "0:00" && detail.chapters.allSatisfy { !$0.title.isEmpty })
+        #expect(ChapterLine.clock(754.9) == "12:34" && ChapterLine.clock(3723) == "1:02:03" && ChapterLine.clock(-1) == "0:00")
+        #expect(ChapterLine.lines([Chapter(start: 0, title: " "), Chapter(start: 61, title: "The Siege")])
+            == [ChapterLine(id: 1, title: "Chapter 1", startText: "0:00"), ChapterLine(id: 2, title: "The Siege", startText: "1:01")])
         let holiday = try #require(try library.store.collections().first { $0.name == "Holiday Listening" }?.id)
         #expect(detail.collectionIds == [holiday])
 

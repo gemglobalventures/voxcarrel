@@ -514,6 +514,7 @@ public actor LibraryWorker {
             row: row(for: book, id: bookId, files: files, highlights: highlights.count), files: fileRows,
             chapterCount: chapters.count, collectionIds: collectionIds)
         detail.highlights = highlights
+        detail.chapters = ChapterLine.lines(chapters)
         detail.missingForFiling = try service.tokensMissingForFiling(book, files: files)
         // FL14
         detail.unfiledReason = try service.unfiledReason(for: bookId)

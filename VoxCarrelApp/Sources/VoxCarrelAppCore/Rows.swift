@@ -156,6 +156,38 @@ public struct FileRow: Identifiable, Equatable, Sendable {
     }
 }
 
+/// One chapter of an audiobook as the inspector lists it.
+public struct ChapterLine: Equatable, Identifiable, Sendable {
+    /// Its place in the book, from 1.
+    public var id: Int
+    /// Its own title, or "Chapter 3" when it has none.
+    public var title: String
+    /// Where it starts: "0:00", "12:34", "1:02:03".
+    public var startText: String
+
+    public init(id: Int, title: String, startText: String) {
+        self.id = id
+        self.title = title
+        self.startText = startText
+    }
+
+    /// A time from the start of a book, to the second.
+    public static func clock(_ seconds: Double) -> String {
+        let whole = seconds.isFinite && seconds > 0 ? Int(seconds.rounded(.down)) : 0
+        let (hours, minutes, rest) = (whole / 3600, (whole % 3600) / 60, whole % 60)
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, rest) : String(format: "%d:%02d", minutes, rest)
+    }
+
+    /// The chapters as lines, in the order given.
+    public static func lines(_ chapters: [Chapter]) -> [ChapterLine] {
+        chapters.enumerated().map { index, chapter in
+            let title = chapter.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ChapterLine(
+                id: index + 1, title: title.isEmpty ? "Chapter \(index + 1)" : title, startText: clock(chapter.start))
+        }
+    }
+}
+
 /// Everything the inspector shows about one book.
 public struct BookDetail: Equatable, Sendable {
     public var row: BookRow
@@ -178,6 +210,8 @@ public struct BookDetail: Equatable, Sendable {
     public var mergeOffer: MergeOffer?
     /// The book's highlights, in the order of the book; empty until they have been read.
     public var highlights: [Highlight] = []
+    /// The chapters of the first audio file, in order; empty when it has none.
+    public var chapters: [ChapterLine] = []
     /// The other editions of this book that the library has, each as its title and
     /// what sets it apart: "Der Wüstenplanet (German)". Empty for a book that stands alone.
     public var otherEditions: [String] = []

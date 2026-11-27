@@ -586,6 +586,10 @@ private struct ReadingControls: View {
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("inspector.audioSummary")
         }
+        // The chapters themselves, closed until they are asked for.
+        if !detail.chapters.isEmpty {
+            ChapterList(chapters: detail.chapters)
+        }
 
         if let extent = detail.extentText() {
             Label(extent, systemImage: "text.book.closed")
@@ -699,5 +703,39 @@ struct InspectorActions: View {
             .disabled(!model.canSave)
             .accessibilityIdentifier("inspector.save")
         }
+    }
+}
+
+/// The chapters of an audiobook: a line that opens to list each with where it starts.
+private struct ChapterList: View {
+    let chapters: [ChapterLine]
+    @State private var isOpen = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isOpen) {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(chapters) { chapter in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(chapter.title)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .help(chapter.title)
+                        Spacer(minLength: 4)
+                        Text(chapter.startText)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("inspector.chapter.\(chapter.id)")
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Text("Chapters")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityIdentifier("inspector.chapters")
     }
 }
