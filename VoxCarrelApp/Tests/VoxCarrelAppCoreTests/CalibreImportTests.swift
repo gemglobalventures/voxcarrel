@@ -155,6 +155,35 @@ import VoxCarrelFixtures
         #expect(plain.calibreNote == nil && plain.calibre == nil && plain.offersCopy)
     }
 
+    // A calibre library tried in place: its books are catalogued where they are, with
+    // everything calibre says of them, and not one byte of calibre's is moved, copied
+    // or changed. They can be brought in later.
+    @Test func CL1b_aCalibreLibraryCanBeTriedInPlace() async throws {
+        let h = try await library()
+        let calibre = try twoBooks()
+        let before = try calibre.snapshot()
+        await h.model.beginCalibreImport(calibre.folder)
+        await h.model.settle()
+        h.model.updateReview { $0.leavesInPlace = true }
+        let review = try #require(h.model.review)
+        #expect(review.offersInPlace && review.options.leavesInPlace)
+        #expect(review.calibreNote == "Catalogued where they are: nothing in your calibre library is moved, copied or changed.")
+        await h.model.confirmImport()
+        await h.model.settle()
+        #expect(h.model.alert == nil)
+        #expect(try calibre.snapshot() == before)
+        let road = try #require(h.model.rows.first { $0.book.title == "The Long Road" })
+        #expect(road.book.keptOutside && road.book.series == "The Saga" && road.outsideFiles.count == 2)
+        #expect(road.outsideFiles.allSatisfy { $0.contains(calibre.folder.lastPathComponent) })
+        #expect(h.model.rows.filter(\.book.keptOutside).count == 2 && road.coverURL != nil)
+
+        // Brought in as copies: calibre's library is still as it was.
+        await h.model.bringIntoLibrary(Set(h.model.rows.map(\.id)), copying: true)
+        await h.model.settle()
+        #expect(h.model.alert == nil && h.model.rows.allSatisfy { !$0.book.keptOutside && $0.outsideFiles.isEmpty })
+        #expect(try calibre.snapshot() == before)
+    }
+
     @Test func CL2_importingCopiesTheBooksWithEverythingCalibreSaysAndLeavesCalibreAsItWas() async throws {
         let h = try await library()
         let calibre = try twoBooks()
