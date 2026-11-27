@@ -32,8 +32,15 @@ import VoxCarrelFixtures
         #expect(h.model.tidyHeader?.canMarkFine == true)
         await h.model.markSelectionFine()
         #expect(h.model.alert == nil && h.model.busyLabel == nil)
-        #expect(h.model.sidebar.tidy.map(\.check) == [.noAuthor, .noDescription])
-        #expect(h.model.sidebarSelection == .allBooks && h.model.tidyHeader == nil)
+        // Its line stays, with no count, for as long as the book can be put back.
+        #expect(h.model.sidebar.tidy.map(\.check) == [.noAuthor, .noYear, .noDescription])
+        #expect(h.model.sidebar.tidy[1].count == 0 && h.model.sidebar.tidy[1].letOff == 1)
+        #expect(h.model.sidebarSelection == .tidy(.noYear) && h.model.rows.isEmpty)
+        #expect(h.model.tidyHeader?.putBackTitle == "List the 1 Let Off Again")
+        await h.model.putBackLetOff()
+        await h.model.settle()
+        #expect(h.model.rows.map(\.id) == [id] && h.model.tidyHeader?.putBackTitle == nil)
+        #expect(h.model.sidebar.tidy[1].count == 1)
 
         // Of a longer list, the ones let off go and the rest stay listed.
         h.model.sidebarSelection = .tidy(.noDescription)

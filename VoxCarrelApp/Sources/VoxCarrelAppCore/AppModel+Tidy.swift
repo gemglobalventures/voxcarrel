@@ -17,6 +17,9 @@ public struct TidyHeader: Equatable, Sendable {
     public var canMarkFine: Bool
     public let markFineTitle = "These Are Fine as They Are"
     public let markFineHelp = "Stop listing the selected books under this check"
+    /// "List the 3 Let Off Again", "List the 1 Let Off Again"; nil when none was let off.
+    public var putBackTitle: String?
+    public let putBackHelp = "List again the books that were marked fine as they are under this check"
 }
 
 extension AppModel {
@@ -41,7 +44,20 @@ extension AppModel {
         return TidyHeader(
             title: check.title, explanation: check.explanation,
             countText: count == 1 ? "1 book" : "\(count) books",
-            canMarkFine: !chosen.isEmpty && busyLabel == nil && isLibraryOpen)
+            canMarkFine: !chosen.isEmpty && busyLabel == nil && isLibraryOpen,
+            putBackTitle: letOffCount(check) > 0 ? "List the \(letOffCount(check)) Let Off Again" : nil)
+    }
+
+    private func letOffCount(_ check: TidyCheck) -> Int {
+        sidebar.tidy.first { $0.check == check }?.letOff ?? 0
+    }
+
+    /// Lists again, under the check shown, the books that were let off it.
+    public func putBackLetOff() async {
+        guard let check = selectedTidyCheck, letOffCount(check) > 0, busyLabel == nil else { return }
+        await perform("Updating…") { worker in
+            try await worker.putBackTidy(check: check)
+        }
     }
 
     /// Lets the selected books off the check shown: they are no longer listed under

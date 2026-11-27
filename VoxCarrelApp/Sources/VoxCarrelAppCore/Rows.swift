@@ -196,11 +196,14 @@ public struct BookDetail: Equatable, Sendable {
     }
 }
 
-/// One check of the library's tidiness that finds something, as the sidebar lists it.
+/// One check of the library's tidiness that finds something, or would had the owner not
+/// let its books off, as the sidebar lists it.
 public struct TidyLine: Equatable, Identifiable, Sendable {
     public var check: TidyCheck
     /// How many books it finds.
     public var count: Int
+    /// How many more it would find that the owner has let off it.
+    public var letOff = 0
 
     public var id: String { check.rawValue }
     public var item: SidebarItem { .tidy(check) }

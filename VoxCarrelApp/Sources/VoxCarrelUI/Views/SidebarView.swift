@@ -101,7 +101,8 @@ struct SidebarView: View {
                     ForEach(model.sidebar.tidy) { line in
                         Label(line.check.title, systemImage: line.item.symbol)
                             .lineLimit(1)
-                            .badge(Text("\(line.count)"))
+                            // Nothing listed now, but books let off it that can be put back.
+                            .badge(line.count > 0 ? Text("\(line.count)") : nil)
                             .tag(line.item)
                             .help(line.check.explanation)
                             .accessibilityIdentifier("sidebar.tidy.\(line.id)")

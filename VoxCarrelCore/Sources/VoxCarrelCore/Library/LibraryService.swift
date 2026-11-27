@@ -18,6 +18,10 @@ public final class LibraryService {
     let metadataIO: FileMetadataIO
     let organiser: Organiser
 
+    /// The longer side of each cover that has been measured, by where it is, with when
+    /// the picture was last changed: `coverLongSide(of:modified:)`.
+    var coverSides: [String: (modified: Date, side: Int?)] = [:]
+
     /// Test seam: called immediately before every `store.apply`. Throwing from it stands
     /// in for a failed commit.
     var beforeCommit: (() throws -> Void)?

@@ -292,9 +292,11 @@ public actor LibraryWorker {
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
         // What is untidy, a line for each check that finds something.
-        let findings = try service.tidyFindings()
+        let tidy = try service.tidyReport()
         data.tidy = TidyCheck.allCases.compactMap { check in
-            findings[check].map { TidyLine(check: check, count: $0.count) }
+            let count = tidy.found[check]?.count ?? 0
+            let letOff = tidy.letOff[check]?.count ?? 0
+            return count + letOff > 0 ? TidyLine(check: check, count: count, letOff: letOff) : nil
         }
         data.shelves = try service.smartShelves()
         data.shelfCounts = try service.bookCounts(on: data.shelves)
@@ -535,6 +537,11 @@ public actor LibraryWorker {
     /// Lets books off a check of the library's tidiness, or puts them back under it.
     public func setTidyIgnored(_ ignored: Bool, check: TidyCheck, bookIds: [Int64]) throws {
         try service.setTidyIgnored(ignored, check: check, bookIds: bookIds.filter(isBookId))
+    }
+
+    /// Puts back under a check every book that was let off it and that it would still list.
+    public func putBackTidy(check: TidyCheck) throws {
+        try service.setTidyIgnored(false, check: check, bookIds: try service.tidyReport().letOff[check] ?? [])
     }
 
     /// Ties these books together as editions of one work.

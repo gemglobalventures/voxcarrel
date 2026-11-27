@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 @testable import VoxCarrelCore
 import VoxCarrelFixtures
@@ -23,9 +25,24 @@ import VoxCarrelFixtures
         details.language = language
         let rows = files.enumerated().map { BookFile(path: "\(title)/\($0.element.0)", format: $0.element.1, role: $0.element.2, position: $0.offset) }
         let id = try #require(try f.store.insert(Book(metadata: details), files: rows).id)
-        if cover { try f.service.covers.set(F.jpeg, for: id) }
+        if cover { try f.service.covers.set(Self.largeCover, for: id) }
         return id
     }
+
+    /// A picture of this many pixels a side, as a JPEG.
+    private static func picture(side: Int) -> CoverImage {
+        let space = CGColorSpaceCreateDeviceRGB()
+        let context = CGContext(
+            data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        let data = NSMutableData()
+        let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil)!
+        CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+        CGImageDestinationFinalize(destination)
+        return CoverImage(data: data as Data, mime: "image/jpeg")
+    }
+
+    private static let largeCover = picture(side: 640)
 
     // TD1: a tidy library finds nothing; each missing detail is found, and only on
     // the book that lacks it.
@@ -122,5 +139,36 @@ import VoxCarrelFixtures
         found = try BookScope.visible { try f.service.tidyFindings() }
         #expect(found[.noYear] == [a] && found[.noDescription] == nil)
         #expect(TidyCheck.allCases.allSatisfy { !$0.title.isEmpty && $0.explanation.count > 20 })
+    }
+
+    // TD6: a cover under 600 pixels on its longer side is a small one; a picture that
+    // cannot be read is not called small. A cover that is replaced is measured again.
+    @Test func TD6_smallCovers() throws {
+        let f = try F()
+        let large = try add(f, "Large")
+        let small = try add(f, "Small")
+        try f.service.covers.set(Self.picture(side: 300), for: small)
+        let unread = try add(f, "Unreadable")
+        try f.service.covers.set(CoverImage(data: Data("not a picture".utf8), mime: "image/jpeg"), for: unread)
+        #expect(try f.service.tidyFindings()[.smallCover] == [small])
+        try f.service.covers.set(Self.picture(side: 700), for: small)
+        try f.service.covers.set(Self.picture(side: 599), for: large)
+        #expect(try f.service.tidyFindings()[.smallCover] == [large])
+    }
+
+    // TD7: the books let off a check are told with what it finds, for as long as it
+    // would still list them: one that has been put right is no longer among them.
+    @Test func TD7_theBooksLetOffAreKnown() throws {
+        let f = try F()
+        let a = try add(f, "Undated A", year: nil)
+        let b = try add(f, "Undated B", year: nil)
+        try f.service.setTidyIgnored(true, check: .noYear, bookIds: [a, b])
+        var report = try f.service.tidyReport()
+        #expect(report.found[.noYear] == nil && report.letOff[.noYear] == [a, b])
+        var dated = try #require(try f.store.book(id: a))
+        dated.year = 1999
+        try f.store.update(dated)
+        report = try f.service.tidyReport()
+        #expect(report.letOff[.noYear] == [b])
     }
 }

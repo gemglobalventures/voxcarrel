@@ -124,13 +124,24 @@ private struct TidyHeaderStrip: View {
                     .accessibilityIdentifier("tidy.explanation")
             }
             Spacer(minLength: 8)
-            Button(header.markFineTitle) {
-                Task { await model.markSelectionFine() }
+            VStack(alignment: .trailing, spacing: 6) {
+                Button(header.markFineTitle) {
+                    Task { await model.markSelectionFine() }
+                }
+                .fixedSize()
+                .disabled(!header.canMarkFine)
+                .help(header.markFineHelp)
+                .accessibilityIdentifier("tidy.markFine")
+                if let putBack = header.putBackTitle {
+                    Button(putBack) {
+                        Task { await model.putBackLetOff() }
+                    }
+                    .buttonStyle(.link)
+                    .fixedSize()
+                    .help(header.putBackHelp)
+                    .accessibilityIdentifier("tidy.putBack")
+                }
             }
-            .fixedSize()
-            .disabled(!header.canMarkFine)
-            .help(header.markFineHelp)
-            .accessibilityIdentifier("tidy.markFine")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

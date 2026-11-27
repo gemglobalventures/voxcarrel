@@ -1,8 +1,9 @@
 import Foundation
+import ImageIO
 
 /// One thing that can be untidy about a library, looked for across all of it.
 public enum TidyCheck: String, CaseIterable, Sendable {
-    case noAuthor, noYear, noDescription, noCover
+    case noAuthor, noYear, noDescription, noCover, smallCover
     case seriesNoNumber, seriesSameNumber, seriesGap
     case nameSpellings, titleExtras
     case sameBookTwice, formsApart, editionsNotLinked
@@ -15,6 +16,7 @@ public enum TidyCheck: String, CaseIterable, Sendable {
         case .noYear: "No Year"
         case .noDescription: "No Description"
         case .noCover: "No Cover"
+        case .smallCover: "Small Cover"
         case .seriesNoNumber: "In a Series, No Number"
         case .seriesSameNumber: "One Number, Two Books"
         case .seriesGap: "Gaps in a Series"
@@ -34,6 +36,7 @@ public enum TidyCheck: String, CaseIterable, Sendable {
         case .noYear: "These books have no year. A lookup usually supplies one."
         case .noDescription: "These books have no description. A lookup usually supplies one."
         case .noCover: "These books have no cover of their own, and are shown with one made for them. Look a book up, or drop a picture on it."
+        case .smallCover: "These covers are under \(LibraryService.smallCoverSide) pixels on their longer side, and look soft at full size. Look the book up for a larger one, or drop a picture on it."
         case .seriesNoNumber: "These books are in a series and have no number in it, so they sort last. Check the series against a list, or number them in the inspector."
         case .seriesSameNumber: "In each of these series two books have the same number. One of them is probably wrong, unless they are editions of one book: then link them."
         case .seriesGap: "The numbers of these series skip one or more. A book may be missing, or numbered wrongly: checking the series against a list shows which."
@@ -50,9 +53,16 @@ public enum TidyCheck: String, CaseIterable, Sendable {
 extension LibraryService {
     /// What is untidy about the library: for each check, the books it finds, lowest id
     /// first. Checks that find nothing are left out, and so is every book the owner has
-    /// let off a check. Asks nothing of the network and opens no file. Inside
-    /// `BookScope.visible`, hidden books are not looked at.
+    /// let off a check. Asks nothing of the network and opens no book's file; a cover's
+    /// size is read from its picture once, and again only when the picture changes.
+    /// Inside `BookScope.visible`, hidden books are not looked at.
     public func tidyFindings() throws -> [TidyCheck: [Int64]] {
+        try tidyReport().found
+    }
+
+    /// The same, and with it the books each check would list had the owner not let them
+    /// off it: the ones that can be put back.
+    public func tidyReport() throws -> (found: [TidyCheck: [Int64]], letOff: [TidyCheck: [Int64]]) {
         let books = try store.books()
         let ignored = try store.tidyIgnored()
         var roles: [Int64: Set<FileRole>] = [:]
@@ -62,7 +72,8 @@ extension LibraryService {
             roles[id, default: []].insert(file.role)
             if file.role == .ebook { formats[id, default: []].insert(file.format) }
         }
-        let withCover = Set(covers.all().keys)
+        let allCovers = covers.all()
+        let withCover = Set(allCovers.keys)
         var found: [TidyCheck: Set<Int64>] = [:]
         func blank(_ text: String?) -> Bool { (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
@@ -74,6 +85,10 @@ extension LibraryService {
             if blank(book.summary) { found[.noDescription, default: []].insert(id) }
             // A book with no files here is shown with whatever its source gave.
             if !withCover.contains(id), roles[id] != nil { found[.noCover, default: []].insert(id) }
+            if let cover = allCovers[id], let side = coverLongSide(of: cover.url, modified: cover.modified),
+               side < Self.smallCoverSide {
+                found[.smallCover, default: []].insert(id)
+            }
             if Self.titleHasExtras(book) { found[.titleExtras, default: []].insert(id) }
             let own = formats[id] ?? []
             if !own.isEmpty, !own.contains(.epub), !own.contains(.pdf) { found[.oldFormat, default: []].insert(id) }
@@ -152,11 +167,33 @@ extension LibraryService {
         }
 
         var result: [TidyCheck: [Int64]] = [:]
+        var letOff: [TidyCheck: [Int64]] = [:]
         for (check, ids) in found {
-            let left = ids.subtracting(ignored[check.rawValue] ?? [])
+            let off = ignored[check.rawValue] ?? []
+            let left = ids.subtracting(off)
             if !left.isEmpty { result[check] = left.sorted() }
+            let spared = ids.intersection(off)
+            if !spared.isEmpty { letOff[check] = spared.sorted() }
         }
-        return result
+        return (result, letOff)
+    }
+
+    /// A cover shorter than this on its longer side is a small one.
+    public static let smallCoverSide = 600
+
+    /// The longer side of a cover in pixels; nil when the picture cannot be read. Only
+    /// the picture's header is read, and what is learned is kept until it changes.
+    func coverLongSide(of url: URL, modified: Date) -> Int? {
+        if let known = coverSides[url.path], known.modified == modified { return known.side }
+        var side: Int?
+        if let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let width = properties[kCGImagePropertyPixelWidth] as? Int,
+           let height = properties[kCGImagePropertyPixelHeight] as? Int {
+            side = max(width, height)
+        }
+        coverSides[url.path] = (modified, side)
+        return side
     }
 
     /// Whether a title carries words that belong elsewhere: what kind of edition it
