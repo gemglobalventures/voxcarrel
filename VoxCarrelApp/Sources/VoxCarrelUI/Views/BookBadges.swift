@@ -188,6 +188,22 @@ struct SeriesNoteLabel: View {
 /// Plan 7, K10: what kind of edition a book is, when that is worth saying ("Abridged",
 /// "Probably abridged", "Dramatised"): the words in a small capsule where there is room
 /// for them, a symbol where there is not. Why it is said is in the tooltip.
+/// A drive for a book kept where its files are, outside the library folder; struck
+/// through when the drive is not connected. Nothing for any other book.
+struct OutsideBadge: View {
+    let row: BookRow
+
+    var body: some View {
+        if let text = row.outsideText {
+            Image(systemName: row.isOutOfReach ? "externaldrive.badge.xmark" : "externaldrive")
+                .foregroundStyle(.secondary)
+                .help(text)
+                .accessibilityLabel(text)
+                .accessibilityIdentifier("books.badge.outside")
+        }
+    }
+}
+
 struct EditionBadge: View {
     let row: BookRow
 

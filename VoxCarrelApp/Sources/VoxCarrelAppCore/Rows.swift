@@ -83,6 +83,9 @@ public struct BookRow: Identifiable, Equatable, Sendable {
     public var seriesNote: String?
     /// How many highlights the book has.
     public var highlightCount = 0
+    /// True for a book kept where its files are whose files cannot be reached now:
+    /// the drive they are on is not connected.
+    public var isOutOfReach = false
 
     /// Whether the row stands for a book the library does not have.
     public var isMissing: Bool { missing != nil }

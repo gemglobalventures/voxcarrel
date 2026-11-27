@@ -328,6 +328,16 @@ extension BookRow {
     }
 
     /// What the warning triangle is for; nil when it is not shown.
+    /// For a book kept where its files are, outside the library folder: that it is,
+    /// and that its drive is not connected when its files cannot be reached. Nil for
+    /// any other book. Not a warning: the book is as its owner left it.
+    public var outsideText: String? {
+        guard book.keptOutside else { return nil }
+        return isOutOfReach
+            ? "Kept outside the library. Its files cannot be reached: the drive may not be connected"
+            : "Kept outside the library, where its files are"
+    }
+
     public var warningText: String? {
         var parts: [String] = []
         if book.needsAttention { parts.append("Needs attention") }
@@ -348,6 +358,7 @@ extension BookRow {
         if hasFiles || whereaboutsText == nil, let formsText { badges.append(formsText) }
         if let whereaboutsText { badges.append(whereaboutsText) }
         if let missingText { badges.append(missingText) }
+        if let outsideText { badges.append(outsideText) }
         if let seriesNote { badges.append(seriesNote) }
         if let editionLabel { badges.append(editionLabel) }
         if book.readStatus != .unread { badges.append(book.readStatus.title) }

@@ -33,6 +33,19 @@ import VoxCarrelFixtures
         #expect(try Data(contentsOf: file) == before)
         #expect(h.model.sidebar.tidy.contains { $0.check == .outsideLibrary && $0.count == 1 })
         #expect(h.model.canBringIntoLibrary([row.id]) && !h.model.canBringIntoLibrary([]))
+        #expect(row.outsideText == "Kept outside the library, where its files are" && !row.isOutOfReach)
+
+        // Its drive goes: the row says so, and the book is not flagged for it.
+        let parked = inbox.appendingPathComponent("away.epub")
+        try FileManager.default.moveItem(at: file, to: parked)
+        await h.model.reloadAll()
+        await h.model.settle()
+        let away = try #require(h.model.rows.first { $0.id == row.id })
+        #expect(away.isOutOfReach && away.outsideText?.contains("the drive may not be connected") == true)
+        #expect(!away.book.needsAttention && away.warningText == nil)
+        try FileManager.default.moveItem(at: parked, to: file)
+        await h.model.reloadAll()
+        await h.model.settle()
 
         // Brought in as a copy: filed in the library, and the original still there.
         await h.model.bringIntoLibrary([row.id], copying: true)

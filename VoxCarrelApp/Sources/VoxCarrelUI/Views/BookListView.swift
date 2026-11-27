@@ -300,6 +300,7 @@ private struct TitleCell: View {
             }
             // In words where the column has room for them, a symbol where it has not.
             EditionBadge(row: row)
+            OutsideBadge(row: row)
             EditedBadge(model: model, id: row.id)
             WarningBadge(row: row)
         }

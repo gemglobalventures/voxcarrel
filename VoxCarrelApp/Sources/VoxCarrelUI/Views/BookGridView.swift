@@ -218,6 +218,7 @@ private struct BookGridCell: View {
                 } else {
                     Spacer(minLength: 0)
                 }
+                OutsideBadge(row: row)
                 StatusMarker(status: row.book.readStatus)
                 WarningBadge(row: row)
             }

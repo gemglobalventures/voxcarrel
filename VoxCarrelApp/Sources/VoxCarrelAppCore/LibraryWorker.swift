@@ -744,6 +744,10 @@ public actor LibraryWorker {
             repairableLengthFiles: files.filter { $0.lengthProblem?.repairable == true }.count,
             unmeasuredLengthFiles: files.filter { $0.lengthUnmeasured != nil }.count)
         row.highlightCount = highlights
+        // Only for a book kept outside: its files are looked for where they were left.
+        if book.keptOutside {
+            row.isOutOfReach = files.contains { !FileManager.default.fileExists(atPath: store.url(for: $0).path) }
+        }
         return row
     }
 
