@@ -86,6 +86,17 @@ import VoxCarrelFixtures
         h.model.runTidyAction("counting")
         #expect(action.runs == [.noYear])
 
+        // When the books are put right by other means, the check's line goes, and the
+        // list with it: All Books is shown.
+        let undated = try #require(h.model.rows.first?.id)
+        var book = try h.book(undated)
+        book.year = 2001
+        try h.store().update(book)
+        await h.model.reloadAll()
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .allBooks && h.model.tidyHeader == nil)
+        h.model.sidebarSelection = .tidy(.noDescription)
+        await h.model.settle()
         // Not for this check: nothing is offered, and nothing is begun.
         h.model.sidebarSelection = .tidy(.noDescription)
         await h.model.settle()

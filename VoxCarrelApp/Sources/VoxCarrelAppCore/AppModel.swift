@@ -1737,6 +1737,8 @@ extension SidebarData {
         // Each is shown only while it has books.
         case .onKindle: kindleCount > 0
         case .highlights: highlightedCount > 0
+        // A check that finds nothing more, and has no book let off it, has no line.
+        case .tidy(let check): tidy.contains { $0.check == check }
         default: true
         }
     }
