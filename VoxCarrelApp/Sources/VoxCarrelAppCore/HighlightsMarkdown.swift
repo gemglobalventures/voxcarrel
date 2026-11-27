@@ -27,7 +27,14 @@ enum HighlightsMarkdown {
     }
 
     /// The note for `book` with these highlights, in the order given.
-    static func note(for book: Book, highlights rows: [HighlightRow], now: Date = Date(), calendar: Calendar = .current) -> String {
+    ///
+    /// `dated`: whether the properties say the day the note was written. A note that
+    /// is written again and again leaves it out, so that it changes only when the book
+    /// or its highlights do.
+    static func note(
+        for book: Book, highlights rows: [HighlightRow], now: Date = Date(), calendar: Calendar = .current,
+        dated: Bool = true
+    ) -> String {
         let title = book.title.trimmedOrNil ?? "Untitled book"
         var lines = ["---", "title: " + quoted(title)]
         if !book.authors.isEmpty {
@@ -39,7 +46,7 @@ enum HighlightsMarkdown {
         }
         if let year = book.year { lines.append("year: \(year)") }
         lines.append("highlights: \(rows.count)")
-        lines.append("exported: " + day(now, calendar: calendar))
+        if dated { lines.append("exported: " + day(now, calendar: calendar)) }
         lines.append("---")
         lines.append("")
         lines.append("# " + title)
@@ -75,5 +82,30 @@ enum HighlightsMarkdown {
             .components(separatedBy: CharacterSet(charactersIn: "/:\\\u{0}\n\r")).joined(separator: " ")
             .split(separator: " ").joined(separator: " ")
         return String(title.prefix(120)) + " highlights.md"
+    }
+}
+
+/// One book's highlights as a Markdown note, with a name for its file.
+public struct HighlightNote: Equatable, Sendable {
+    public var bookId: Int64
+    public var fileName: String
+    public var text: String
+}
+
+public enum HighlightNotes {
+    /// A note for every book that has a highlight and is not hidden, lowest id first.
+    /// The notes carry no date: each changes only when its book or its highlights do.
+    /// Only reads the catalogue.
+    public static func all(in service: LibraryService) throws -> [HighlightNote] {
+        try BookScope.visible {
+            try service.booksWithHighlights().compactMap { book -> HighlightNote? in
+                guard let id = book.id else { return nil }
+                let rows = try service.highlights(forBook: id).map { HighlightRow($0) }
+                guard !rows.isEmpty else { return nil }
+                return HighlightNote(
+                    bookId: id, fileName: HighlightsMarkdown.fileName(for: book),
+                    text: HighlightsMarkdown.note(for: book, highlights: rows, dated: false))
+            }.sorted { $0.bookId < $1.bookId }
+        }
     }
 }
