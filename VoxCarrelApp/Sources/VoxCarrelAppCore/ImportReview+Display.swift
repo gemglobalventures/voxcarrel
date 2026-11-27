@@ -229,8 +229,12 @@ extension ImportReview {
     /// Said in place of the choice between moving and copying, for books from a
     /// calibre library; nil for any other import.
     public var calibreNote: String? {
-        calibre == nil ? nil : Self.copiedFromCalibre
+        guard calibre != nil else { return nil }
+        return leavesInPlace ? Self.leftInCalibre : Self.copiedFromCalibre
     }
+
+    public static let leftInCalibre =
+        "Catalogued where they are: nothing in your calibre library is moved, copied or changed."
 
     public static let copiedFromCalibre = "Copied from your calibre library, which is left as it is."
 

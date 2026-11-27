@@ -628,6 +628,7 @@ private struct BottomBar: View {
             } else if review.offersCopy {
                 Toggle("Copy files, leave originals in place", isOn: copy)
                     .toggleStyle(.checkbox)
+                    .disabled(review.leavesInPlace)
                     .accessibilityIdentifier("review.copy")
                 // WF19: why Copy is ticked for books from the Inbox.
                 if let note = review.inboxNote {
@@ -642,6 +643,12 @@ private struct BottomBar: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("review.moveOnly")
+            }
+            if review.offersInPlace {
+                Toggle(ImportReview.leaveInPlaceTitle, isOn: inPlace)
+                    .toggleStyle(.checkbox)
+                    .help(ImportReview.leaveInPlaceHelp)
+                    .accessibilityIdentifier("review.inPlace")
             }
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 1) {
@@ -671,6 +678,11 @@ private struct BottomBar: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+    }
+
+    private var inPlace: Binding<Bool> {
+        let model = model
+        return Binding(get: { review.leavesInPlace }, set: { on in model.updateReview { $0.leavesInPlace = on } })
     }
 
     private var copy: Binding<Bool> {

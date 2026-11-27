@@ -181,6 +181,17 @@ struct BookCommandItems: View {
             .disabled(!model.canLinkEditions(books))
             .accessibilityIdentifier("\(prefix).linkEditions")
         }
+        // Books that were added where their files are: into the library, as copies or by moving.
+        if model.canBringIntoLibrary(books) {
+            Button(AppModel.bringInCopyTitle) {
+                Task { await model.bringIntoLibrary(books, copying: true) }
+            }
+            .accessibilityIdentifier("\(prefix).bringInCopy")
+            Button(AppModel.bringInMoveTitle) {
+                Task { await model.bringIntoLibrary(books, copying: false) }
+            }
+            .accessibilityIdentifier("\(prefix).bringInMove")
+        }
         if model.canUnlinkEdition(books) {
             Button(AppModel.unlinkEditionTitle) {
                 Task { await model.unlinkEdition(for: books) }

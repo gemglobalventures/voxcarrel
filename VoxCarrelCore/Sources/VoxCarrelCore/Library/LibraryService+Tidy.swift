@@ -8,6 +8,8 @@ public enum TidyCheck: String, CaseIterable, Sendable {
     case nameSpellings, titleExtras
     case sameBookTwice, formsApart, editionsNotLinked
     case oldFormat
+    /// Not untidy, but worth a list of its own: books kept where their files are.
+    case outsideLibrary
 
     /// What the check is called where it is listed.
     public var title: String {
@@ -26,6 +28,7 @@ public enum TidyCheck: String, CaseIterable, Sendable {
         case .formsApart: "Audiobook and Ebook Apart"
         case .editionsNotLinked: "Editions Not Linked"
         case .oldFormat: "Older Ebook Formats"
+        case .outsideLibrary: "Outside the Library Folder"
         }
     }
 
@@ -45,6 +48,7 @@ public enum TidyCheck: String, CaseIterable, Sendable {
         case .sameBookTwice: "Each of these has the same title and author as another entry, and nothing tells the two apart. If they are one book, select both and choose Merge Books."
         case .formsApart: "Each of these is an audiobook or an ebook whose other form is filed as a separate entry. Select both and choose Merge Books to make them one book."
         case .editionsNotLinked: "Each of these has the same title and author as another entry but is another edition: another language, narrator or kind. Select both and choose Link as Editions of One Book."
+        case .outsideLibrary: "These books were added where their files are, and are kept there: nothing of theirs has been moved or changed, and their details are kept in the catalogue alone. Select them and choose Book > Bring into the Library to copy or move them in."
         case .oldFormat: "These books have an ebook in an older format (MOBI, AZW3 and the like) and no EPUB. Convert to EPUB adds one beside it."
         }
     }
@@ -90,6 +94,7 @@ extension LibraryService {
                 found[.smallCover, default: []].insert(id)
             }
             if Self.titleHasExtras(book) { found[.titleExtras, default: []].insert(id) }
+            if book.keptOutside { found[.outsideLibrary, default: []].insert(id) }
             let own = formats[id] ?? []
             if !own.isEmpty, !own.contains(.epub), !own.contains(.pdf) { found[.oldFormat, default: []].insert(id) }
         }

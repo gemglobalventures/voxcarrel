@@ -245,6 +245,9 @@ public struct ImportReview: Equatable, Sendable {
     /// Which entries the list shows.
     public var filter: Filter = .all
     public var copyInsteadOfMove: Bool
+    /// The books are added where their files are: nothing is moved, copied or written.
+    /// They are kept outside the library until they are brought in.
+    public var leavesInPlace = false
     /// How the library the books are going into files its books. The review reads
     /// nothing, so whoever makes it for a library gives it that library's pattern.
     public var folderPattern: FolderPattern = .standard
@@ -330,6 +333,15 @@ public struct ImportReview: Equatable, Sendable {
     /// Whether "copy, leave originals in place" is a choice the user has. It is none
     /// for books from a calibre library, which are always copied.
     public var offersCopy: Bool { !moveOnly && calibre == nil }
+
+    /// Whether the books can be added where their files are: not for files that are
+    /// inside the library folder already.
+    public var offersInPlace: Bool { !moveOnly }
+
+    public static let leaveInPlaceTitle = "Leave the files where they are"
+    public static let leaveInPlaceHelp =
+        "The books are added to the catalogue and nothing is moved, copied or written. Their details are kept in "
+        + "VoxCarrel alone. Bring them into the library later with Book > Bring into the Library."
 
     // MARK: Readiness
 
@@ -584,6 +596,8 @@ public struct ImportReview: Equatable, Sendable {
     public var options: ImportOptions {
         // Books from a calibre library are copied whatever else is set: nothing of
         // calibre's is ever moved out of it.
+        // Left where they are: nothing is moved or copied at all, calibre's included.
+        if leavesInPlace, offersInPlace { return ImportOptions(leavesInPlace: true) }
         if calibre != nil { return ImportOptions(mode: .copy) }
         return ImportOptions(mode: copyInsteadOfMove && !moveOnly ? .copy : .move)
     }
