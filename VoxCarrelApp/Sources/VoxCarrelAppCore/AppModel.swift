@@ -300,8 +300,14 @@ public final class AppModel {
         return syncedPlaceOf(folder)?.note
     }
 
+    /// The backups of the library that is open, newest first; empty for the demo
+    /// library and until they have been read.
+    public internal(set) var backups: [BackupLine] = []
+    /// Where every library's backups are kept under.
+    @ObservationIgnored let backupsFolder: URL = AppModel.backupsFolderByDefault
+
     /// A1
-    private func openLibrary() async {
+    func openLibrary() async {
         // A26: files the app was asked to open meanwhile are imported, or refused, now.
         defer {
             hasTriedLibrary = true
@@ -314,6 +320,7 @@ public final class AppModel {
         // The genres, and anything open about them, were those of the library shown before.
         closeGenreSheets()
         worker = nil
+        backups = []
         libraryWasChecked = false
         // WF10: the inbox was the inbox of the library shown before.
         closeInbox()
@@ -401,6 +408,8 @@ public final class AppModel {
             return
         }
         await reloadAll()
+        // The day's backup of the catalogue, before anything is asked of the library.
+        await backUpIfDue()
 
         guard let worker else { return }
         // The list first: a large library takes a few seconds to check against the

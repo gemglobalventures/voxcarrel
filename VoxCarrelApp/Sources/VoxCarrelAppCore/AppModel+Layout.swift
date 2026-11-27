@@ -153,6 +153,8 @@ extension AppModel {
         guard let preview = layoutPreview, preview.canApply,
               let worker = await begin(LayoutText.changingLabel, overLayoutPreview: true)
         else { return }
+        // Every folder may be about to move: the catalogue is kept as it is first.
+        await backUpBefore("before layout", with: worker)
         do {
             result = LayoutText.result(of: try await worker.applyLayoutChange(to: preview.pattern))
         } catch {

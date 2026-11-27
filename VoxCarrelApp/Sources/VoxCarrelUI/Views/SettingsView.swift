@@ -89,6 +89,7 @@ private struct GeneralSettings: View {
                 }
             }
             FolderLayoutSettings(model: model)
+            BackupSettings(model: model)
             Section("Importing") {
                 Toggle("Copy files when importing (leave originals in place)", isOn: $model.copyOnImport)
                     .accessibilityIdentifier("settings.copyOnImport")
@@ -100,6 +101,82 @@ private struct GeneralSettings: View {
         .formStyle(.grouped)
         .frame(width: SettingsView.width)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Backups of the catalogue: when the last was made, making one now, and restoring one.
+private struct BackupSettings: View {
+    let model: AppModel
+    /// The backup chosen to restore, in the list.
+    @State private var picked: BackupLine.ID?
+    @State private var isChoosing = false
+    @State private var isConfirming = false
+
+    var body: some View {
+        Section(BackupText.heading) {
+            Text(BackupText.intro)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(model.backupStatusText)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("settings.backups.status")
+            HStack {
+                Spacer()
+                Button(BackupText.showTitle) { model.revealBackups() }
+                    .disabled(!model.keepsBackups)
+                Button(BackupText.restoreTitle) {
+                    picked = model.backups.first?.id
+                    isChoosing = true
+                }
+                .disabled(!model.canRestoreBackup)
+                .accessibilityIdentifier("settings.backups.restore")
+                Button(BackupText.backUpNowTitle) {
+                    Task { await model.backUpNow() }
+                }
+                .disabled(!model.canBackUp)
+                .accessibilityIdentifier("settings.backups.now")
+            }
+        }
+        .sheet(isPresented: $isChoosing) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(BackupText.confirmTitle)
+                    .font(.headline)
+                List(model.backups, selection: $picked) { line in
+                    Text(line.text)
+                        .lineLimit(1)
+                }
+                .listStyle(.inset)
+                .frame(height: 220)
+                .accessibilityIdentifier("settings.backups.list")
+                Text(BackupText.confirmMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { isChoosing = false }
+                        .keyboardShortcut(.cancelAction)
+                    Button(BackupText.confirmButton) {
+                        isChoosing = false
+                        isConfirming = true
+                    }
+                    .disabled(picked == nil)
+                    .accessibilityIdentifier("settings.backups.choose")
+                }
+            }
+            .padding(20)
+            .frame(width: 520)
+        }
+        .confirmationDialog(BackupText.confirmTitle, isPresented: $isConfirming) {
+            Button(BackupText.confirmButton, role: .destructive) {
+                guard let picked else { return }
+                Task { await model.restoreBackup(picked) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(BackupText.confirmMessage)
+        }
     }
 }
 

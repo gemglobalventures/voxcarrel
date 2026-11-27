@@ -310,6 +310,7 @@ final class Harness {
         let clock = clock
         AppModel.countsWordsBehindByDefault = false
         AppModel.asksWikidataByDefault = false
+        AppModel.backupsFolderByDefault = TestBackups.folder
         model = AppModel(
             location: location, opener: opener, defaults: defaults, lookupService: lookup.service(for:),
             watcher: watcher, ticker: ticker, inboxNow: { clock.now }, phoneLink: phoneLink, sleepGuard: sleepGuard,
@@ -401,6 +402,7 @@ final class Harness {
         let clock = clock
         AppModel.countsWordsBehindByDefault = false
         AppModel.asksWikidataByDefault = false
+        AppModel.backupsFolderByDefault = TestBackups.folder
         let model = AppModel(
             location: LibraryLocation(defaults: defaults), opener: opener, defaults: defaults,
             lookupService: lookup.service(for:),
@@ -494,4 +496,10 @@ final class Harness {
     private func noteBusyLabel() {
         busyLabels.append(model.busyLabel ?? "")
     }
+}
+
+/// Where the tests' libraries keep their backups: a temporary folder, never the app's own.
+enum TestBackups {
+    static let folder: URL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("voxcarrel-test-backups-\(UUID().uuidString)", isDirectory: true)
 }
