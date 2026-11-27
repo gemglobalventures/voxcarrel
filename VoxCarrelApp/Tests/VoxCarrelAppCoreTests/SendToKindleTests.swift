@@ -206,7 +206,7 @@ import VoxCarrelFixtures
         await h.model.sendToKindle(for: [try h.id("Quiet Book")])
         #expect(h.model.alert
             == "To send to Kindle, install Amazon's Send to Kindle app, or enter your Kindle's email address in "
-            + "Settings > General.")
+            + "Settings > Accounts.")
         #expect(h.kindleSender.toApp.isEmpty && h.kindleSender.emails.isEmpty && !exists(stagingFolder(h)))
     }
 

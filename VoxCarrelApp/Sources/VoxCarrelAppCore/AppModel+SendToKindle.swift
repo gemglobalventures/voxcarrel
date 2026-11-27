@@ -62,7 +62,7 @@ public enum KindleText {
 
     public static let noRoute =
         "To send to Kindle, install Amazon's Send to Kindle app, or enter your Kindle's email address in "
-        + "Settings > General."
+        + "Settings > Accounts."
 
     /// Said when the copy to hand over could not be made.
     public static let couldNotCopy = "A copy of the book could not be made to send."

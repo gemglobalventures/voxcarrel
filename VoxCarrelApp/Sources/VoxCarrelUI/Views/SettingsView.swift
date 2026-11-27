@@ -19,6 +19,16 @@ struct SettingsView: View {
                     Label("General", systemImage: "gearshape")
                         .accessibilityIdentifier("settings.tab.general")
                 }
+            CatalogueTab()
+                .tabItem {
+                    Label("Catalogue", systemImage: "externaldrive")
+                        .accessibilityIdentifier("settings.tab.catalogue")
+                }
+            AccountsSettings()
+                .tabItem {
+                    Label("Accounts", systemImage: "person.crop.circle")
+                        .accessibilityIdentifier("settings.tab.accounts")
+                }
             LookupSettings()
                 .tabItem {
                     Label("Lookup", systemImage: "magnifyingglass")
@@ -88,13 +98,40 @@ private struct GeneralSettings: View {
                     .accessibilityIdentifier("settings.chooseLibrary")
                 }
             }
-            CatalogueSettings(model: model)
             FolderLayoutSettings(model: model)
-            BackupSettings(model: model)
             Section("Importing") {
                 Toggle("Copy files when importing (leave originals in place)", isOn: $model.copyOnImport)
                     .accessibilityIdentifier("settings.copyOnImport")
             }
+        }
+        .formStyle(.grouped)
+        .frame(width: SettingsView.width)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Where the catalogue is kept, and its backups. A tab of its own, so that no tab is
+/// taller than a small screen.
+private struct CatalogueTab: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Form {
+            CatalogueSettings(model: model)
+            BackupSettings(model: model)
+        }
+        .formStyle(.grouped)
+        .frame(width: SettingsView.width)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The accounts and addresses the app uses: Audible, Kindle and Readwise.
+private struct AccountsSettings: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Form {
             AudibleAccountSettings(model: model)
             KindleAddressSettings(model: model)
             ReadwiseSettings(model: model)
