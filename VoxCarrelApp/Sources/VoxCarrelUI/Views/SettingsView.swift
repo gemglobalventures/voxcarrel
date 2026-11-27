@@ -88,6 +88,7 @@ private struct GeneralSettings: View {
                     .accessibilityIdentifier("settings.chooseLibrary")
                 }
             }
+            CatalogueSettings(model: model)
             FolderLayoutSettings(model: model)
             BackupSettings(model: model)
             Section("Importing") {
@@ -101,6 +102,41 @@ private struct GeneralSettings: View {
         .formStyle(.grouped)
         .frame(width: SettingsView.width)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Where the catalogue is kept: with the books, or on this Mac apart from them.
+private struct CatalogueSettings: View {
+    let model: AppModel
+    @State private var isConfirming = false
+
+    var body: some View {
+        Section(CatalogueText.heading) {
+            Text(model.catalogueStatusText)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("settings.catalogue.status")
+            HStack {
+                Spacer()
+                Button(model.catalogueIsOnMac ? CatalogueText.moveBackTitle : CatalogueText.moveTitle) {
+                    isConfirming = true
+                }
+                .disabled(!model.canMoveCatalogue)
+                .accessibilityIdentifier("settings.catalogue.move")
+            }
+        }
+        .confirmationDialog(
+            model.catalogueIsOnMac ? CatalogueText.confirmBack : CatalogueText.confirmMove, isPresented: $isConfirming
+        ) {
+            Button(CatalogueText.moveButton) {
+                let toMac = !model.catalogueIsOnMac
+                Task { await model.moveCatalogue(toMac: toMac) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(model.catalogueIsOnMac ? CatalogueText.confirmBackMessage : CatalogueText.confirmMoveMessage)
+        }
     }
 }
 

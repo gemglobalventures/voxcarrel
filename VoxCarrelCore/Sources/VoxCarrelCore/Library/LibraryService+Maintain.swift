@@ -341,7 +341,12 @@ extension LibraryService {
     /// are not looked inside; but a book folder left set aside by an interrupted change
     /// of folder layout, or left under a half-moved name, is reported
     /// (`strandedFolders`) and never touched.
+    ///
+    /// Throws `LibraryError.booksNotReachable` while the books' folder cannot be
+    /// reached: a drive that is away is not a library whose files have gone, and no
+    /// book is ever flagged for it.
     public func reconcile() throws -> ReconcileReport {
+        if !store.booksAreReachable { throw LibraryError.booksNotReachable }
         var report = ReconcileReport()
         let fm = FileManager.default
 

@@ -300,6 +300,13 @@ public final class AppModel {
         return syncedPlaceOf(folder)?.note
     }
 
+    /// True while the library is open and the folder its books are in cannot be
+    /// reached: the drive is not connected. It is looked through as it was left, and
+    /// nothing that touches the files can be done.
+    public internal(set) var libraryIsAway = false
+    /// Whether the open library's catalogue is kept on this Mac, apart from its books.
+    public internal(set) var catalogueIsOnMac = false
+
     /// The backups of the library that is open, newest first; empty for the demo
     /// library and until they have been read.
     public internal(set) var backups: [BackupLine] = []
@@ -320,6 +327,8 @@ public final class AppModel {
         // The genres, and anything open about them, were those of the library shown before.
         closeGenreSheets()
         worker = nil
+        libraryIsAway = false
+        catalogueIsOnMac = false
         backups = []
         libraryWasChecked = false
         // WF10: the inbox was the inbox of the library shown before.
@@ -412,6 +421,18 @@ public final class AppModel {
         await backUpIfDue()
 
         guard let worker else { return }
+        catalogueIsOnMac = await worker.catalogueIsOnMac()
+        libraryIsAway = !(await worker.booksAreReachable())
+        if libraryIsAway {
+            // The books' drive is not connected. Nothing is checked against the disk:
+            // every file would seem to be missing. The library is looked through as it
+            // was left, and opened afresh when the drive comes back.
+            isOpening = false
+            busyLabel = nil
+            libraryWasChecked = true
+            waitForBooksToReturn(with: worker)
+            return
+        }
         // The list first: a large library takes a few seconds to check against the
         // disk, and its books are there to be looked at meanwhile. What the owner
         // begins before the check is over waits its turn behind it, as the library

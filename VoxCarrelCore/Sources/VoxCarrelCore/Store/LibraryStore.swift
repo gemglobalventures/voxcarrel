@@ -104,12 +104,25 @@ public final class LibraryStore: Sendable {
     private static func open(
         _ libraryRoot: URL, today: Date, copyBeforeGenres: (Database, String) throws -> Void
     ) throws -> Opened {
+        // A folder on a drive that is not connected is not made: it would be a folder
+        // on this Mac's own disk in the place where the drive is mounted.
+        if let drive = Self.unmountedDrive(of: libraryRoot) { throw LibraryStoreError.driveNotConnected(drive) }
         try FileManager.default.createDirectory(at: libraryRoot, withIntermediateDirectories: true)
         let root = LibraryLayout.canonicalFolder(libraryRoot)
         let queue = try DatabaseQueue(path: root.appendingPathComponent(Self.databaseFileName).path)
         try keepCopyBeforeGenres(of: queue, in: root, today: today, copy: copyBeforeGenres)
         try migrator.migrate(queue)
         return Opened(root: root, queue: queue)
+    }
+
+    /// The name of the drive a folder is on, when the folder is under `/Volumes` and
+    /// no drive of that name is mounted; nil otherwise.
+    static func unmountedDrive(of folder: URL) -> String? {
+        let parts = folder.standardizedFileURL.pathComponents
+        guard parts.count >= 3, parts[0] == "/", parts[1] == "Volumes" else { return nil }
+        var isDirectory: ObjCBool = false
+        let mounted = FileManager.default.fileExists(atPath: "/Volumes/" + parts[2], isDirectory: &isDirectory) && isDirectory.boolValue
+        return mounted ? nil : parts[2]
     }
 
     // MARK: The copy kept before genres are converted
@@ -1047,9 +1060,14 @@ public enum LibraryStoreError: Error, Equatable, LocalizedError {
     /// The catalogue was left by an earlier version, and must be opened once in the
     /// app, which brings it up to date, before it can be read here.
     case catalogueNeedsOpening
+    /// The folder is on a drive that is not connected: a library is never made in the
+    /// place where a drive would be.
+    case driveNotConnected(String)
 
     public var errorDescription: String? {
         switch self {
+        case .driveNotConnected(let name):
+            return "The drive \"\(name)\" is not connected."
         case .noCatalogue:
             return "That folder is not a VoxCarrel library."
         case .catalogueNeedsOpening:

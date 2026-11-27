@@ -40,13 +40,24 @@ public actor LibraryWorker {
         libraryRoot: URL, trashItem: (@Sendable (URL) throws -> Void)? = nil, lookup: LookupService? = nil
     ) throws {
         self.libraryRoot = libraryRoot
-        let store = try LibraryStore(libraryRoot: libraryRoot)
+        // Wherever its catalogue is: inside the folder, or on this Mac apart from the books.
+        let store = try LibraryStore.opening(libraryRoot)
         self.service = trashItem.map { LibraryService(store: store, trashItem: $0) } ?? LibraryService(store: store)
         self.lookup = OSAllocatedUnfairLock(
             initialState: lookup ?? .standard(
                 LookupConfiguration(
                     sources: [.openLibrary, .audible],
                     audibleStores: [.forRegion(Locale.current.region?.identifier)])))
+    }
+
+    /// Whether the folder the books are in can be reached now.
+    public func booksAreReachable() -> Bool {
+        service.store.booksAreReachable
+    }
+
+    /// Whether the catalogue is kept on this Mac, apart from the books.
+    public func catalogueIsOnMac() -> Bool {
+        service.store.catalogueHome != nil
     }
 
     // MARK: For extensions
@@ -497,7 +508,8 @@ public actor LibraryWorker {
             let url = store.url(for: file)
             return FileRow(
                 id: id, file: file, url: url, name: url.lastPathComponent,
-                isMissing: !FileManager.default.fileExists(atPath: url.path),
+                // A file on a drive that is away is not a missing file.
+                isMissing: store.booksAreReachable && !FileManager.default.fileExists(atPath: url.path),
                 allowedRoles: FileRow.allowedRoles(for: file.format))
         }
         let firstAudio = files.first { $0.role == .audio }.map { store.url(for: $0) }

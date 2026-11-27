@@ -136,7 +136,7 @@ extension AppModel {
     /// Library > Check Library Now: the check made as the library opens, made again,
     /// and shown whatever it found.
     public func checkLibraryNow() async {
-        guard canCheckLibraryNow, let worker = await begin(Self.checkingLabel) else { return }
+        guard canCheckLibraryNow, !libraryIsAway, let worker = await begin(Self.checkingLabel) else { return }
         await runLibraryCheck(with: worker, reloads: false, asked: true)
         await finish()
     }

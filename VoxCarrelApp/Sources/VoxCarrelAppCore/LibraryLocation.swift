@@ -121,7 +121,10 @@ public struct LibraryLocation {
 
     public func status() -> LibraryStatus {
         guard let url else { return .notChosen }
-        return Self.isWritableFolder(url) ? .available(url) : .unavailable(url)
+        if Self.isWritableFolder(url) { return .available(url) }
+        // The books' drive is away, but the catalogue is on this Mac: the library can
+        // still be opened and looked through.
+        return CatalogueHome.find(forRoot: url, in: CatalogueHome.standardFolder) != nil ? .available(url) : .unavailable(url)
     }
 
     /// The most book files `inspect` counts.
@@ -149,7 +152,7 @@ public struct LibraryLocation {
                 "\"\(name)\" is inside the VoxCarrel library \"\(outer.lastPathComponent)\", so it cannot be a "
                     + "library itself. Choose that library's folder, or a folder outside it.")
         }
-        if fm.fileExists(atPath: folder.appendingPathComponent(LibraryStore.databaseFileName).path) {
+        if CatalogueHome.isLibraryFolder(folder) {
             return .existingLibrary
         }
         guard let names = try? fm.contentsOfDirectory(atPath: folder.path) else {
@@ -173,7 +176,7 @@ public struct LibraryLocation {
         while current.path != "/" {
             let parent = current.deletingLastPathComponent()
             guard parent.path != current.path else { return nil }
-            if fm.fileExists(atPath: parent.appendingPathComponent(LibraryStore.databaseFileName).path) {
+            if CatalogueHome.isLibraryFolder(parent) {
                 return parent
             }
             current = parent

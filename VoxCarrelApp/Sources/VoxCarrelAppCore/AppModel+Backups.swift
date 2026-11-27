@@ -163,11 +163,11 @@ extension AppModel {
     /// again. The catalogue as it is now is kept as a backup first. A backup that
     /// cannot be restored says why in `alert`, and the library is opened as it was.
     public func restoreBackup(_ id: String) async {
-        guard canRestoreBackup, let line = backups.first(where: { $0.id == id }), let worker,
-              case .available(let root) = status
+        guard canRestoreBackup, let line = backups.first(where: { $0.id == id }), case .available(let root) = status
         else { return }
         let all = backupsFolder
-        guard let own = try? await worker.backupsFolder(in: all) else { return }
+        // The worker is not kept hold of here: nothing may hold the catalogue below.
+        guard let own = try? await self.worker?.backupsFolder(in: all) else { return }
         busyLabel = BackupText.restoringLabel
         // Nothing may hold the catalogue while it is replaced.
         self.worker = nil

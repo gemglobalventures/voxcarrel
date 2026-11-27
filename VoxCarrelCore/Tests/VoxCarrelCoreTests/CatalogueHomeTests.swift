@@ -124,4 +124,14 @@ import VoxCarrelFixtures
         }
         #expect(try LibraryStore.opening(m.root, libraries: m.libraries).catalogueHome == nil)
     }
+
+    // CH7: a library is never made where a drive that is not connected would be.
+    @Test func CH7_noFolderIsMadeWhereADriveWouldBe() {
+        let gone = URL(fileURLWithPath: "/Volumes/No Such Drive \(UUID().uuidString)/Books")
+        #expect(LibraryStore.unmountedDrive(of: gone) == gone.pathComponents[2])
+        #expect(throws: LibraryStoreError.driveNotConnected(gone.pathComponents[2])) { try LibraryStore(libraryRoot: gone) }
+        #expect(!FileManager.default.fileExists(atPath: gone.deletingLastPathComponent().path))
+        #expect(LibraryStore.unmountedDrive(of: URL(fileURLWithPath: "/Users/Shared/Books")) == nil)
+        #expect(LibraryStore.unmountedDrive(of: URL(fileURLWithPath: "/Volumes")) == nil)
+    }
 }
