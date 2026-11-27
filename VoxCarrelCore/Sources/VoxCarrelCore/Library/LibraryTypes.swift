@@ -22,6 +22,11 @@ public enum ImportTarget: Equatable, Sendable {
     /// an entry of its own, tied to that book as one work, and where the two share a
     /// title each is filed in a folder that says what sets it apart.
     case edition(of: Int64)
+    /// A better copy of a book already in the library: the candidate's audio takes
+    /// the place of the audio that book has. The book keeps its entry, and with it
+    /// its highlights, series, tags and read status; its other files are untouched.
+    /// The audio it had goes to the Trash once the new audio is safely in.
+    case replacingAudio(of: Int64)
 }
 
 /// One reviewed candidate, ready to import.

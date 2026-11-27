@@ -21,6 +21,8 @@ extension LibraryService {
             if let bookId = row.bookId { owners[Self.comparablePath(store.url(for: row))] = bookId }
         }
         var seen = Set<String>()
+        // For each book whose audio is being replaced in this call, the audio it had.
+        var retiring: [Int64: [BookFile]] = [:]
         // For each book that gains another edition in this call, the work the two are of.
         var editionKeys: [Int64: String] = [:]
         // Which book has which folder, kept up to date as this call files and moves
@@ -64,6 +66,23 @@ extension LibraryService {
                     folderOwners?.set(folderKey(store.url(forFolder: path)), for: Int64(-1 - index))
                 }
                 return result
+            case .replacingAudio(let bookId):
+                guard !targets.contains(bookId) else {
+                    return .failed("Another item of this import already adds files to that book")
+                }
+                // What is to be retired is settled before anything is added.
+                switch audioToRetire(ofBook: bookId, for: item.candidate) {
+                case .failure(let refusal): return .failed(refusal.reason)
+                case .success(let old):
+                    let result = prepareExistingBook(
+                        item, bookId: bookId, options: options, pattern: pattern, owners: &folderOwners,
+                        into: &operation)
+                    if case .imported = result {
+                        targets.insert(bookId)
+                        retiring[bookId] = old
+                    }
+                    return result
+                }
             case .existing(let bookId):
                 guard !targets.contains(bookId) else {
                     return .failed("Another item of this import already adds files to that book")
@@ -90,6 +109,8 @@ extension LibraryService {
         }
 
         let books = try commit(operation, label: count == 1 ? "Import 1 book" : "Import \(count) books")
+        // The new audio is in: the audio it replaces is retired, book by book.
+        for (bookId, old) in retiring.sorted(by: { $0.key < $1.key }) { retireAudio(old, ofBook: bookId) }
         // The books that gained an edition are tied to it, and where they share its
         // title their folders are named to tell them apart: an operation of its own,
         // undone by itself.
