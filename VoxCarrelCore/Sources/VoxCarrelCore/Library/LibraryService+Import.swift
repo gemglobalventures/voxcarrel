@@ -309,6 +309,37 @@ extension LibraryService {
 
     // MARK: Into an existing book
 
+    /// More files for a book that is kept where its files are: they are catalogued
+    /// where they are too, after the book's own of their kind. Nothing is moved, copied
+    /// or written.
+    private func prepareFilesKeptOutside(
+        _ item: ImportItem, book: Book, bookId: Int64, into operation: inout PendingOperation
+    ) -> PreparedItem {
+        do {
+            let rows = try store.files(bookId: bookId)
+            let existing = workingFiles(for: rows)
+            let added = try workingFiles(for: item.candidate)
+            let current = Set(existing.map { $0.url.standardizedFileURL.path })
+            if let own = added.first(where: { current.contains($0.url.standardizedFileURL.path) }) {
+                throw ItemFailure("\"\(own.url.lastPathComponent)\" already belongs to that book")
+            }
+            let files = [FileRole.audio, .ebook, .extra].flatMap { role in
+                existing.filter { $0.role == role } + added.filter { $0.role == role }
+            }
+            var updated = book
+            // The length is that of all its audio together.
+            if added.contains(where: { $0.role == .audio }) { updated.durationSeconds = Self.totalDuration(files) }
+            operation.add(
+                .init(book: updated, files: bookFiles(files)),
+                snapshot: BookSnapshot(
+                    bookId: bookId, bookBefore: book, filesBefore: rows, fileStates: [], storedCoverBefore: nil),
+                storedCover: .keep, records: [])
+            return .imported(writeIndex: operation.writes.count - 1, problems: [])
+        } catch {
+            return .failed(Self.reason(for: error))
+        }
+    }
+
     private func prepareExistingBook(
         _ item: ImportItem, bookId: Int64, options: ImportOptions, pattern: FolderPattern,
         owners: inout FolderOwners?, into operation: inout PendingOperation
@@ -319,6 +350,18 @@ extension LibraryService {
         var files: [WorkingFile]
         let storedCoverBefore: String?
         let hadStoredCover = covers.url(for: bookId) != nil
+        // A book kept where its files are takes more files the same way: catalogued
+        // where they are, nothing moved or written.
+        if let entry = try? store.book(id: bookId), entry.keptOutside {
+            return prepareFilesKeptOutside(item, book: entry, bookId: bookId, into: &operation)
+        }
+        // Files that are to stay where they are cannot join a book that is filed in
+        // the library: its files are all in its own folder.
+        if options.leavesInPlace {
+            return .failed(
+                "Files that are left where they are cannot be added to a book that is filed in the library. "
+                    + "Import them without \"Leave the files where they are\", or as a book of their own")
+        }
         // A book that has no files yet (one owned elsewhere) is not filed anywhere: its
         // first files are filed from its own details, as a new book's would be.
         if let entry = try? store.book(id: bookId), entry.folderPath == nil, !entry.needsAttention,

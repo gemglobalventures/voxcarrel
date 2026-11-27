@@ -129,4 +129,43 @@ import VoxCarrelFixtures
         #expect(files.allSatisfy { FileManager.default.fileExists(atPath: m.service.store.url(for: $0).path) })
         #expect(try m.service.store.book(id: id)?.keptOutside == false)
     }
+
+    // OB5: more files for a book kept outside are catalogued where they are too; files
+    // that are to stay put cannot join a book that is filed in the library.
+    @Test func OB5_moreFilesForABookKeptOutsideStayInPlace() throws {
+        let m = try made()
+        let id = try addInPlace(m)
+        let extra = m.elsewhere.deletingLastPathComponent().appendingPathComponent("more/03.mp3")
+        try FileManager.default.createDirectory(at: extra.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Of another length: the same sound again would be set aside as a copy.
+        try MediaFixtures.makeSilentMP3(seconds: 2).write(to: extra)
+        let before = try Data(contentsOf: extra)
+        let candidate = try #require(m.service.scan([extra]).candidates.first)
+        let added = try m.service.importItems([ImportItem(candidate: candidate, target: .existing(bookId: id))])
+        guard case .imported = try #require(added.outcomes.first) else {
+            Issue.record("not added: \(added.outcomes)")
+            return
+        }
+        let files = try m.service.store.files(bookId: id)
+        #expect(files.count == 3 && files.allSatisfy { $0.path.hasPrefix("/") })
+        #expect(try Data(contentsOf: extra) == before && m.service.store.book(id: id)?.keptOutside == true)
+        // Brought in, all three go together.
+        #expect(try m.service.bringIntoLibrary([id], mode: .copy).brought == 1)
+        #expect(try m.service.store.files(bookId: id).allSatisfy { !$0.path.hasPrefix("/") })
+
+        // Now it is filed in the library: files left where they are cannot join it.
+        let later = m.elsewhere.deletingLastPathComponent().appendingPathComponent("later/04.mp3")
+        try FileManager.default.createDirectory(at: later.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try MediaFixtures.makeSilentMP3(seconds: 3).write(to: later)
+        let next = try #require(m.service.scan([later]).candidates.first)
+        let refused = try m.service.importItems(
+            [ImportItem(candidate: next, target: .existing(bookId: id))], options: ImportOptions(leavesInPlace: true))
+        guard case .failed(let reason) = try #require(refused.outcomes.first) else {
+            Issue.record("not refused: \(refused.outcomes)")
+            return
+        }
+        #expect(reason.contains("cannot be added to a book that is filed in the library"))
+        let count = try m.service.store.files(bookId: id).count
+        #expect(FileManager.default.fileExists(atPath: later.path) && count == 3)
+    }
 }
