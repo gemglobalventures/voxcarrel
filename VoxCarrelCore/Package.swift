@@ -44,7 +44,10 @@ let package = Package(
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
             ],
             // Recorded lookup responses; no test touches the network.
-            resources: [.copy("Fixtures")]
+            resources: [.copy("Fixtures")],
+            // The tests themselves are not optimised in a release build: it is the
+            // engine that is being tried optimised, and the tests take minutes less to build.
+            swiftSettings: [.unsafeFlags(["-Onone", "-no-whole-module-optimization"], .when(configuration: .release))]
         ),
     ],
     swiftLanguageModes: [.v5],
