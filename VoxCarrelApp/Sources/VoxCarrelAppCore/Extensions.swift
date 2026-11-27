@@ -64,6 +64,24 @@ public struct ExtensionCommandItem: Identifiable, Equatable, Sendable {
     public let isEnabled: Bool
 }
 
+// MARK: Tidy actions
+
+/// Something an extension offers to do about every book one check of the library's
+/// tidiness lists: a button above the check's books. The model asks it each time the
+/// header is drawn, so its answers should be quick.
+@MainActor
+public protocol TidyActionExtension: AnyObject {
+    /// What the action is known by. It is also the end of the accessibility identifier
+    /// of its button: "tidy.action.<id>".
+    var id: String { get }
+    /// The button's title for this check; nil when the action is not for it.
+    func title(for check: TidyCheck, in model: AppModel) -> String?
+    /// Whether the action can be begun now.
+    func isEnabled(for check: TidyCheck, in model: AppModel) -> Bool
+    /// Begins the action for the check.
+    func run(for check: TidyCheck, in model: AppModel)
+}
+
 // MARK: Sheets
 
 /// The state of a sheet an extension puts on the window, by setting
@@ -160,6 +178,8 @@ public final class AppExtensions {
     public var entitlements: any Entitlements = NoEntitlements()
     /// The commands added to the Book menu and to a book's context menu, in this order.
     public var bookCommands: [any BookCommandExtension] = []
+    /// What is offered above the books of a check of the library's tidiness, in this order.
+    public var tidyActions: [any TidyActionExtension] = []
     /// What makes the views of extension sheets. Each is asked in turn and answers nil
     /// for a sheet that is not its own.
     public var sheetViews: [@MainActor (any ExtensionSheet) -> AnyView?] = []
@@ -225,6 +245,29 @@ extension AppModel {
 
     private func extensionCommandsApply(to books: Set<Int64>) -> Bool {
         isLibraryOpen && !holdsMissing(books)
+    }
+
+    // MARK: Tidy actions
+
+    /// What the extensions offer for this check, as buttons show it, in the order they
+    /// were added. Empty when none offers anything: the header then shows nothing more.
+    public func tidyActions(for check: TidyCheck) -> [ExtensionCommandItem] {
+        extensions.tidyActions.compactMap { action in
+            action.title(for: check, in: self).map {
+                ExtensionCommandItem(
+                    id: action.id, title: $0, isEnabled: isLibraryOpen && action.isEnabled(for: check, in: self))
+            }
+        }
+    }
+
+    /// Begins the tidy action with this id for the check the sidebar shows. Nothing is
+    /// done when there is no such action, or it is not enabled.
+    public func runTidyAction(_ id: String) {
+        guard isLibraryOpen, case .tidy(let check) = sidebarSelection,
+              let action = extensions.tidyActions.first(where: { $0.id == id }),
+              action.title(for: check, in: self) != nil, action.isEnabled(for: check, in: self)
+        else { return }
+        action.run(for: check, in: self)
     }
 
     // MARK: Sheets

@@ -15,6 +15,11 @@ extension LibraryService {
         }
     }
 
+    /// As `save(_:)`, recorded under this name: what Undo says it would undo.
+    public func save(_ edits: [BookEdit], named name: String) throws -> [SaveOutcome] {
+        try save(edits) { _, _ in name }
+    }
+
     /// As `save(_:)`, recorded under the name `label` gives it: from the number of
     /// books written and the title of the last of them.
     func save(_ edits: [BookEdit], label: (_ count: Int, _ title: String) -> String) throws -> [SaveOutcome] {

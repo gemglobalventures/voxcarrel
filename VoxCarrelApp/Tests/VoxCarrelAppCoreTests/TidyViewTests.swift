@@ -59,4 +59,38 @@ import VoxCarrelFixtures
         let summary = try h.book(first).summary ?? ""
         #expect(summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
+
+    /// An action that is for one check only, and counts how often it was begun.
+    final class CountingAction: TidyActionExtension {
+        let id = "counting"
+        var enabled = true
+        var runs: [TidyCheck] = []
+
+        func title(for check: TidyCheck, in model: AppModel) -> String? { check == .noYear ? "Do Them All…" : nil }
+        func isEnabled(for check: TidyCheck, in model: AppModel) -> Bool { enabled }
+        func run(for check: TidyCheck, in model: AppModel) { runs.append(check) }
+    }
+
+    @Test func anExtensionsActionIsOfferedAboveTheCheckItIsFor() async throws {
+        let h = try await Harness.demo()
+        let action = CountingAction()
+        h.model.extensions.tidyActions.append(action)
+        h.model.sidebarSelection = .tidy(.noYear)
+        await h.model.settle()
+        #expect(h.model.tidyHeader?.actions == [ExtensionCommandItem(id: "counting", title: "Do Them All…", isEnabled: true)])
+        h.model.runTidyAction("counting")
+        h.model.runTidyAction("no such action")
+        #expect(action.runs == [.noYear])
+        action.enabled = false
+        #expect(h.model.tidyHeader?.actions.first?.isEnabled == false)
+        h.model.runTidyAction("counting")
+        #expect(action.runs == [.noYear])
+
+        // Not for this check: nothing is offered, and nothing is begun.
+        h.model.sidebarSelection = .tidy(.noDescription)
+        await h.model.settle()
+        #expect(h.model.tidyHeader?.actions.isEmpty == true)
+        h.model.runTidyAction("counting")
+        #expect(action.runs == [.noYear])
+    }
 }

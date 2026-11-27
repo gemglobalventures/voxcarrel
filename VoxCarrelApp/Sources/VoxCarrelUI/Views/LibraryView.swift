@@ -125,6 +125,14 @@ private struct TidyHeaderStrip: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 6) {
+                ForEach(header.actions) { action in
+                    Button(action.title) {
+                        model.runTidyAction(action.id)
+                    }
+                    .fixedSize()
+                    .disabled(!action.isEnabled)
+                    .accessibilityIdentifier("tidy.action.\(action.id)")
+                }
                 Button(header.markFineTitle) {
                     Task { await model.markSelectionFine() }
                 }

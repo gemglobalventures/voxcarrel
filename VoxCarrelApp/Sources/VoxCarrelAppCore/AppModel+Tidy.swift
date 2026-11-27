@@ -20,6 +20,8 @@ public struct TidyHeader: Equatable, Sendable {
     /// "List the 3 Let Off Again", "List the 1 Let Off Again"; nil when none was let off.
     public var putBackTitle: String?
     public let putBackHelp = "List again the books that were marked fine as they are under this check"
+    /// What extensions offer to do about all the check's books; empty when nothing is offered.
+    public var actions: [ExtensionCommandItem] = []
 }
 
 extension AppModel {
@@ -45,7 +47,8 @@ extension AppModel {
             title: check.title, explanation: check.explanation,
             countText: count == 1 ? "1 book" : "\(count) books",
             canMarkFine: !chosen.isEmpty && busyLabel == nil && isLibraryOpen,
-            putBackTitle: letOffCount(check) > 0 ? "List the \(letOffCount(check)) Let Off Again" : nil)
+            putBackTitle: letOffCount(check) > 0 ? "List the \(letOffCount(check)) Let Off Again" : nil,
+            actions: count > 0 ? tidyActions(for: check) : [])
     }
 
     private func letOffCount(_ check: TidyCheck) -> Int {
