@@ -28,7 +28,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-document: 'https://gist.github.com/gemglobalventures/b4a6b846ea644b32fcfccd23dd57ee3e'
-          path-to-signatures: 'signatures/version1/cla.json'
+          path-to-signatures: 'signatures/version2/cla.json'
           branch: 'cla-signatures'
           allowlist: gemglobalventures,gberg,dependabot[bot]
           create-file-commit-message: 'Create the contributor agreement signature file'

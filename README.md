@@ -232,7 +232,7 @@ Bug reports and ideas are welcome as issues.
 
 When a file or a library trips the app up, **Help > Export Diagnostics** saves a zip of text files to attach: the app's version, which settings are set, how many books and files of each kind there are, and what is the matter with the books that need attention. It names no book, author, file or folder unless you tick the box to include them, and VoxCarrel sends nothing anywhere itself.
 
-Code contributions need a signed [contributor licence agreement](https://gist.github.com/gemglobalventures/b4a6b846ea644b32fcfccd23dd57ee3e). You keep the copyright in your work; the agreement lets Gem Global Ventures Pte Ltd publish it under the AGPL and also under other licences. When you open your first pull request, a check asks you to sign by posting a comment. For anything larger than a small fix, please open an issue first.
+Code contributions need a signed [contributor licence agreement](https://gist.github.com/gemglobalventures/b4a6b846ea644b32fcfccd23dd57ee3e). You keep the copyright in your work; the agreement lets Gem Global Ventures Pte Ltd publish it under the AGPL and also under other licences, and commits the company to publishing every release of VoxCarrel that includes your work in full under the AGPL. When you open your first pull request, a check asks you to sign by posting a comment. For anything larger than a small fix, please open an issue first.
 
 ## Acknowledgements
 
