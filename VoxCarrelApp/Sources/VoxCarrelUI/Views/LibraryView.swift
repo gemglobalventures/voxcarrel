@@ -107,6 +107,49 @@ private struct LibraryToolbar: ToolbarContent {
 
 /// What is said above the books one check of the library's tidiness finds: what the
 /// check means, and the button that lets the selected books off it.
+/// Above the books of one author or narrator: who, how much of theirs there is, and
+/// writing their name another way.
+private struct PersonHeaderStrip: View {
+    let model: AppModel
+    let header: PersonHeader
+    @State private var isRenaming = false
+    @State private var newName = ""
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(header.name) · \(header.kind)")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Text(header.facts)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("person.facts")
+            }
+            Spacer(minLength: 8)
+            Button(header.renameTitle) {
+                newName = header.name
+                isRenaming = true
+            }
+            .disabled(!header.canRename)
+            .accessibilityIdentifier("person.rename")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .alert(header.renamePrompt, isPresented: $isRenaming) {
+            TextField("Name", text: $newName)
+            Button("Rename") {
+                let name = newName
+                Task { await model.renamePerson(to: name) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(header.renameNote)
+        }
+    }
+}
+
 private struct TidyHeaderStrip: View {
     let model: AppModel
     let header: TidyHeader
@@ -170,6 +213,10 @@ private struct BooksView: View {
             }
             if let header = model.tidyHeader {
                 TidyHeaderStrip(model: model, header: header)
+                Divider()
+            }
+            if let header = model.personHeader {
+                PersonHeaderStrip(model: model, header: header)
                 Divider()
             }
             content
