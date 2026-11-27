@@ -116,7 +116,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 - **On the book they belong to:** brought in from Readwise (which holds Kindle highlights), from the marks you make while listening on Audible, and your own, added to any book.
 - **Straight from the device:** Library > Import Highlights from a Kindle or Kobo… reads a Kindle's `My Clippings.txt` or a Kobo's own database, with no account and nothing sent anywhere. Choose the file or the device itself. Highlights land on the books you already have, by title and author; a highlight that is already here from Readwise is not added twice.
-- **Out as a note:** a book's highlights sheet has Export as Markdown…, which saves them as one note, with the book's title, author and series at the top and each highlight as a quotation with its note, place and source. It is a plain file, for Obsidian or any other notes app.
+- **Out as a note:** a book's highlights sheet has Export as Markdown…, which saves them as one note, with the book's title, author and series at the top and each highlight as a quotation with its note, place and source. It is a plain file, for Obsidian or any other notes app. Where [Bear](https://bear.app) is installed, Send to Bear makes them a new Bear note instead.
 - **Search** finds books by the words of their highlights.
 - **Kept once:** the same highlight arriving from two places is one highlight. Looking again brings in only what changed.
 - Books you have highlighted on Kindle and do not have as files are added as entries marked "on Kindle".
@@ -124,6 +124,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 ### Your phone and your Kindle
 
 - **Send an audiobook to your phone** by AirDrop, or by a QR code that makes [BookPlayer](https://github.com/TortugaPower/BookPlayer) download it from your Mac. A book in several parts goes as one zip.
+- **Send the rest with it:** the Send to Phone sheet can tick the book's ebook and any companion PDFs to go with the audiobook through AirDrop and Share, as files of their own. The QR link for BookPlayer carries the audiobook alone.
 - **Send an ebook to your Kindle:** the book's EPUB or PDF is handed to Amazon's own Send to Kindle app, or, without it, attached to a new message to your Kindle's address for you to send. VoxCarrel signs in to nothing and uploads nothing itself.
 
 ## What it does not do
