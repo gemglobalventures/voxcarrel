@@ -119,6 +119,13 @@ import VoxCarrelFixtures
         #expect(found[.sameBookTwice] == [twiceA, twiceB])
         #expect(found[.formsApart] == [heard, read])
         #expect(found[.editionsNotLinked] == [english, german])
+        // The same, in the groups that share a title and an author.
+        #expect(try f.service.tidyGroups(for: .sameBookTwice) == [[twiceA, twiceB]])
+        #expect(try f.service.tidyGroups(for: .formsApart) == [[heard, read]])
+        #expect(try f.service.tidyGroups(for: .editionsNotLinked) == [[english, german]])
+        #expect(try f.service.tidyGroups(for: .noYear).isEmpty)
+        try f.service.setTidyIgnored(true, check: .formsApart, bookIds: [heard])
+        #expect(try f.service.tidyGroups(for: .formsApart).isEmpty)
     }
 
     // TD5: a book let off a check is no longer listed under it, and can be put back;

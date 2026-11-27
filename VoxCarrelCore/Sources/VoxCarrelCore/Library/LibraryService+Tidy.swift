@@ -178,6 +178,21 @@ extension LibraryService {
         return (result, letOff)
     }
 
+    /// For a check that finds books by what they share (the same book twice, its forms
+    /// filed apart, editions not linked): the books it lists, in the groups that share a
+    /// title and an author, each of two or more, lowest id first. Empty for any other check.
+    public func tidyGroups(for check: TidyCheck) throws -> [[Int64]] {
+        guard [.sameBookTwice, .formsApart, .editionsNotLinked].contains(check) else { return [] }
+        let listed = Set(try tidyFindings()[check] ?? [])
+        var groups: [String: [Int64]] = [:]
+        for book in try store.books() {
+            guard let id = book.id, listed.contains(id) else { continue }
+            let title = LookupText.comparable(book.title).joined(separator: " ")
+            groups[title + "|" + KnownNames.authorKey(book.authors.first ?? ""), default: []].append(id)
+        }
+        return groups.values.filter { $0.count >= 2 }.map { $0.sorted() }.sorted { $0[0] < $1[0] }
+    }
+
     /// A cover shorter than this on its longer side is a small one.
     public static let smallCoverSide = 600
 
