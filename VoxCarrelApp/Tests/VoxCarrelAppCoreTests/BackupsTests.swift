@@ -56,4 +56,19 @@ import VoxCarrelFixtures
         await h.model.restoreBackup("catalogue-19990101-000000.sqlite")
         #expect(h.model.alert == nil && h.model.rows.count == books)
     }
+
+    @Test func aMergeIsBackedUpFirstUnlessABackupWasJustMade() async throws {
+        let h = try await Harness.demo()
+        let worker = try #require(h.model.worker)
+        let before = h.model.backups.count
+        // One was made as the library opened, a moment ago: a merge now takes none.
+        await h.model.backUpBefore("before merge", with: worker, always: false)
+        await h.model.readBackups()
+        #expect(h.model.backups.count == before)
+        // What changes the whole library always takes one.
+        await h.model.backUpBefore("before layout", with: worker)
+        await h.model.readBackups()
+        #expect(h.model.backups.count == before + 1 && h.model.backups.contains { $0.text.hasSuffix("before layout") })
+        #expect(AppModel.largeImport == 20 && BackupText.intro.contains("a merge or a large import"))
+    }
 }

@@ -462,6 +462,8 @@ extension AppModel {
         let worker = await begin(MergeText.mergingLabel)
         mergeIsActing = false
         guard let worker else { return }
+        // Entries are about to become one: the catalogue is kept as it is first.
+        await backUpBefore("before merge", with: worker, always: false)
         do {
             let kept = try await worker.mergeBooks(session.bookIds, keep: keep, roles: session.roles)
             // The removed entries are gone: the kept book is what is selected.

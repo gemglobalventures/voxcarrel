@@ -180,6 +180,8 @@ extension AppModel {
 
         let label = items.count == 1 ? "Importing 1 book…" : "Importing \(items.count) books…"
         guard let worker = await begin(label) else { return }
+        // Many books at once: the catalogue is kept as it is first.
+        if items.count >= Self.largeImport { await backUpBefore("before import", with: worker, always: false) }
         var imported = Set<Int64>()
         var summary: ResultSummary?
         do {

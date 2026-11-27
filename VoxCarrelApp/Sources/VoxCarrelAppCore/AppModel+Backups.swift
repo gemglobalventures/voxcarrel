@@ -21,8 +21,8 @@ public enum BackupText {
     public static let heading = "Backups"
     public static let intro =
         "A copy of the catalogue (every book's details, series, shelves, highlights and history) is kept on this "
-        + "Mac each day the library is opened, and before a change of folder layout. The last \(CatalogueBackups.kept) "
-        + "are kept. The books' own files are not in a backup."
+        + "Mac each day the library is opened, and before a change of folder layout, a merge or a large import. "
+        + "The last \(CatalogueBackups.kept) are kept. The books' own files are not in a backup."
     public static let none = "No backup has been made yet."
     public static let demo = "The demo library is not backed up."
     public static let backUpNowTitle = "Back Up Now"
@@ -134,11 +134,24 @@ extension AppModel {
     }
 
     /// A backup before something that moves much at once. Quiet, like the day's own.
-    func backUpBefore(_ reason: String, with worker: LibraryWorker) async {
+    ///
+    /// `always`: for what changes the whole library (its folder layout, where its
+    /// catalogue is kept). Anything else, such as a merge or a large import, takes none
+    /// when a backup was made in the last few minutes: a run of merges is one backup.
+    func backUpBefore(_ reason: String, with worker: LibraryWorker, always: Bool = true) async {
         guard !isShowingDemoLibrary else { return }
         let folder = backupsFolder
+        if !always, let newest = (try? await worker.backups(in: folder))?.first,
+           Date().timeIntervalSince(newest.date) < Self.backupSpacing {
+            return
+        }
         _ = try? await worker.backUp(in: folder, reason: reason)
     }
+
+    /// How long after a backup another is not taken for a merge or an import.
+    static let backupSpacing: TimeInterval = 600
+    /// From how many books an import takes a backup first.
+    static let largeImport = 20
 
     /// Makes a backup now. One that cannot be made says why in `alert`.
     public func backUpNow() async {
