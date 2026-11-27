@@ -21,6 +21,8 @@ import VoxCarrelFixtures
         h.model.updateReview { $0.leavesInPlace = true }
         review = try #require(h.model.review)
         #expect(review.options.leavesInPlace)
+        let entry = try #require(review.entries.first)
+        #expect(review.destinationText(of: entry.id) == "Stays where it is, outside the library: \(file.deletingLastPathComponent().path)")
         await h.model.confirmImport()
         await h.model.settle()
         #expect(h.model.alert == nil)

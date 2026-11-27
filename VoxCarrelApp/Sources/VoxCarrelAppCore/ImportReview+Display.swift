@@ -386,6 +386,12 @@ extension ImportReview {
     public func destinationText(of id: UUID) -> String {
         guard let entry = entry(id) else { return "" }
         guard entry.included else { return "Will not be imported" }
+        // Left where it is: none of the rules for a folder in the library apply.
+        if leavesInPlace, offersInPlace, !entry.isAddedToExisting {
+            if case .blocked(let why) = readiness(of: id) { return "Cannot be imported: \(why)" }
+            let folder = entry.candidate.files.first?.url.deletingLastPathComponent().path ?? ""
+            return "Stays where it is, outside the library: \(folder)"
+        }
         switch readiness(of: id) {
         case .blocked(let why):
             return "Cannot be imported: \(why)"
