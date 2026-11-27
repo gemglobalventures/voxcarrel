@@ -881,10 +881,14 @@ public actor LibraryWorker {
     public func importMatch(for metadata: BookMetadata) throws -> ImportMatch? {
         guard let match = try service.existingMatches(for: metadata) else { return nil }
         let files = try match.book.id.map { try store.files(bookId: $0) } ?? []
-        return ImportMatch(
+        var found = ImportMatch(
             book: match.book, strength: match.strength,
             hasAudio: files.contains { $0.role == .audio },
             hasPDFEbook: files.contains { $0.role == .ebook && $0.format == .pdf })
+        let audio = files.filter { $0.role == .audio }
+        found.audioText = AudioCopyText.text(
+            formats: audio.map(\.format), urls: audio.map { store.url(for: $0) }, seconds: match.book.durationSeconds)
+        return found
     }
 
     public func importItems(_ items: [ImportItem], options: ImportOptions) throws -> ImportResult {

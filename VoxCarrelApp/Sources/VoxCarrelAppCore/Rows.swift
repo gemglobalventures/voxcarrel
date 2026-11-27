@@ -355,6 +355,8 @@ public struct ImportSeed: Equatable, Sendable {
     /// IH3: whether that book has an audio file in the library, and a PDF as its ebook.
     public var matchHasAudio = false
     public var matchHasPDFEbook = false
+    /// What audio that book has, in a few words; nil when none or not worked out.
+    public var matchAudioText: String?
     /// The measured length of the candidate's one audio file; nil when it has none or
     /// several, or the file's length could not be measured.
     public var measuredAudio: MeasuredAudio?
@@ -377,13 +379,16 @@ public struct ImportSeed: Equatable, Sendable {
             matchStrength = match.strength
             matchHasAudio = match.hasAudio
             matchHasPDFEbook = match.hasPDFEbook
+            matchAudioText = match.audioText
         }
     }
 
     /// The match with its strength and what the book has; nil when there is none.
     public var match: ImportMatch? {
         existingMatch.map {
-            ImportMatch(book: $0, strength: matchStrength, hasAudio: matchHasAudio, hasPDFEbook: matchHasPDFEbook)
+            var match = ImportMatch(book: $0, strength: matchStrength, hasAudio: matchHasAudio, hasPDFEbook: matchHasPDFEbook)
+            match.audioText = matchAudioText
+            return match
         }
     }
 }
@@ -397,6 +402,9 @@ public struct ImportMatch: Equatable, Sendable {
     public var hasAudio: Bool
     /// Whether the book has a PDF as its ebook.
     public var hasPDFEbook: Bool
+    /// What audio the book has, in a few words: "MP3, 3 files, about 64 kbps". Nil
+    /// when it has none, or that was not worked out.
+    public var audioText: String? = nil
 
     public init(book: Book, strength: MatchStrength, hasAudio: Bool = false, hasPDFEbook: Bool = false) {
         self.book = book

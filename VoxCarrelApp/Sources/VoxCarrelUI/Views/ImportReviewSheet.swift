@@ -403,6 +403,22 @@ private struct EntryDetail: View {
                         .controlSize(.small)
                         .accessibilityIdentifier("review.addToExisting")
                     }
+                    if entry.offersReplaceAudio {
+                        Toggle(isOn: replacesAudio) {
+                            Text(ImportReview.replaceAudioOffer)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("review.replaceAudio")
+                        if let text = review.replaceAudioText(of: entry.id) {
+                            Text(text)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("review.replaceAudioText")
+                        }
+                    }
                     if entry.offersEdition {
                         Toggle(isOn: asEdition) {
                             Text(ImportReview.editionOffer)
@@ -459,6 +475,14 @@ private struct EntryDetail: View {
             set: { typed in
                 model.updateReview { $0.setText(typed, for: field, of: id) }
             })
+    }
+
+    private var replacesAudio: Binding<Bool> {
+        let model = model
+        let id = entry.id
+        return Binding(
+            get: { entry.replacesAudio },
+            set: { on in model.updateReview { $0.setReplacesAudio(on, for: id) } })
     }
 
     private var asEdition: Binding<Bool> {

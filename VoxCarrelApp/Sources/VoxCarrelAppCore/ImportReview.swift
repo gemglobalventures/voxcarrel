@@ -48,6 +48,18 @@ public struct ImportReview: Equatable, Sendable {
         /// IH3: whether the matched book has an audio file, and a PDF as its ebook.
         var matchHasAudio = false
         var matchHasPDFEbook = false
+        /// What audio the matched book has, in a few words; nil when none or not known.
+        var matchAudioText: String?
+        /// The owner's word that this copy's audio is to take the place of the audio
+        /// the matched book has. Only meaningful while `offersReplaceAudio`.
+        public var replacesAudio = false
+
+        /// Whether the entry's audio can take the place of the matched book's: it is
+        /// being added to that book, and both have audio. Without this the new audio
+        /// would join the old as more parts of one audiobook.
+        public var offersReplaceAudio: Bool {
+            isAddedToExisting && matchHasAudio && !matchHasNoFiles && candidate.files.contains { $0.role == .audio }
+        }
         /// IH2: what the owner set the switch to by hand, by the id of the library book
         /// it was offered for.
         var switchChoices: [Int64: Bool] = [:]
@@ -321,6 +333,7 @@ public struct ImportReview: Equatable, Sendable {
                 matchedFor: MatchDetails(seed.candidate.metadata),
                 matchStrength: seed.matchStrength, matchHasAudio: seed.matchHasAudio,
                 matchHasPDFEbook: seed.matchHasPDFEbook, guessNotes: seed.candidate.guessNotes)
+            entry.matchAudioText = seed.matchAudioText
             // IH3
             entry.applyRoleGuess()
             return entry
@@ -544,6 +557,7 @@ public struct ImportReview: Equatable, Sendable {
         entry.existingMatch = match?.book
         entry.matchStrength = match?.strength ?? .sure
         entry.matchHasAudio = match?.hasAudio ?? false
+        entry.matchAudioText = match?.audioText
         entry.matchHasPDFEbook = match?.hasPDFEbook ?? false
         if let now = match?.book.id {
             entry.addToExisting = entry.switchChoices[now] ?? Entry.startsAdded(entry.matchStrength)
@@ -581,7 +595,7 @@ public struct ImportReview: Equatable, Sendable {
         entries.filter(\.included).map { entry in
             var target = ImportTarget.newBook
             if entry.isAddedToExisting, let bookId = entry.existingMatch?.id {
-                target = .existing(bookId: bookId)
+                target = entry.replacesAudio && entry.offersReplaceAudio ? .replacingAudio(of: bookId) : .existing(bookId: bookId)
             } else if entry.isImportedAsEdition, let bookId = entry.existingMatch?.id {
                 target = .edition(of: bookId)
             }

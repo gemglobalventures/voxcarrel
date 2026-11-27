@@ -118,6 +118,32 @@ extension ImportReview {
         entries[index].asEdition = on
     }
 
+    /// The owner's choice to put an entry's audio in place of the audio its match has.
+    public mutating func setReplacesAudio(_ on: Bool, for id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index].replacesAudio = on
+    }
+
+    public static let replaceAudioOffer = "Replace the audio that book has with this copy"
+
+    /// What is said under that switch: the two copies side by side, and what happens
+    /// to the old one. Nil when the switch is not offered.
+    public func replaceAudioText(of id: UUID) -> String? {
+        guard let entry = entry(id), entry.offersReplaceAudio else { return nil }
+        let audio = entry.candidate.files.filter { $0.role == .audio }
+        let mine = AudioCopyText.text(
+            formats: audio.compactMap { FileFormat(url: $0.url) }, urls: audio.map(\.url),
+            seconds: entry.candidate.metadata.durationSeconds)
+        var lines: [String] = []
+        if let has = entry.matchAudioText { lines.append("It has: \(has).") }
+        if let mine { lines.append("This copy: \(mine).") }
+        lines.append(
+            entry.replacesAudio
+                ? "The audio it has goes to the Trash once this copy is in. Its highlights, series, tags and read status stay. This cannot be undone here."
+                : "Left off, this copy's audio is added to that book beside the audio it has.")
+        return lines.joined(separator: " ")
+    }
+
     public static let editionOffer =
         "Keep it as another edition of that book (another language, another narrator, or a dramatisation)"
 
