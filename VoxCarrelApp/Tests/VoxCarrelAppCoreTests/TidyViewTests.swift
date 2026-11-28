@@ -148,4 +148,45 @@ import VoxCarrelFixtures
         await h.model.runTidyCommand(.showSeries)
         #expect(h.model.sidebarSelection == .tidy(.noDescription))
     }
+
+    /// A series check leads from one of its books to the whole series, where Check
+    /// Series is; with none or several selected it leads nowhere.
+    @Test func aSeriesCheckShowsTheSeriesOfTheSelectedBook() async throws {
+        let h = try await Harness.demo()
+        // "Salt Road" loses its number: its series now has a book that sorts last.
+        let salt = try h.id("Salt Road")
+        var book = try h.book(salt)
+        let series = try #require(book.series)
+        book.seriesNumber = nil
+        try h.store().update(book)
+        await h.model.reloadAll()
+        #expect(h.model.sidebar.tidy.contains { $0.check == .seriesNoNumber })
+
+        h.model.sidebarSelection = .tidy(.seriesNoNumber)
+        await h.model.settle()
+        #expect(h.model.rows.map(\.id) == [salt])
+        var command = try #require(h.model.tidyHeader?.commands.first)
+        #expect(command.kind == .showSeries && command.title == "Show the Series" && !command.isEnabled)
+        // Off, it does nothing.
+        await h.model.runTidyCommand(.showSeries)
+        #expect(h.model.sidebarSelection == .tidy(.seriesNoNumber))
+
+        h.model.click(salt, modifiers: [])
+        await h.model.settle()
+        command = try #require(h.model.tidyHeader?.commands.first)
+        #expect(command.isEnabled)
+        await h.model.runTidyCommand(.showSeries)
+        await h.model.settle()
+        #expect(h.model.sidebarSelection == .browse(.series, series))
+        // The series is what is shown: its header, with Check Series, and its books.
+        #expect(h.model.seriesHeader != nil && h.model.tidyHeader == nil)
+        #expect(h.model.rows.contains { $0.id == salt })
+    }
+
+    /// Someone who has chosen no library yet is not told theirs will open again.
+    @Test func theDemoNoticeFitsSomeoneWithNoLibraryYet() {
+        #expect(DemoLibraryText.whatItIs.contains("Your own library opens again"))
+        #expect(!DemoLibraryText.whatItIsAtFirst.contains("opens again"))
+        #expect(DemoLibraryText.whatItIsAtFirst.contains("Settings ▸ General"))
+    }
 }

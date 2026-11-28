@@ -11,7 +11,11 @@ struct LibraryView: View {
 
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 360)
+                // The column's own minimum is not kept when the window first shows the
+                // library after the welcome screen: the sidebar came up too narrow to
+                // read. Its content's minimum is.
+                .frame(minWidth: 220)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 230, max: 360)
                 // At the head of the sidebar, as in the system's own Books: in the
                 // toolbar the field stood across the edge of the inspector.
                 .searchable(text: $model.searchText, placement: .sidebar, prompt: "Search")
@@ -248,6 +252,13 @@ private struct BooksView: View {
                 Label(empty.title, systemImage: empty.symbol)
             } description: {
                 Text(empty.message)
+            } actions: {
+                // The words say "choose Import": it is here to be chosen.
+                if empty == .emptyLibrary {
+                    Button("Import…") { Panels.importFiles(into: model) }
+                        .disabled(!model.canImport)
+                        .accessibilityIdentifier("empty.import")
+                }
             }
             .accessibilityIdentifier(empty.accessibilityIdentifier)
         case .books:

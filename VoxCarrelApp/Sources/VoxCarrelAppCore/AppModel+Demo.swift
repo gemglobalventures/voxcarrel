@@ -15,6 +15,11 @@ public enum DemoLibraryText {
         "This is a demo library of made-up books, kept in a temporary folder. Try anything: nothing here touches "
         + "your own books. Your own library opens again the next time you start VoxCarrel, or when you choose it "
         + "in Settings."
+    /// The same for someone who has not chosen a library yet: there is none to go back to.
+    static let whatItIsAtFirst =
+        "This is a demo library of made-up books, kept in a temporary folder. Try anything: nothing here touches "
+        + "your own books. When you are ready for a library of your own, choose its folder in Settings ▸ General, "
+        + "or quit and open VoxCarrel again."
 
     static func failed(_ reason: String) -> String {
         "The demo library could not be made. \(reason)"
@@ -61,6 +66,8 @@ extension AppModel {
             return
         }
         await showForNow(folder)
-        if openFailure == nil { alert = DemoLibraryText.whatItIs }
+        if openFailure == nil {
+            alert = location.hasRemembered ? DemoLibraryText.whatItIs : DemoLibraryText.whatItIsAtFirst
+        }
     }
 }

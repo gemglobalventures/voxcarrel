@@ -101,6 +101,11 @@ public struct LibraryLocation {
     /// True while the library shown is one that is not remembered (`showForNow`).
     public var isShownForNow: Bool { forNow.url != nil }
 
+    /// Whether a library has been chosen and is remembered, whatever is shown for now.
+    public var hasRemembered: Bool {
+        !(defaults.string(forKey: Self.defaultsKey) ?? "").isEmpty
+    }
+
     /// The chosen library folder; nil when none has been chosen. Setting nil forgets it.
     /// Setting it ends a folder shown for now.
     public var url: URL? {
