@@ -149,6 +149,7 @@ public final class AppModel {
         storedLookupSources = (defaults.array(forKey: Keys.lookupSources) as? [String])
             .map { Set($0.compactMap(LookupSource.init)) } ?? Self.defaultLookupSources
         storedAsksWikidata = (defaults.object(forKey: Keys.seriesAsksWikidata) as? Bool) ?? Self.asksWikidataByDefault
+        storedSearchFindsHighlights = (defaults.object(forKey: Keys.searchFindsHighlights) as? Bool) ?? true
         storedOtherStores = (defaults.array(forKey: Keys.audibleStores) as? [String])
             .map { Set($0.compactMap(AudibleStore.init)) } ?? Self.defaultOtherStores
         status = location.status()
@@ -177,6 +178,7 @@ public final class AppModel {
         static let seriesAsksWikidata = "seriesAsksWikidata"
         static let audibleStores = "audibleStores"
         static let groupsBySeries = "groupsBySeries"
+        static let searchFindsHighlights = "searchFindsHighlights"
     }
 
     // MARK: Library
@@ -415,6 +417,7 @@ public final class AppModel {
             worker = try await Task.detached {
                 try LibraryWorker(libraryRoot: folder, trashItem: trashItem, lookup: lookup)
             }.value
+            await worker?.setSearchesHighlights(storedSearchFindsHighlights)
         } catch {
             openFailure =
                 "The library in \"\(folder.lastPathComponent)\" could not be opened. \(UserMessage.text(for: error))"
@@ -1498,6 +1501,24 @@ public final class AppModel {
     }
 
     private var storedAsksWikidata: Bool
+
+    /// Whether the search field also finds books by the words of their highlights. On
+    /// to begin with. Off, it finds books by their own details alone; the highlights
+    /// themselves are untouched, and are still shown on their books.
+    public var searchFindsHighlights: Bool {
+        get { storedSearchFindsHighlights }
+        set {
+            guard newValue != storedSearchFindsHighlights else { return }
+            storedSearchFindsHighlights = newValue
+            defaults.set(newValue, forKey: Keys.searchFindsHighlights)
+            Task {
+                await worker?.setSearchesHighlights(newValue)
+                await reloadAll()
+            }
+        }
+    }
+
+    private var storedSearchFindsHighlights: Bool
     /// What `asksWikidataForSeries` is until the owner says. Tests turn it off, so
     /// that a check of a series asks only what the test set up to answer.
     nonisolated(unsafe) static var asksWikidataByDefault = true

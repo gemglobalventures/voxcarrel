@@ -167,6 +167,14 @@ public actor LibraryWorker {
     /// The most rows a list has for its books to be asked about one by one.
     static let shortList = 200
 
+    /// Whether a search also finds books by the words of their highlights. The owner's
+    /// to turn off: in a library with many highlights they crowd out titles and names.
+    private var searchesHighlights = true
+
+    public func setSearchesHighlights(_ on: Bool) {
+        searchesHighlights = on
+    }
+
     private func readRows(for item: SidebarItem, search: String) throws -> [BookRow] {
         if item == .upNext { return try upNextRows(search: search).rows }
         let isSearching = !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -176,7 +184,8 @@ public actor LibraryWorker {
             // not read through to be narrowed down to it.
             books = try store.search(search)
             let found = Set(books.compactMap(\.id))
-            let byHighlight = try store.bookIds(withHighlightsMatching: search).subtracting(found)
+            let byHighlight = searchesHighlights
+                ? try store.bookIds(withHighlightsMatching: search).subtracting(found) : []
             if !byHighlight.isEmpty {
                 books += try byHighlight.compactMap { try store.book(id: $0) }
                 books.sort { $0.title.compare($1.title, options: .caseInsensitive) == .orderedAscending }
@@ -207,9 +216,11 @@ public actor LibraryWorker {
         }
     }
 
-    /// The books a search finds: by their own details, or by the words of a highlight.
+    /// The books a search finds: by their own details, or, unless that is turned off,
+    /// by the words of a highlight.
     private func booksMatching(_ search: String) throws -> Set<Int64> {
-        Set(try store.search(search).compactMap(\.id)).union(try store.bookIds(withHighlightsMatching: search))
+        let found = Set(try store.search(search).compactMap(\.id))
+        return searchesHighlights ? found.union(try store.bookIds(withHighlightsMatching: search)) : found
     }
 
     /// The item's books and, when the item is one series, what the catalogue holds

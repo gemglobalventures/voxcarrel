@@ -354,6 +354,39 @@ import VoxCarrelFixtures
         #expect(h.model.sidebarSelection == .allBooks)
     }
 
+    /// Turned off in Settings, a search finds books by their own details alone.
+    @Test func HL20b_theSearchCanLeaveHighlightsOut() async throws {
+        let h = try await Harness.demo()
+        try await h.highlight(Self.rivers, [S.incoming("r1", "A kingfisher, once.", note: "halcyon days")])
+        #expect(h.model.searchFindsHighlights)
+        h.model.searchText = "kingfisher"
+        await h.model.settle()
+        #expect(h.titles == [Self.rivers])
+
+        h.model.searchFindsHighlights = false
+        for _ in 0..<200 where !h.titles.isEmpty { try? await Task.sleep(nanoseconds: 5_000_000) }
+        await h.model.settle()
+        #expect(h.titles.isEmpty)
+        // Nor in a narrower list.
+        h.model.sidebarSelection = .ebooks
+        await h.model.settle()
+        #expect(h.titles.isEmpty)
+        h.model.sidebarSelection = .allBooks
+        // A book's own details are found as ever, and its highlights are still its own.
+        h.model.searchText = "salt"
+        await h.model.settle()
+        #expect(h.titles.contains("Salt Road"))
+        h.model.searchText = "Quiet Rivers"
+        await h.model.settle()
+        #expect(h.titles.contains(Self.rivers) && h.model.showsHighlights)
+
+        // On again, the words of a highlight find their book again.
+        h.model.searchFindsHighlights = true
+        h.model.searchText = "kingfisher"
+        for _ in 0..<200 where h.titles != [Self.rivers] { try? await Task.sleep(nanoseconds: 5_000_000) }
+        #expect(h.titles == [Self.rivers])
+    }
+
     @Test func HL20_aSearchFindsABookByTheWordsOfItsHighlights() async throws {
         let h = try await Harness.demo()
         try await h.highlight(Self.rivers, [S.incoming("r1", "A kingfisher, once.", note: "halcyon days")])

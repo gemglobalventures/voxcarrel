@@ -103,6 +103,10 @@ private struct GeneralSettings: View {
                 Toggle("Copy files when importing (leave originals in place)", isOn: $model.copyOnImport)
                     .accessibilityIdentifier("settings.copyOnImport")
             }
+            Section("Searching") {
+                Toggle("Find books by the words of their highlights", isOn: $model.searchFindsHighlights)
+                    .accessibilityIdentifier("settings.searchFindsHighlights")
+            }
         }
         .formStyle(.grouped)
         .frame(width: SettingsView.width)
