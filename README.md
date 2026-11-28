@@ -49,7 +49,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 ### Bringing books in
 
-- **Import** audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF), by move or copy, through a review sheet. MOBI, AZW3, AZW, PRC, DjVu, FB2, LIT and CHM are filed but never opened or modified.
+- **Import** audiobooks (M4B, M4A, MP3, including a folder of parts as one book) and ebooks (EPUB, PDF), by move or copy, through a review sheet. MOBI, AZW3, AZW, PRC, DjVu, FB2, LIT and CHM are filed, and VoxCarrel itself never opens or modifies them; Convert to EPUB hands one to calibre's converter, which reads it and leaves it as it was.
 - **A messy folder is read sensibly.** Copies are set aside, the same book in several formats is one entry, and an audiobook kept in disc folders is one book.
 - **A calibre library comes across in one step.** Its books are copied in with their details, series, covers, tags, ratings and dates. The calibre library is left exactly as it was.
 - **Watch folders**, such as Downloads: books that arrive wait in an Inbox, and are filed only when you review them.
@@ -214,15 +214,15 @@ Check Series sends the Audible IDs, or the titles and authors, of a few books of
 Each source can be switched on or off in Settings ▸ Lookup. A source that is off is never contacted.
 
 - **Open Library** and **Audible** are on by default and use encrypted connections. The Audible catalogue search is an unofficial interface and may change.
-- **The Library of Congress** is off by default. Its catalogue search is only offered over an unencrypted connection, so the title, author or ISBN you look up there can be seen on your network. It is the one exception to the app's rule of encrypted connections only.
+- **The Library of Congress** is off by default. Its catalogue search is only offered over an unencrypted connection, so the title, author or ISBN you look up there can be seen on your network. It is the one outside service the app contacts without encryption. (Send to Phone's link, below, is also unencrypted, but stays on your own network.)
 
 Send to Phone's link serves only the one book you chose, only to your local network, for at most ten minutes or one download, and it is not encrypted, so use it on a network you trust. Nothing is sent to any outside service.
 
-Linking an Audible account (Settings ▸ Accounts) is the one time VoxCarrel acts for an account, and only when you ask. You sign in on Amazon's own page, in your browser; VoxCarrel never sees your password. Amazon then registers a device with your account, named like "Your name's Audible for iPhone", and VoxCarrel keeps that device's keys on this Mac, where only your account can read them (in the Keychain for a signed build of the app, in a private file under Application Support/VoxCarrel for one you built yourself), nowhere else. With them, Import Audible Library reads the list of books you own, and downloads their covers from Amazon's image servers. It only reads: nothing is bought, changed or removed at Audible. Unlink removes the device from your Amazon account and the keys from the Keychain; you can also remove the device yourself in your Amazon account, under Content & Devices. This is not an official Amazon interface and may stop working if Amazon changes it.
+Linking an Audible account (Settings ▸ Accounts) is the one time VoxCarrel acts for an account, and only when you ask. You sign in on Amazon's own page, in your browser; VoxCarrel never sees your password. Amazon then registers a device with your account, named like "Your name's Audible for iPhone", and VoxCarrel keeps that device's keys on this Mac, where only your account can read them (in the Keychain for a signed build of the app, in a private file under Application Support/VoxCarrel for one you built yourself), nowhere else. With them, Import Audible Library reads the list of books you own, and downloads their covers from Amazon's image servers. Beyond registering that device, it only reads: nothing is bought, changed or removed at Audible. Unlink removes the device from your Amazon account and the keys from the Keychain; you can also remove the device yourself in your Amazon account, under Content & Devices. This is not an official Amazon interface and may stop working if Amazon changes it.
 
 Import Kindle Library uses the same link. Each time you run it, VoxCarrel asks Amazon for a signed-in web session for your account, sends it only to Amazon's Kindle web reader to read the list of books you own, and keeps it nowhere. A web session can do more on an Amazon account than read a list; VoxCarrel uses it for that one address and nothing else. Covers are downloaded from Amazon's image servers.
 
-Import Highlights reads Readwise with an access token you paste in from your Readwise account. The token is kept on this Mac only, and is sent only to Readwise. VoxCarrel only reads from Readwise: nothing is written to it.
+Import Highlights reads Readwise with an access token you paste in from your Readwise account. The token is kept on this Mac only, and is sent only to Readwise. Import Highlights only reads from Readwise: it writes nothing to it.
 
 Showing hidden books asks macOS to check Touch ID or your Mac's password. VoxCarrel sees only whether the check passed.
 
