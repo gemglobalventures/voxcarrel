@@ -132,7 +132,7 @@ Found a problem? Open an [issue](https://github.com/gemglobalventures/voxcarrel/
 
 - It does not play or read books; opening one hands it to your usual player or reader.
 - It does not handle protected files such as Audible downloads (`.aax`, `.aaxc`) or protected Kindle books, and it does not remove protection. Books you own on Audible or Kindle are listed alongside your files instead.
-- It does not download books, and it never asks for a password. An Audible account is linked by signing in on Amazon's own page, in your browser.
+- It does not download books, and it never sees a password. You are asked for one in two places, neither of them VoxCarrel's: Amazon's own sign-in page in your browser when you link an Audible account, and macOS itself (Touch ID or your Mac's password) when you show hidden books, which tells VoxCarrel only whether the check passed. What it keeps to act for an account, an Audible device registration or a Readwise token, stays on your Mac.
 
 ## What's next
 
