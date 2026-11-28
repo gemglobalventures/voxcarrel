@@ -24,14 +24,16 @@ import VoxCarrelFixtures
         var header = try #require(h.model.tidyHeader)
         #expect(header.title == "No Year" && header.countText == "1 book" && !header.canMarkFine)
         #expect(header.explanation == TidyCheck.noYear.explanation)
-        // Merging is no answer to a missing year: the header does not offer it.
-        #expect(!header.offersMerge && !header.canMerge)
+        // A missing year is answered by a lookup, of one book: off until one is selected.
+        #expect(header.commands.map(\.kind) == [.lookUp] && header.commands[0].isEnabled == false)
 
         // The one book is fine as it is: the check finds nothing more and its line goes.
         let id = try #require(h.model.rows.first?.id)
         h.model.click(id, modifiers: [])
         await h.model.settle()
         #expect(h.model.tidyHeader?.canMarkFine == true)
+        let lookUp = try #require(h.model.tidyHeader?.commands.first)
+        #expect(lookUp.title == "Look Up…" && lookUp.isEnabled == h.model.canLookUp)
         await h.model.markSelectionFine()
         #expect(h.model.alert == nil && h.model.busyLabel == nil)
         // Its line stays, with no count, for as long as the book can be put back.
@@ -105,5 +107,45 @@ import VoxCarrelFixtures
         #expect(h.model.tidyHeader?.actions.isEmpty == true)
         h.model.runTidyAction("counting")
         #expect(action.runs == [.noYear])
+    }
+
+    /// Each check has above its books the commands its explanation points at.
+    @Test func everyCheckOffersTheCommandsItsWordsPointAt() {
+        let expected: [TidyCheck: [TidyCommand.Kind]] = [
+            .noAuthor: [.lookUp], .noYear: [.lookUp], .noDescription: [.lookUp],
+            .noCover: [.lookUp], .smallCover: [.lookUp],
+            .seriesNoNumber: [.showSeries], .seriesGap: [.showSeries],
+            .seriesSameNumber: [.showSeries, .linkEditions],
+            .sameBookTwice: [.merge], .formsApart: [.merge],
+            .editionsNotLinked: [.linkEditions],
+            .outsideLibrary: [.bringInCopy, .bringInMove],
+            .oldFormat: [.convert],
+            .nameSpellings: [], .titleExtras: [],
+        ]
+        for (check, kinds) in expected {
+            #expect(AppModel.tidyCommandKinds(for: check) == kinds, "\(check)")
+        }
+        // The words of a check that names a command name one that is offered.
+        #expect(TidyCheck.sameBookTwice.explanation.contains("Merge Books"))
+        #expect(TidyCheck.editionsNotLinked.explanation.contains(AppModel.linkEditionsTitle))
+    }
+
+    @Test func aCommandIsOffUntilItAppliesAndOneNotOfferedIsNotRun() async throws {
+        let h = try await Harness.demo()
+        h.model.sidebarSelection = .tidy(.noDescription)
+        await h.model.settle()
+        let inSeries = h.model.rows.first { ($0.book.series ?? "").isEmpty == false }
+        let row = try #require(inSeries ?? h.model.rows.first)
+        h.model.click(row.id, modifiers: [])
+        await h.model.settle()
+        // Showing the series is for one book that is in one; merging is for two or more.
+        let commands = h.model.tidyCommands(for: .seriesGap, chosen: [row.id])
+        #expect(commands.map(\.kind) == [.showSeries])
+        #expect(commands[0].isEnabled == (inSeries != nil))
+        let merge = h.model.tidyCommands(for: .sameBookTwice, chosen: [row.id])
+        #expect(merge[0].isEnabled == false)
+        // A command the shown check does not offer is not run.
+        await h.model.runTidyCommand(.showSeries)
+        #expect(h.model.sidebarSelection == .tidy(.noDescription))
     }
 }
