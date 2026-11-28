@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Installing and first steps
+    url: https://voxcarrel.com/install/
+    about: How to open the test release for the first time, and how to try it with the demo library.
+  - name: Talk about it
+    url: https://www.reddit.com/r/voxcarrel/
+    about: Questions and conversation that are not a bug or an idea.

@@ -1,0 +1,20 @@
+name: An idea or a chore you wish it did
+description: Something VoxCarrel does not do yet, or could do better.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: chore
+    attributes:
+      label: What you are trying to get done
+      description: The job itself, in your own library, before any solution. "Every new audiobook arrives as forty files and I join them by hand" is the kind of thing.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you do it today
+      description: Another app, a script, by hand, or not at all.
+  - type: textarea
+    id: wish
+    attributes:
+      label: What you would like VoxCarrel to do

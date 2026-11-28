@@ -1,0 +1,49 @@
+name: Something went wrong
+description: The app did something you did not expect, or failed to do something.
+labels: [bug]
+body:
+  - type: textarea
+    id: did
+    attributes:
+      label: What you did
+      description: The steps, as far as you remember them. "I dropped a folder of MP3s on the window and pressed Import" is enough.
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you saw, including the words of any message. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+  - type: input
+    id: version
+    attributes:
+      label: VoxCarrel version
+      description: From VoxCarrel > About VoxCarrel, for example 0.1.15 (391).
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: From Apple menu > About This Mac, for example 15.5.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where the books are kept
+      options:
+        - On this Mac
+        - An external drive
+        - A NAS or network share
+        - A synced folder (iCloud Drive, Dropbox and the like)
+        - Not sure
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Help > Export Diagnostics saves a zip of text files; drag it here. It names no book, author, file or folder unless you tick the box to include them. Look inside before you attach it if you like.
