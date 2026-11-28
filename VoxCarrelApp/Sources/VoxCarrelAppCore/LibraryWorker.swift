@@ -168,8 +168,8 @@ public actor LibraryWorker {
     static let shortList = 200
 
     /// Whether a search also finds books by the words of their highlights. The owner's
-    /// to turn off: in a library with many highlights they crowd out titles and names.
-    private var searchesHighlights = true
+    /// to turn on: in a library with many highlights they crowd out titles and names.
+    private var searchesHighlights = false
 
     public func setSearchesHighlights(_ on: Bool) {
         searchesHighlights = on

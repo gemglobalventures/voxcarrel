@@ -149,7 +149,7 @@ public final class AppModel {
         storedLookupSources = (defaults.array(forKey: Keys.lookupSources) as? [String])
             .map { Set($0.compactMap(LookupSource.init)) } ?? Self.defaultLookupSources
         storedAsksWikidata = (defaults.object(forKey: Keys.seriesAsksWikidata) as? Bool) ?? Self.asksWikidataByDefault
-        storedSearchFindsHighlights = (defaults.object(forKey: Keys.searchFindsHighlights) as? Bool) ?? true
+        storedSearchFindsHighlights = (defaults.object(forKey: Keys.searchFindsHighlights) as? Bool) ?? false
         storedOtherStores = (defaults.array(forKey: Keys.audibleStores) as? [String])
             .map { Set($0.compactMap(AudibleStore.init)) } ?? Self.defaultOtherStores
         status = location.status()
@@ -1502,9 +1502,10 @@ public final class AppModel {
 
     private var storedAsksWikidata: Bool
 
-    /// Whether the search field also finds books by the words of their highlights. On
-    /// to begin with. Off, it finds books by their own details alone; the highlights
-    /// themselves are untouched, and are still shown on their books.
+    /// Whether the search field also finds books by the words of their highlights. Off
+    /// to begin with: in a large library those hits crowd out titles and names. Off, it
+    /// finds books by their own details alone; the highlights themselves are untouched,
+    /// and are still shown on their books.
     public var searchFindsHighlights: Bool {
         get { storedSearchFindsHighlights }
         set {
