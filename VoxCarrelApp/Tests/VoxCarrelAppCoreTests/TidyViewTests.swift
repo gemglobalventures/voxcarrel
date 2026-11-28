@@ -120,8 +120,10 @@ import VoxCarrelFixtures
             .editionsNotLinked: [.linkEditions],
             .outsideLibrary: [.bringInCopy, .bringInMove],
             .oldFormat: [.convert],
-            .nameSpellings: [], .titleExtras: [],
+            .nameSpellings: [], .titleExtras: [], .manyAudioFiles: [],
         ]
+        // Every check is in this table: a new one has to say what it offers.
+        #expect(Set(expected.keys) == Set(TidyCheck.allCases))
         for (check, kinds) in expected {
             #expect(AppModel.tidyCommandKinds(for: check) == kinds, "\(check)")
         }
@@ -188,5 +190,69 @@ import VoxCarrelFixtures
         #expect(DemoLibraryText.whatItIs.contains("Your own library opens again"))
         #expect(!DemoLibraryText.whatItIsAtFirst.contains("opens again"))
         #expect(DemoLibraryText.whatItIsAtFirst.contains("Settings ▸ General"))
+    }
+
+    /// An action for audiobooks in many files, which can stop offering itself.
+    final class PartsAction: TidyActionExtension {
+        let id = "parts"
+        var offers = true
+        var runs = 0
+
+        func title(for check: TidyCheck, in model: AppModel) -> String? {
+            offers && check == .manyAudioFiles ? "Make One File…" : nil
+        }
+        func isEnabled(for check: TidyCheck, in model: AppModel) -> Bool { true }
+        func run(for check: TidyCheck, in model: AppModel) { runs += 1 }
+    }
+
+    /// A check that names no fault is listed only while something offers to act on it:
+    /// nobody is shown a list they can do nothing about.
+    @Test func aCheckShownOnlyWhereActedOnAppearsWithItsActionAndGoesWithIt() async throws {
+        let h = try await Harness.demo()
+        // The demo library has an audiobook in several parts; the app alone has nothing for it.
+        let inParts = try h.store().books().compactMap(\.id).filter { id in
+            (try? h.store().files(bookId: id).filter { $0.role == .audio }.count) ?? 0 > 1
+        }
+        #expect(!inParts.isEmpty)
+        #expect(!h.model.sidebar.tidy.contains { $0.check == .manyAudioFiles })
+        #expect(h.model.tidyChecksActedOn.isEmpty)
+        let before = h.model.sidebar.tidy.map(\.check)
+
+        // Something offers to act on it: it is listed, after the others, with its books and the action above them.
+        let action = PartsAction()
+        h.model.extensions.tidyActions.append(action)
+        #expect(h.model.tidyChecksActedOn == [.manyAudioFiles])
+        await h.model.reloadAll()
+        await h.model.settle()
+        #expect(h.model.sidebar.tidy.map(\.check) == before + [.manyAudioFiles])
+        #expect(h.model.sidebar.tidy.last?.count == inParts.count)
+        h.model.sidebarSelection = .tidy(.manyAudioFiles)
+        await h.model.settle()
+        #expect(Set(h.model.rows.map(\.id)) == Set(inParts) && h.model.windowTitle == "Audio in Parts")
+        let header = try #require(h.model.tidyHeader)
+        #expect(header.actions == [ExtensionCommandItem(id: "parts", title: "Make One File…", isEnabled: true)])
+        // The app has no command of its own for it.
+        #expect(header.commands.isEmpty && header.explanation == TidyCheck.manyAudioFiles.explanation)
+        h.model.runTidyAction("parts")
+        #expect(action.runs == 1)
+
+        // A book that is fine in parts is let off, and can be put back.
+        let one = try #require(inParts.first)
+        h.model.click(one, modifiers: [])
+        await h.model.settle()
+        await h.model.markSelectionFine()
+        await h.model.settle()
+        #expect(!h.model.rows.contains { $0.id == one })
+        #expect(h.model.sidebar.tidy.last?.letOff == 1 && h.model.sidebar.tidy.last?.count == inParts.count - 1)
+        await h.model.putBackLetOff()
+        await h.model.settle()
+        #expect(h.model.sidebar.tidy.last?.count == inParts.count)
+
+        // The offer is withdrawn: at the next reading of the library the check is gone, and All Books is shown.
+        action.offers = false
+        await h.model.reloadAll()
+        await h.model.settle()
+        #expect(h.model.sidebar.tidy.map(\.check) == before)
+        #expect(h.model.sidebarSelection == .allBooks && h.model.tidyHeader == nil)
     }
 }

@@ -814,6 +814,10 @@ public final class AppModel {
         rowsGeneration += 1
         let generation = rowsGeneration
         do {
+            // A check that is shown only where acted on is asked for while something
+            // offers to act on it, and not otherwise: said afresh each time, since what
+            // is offered can change while the library is open.
+            await worker.setTidyChecksActedOn(tidyChecksActedOn)
             sidebar = try await worker.sidebar()
             heldEditCount = (try? await worker.heldEditCount()) ?? 0
             undoLabel = try await worker.undoLabel()

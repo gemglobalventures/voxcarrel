@@ -54,7 +54,14 @@ extension AppModel {
         case .oldFormat: [.convert]
         // Answered by an edit in the inspector, which is already beside the list.
         case .nameSpellings, .titleExtras: []
+        // The app itself has nothing for it: it is listed only where an extension has.
+        case .manyAudioFiles: []
         }
+    }
+
+    /// The checks shown only where acted on that an extension now offers something for.
+    var tidyChecksActedOn: Set<TidyCheck> {
+        Set(TidyCheck.allCases.filter { $0.isShownOnlyWhereActedOn && !tidyActions(for: $0).isEmpty })
     }
 
     /// The series of the one selected book, as the sidebar names it; nil when more or

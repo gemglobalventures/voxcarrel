@@ -101,6 +101,39 @@ import VoxCarrelFixtures
         #expect(found[.titleExtras] == [unabridged, novel, numbered])
     }
 
+    // TD3b: an audiobook kept as several audio files is looked for only when asked for by
+    // name, since it is no fault: it is listed only where something can act on it.
+    @Test func TD3b_audiobooksInManyFilesAreFoundOnlyWhenAskedFor() throws {
+        let f = try F()
+        let parts = try add(f, "In Parts", files: [("1.mp3", .mp3, .audio), ("2.mp3", .mp3, .audio), ("3.mp3", .mp3, .audio)])
+        let whole = try add(f, "One File", files: [("whole.m4b", .m4b, .audio)])
+        let read = try add(f, "To Read", files: [("a.epub", .epub, .ebook), ("b.pdf", .pdf, .ebook)])
+        // With a companion beside it, one audio file is still one.
+        let withExtra = try add(f, "With a Map", files: [("book.m4b", .m4b, .audio), ("map.pdf", .pdf, .extra)])
+
+        #expect(try f.service.tidyFindings()[.manyAudioFiles] == nil)
+        #expect(try f.service.tidyReport().letOff[.manyAudioFiles] == nil)
+        let found = try f.service.tidyFindings(including: [.manyAudioFiles])
+        #expect(found[.manyAudioFiles] == [parts])
+        #expect(![whole, read, withExtra].contains { found[.manyAudioFiles]?.contains($0) == true })
+        // Asking for it changes nothing else that is found.
+        var others = found
+        others[.manyAudioFiles] = nil
+        #expect(try others == f.service.tidyFindings())
+
+        // It is the only check of its kind, and says what it is without calling it a fault.
+        #expect(TidyCheck.allCases.filter(\.isShownOnlyWhereActedOn) == [.manyAudioFiles])
+        #expect(TidyCheck.manyAudioFiles.title == "Audio in Parts")
+        #expect(TidyCheck.manyAudioFiles.explanation.contains("can be left as they are"))
+
+        // A book that is fine in parts is let off like any other, and can be put back.
+        try f.service.setTidyIgnored(true, check: .manyAudioFiles, bookIds: [parts])
+        let report = try f.service.tidyReport(including: [.manyAudioFiles])
+        #expect(report.found[.manyAudioFiles] == nil && report.letOff[.manyAudioFiles] == [parts])
+        try f.service.setTidyIgnored(false, check: .manyAudioFiles, bookIds: [parts])
+        #expect(try f.service.tidyFindings(including: [.manyAudioFiles])[.manyAudioFiles] == [parts])
+    }
+
     // TD4: the same title by the same author twice is told as what it is: the same
     // book twice, its two forms filed apart, or editions not yet linked.
     @Test func TD4_theSameTitleTwice() throws {

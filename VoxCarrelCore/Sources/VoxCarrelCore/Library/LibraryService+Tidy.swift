@@ -10,6 +10,17 @@ public enum TidyCheck: String, CaseIterable, Sendable {
     case oldFormat
     /// Not untidy, but worth a list of its own: books kept where their files are.
     case outsideLibrary
+    /// Not untidy either: audiobooks kept as several audio files. Listed only where
+    /// something can make one file of them (`isShownOnlyWhereActedOn`).
+    case manyAudioFiles
+
+    /// True for a check that names no fault, only a state of things that some would
+    /// rather change: it is listed only where something offers to change it, and
+    /// looked for only when asked for by name (`tidyReport(including:)`). Nobody is
+    /// shown a list they can do nothing about.
+    public var isShownOnlyWhereActedOn: Bool {
+        self == .manyAudioFiles
+    }
 
     /// What the check is called where it is listed.
     public var title: String {
@@ -29,6 +40,7 @@ public enum TidyCheck: String, CaseIterable, Sendable {
         case .editionsNotLinked: "Editions Not Linked"
         case .oldFormat: "Older Ebook Formats"
         case .outsideLibrary: "Outside the Library Folder"
+        case .manyAudioFiles: "Audio in Parts"
         }
     }
 
@@ -49,6 +61,7 @@ public enum TidyCheck: String, CaseIterable, Sendable {
         case .formsApart: "Each of these is an audiobook or an ebook whose other form is filed as a separate entry. Select both and choose Merge Books to make them one book."
         case .editionsNotLinked: "Each of these has the same title and author as another entry but is another edition: another language, narrator or kind. Select both and choose Link as Editions of One Book."
         case .outsideLibrary: "These books were added where their files are, and are kept there: nothing of theirs has been moved or changed, and their details are kept in the catalogue alone. Select them and choose Book > Bring into the Library to copy or move them in."
+        case .manyAudioFiles: "Each of these audiobooks is kept as several audio files. They can be left as they are; one file with a chapter for each part is easier to move, send and resume."
         case .oldFormat: "These books have an ebook in an older format (MOBI, AZW3 and the like) and no EPUB. Convert to EPUB adds one beside it."
         }
     }
@@ -60,21 +73,28 @@ extension LibraryService {
     /// let off a check. Asks nothing of the network and opens no book's file; a cover's
     /// size is read from its picture once, and again only when the picture changes.
     /// Inside `BookScope.visible`, hidden books are not looked at.
-    public func tidyFindings() throws -> [TidyCheck: [Int64]] {
-        try tidyReport().found
+    public func tidyFindings(including asked: Set<TidyCheck> = []) throws -> [TidyCheck: [Int64]] {
+        try tidyReport(including: asked).found
     }
 
     /// The same, and with it the books each check would list had the owner not let them
     /// off it: the ones that can be put back.
-    public func tidyReport() throws -> (found: [TidyCheck: [Int64]], letOff: [TidyCheck: [Int64]]) {
+    ///
+    /// - Parameter asked: The checks shown only where acted on that are wanted too. The
+    ///   others of that kind are not looked for, and are in neither list.
+    public func tidyReport(including asked: Set<TidyCheck> = []) throws
+        -> (found: [TidyCheck: [Int64]], letOff: [TidyCheck: [Int64]])
+    {
         let books = try store.books()
         let ignored = try store.tidyIgnored()
         var roles: [Int64: Set<FileRole>] = [:]
         var formats: [Int64: Set<FileFormat>] = [:]
+        var audioFiles: [Int64: Int] = [:]
         for file in try store.allFiles() {
             guard let id = file.bookId else { continue }
             roles[id, default: []].insert(file.role)
             if file.role == .ebook { formats[id, default: []].insert(file.format) }
+            if file.role == .audio { audioFiles[id, default: 0] += 1 }
         }
         let allCovers = covers.all()
         let withCover = Set(allCovers.keys)
@@ -95,6 +115,7 @@ extension LibraryService {
             }
             if Self.titleHasExtras(book) { found[.titleExtras, default: []].insert(id) }
             if book.keptOutside { found[.outsideLibrary, default: []].insert(id) }
+            if asked.contains(.manyAudioFiles), (audioFiles[id] ?? 0) > 1 { found[.manyAudioFiles, default: []].insert(id) }
             let own = formats[id] ?? []
             if !own.isEmpty, !own.contains(.epub), !own.contains(.pdf) { found[.oldFormat, default: []].insert(id) }
         }

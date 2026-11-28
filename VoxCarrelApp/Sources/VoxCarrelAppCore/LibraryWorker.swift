@@ -175,6 +175,14 @@ public actor LibraryWorker {
         searchesHighlights = on
     }
 
+    /// The checks shown only where acted on that something now offers to act on: the
+    /// only ones of that kind looked for and listed. None, until the model says.
+    private var tidyChecksActedOn: Set<TidyCheck> = []
+
+    public func setTidyChecksActedOn(_ checks: Set<TidyCheck>) {
+        tidyChecksActedOn = checks
+    }
+
     private func readRows(for item: SidebarItem, search: String) throws -> [BookRow] {
         if item == .upNext { return try upNextRows(search: search).rows }
         let isSearching = !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -324,7 +332,7 @@ public actor LibraryWorker {
             // G13: read from the catalogue alone; no file is opened.
             genreFilesToUpdate: try service.genreFileDifferences().count)
         // What is untidy, a line for each check that finds something.
-        let tidy = try service.tidyReport()
+        let tidy = try service.tidyReport(including: tidyChecksActedOn)
         data.tidy = TidyCheck.allCases.compactMap { check in
             let count = tidy.found[check]?.count ?? 0
             let letOff = tidy.letOff[check]?.count ?? 0
@@ -575,7 +583,8 @@ public actor LibraryWorker {
 
     /// Puts back under a check every book that was let off it and that it would still list.
     public func putBackTidy(check: TidyCheck) throws {
-        try service.setTidyIgnored(false, check: check, bookIds: try service.tidyReport().letOff[check] ?? [])
+        try service.setTidyIgnored(
+            false, check: check, bookIds: try service.tidyReport(including: tidyChecksActedOn).letOff[check] ?? [])
     }
 
     /// Ties these books together as editions of one work.
@@ -710,7 +719,7 @@ public actor LibraryWorker {
         case .shelf(let id):
             try service.smartShelves().first { $0.id == id }.map { try service.books(on: $0) } ?? []
         // What one check of the library's tidiness finds.
-        case .tidy(let check): try books(withIds: try service.tidyFindings()[check] ?? [])
+        case .tidy(let check): try books(withIds: try service.tidyFindings(including: tidyChecksActedOn)[check] ?? [])
         // The inbox lists arrivals, which are not yet books.
         case .inbox: []
         // Asked for by name: these are the books every other list leaves out.
