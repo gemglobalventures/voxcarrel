@@ -805,4 +805,101 @@ import VoxCarrelFixtures
         #expect(h.busyLabels.isEmpty)
         #expect(h.model.review == nil)
     }
+
+    // MARK: Two items of one import bound for the same folder
+
+    /// An audiobook and its ebook that the scan kept apart, because one title carried a
+    /// subtitle, are offered as one book once they would share a folder, and imported
+    /// as one. Before, the second was refused only after the first had gone in.
+    @Test func twoItemsBoundForOneFolderAreJoinedAsOneBook() async throws {
+        let h = try await Harness.empty()
+        let inbox = try Harness.inbox()
+        let audio = inbox.appendingPathComponent("river audio.mp3")
+        try MediaFixtures.makeSilentMP3(seconds: 2, id3v23Title: "Quiet Rivers: Forty Years on the Water").write(to: audio)
+
+        await h.model.beginImport([quietRivers(inbox), audio])
+        var review = try #require(h.model.review)
+        // Two items: the titles differ by a subtitle, which the scan does not take to be one book.
+        #expect(review.entries.count == 2)
+        let spoken = try #require(review.entries.first { $0.candidate.hasAudio })
+        let written = try #require(review.entries.first { !$0.candidate.hasAudio })
+        #expect(review.joinableEarlier(of: spoken.id) == nil && review.joinableEarlier(of: written.id) == nil)
+        #expect(review.items().count == 2)
+
+        // Given the same title and author here, they are bound for one folder.
+        let author = written.candidate.metadata.authors.joined(separator: "; ")
+        h.model.updateReview {
+            $0.setText("Quiet Rivers", for: .title, of: spoken.id)
+            $0.setText(author, for: .authors, of: spoken.id)
+        }
+        await h.model.settle()
+        review = try #require(h.model.review)
+        let folders = Set(review.entries.compactMap(\.destination))
+        #expect(folders.count == 1)
+        // The later of the two is offered to join the earlier, and does so unless told otherwise.
+        let later = try #require(review.entries.last)
+        let earlier = try #require(review.entries.first)
+        #expect(review.joinableEarlier(of: later.id)?.id == earlier.id && review.joinableEarlier(of: earlier.id) == nil)
+        #expect(review.isJoinedToEarlier(later.id) && review.sameFolderProblem(of: later.id) == nil)
+        let choice = try #require(review.joinEarlierChoice(of: later.id))
+        #expect(choice.join == "Add to “Quiet Rivers” above, as one book" && choice.apart == ImportReview.separateBookTitle)
+        #expect(review.joinEarlierNote(of: later.id)?.contains("one book") == true)
+        // What is imported is one book with both files, the audio first.
+        var items = review.items()
+        #expect(items.count == 1 && items[0].candidate.files.map(\.role) == [.audio, .ebook])
+
+        // Told to import it apart, it is its own item again, and the review says what that needs.
+        h.model.updateReview { $0.setJoinsEarlier(false, for: later.id) }
+        review = try #require(h.model.review)
+        #expect(!review.isJoinedToEarlier(later.id) && review.items().count == 2)
+        #expect(review.joinEarlierNote(of: later.id)?.contains("cannot share a folder") == true)
+        h.model.updateReview { $0.setJoinsEarlier(true, for: later.id) }
+
+        // Unticked, the earlier one is no book to join; ticked again, it is.
+        func tick(_ on: Bool) {
+            h.model.updateReview { review in
+                if let index = review.entries.firstIndex(where: { $0.id == earlier.id }) { review.entries[index].included = on }
+            }
+        }
+        tick(false)
+        #expect(h.model.review?.joinableEarlier(of: later.id) == nil)
+        tick(true)
+        items = try #require(h.model.review).items()
+        #expect(items.count == 1)
+
+        await h.model.confirmImport()
+        await h.model.settle()
+        #expect(h.model.alert == nil)
+        let store = try h.store()
+        let books = try store.books().filter { $0.title == "Quiet Rivers" }
+        #expect(books.count == 1)
+        let files = try store.files(bookId: try #require(books.first?.id))
+        #expect(Set(files.map(\.role)) == [.audio, .ebook] && files.count == 2)
+    }
+
+    /// Two audiobooks bound for one folder are not joined: the review says so before anything is imported.
+    @Test func twoAudiobooksBoundForOneFolderAreSaidToClash() async throws {
+        let h = try await Harness.empty()
+        let inbox = try Harness.inbox()
+        let one = inbox.appendingPathComponent("first.mp3")
+        let two = inbox.appendingPathComponent("second.mp3")
+        try MediaFixtures.makeSilentMP3(seconds: 2, id3v23Title: "Night Ferry").write(to: one)
+        try MediaFixtures.makeSilentMP3(seconds: 3, id3v23Title: "Night Ferry: The Longer Cut").write(to: two)
+        await h.model.beginImport([one, two])
+        var review = try #require(h.model.review)
+        #expect(review.entries.count == 2)
+        for entry in review.entries {
+            h.model.updateReview {
+                $0.setText("Night Ferry", for: .title, of: entry.id)
+                $0.setText("Ann Author", for: .authors, of: entry.id)
+            }
+        }
+        await h.model.settle()
+        review = try #require(h.model.review)
+        let later = try #require(review.entries.last)
+        #expect(review.earlierInSameFolder(as: later.id) != nil && review.joinableEarlier(of: later.id) == nil)
+        #expect(!review.isJoinedToEarlier(later.id) && review.joinEarlierChoice(of: later.id) == nil)
+        #expect(review.sameFolderProblem(of: later.id)?.contains("two books cannot share one") == true)
+        #expect(review.items().count == 2)
+    }
 }

@@ -18,6 +18,11 @@ public struct ImportReview: Equatable, Sendable {
         /// Only meaningful when `existingMatch` is not nil. IH1: starts true for a sure
         /// match and one by Audible ID, false for a possible one.
         public var addToExisting: Bool
+        /// Whether, when an item above it in this import would be filed in the same
+        /// folder as a new book, this one joins it as one book. True to begin with:
+        /// two things bound for one folder are far more often one book than two. Only
+        /// meaningful while there is such an item (`ImportReview.earlierInSameFolder`).
+        public var joinsEarlier = true
         /// The measured length of the one audio file the entry came with, when it came
         /// with one and its length could be measured.
         var measuredAudio: MeasuredAudio?
@@ -591,8 +596,64 @@ public struct ImportReview: Equatable, Sendable {
         return tidy
     }
 
+    // MARK: Two items of one import bound for the same folder
+
+    /// Whether the entry will be a new book of its own, as far as the library goes.
+    private func isNewBook(_ entry: Entry) -> Bool {
+        entry.included && !entry.isAddedToExisting && !entry.isImportedAsEdition
+    }
+
+    /// The item above this one that will be filed, as a new book, in the folder this
+    /// one would be filed in as a new book: the first such in the review's order. Nil
+    /// when there is none, or when either folder has not been worked out.
+    ///
+    /// The scan joins an audiobook and its ebook when their details already agree. Two
+    /// items can still end up bound for one folder: one title carries a subtitle the
+    /// other lacks, or a title or author was typed here after the scan. The library
+    /// never gives two books one folder, so without this the second was refused only
+    /// once the first had been imported.
+    public func earlierInSameFolder(as id: UUID) -> Entry? {
+        guard let index = entries.firstIndex(where: { $0.id == id }), isNewBook(entries[index]),
+              let folder = entries[index].computedDestination?.lowercased(), !folder.isEmpty
+        else { return nil }
+        return entries[..<index].first { isNewBook($0) && $0.computedDestination?.lowercased() == folder }
+    }
+
+    /// Whether this entry's files and those of the item it shares a folder with are
+    /// different forms of a book: they do not both have audio, nor both an ebook. Two
+    /// audiobooks for one folder are two copies or two books, and are not joined.
+    private func completes(_ later: Entry, _ earlier: Entry) -> Bool {
+        func forms(_ entry: Entry) -> Set<FileRole> {
+            Set(entry.candidate.files.map(\.role)).intersection([.audio, .ebook])
+        }
+        return forms(later).isDisjoint(with: forms(earlier))
+    }
+
+    /// The item this one can join as one book; nil when there is none it can.
+    public func joinableEarlier(of id: UUID) -> Entry? {
+        guard let entry = entry(id), let earlier = earlierInSameFolder(as: id), completes(entry, earlier) else { return nil }
+        return earlier
+    }
+
+    /// Whether this entry's files will go into the item above it as one book.
+    public func isJoinedToEarlier(_ id: UUID) -> Bool {
+        guard let entry = entry(id) else { return false }
+        return entry.joinsEarlier && joinableEarlier(of: id) != nil
+    }
+
+    public mutating func setJoinsEarlier(_ joins: Bool, for id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        entries[index].joinsEarlier = joins
+    }
+
     public func items() -> [ImportItem] {
-        entries.filter(\.included).map { entry in
+        // What joins an item above it goes into that item: one book, as the scan would
+        // have made it had the two agreed from the start.
+        var joined: [UUID: [Entry]] = [:]
+        for entry in entries where entry.included && isJoinedToEarlier(entry.id) {
+            if let earlier = joinableEarlier(of: entry.id) { joined[earlier.id, default: []].append(entry) }
+        }
+        return entries.filter { $0.included && !isJoinedToEarlier($0.id) }.map { entry in
             var target = ImportTarget.newBook
             if entry.isAddedToExisting, let bookId = entry.existingMatch?.id {
                 target = entry.replacesAudio && entry.offersReplaceAudio ? .replacingAudio(of: bookId) : .existing(bookId: bookId)
@@ -602,6 +663,17 @@ public struct ImportReview: Equatable, Sendable {
             var cover = CoverChange.keep
             if entry.coverChanged, let image = entry.cover { cover = .set(image) }
             var candidate = entry.candidate
+            for other in joined[entry.id] ?? [] {
+                candidate.files += other.candidate.files
+                candidate.coverBeside = candidate.coverBeside ?? other.candidate.coverBeside
+                candidate.copies += other.candidate.copies
+                candidate.filesNotOnThisMac += other.candidate.filesNotOnThisMac
+                // The first item's cover is the book's, unless only the other has one to give.
+                if !entry.coverChanged, other.coverChanged, let image = other.cover { cover = .set(image) }
+            }
+            if !(joined[entry.id] ?? []).isEmpty {
+                candidate.files = [FileRole.audio, .ebook, .extra].flatMap { role in candidate.files.filter { $0.role == role } }
+            }
             candidate.metadata = Self.tidied(candidate.metadata)
             return ImportItem(candidate: candidate, target: target, cover: cover)
         }

@@ -394,14 +394,43 @@ private struct EntryDetail: View {
 
                 InspectorSection("Where It Goes") {
                     if let offer = entry.existingMatchText {
-                        Toggle(isOn: addToExisting) {
+                        // Two choices in words, not a switch: a switch says which it is
+                        // only by its colour, which a window that is not in front loses.
+                        Picker(selection: addToExisting) {
                             // IH1: a possible match is a question, and a long one.
-                            Text(offer)
-                                .fixedSize(horizontal: false, vertical: true)
+                            Text(offer).tag(true)
+                            Text(ImportReview.separateBookTitle).tag(false)
+                        } label: {
+                            EmptyView()
                         }
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
                         .accessibilityIdentifier("review.addToExisting")
+                    }
+                    if let choice = review.joinEarlierChoice(of: entry.id) {
+                        Picker(selection: joinsEarlier) {
+                            Text(choice.join).tag(true)
+                            Text(choice.apart).tag(false)
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
+                        .accessibilityIdentifier("review.joinsEarlier")
+                        if let note = review.joinEarlierNote(of: entry.id) {
+                            Text(note)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("review.joinsEarlierNote")
+                        }
+                    }
+                    if let problem = review.sameFolderProblem(of: entry.id) {
+                        Label(problem, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("review.sameFolderProblem")
                     }
                     if entry.offersReplaceAudio {
                         Toggle(isOn: replacesAudio) {
@@ -491,6 +520,14 @@ private struct EntryDetail: View {
         return Binding(
             get: { entry.asEdition },
             set: { on in model.updateReview { $0.setAsEdition(on, for: id) } })
+    }
+
+    private var joinsEarlier: Binding<Bool> {
+        let model = model
+        let id = entry.id
+        return Binding(
+            get: { (model.review ?? review).entry(id)?.joinsEarlier ?? true },
+            set: { joins in model.updateReview { $0.setJoinsEarlier(joins, for: id) } })
     }
 
     private var addToExisting: Binding<Bool> {

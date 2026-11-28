@@ -107,6 +107,35 @@ extension ImportReview {
     }
 
 
+    // MARK: Two items bound for the same folder
+
+    /// What the owner chooses between for an item that can join the one above it.
+    public func joinEarlierChoice(of id: UUID) -> (join: String, apart: String)? {
+        guard let earlier = joinableEarlier(of: id) else { return nil }
+        let title = earlier.candidate.metadata.title.trimmedOrNil.map { "“\($0)”" } ?? "the book above"
+        return ("Add to \(title) above, as one book", "Import as a separate book")
+    }
+
+    /// Said under that choice: what joining means, or what importing apart needs.
+    public func joinEarlierNote(of id: UUID) -> String? {
+        guard let entry = entry(id), joinableEarlier(of: id) != nil else { return nil }
+        return entry.joinsEarlier
+            ? "Both would be filed in the same folder, so they are taken to be one book. It keeps the details of the one above."
+            : "Two books cannot share a folder. Change this one's title or author, or it will not be imported."
+    }
+
+    /// Said for an item that would share a folder with one above it and cannot join it:
+    /// both are audiobooks, or both ebooks.
+    public func sameFolderProblem(of id: UUID) -> String? {
+        guard let earlier = earlierInSameFolder(as: id), joinableEarlier(of: id) == nil else { return nil }
+        let title = earlier.candidate.metadata.title.trimmedOrNil.map { "“\($0)”" } ?? "The book above"
+        return "\(title) above would be filed in the same folder, and two books cannot share one. "
+            + "Change the title or author of one of them, or untick one."
+    }
+
+    /// The two things the owner chooses between for a book already in the library.
+    public static let separateBookTitle = "Import as a separate book"
+
     // MARK: IH1, IH2 The switch
 
     /// IH2: the owner sets the switch that adds the entry's files to the book already in
